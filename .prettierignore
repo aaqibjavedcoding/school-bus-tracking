@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+out
+.next
+.expo
+.expo-shared
+coverage
+package-lock.json
+*.log
+.eslintcache
