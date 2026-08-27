@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RouteAssignmentRole, StudentGender } from '@school-bus-tracking/shared-types';
+import { RouteAssignmentRole, StudentGender, TripStatus } from '@school-bus-tracking/shared-types';
 
 /**
  * Common validation schemas (Phase 1)
@@ -531,3 +531,142 @@ export const assignmentListQuerySchema = routeAssignmentListQuerySchema;
 export type AssignmentCreateInput = RouteAssignmentCreateInput;
 export type AssignmentUpdateInput = RouteAssignmentUpdateInput;
 export type AssignmentListQueryInput = RouteAssignmentListQueryInput;
+
+/**
+ * Phase 4 — Trip management.
+ *
+ * A trip is always dispatched from an existing active `RouteAssignment`; the
+ * API derives school, route, bus, driver and conductor from it. Request
+ * payloads are therefore intentionally small and `.strict()`: no tenant id,
+ * no crew ids and no server-managed lifecycle timestamps.
+ */
+
+const tripDateOnlySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be in YYYY-MM-DD format')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  }, 'date must be a valid calendar date');
+
+const tripDateTimeSchema = z
+  .string()
+  .refine((value) => !Number.isNaN(Date.parse(value)), 'must be a valid ISO-8601 date-time');
+
+export const tripCancellationReasonSchema = z
+  .string()
+  .trim()
+  .min(1, 'cancellation_reason cannot be empty')
+  .max(500, 'cancellation_reason must be at most 500 characters');
+
+export const tripCreateSchema = z
+  .object({
+    route_assignment_id: z.string().uuid('route_assignment_id must be a valid UUID'),
+    scheduled_start_at: tripDateTimeSchema,
+    scheduled_end_at: tripDateTimeSchema.nullish(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.scheduled_end_at &&
+      Date.parse(value.scheduled_end_at) < Date.parse(value.scheduled_start_at)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scheduled_end_at'],
+        message: 'scheduled_end_at must be on or after scheduled_start_at',
+      });
+    }
+  });
+
+export type TripCreateInput = z.infer<typeof tripCreateSchema>;
+
+export const tripUpdateSchema = z
+  .object({
+    route_assignment_id: z.string().uuid('route_assignment_id must be a valid UUID').optional(),
+    scheduled_start_at: tripDateTimeSchema.optional(),
+    scheduled_end_at: tripDateTimeSchema.nullish(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.scheduled_start_at &&
+      value.scheduled_end_at &&
+      Date.parse(value.scheduled_end_at) < Date.parse(value.scheduled_start_at)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['scheduled_end_at'],
+        message: 'scheduled_end_at must be on or after scheduled_start_at',
+      });
+    }
+  });
+
+export type TripUpdateInput = z.infer<typeof tripUpdateSchema>;
+
+export const tripStatusUpdateSchema = z
+  .object({
+    status: z.nativeEnum(TripStatus),
+    actual_start_at: tripDateTimeSchema.nullish(),
+    actual_end_at: tripDateTimeSchema.nullish(),
+    cancellation_reason: tripCancellationReasonSchema.nullish(),
+  })
+  .strict();
+
+export type TripStatusUpdateInput = z.infer<typeof tripStatusUpdateSchema>;
+
+export const tripCancelSchema = z
+  .object({
+    cancellation_reason: tripCancellationReasonSchema.nullish(),
+  })
+  .strict();
+
+export type TripCancelInput = z.infer<typeof tripCancelSchema>;
+
+export const tripListQuerySchema = paginationSchema
+  .extend({
+    status: z.nativeEnum(TripStatus).optional(),
+    route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+    bus_id: z.string().uuid('bus_id must be a valid UUID').optional(),
+    driver_id: z.string().uuid('driver_id must be a valid UUID').optional(),
+    conductor_id: z.string().uuid('conductor_id must be a valid UUID').optional(),
+    date: tripDateOnlySchema.optional(),
+    date_from: tripDateOnlySchema.optional(),
+    date_to: tripDateOnlySchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.date_from && value.date_to && value.date_to < value.date_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['date_to'],
+        message: 'date_to must be on or after date_from',
+      });
+    }
+  });
+
+export type TripListQueryInput = z.infer<typeof tripListQuerySchema>;
+
+/**
+ * Allowed trip lifecycle transitions.
+ *
+ * The happy path is SCHEDULED → IN_PROGRESS → COMPLETED, with the optional
+ * BOARDING step in between and CANCELLED reachable from any non-terminal
+ * state. `COMPLETED` and `CANCELLED` are terminal, so they map to no targets.
+ */
+export const TRIP_STATUS_TRANSITIONS: Readonly<Record<TripStatus, readonly TripStatus[]>> =
+  Object.freeze({
+    [TripStatus.SCHEDULED]: [TripStatus.BOARDING, TripStatus.IN_PROGRESS, TripStatus.CANCELLED],
+    [TripStatus.BOARDING]: [TripStatus.IN_PROGRESS, TripStatus.CANCELLED],
+    [TripStatus.IN_PROGRESS]: [TripStatus.COMPLETED, TripStatus.CANCELLED],
+    [TripStatus.COMPLETED]: [],
+    [TripStatus.CANCELLED]: [],
+  });
+
+/** True when `to` is a legal next state for a trip currently in `from`. */
+export const isTripStatusTransitionAllowed = (from: TripStatus, to: TripStatus): boolean =>
+  TRIP_STATUS_TRANSITIONS[from]?.includes(to) ?? false;

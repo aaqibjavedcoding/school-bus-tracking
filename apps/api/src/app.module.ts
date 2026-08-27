@@ -11,6 +11,7 @@ import { BusesModule } from './modules/buses/buses.module';
 import { RoutesModule } from './modules/routes/routes.module';
 import { StopsModule } from './modules/stops/stops.module';
 import { RouteAssignmentsModule } from './modules/assignments/assignments.module';
+import { TripsModule } from './modules/trips/trips.module';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, jwtConfig } from './config';
 
@@ -33,6 +34,7 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     RoutesModule,
     StopsModule,
     RouteAssignmentsModule,
+    TripsModule,
   ],
 })
 export class AppModule {}
