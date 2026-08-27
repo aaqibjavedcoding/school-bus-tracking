@@ -19,29 +19,37 @@ export interface UserAttributes extends BaseModelAttributes {
   /**
    * Contact address. Unique per school — two tenants may both employ a
    * `admin@school.org`, but a school may not hold the same address twice.
+   * Always stored trimmed and lowercased.
    */
   email: string | null;
+  /**
+   * bcrypt hash of the user's password. Never store plaintext. Excluded from
+   * the default query scope and from `toJSON()` so it is not leaked in API
+   * responses.
+   */
+  password_hash: string | null;
+  /** Set when the email address has been verified. Null until then. */
+  email_verified_at: Date | null;
   phone: string | null;
   is_active: boolean;
 }
 
 export type UserCreationAttributes = Optional<
   UserAttributes,
-  BaseModelManagedFields | 'email' | 'phone' | 'is_active'
+  BaseModelManagedFields | 'email' | 'phone' | 'is_active' | 'password_hash' | 'email_verified_at'
 >;
 
 /**
  * Person that interacts with the platform on behalf of a school.
  *
- * Deliberately **credential-free**: there is no password hash, token, MFA or
- * session column here because authentication is a later task. This table only
- * models *who* somebody is and *what role* they hold inside a tenant, which is
- * what the domain models (route assignments, trips) need to reference.
+ * Credentials: `password_hash` holds a bcrypt digest (see `auth/password.util`).
+ * JWT, sessions and login/register endpoints are later tasks.
  *
  * Tenant scoping: `school_id` is NOT NULL, so a user can never exist outside a
  * tenant, and every child row references `(school_id, id)` — see
  * {@link RouteAssignment} and {@link Trip} — so an assignment or trip cannot
- * point at a user from another school.
+ * point at a user from another school. Email uniqueness is likewise
+ * tenant-scoped (`uq_users_school_email`).
  */
 @Table({
   tableName: 'users',
@@ -49,6 +57,9 @@ export type UserCreationAttributes = Optional<
   underscored: true,
   timestamps: true,
   paranoid: true,
+  defaultScope: {
+    attributes: { exclude: ['password_hash'] },
+  },
   indexes: [
     // Referenced as (school_id, id) by route_assignments.driver/conductor and
     // trips.driver_id / trips.conductor_id.
@@ -78,8 +89,24 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
   @Column({ type: DataType.STRING(100), allowNull: false })
   declare last_name: string;
 
-  @Column({ type: DataType.STRING(255), allowNull: true })
+  @Column({
+    type: DataType.STRING(255),
+    allowNull: true,
+    set(this: User, value: string | null | undefined) {
+      if (value == null || value === '') {
+        this.setDataValue('email', null);
+        return;
+      }
+      this.setDataValue('email', value.trim().toLowerCase());
+    },
+  })
   declare email: string | null;
+
+  @Column({ type: DataType.STRING(255), allowNull: true })
+  declare password_hash: string | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare email_verified_at: Date | null;
 
   @Column({ type: DataType.STRING(32), allowNull: true })
   declare phone: string | null;
@@ -98,4 +125,13 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
 
   @HasMany(() => Trip, { foreignKey: 'conductor_id', as: 'conductedTrips' })
   declare conductedTrips?: Trip[];
+
+  /**
+   * Strip the credential column even if a query opted out of the default scope.
+   */
+  override toJSON(): object {
+    const values = { ...this.get() } as Record<string, unknown>;
+    delete values.password_hash;
+    return values;
+  }
 }
