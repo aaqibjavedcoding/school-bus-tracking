@@ -240,6 +240,123 @@ export interface StudentDeleteResponse {
   message: string;
 }
 
+/** Body of `POST /api/v1/parents` — a school-managed parent account. */
+export interface ParentCreateRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/parents/:id` — every field is optional. */
+export interface ParentUpdateRequest {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  password?: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of a parent account. Credential columns are never exposed. */
+export interface ParentResponse {
+  id: string;
+  school_id: string;
+  role: UserRole.PARENT;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/parents`. */
+export interface ParentListResponse {
+  items: ParentResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/parents/:id`. */
+export interface ParentDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Body of `POST /api/v1/parents/:parentId/students`. */
+export interface ParentStudentRelationshipCreateRequest {
+  student_id: string;
+  relationship: string;
+  can_pick_up?: boolean;
+  is_primary?: boolean;
+}
+
+/** Body of relationship updates. */
+export interface ParentStudentRelationshipUpdateRequest {
+  relationship?: string;
+  can_pick_up?: boolean;
+  is_primary?: boolean;
+  is_active?: boolean;
+}
+
+/** Body of the student-centred guardian relationship endpoint. */
+export interface StudentGuardianCreateRequest {
+  parent_id: string;
+  relationship: string;
+  can_pick_up?: boolean;
+  is_primary?: boolean;
+}
+
+export type StudentGuardianUpdateRequest = ParentStudentRelationshipUpdateRequest;
+
+/**
+ * Public projection of a tenant-scoped student ↔ parent relationship.
+ *
+ * The database stores the account foreign key as `user_id`; `parent_id` is
+ * included as the resource-oriented alias used by parent management routes.
+ * Both values identify the same PARENT user and neither is accepted as a
+ * tenant identifier.
+ */
+export interface StudentGuardianResponse {
+  id: string;
+  school_id: string;
+  student_id: string;
+  user_id: string;
+  parent_id: string;
+  relationship: string;
+  can_pick_up: boolean;
+  is_primary: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of a parent relationship list endpoint. */
+export interface StudentGuardianListResponse {
+  items: StudentGuardianResponse[];
+}
+
+/** Successful payload of a relationship delete endpoint. */
+export interface StudentGuardianDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/**
+ * Query string of `GET /api/v1/parents`.
+ *
+ * The API applies the tenant scope from the verified JWT rather than from a
+ * query/header value supplied by a client.
+ */
+export interface ParentListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
 export interface TenantContext {
   tenantId: string;
   tenantName: string;

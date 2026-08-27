@@ -1,9 +1,10 @@
-import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
+import { BelongsTo, Column, DataType, ForeignKey, HasMany, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { STUDENT_GENDER_VALUES, StudentGender } from './enums';
 import { School } from './school.model';
 import { Stop } from './stop.model';
+import { StudentGuardian } from './student-guardian.model';
 
 export interface StudentAttributes extends BaseModelAttributes {
   school_id: string;
@@ -48,11 +49,10 @@ export type StudentCreationAttributes = Optional<
  *
  * Parent/guardian linkage is intentionally **not** a column here. A student can
  * have several guardians and a guardian can have several children, so the
- * relationship will be modelled by a dedicated `student_guardians` join table
- * (student_id + user_id + relationship + pickup rights) in the task that
- * introduces parent accounts. The emergency contact fields below are the
- * interim contact information printed on crew manifests and are not user
- * accounts.
+ * relationship is modelled by the dedicated `student_guardians` join table
+ * (student_id + user_id + relationship + pickup rights). The emergency contact
+ * fields below remain the interim contact information printed on crew manifests
+ * and are not user accounts.
  */
 @Table({
   tableName: 'students',
@@ -117,4 +117,7 @@ export class Student extends BaseModel<StudentAttributes, StudentCreationAttribu
 
   @BelongsTo(() => Stop, { foreignKey: 'home_stop_id', as: 'homeStop' })
   declare homeStop?: Stop;
+
+  @HasMany(() => StudentGuardian, { foreignKey: 'student_id', as: 'guardians' })
+  declare guardians?: StudentGuardian[];
 }

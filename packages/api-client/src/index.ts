@@ -4,11 +4,24 @@ import {
   LoginRequest,
   LoginResponse,
   LogoutResponse,
+  ParentCreateRequest,
+  ParentDeleteResponse,
+  ParentListQuery,
+  ParentListResponse,
+  ParentResponse,
+  ParentStudentRelationshipCreateRequest,
+  ParentUpdateRequest,
+  ParentStudentRelationshipUpdateRequest,
   RefreshResponse,
   SchoolOnboardingRequest,
   SchoolOnboardingResponse,
   StudentCreateRequest,
   StudentDeleteResponse,
+  StudentGuardianCreateRequest,
+  StudentGuardianDeleteResponse,
+  StudentGuardianListResponse,
+  StudentGuardianResponse,
+  StudentGuardianUpdateRequest,
   StudentListResponse,
   StudentResponse,
   StudentUpdateRequest,
@@ -169,6 +182,119 @@ export class ApiClient {
 
   public async deleteStudent(id: string): Promise<ApiResponse<StudentDeleteResponse>> {
     return this.delete<StudentDeleteResponse>(`/students/${encodeURIComponent(id)}`);
+  }
+
+  /** School-admin parent account management. The API derives school_id from
+   * the bearer token; these methods do not accept a client tenant id. */
+  public async createParent(body: ParentCreateRequest): Promise<ApiResponse<ParentResponse>> {
+    return this.post<ParentResponse>('/parents', body);
+  }
+
+  public async listParents(query: ParentListQuery = {}): Promise<ApiResponse<ParentListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<ParentListResponse>(`/parents${suffix}`);
+  }
+
+  public async getParent(id: string): Promise<ApiResponse<ParentResponse>> {
+    return this.get<ParentResponse>(`/parents/${encodeURIComponent(id)}`);
+  }
+
+  public async updateParent(
+    id: string,
+    body: ParentUpdateRequest,
+  ): Promise<ApiResponse<ParentResponse>> {
+    return this.patch<ParentResponse>(`/parents/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteParent(id: string): Promise<ApiResponse<ParentDeleteResponse>> {
+    return this.delete<ParentDeleteResponse>(`/parents/${encodeURIComponent(id)}`);
+  }
+
+  /** Parent-centred relationship management. */
+  public async linkParentToStudent(
+    parentId: string,
+    body: ParentStudentRelationshipCreateRequest,
+  ): Promise<ApiResponse<StudentGuardianResponse>> {
+    return this.post<StudentGuardianResponse>(
+      `/parents/${encodeURIComponent(parentId)}/students`,
+      body,
+    );
+  }
+
+  public async listParentStudents(
+    parentId: string,
+  ): Promise<ApiResponse<StudentGuardianListResponse>> {
+    return this.get<StudentGuardianListResponse>(
+      `/parents/${encodeURIComponent(parentId)}/students`,
+    );
+  }
+
+  public async updateParentStudentRelationship(
+    parentId: string,
+    studentId: string,
+    body: ParentStudentRelationshipUpdateRequest,
+  ): Promise<ApiResponse<StudentGuardianResponse>> {
+    return this.patch<StudentGuardianResponse>(
+      `/parents/${encodeURIComponent(parentId)}/students/${encodeURIComponent(studentId)}`,
+      body,
+    );
+  }
+
+  public async unlinkParentFromStudent(
+    parentId: string,
+    studentId: string,
+  ): Promise<ApiResponse<StudentGuardianDeleteResponse>> {
+    return this.delete<StudentGuardianDeleteResponse>(
+      `/parents/${encodeURIComponent(parentId)}/students/${encodeURIComponent(studentId)}`,
+    );
+  }
+
+  /** Student-centred aliases for admin screens that start from a roster. */
+  public async createStudentGuardian(
+    studentId: string,
+    body: StudentGuardianCreateRequest,
+  ): Promise<ApiResponse<StudentGuardianResponse>> {
+    return this.post<StudentGuardianResponse>(
+      `/students/${encodeURIComponent(studentId)}/guardians`,
+      body,
+    );
+  }
+
+  public async listStudentGuardians(
+    studentId: string,
+  ): Promise<ApiResponse<StudentGuardianListResponse>> {
+    return this.get<StudentGuardianListResponse>(
+      `/students/${encodeURIComponent(studentId)}/guardians`,
+    );
+  }
+
+  public async updateStudentGuardian(
+    studentId: string,
+    parentId: string,
+    body: StudentGuardianUpdateRequest,
+  ): Promise<ApiResponse<StudentGuardianResponse>> {
+    return this.patch<StudentGuardianResponse>(
+      `/students/${encodeURIComponent(studentId)}/guardians/${encodeURIComponent(parentId)}`,
+      body,
+    );
+  }
+
+  public async deleteStudentGuardian(
+    studentId: string,
+    parentId: string,
+  ): Promise<ApiResponse<StudentGuardianDeleteResponse>> {
+    return this.delete<StudentGuardianDeleteResponse>(
+      `/students/${encodeURIComponent(studentId)}/guardians/${encodeURIComponent(parentId)}`,
+    );
+  }
+
+  /** A parent can read only the relationships belonging to their JWT subject. */
+  public async listMyStudents(): Promise<ApiResponse<StudentGuardianListResponse>> {
+    return this.get<StudentGuardianListResponse>('/parents/me/students');
   }
 }
 
