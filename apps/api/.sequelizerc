@@ -1,0 +1,16 @@
+/**
+ * Sequelize CLI configuration for the School Bus Tracking API.
+ *
+ * The schema is migration-driven: `sequelize.sync()` is never used.
+ * All paths are TypeScript. `ts-node` is registered by
+ * `scripts/sequelize-cli.js`, so always run commands via the `db:*` npm
+ * scripts (e.g. `npm run db:migrate`) rather than the raw `sequelize` binary.
+ */
+const path = require('path');
+
+module.exports = {
+  config: path.resolve('src/config/sequelize-cli.config.ts'),
+  'migrations-path': path.resolve('src/database/migrations'),
+  'models-path': path.resolve('src/database/models'),
+  'seeders-path': path.resolve('src/database/seeders'),
+};
