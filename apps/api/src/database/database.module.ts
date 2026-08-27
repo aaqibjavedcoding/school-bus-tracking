@@ -2,6 +2,7 @@ import { Module, DynamicModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { databaseProviders } from './database.providers';
+import { models } from './models';
 
 @Module({
   providers: [...databaseProviders],
@@ -34,7 +35,12 @@ export class DatabaseModule {
             username: configService.get<string>('database.username', 'postgres'),
             password: configService.get<string>('database.password', 'postgres'),
             database: configService.get<string>('database.name', 'school_bus_tracking'),
+            // Domain models are declared once in `database/models/index.ts`.
+            // `autoLoadModels` additionally picks up models registered by
+            // feature modules through `SequelizeModule.forFeature()`.
+            models,
             autoLoadModels: true,
+            // Schema changes come from migrations only — never from the ORM.
             synchronize: false,
             sync: { force: false, alter: false },
             logging: configService.get<boolean>('database.logging', false)

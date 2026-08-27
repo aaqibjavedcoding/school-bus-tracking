@@ -20,6 +20,15 @@ export interface BaseModelAttributes {
 }
 
 /**
+ * Attribute keys managed by the ORM itself.
+ *
+ * Callers may omit them on create/update: `id` is generated as a UUIDv4 and
+ * `created_at` / `updated_at` / `deleted_at` are maintained by the timestamp
+ * and paranoid (soft delete) options enabled on every model.
+ */
+export type BaseModelManagedFields = 'id' | 'created_at' | 'updated_at' | 'deleted_at';
+
+/**
  * Shared base model for all tenant-owned entities.
  *
  * Provides:
@@ -28,12 +37,22 @@ export interface BaseModelAttributes {
  * - Soft-delete support (`deletedAt`, `paranoid`)
  * - snake_case column mapping to match the migration-driven schema
  *
- * Concrete domain models (Tenant, School, Bus, Route, Student, ...) extend
- * this class in later Phase 2 tasks. Tenant/school isolation columns and
- * scopes will be introduced with those models — no business models are
- * defined in Task 1.
+ * The class is generic so that concrete domain models get fully typed
+ * attributes and creation payloads:
+ *
+ * ```ts
+ * export class School extends BaseModel<SchoolAttributes, SchoolCreationAttributes> {}
+ * ```
+ *
+ * Both type parameters are defaulted, therefore `BaseModel` on its own still
+ * behaves exactly as before (`Model<BaseModelAttributes, BaseModelAttributes>`).
+ *
+ * The physical schema is migration-driven — models are never synced.
  */
-export abstract class BaseModel extends Model<BaseModelAttributes> {
+export abstract class BaseModel<
+  TAttributes extends BaseModelAttributes = BaseModelAttributes,
+  TCreationAttributes extends object = TAttributes,
+> extends Model<TAttributes, TCreationAttributes> {
   @IsUUID(4)
   @PrimaryKey
   @Column({

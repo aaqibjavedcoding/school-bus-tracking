@@ -1,14 +1,67 @@
-import type { ModelCtor } from 'sequelize-typescript';
-import type { BaseModel } from './base.model';
+import type { Model, ModelCtor } from 'sequelize-typescript';
+import { School } from './school.model';
+import { User } from './user.model';
+import { Bus } from './bus.model';
+import { Route } from './route.model';
+import { Stop } from './stop.model';
+import { Student } from './student.model';
+import { RouteAssignment } from './route-assignment.model';
+import { Trip } from './trip.model';
 
 export { BaseModel } from './base.model';
-export type { BaseModelAttributes } from './base.model';
+export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
+
+export {
+  ROUTE_ASSIGNMENT_ROLE_VALUES,
+  STUDENT_GENDER_VALUES,
+  TRIP_STATUS_VALUES,
+  USER_ROLE_VALUES,
+  RouteAssignmentRole,
+  StudentGender,
+  TripStatus,
+  UserRole,
+} from './enums';
+
+export { School } from './school.model';
+export type { SchoolAttributes, SchoolCreationAttributes } from './school.model';
+export { User } from './user.model';
+export type { UserAttributes, UserCreationAttributes } from './user.model';
+export { Bus } from './bus.model';
+export type { BusAttributes, BusCreationAttributes } from './bus.model';
+export { Route } from './route.model';
+export type { RouteAttributes, RouteCreationAttributes } from './route.model';
+export { Stop } from './stop.model';
+export type { StopAttributes, StopCreationAttributes } from './stop.model';
+export { Student } from './student.model';
+export type { StudentAttributes, StudentCreationAttributes } from './student.model';
+export { RouteAssignment } from './route-assignment.model';
+export type {
+  RouteAssignmentAttributes,
+  RouteAssignmentCreationAttributes,
+} from './route-assignment.model';
+export { Trip } from './trip.model';
+export type { TripAttributes, TripCreationAttributes } from './trip.model';
 
 /**
  * Concrete Sequelize model registry.
  *
- * Domain models are registered here as they are introduced in upcoming
- * Phase 2 tasks (e.g. Tenant, School, User, Bus, Route, Stop, Student).
- * The schema itself is migration-driven — models are never synced.
+ * Every model is listed here (and only here) so the NestJS `DatabaseModule`
+ * and any tooling have a single source of truth. The physical schema is
+ * migration-driven — these models are never synced.
+ *
+ * Models reference each other through lazy association thunks
+ * (`@BelongsTo(() => School)`), which is what makes the mutual imports safe:
+ * the target class is only resolved once the whole graph is registered. The
+ * imports above are still ordered by dependency (tenant → users/fleet/routes →
+ * stops → students → assignments → trips) to keep the graph easy to read.
  */
-export const models: ModelCtor<BaseModel>[] = [];
+export const models: ModelCtor<Model>[] = [
+  School,
+  User,
+  Bus,
+  Route,
+  Stop,
+  Student,
+  RouteAssignment,
+  Trip,
+];
