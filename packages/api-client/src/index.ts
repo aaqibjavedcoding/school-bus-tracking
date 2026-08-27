@@ -1,4 +1,11 @@
-import { ApiResponse, HealthResponse } from '@school-bus-tracking/shared-types';
+import {
+  ApiResponse,
+  HealthResponse,
+  LoginRequest,
+  LoginResponse,
+  LogoutResponse,
+  RefreshResponse,
+} from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -41,6 +48,7 @@ export class ApiClient {
 
     try {
       const response = await fetch(url, {
+        credentials: 'include',
         ...options,
         headers,
       });
@@ -90,6 +98,18 @@ export class ApiClient {
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     });
+  }
+
+  public async login(body: LoginRequest): Promise<ApiResponse<LoginResponse>> {
+    return this.post<LoginResponse>('/auth/login', body);
+  }
+
+  public async refresh(): Promise<ApiResponse<RefreshResponse>> {
+    return this.post<RefreshResponse>('/auth/refresh');
+  }
+
+  public async logout(): Promise<ApiResponse<LogoutResponse>> {
+    return this.post<LogoutResponse>('/auth/logout');
   }
 }
 

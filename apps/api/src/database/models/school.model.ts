@@ -8,6 +8,7 @@ import { Stop } from './stop.model';
 import { Student } from './student.model';
 import { Trip } from './trip.model';
 import { User } from './user.model';
+import { RefreshToken } from './refresh-token.model';
 
 export interface SchoolAttributes extends BaseModelAttributes {
   /** Display name of the institution. */
@@ -155,4 +156,7 @@ export class School extends BaseModel<SchoolAttributes, SchoolCreationAttributes
 
   @HasMany(() => Trip, { foreignKey: 'school_id', as: 'trips' })
   declare trips?: Trip[];
+
+  @HasMany(() => RefreshToken, { foreignKey: 'school_id', as: 'refreshTokens' })
+  declare refreshTokens?: RefreshToken[];
 }
