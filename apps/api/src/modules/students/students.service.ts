@@ -35,11 +35,10 @@ import { UpdateStudentDto } from './dto/update-student.dto';
  * the same generic `404 Student not found` as a missing record — the
  * existence of another school's student is never revealed.
  *
- * Parent/guardian linkage is intentionally NOT part of this API: the current
- * `students` model has no parent/user column by design (see the model and
- * migration docs — a many-to-many `student_guardians` join table arrives with
- * the parent-accounts task). Until then there is no parent assignment field to
- * validate, so no cross-tenant parent reference can be submitted.
+ * Parent/guardian linkage is managed by the dedicated ParentsModule and its
+ * tenant-pinned `student_guardians` service. Student CRUD remains focused on
+ * the student record itself, so parent references cannot change a student's
+ * ownership or bypass the relationship service's cross-tenant checks.
  */
 @Injectable()
 export class StudentsService {

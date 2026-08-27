@@ -14,9 +14,9 @@ import { DataTypes } from 'sequelize';
  * - once set, the stop is guaranteed to belong to the same school;
  * - deleting a stop clears the reference instead of breaking the row.
  *
- * Guardian/parent linkage is deliberately absent: it needs a join table
- * (many-to-many with relationship + pickup rights) and arrives with the task
- * that introduces parent accounts.
+ * Guardian/parent linkage intentionally stays out of this table: it is a
+ * many-to-many relationship with relationship + pickup rights, persisted by
+ * the later `student_guardians` migration.
  */
 export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {

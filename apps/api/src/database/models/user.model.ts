@@ -6,6 +6,7 @@ import { School } from './school.model';
 import { RouteAssignment } from './route-assignment.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
+import { StudentGuardian } from './student-guardian.model';
 
 export interface UserAttributes extends BaseModelAttributes {
   school_id: string;
@@ -129,6 +130,9 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
 
   @HasMany(() => RefreshToken, { foreignKey: 'user_id', as: 'refreshTokens' })
   declare refreshTokens?: RefreshToken[];
+
+  @HasMany(() => StudentGuardian, { foreignKey: 'user_id', as: 'studentGuardians' })
+  declare studentGuardians?: StudentGuardian[];
 
   /**
    * Strip the credential column even if a query opted out of the default scope.

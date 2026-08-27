@@ -162,3 +162,87 @@ export const studentListQuerySchema = paginationSchema.extend({
 });
 
 export type StudentListQueryInput = z.infer<typeof studentListQuerySchema>;
+
+/** Parent account creation is intentionally strict: tenant and role fields are
+ * not client-controlled and are rejected instead of silently stripped. */
+const personNameSchema = z.string().trim().min(1).max(100);
+const parentPhoneSchema = z.string().trim().max(32).nullish();
+
+export const parentCreateSchema = z
+  .object({
+    first_name: personNameSchema,
+    last_name: personNameSchema,
+    email: emailSchema,
+    password: passwordSchema,
+    phone: parentPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type ParentCreateInput = z.infer<typeof parentCreateSchema>;
+
+export const parentUpdateSchema = z
+  .object({
+    first_name: personNameSchema.optional(),
+    last_name: personNameSchema.optional(),
+    email: emailSchema.optional(),
+    password: passwordSchema.optional(),
+    phone: parentPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type ParentUpdateInput = z.infer<typeof parentUpdateSchema>;
+
+export const parentListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+});
+
+export type ParentListQueryInput = z.infer<typeof parentListQuerySchema>;
+
+const guardianRelationshipSchema = z
+  .string()
+  .trim()
+  .min(1, 'relationship is required')
+  .max(50, 'relationship must be at most 50 characters');
+
+export const parentStudentRelationshipCreateSchema = z
+  .object({
+    student_id: z.string().uuid(),
+    relationship: guardianRelationshipSchema,
+    can_pick_up: z.boolean().optional(),
+    is_primary: z.boolean().optional(),
+  })
+  .strict();
+
+export type ParentStudentRelationshipCreateInput = z.infer<
+  typeof parentStudentRelationshipCreateSchema
+>;
+
+export const parentStudentRelationshipUpdateSchema = z
+  .object({
+    relationship: guardianRelationshipSchema.optional(),
+    can_pick_up: z.boolean().optional(),
+    is_primary: z.boolean().optional(),
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type ParentStudentRelationshipUpdateInput = z.infer<
+  typeof parentStudentRelationshipUpdateSchema
+>;
+
+/** Student-centred equivalent used by `POST /students/:id/guardians`. */
+export const studentGuardianCreateSchema = z
+  .object({
+    parent_id: z.string().uuid(),
+    relationship: guardianRelationshipSchema,
+    can_pick_up: z.boolean().optional(),
+    is_primary: z.boolean().optional(),
+  })
+  .strict();
+
+export type StudentGuardianCreateInput = z.infer<typeof studentGuardianCreateSchema>;
+
+export const studentGuardianUpdateSchema = parentStudentRelationshipUpdateSchema;
+export type StudentGuardianUpdateInput = z.infer<typeof studentGuardianUpdateSchema>;
