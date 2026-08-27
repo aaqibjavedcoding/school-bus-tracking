@@ -357,6 +357,199 @@ export interface ParentListQuery {
   search?: string;
 }
 
+/**
+ * Phase 2 — Bus, route and stop management.
+ *
+ * The school admin manages the fleet (`/buses`), the route plan (`/routes`)
+ * and the ordered boarding points (`/stops`). `school_id` is never accepted
+ * from the client: the API derives it exclusively from the authenticated
+ * user's JWT claims and returns it on every response as the tenant anchor.
+ */
+
+/** Body of `POST /api/v1/buses`. */
+export interface BusCreateRequest {
+  /** Licence plate / government registration — unique inside a school. */
+  registration_number: string;
+  /** Optional operator fleet number painted on the vehicle. */
+  bus_number?: string | null;
+  /** Seated capacity including the conductor; must be at least 1. */
+  capacity: number;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/buses/:id` — every field is optional. */
+export interface BusUpdateRequest {
+  registration_number?: string;
+  bus_number?: string | null;
+  capacity?: number;
+  is_active?: boolean;
+}
+
+/** Public projection of a bus owned by the authenticated school. */
+export interface BusResponse {
+  id: string;
+  school_id: string;
+  registration_number: string;
+  bus_number: string | null;
+  capacity: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/buses`. */
+export interface BusListResponse {
+  items: BusResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/buses/:id`. */
+export interface BusDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/buses`. */
+export interface BusListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+/** Body of `POST /api/v1/routes`. */
+export interface RouteCreateRequest {
+  name: string;
+  /** Short stable code shown on the bus sign — unique inside a school. */
+  code: string;
+  description?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/routes/:id` — every field is optional. */
+export interface RouteUpdateRequest {
+  name?: string;
+  code?: string;
+  description?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of a route owned by the authenticated school. */
+export interface RouteResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/routes`. */
+export interface RouteListResponse {
+  items: RouteResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/routes/:id`. */
+export interface RouteDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/routes`. */
+export interface RouteListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+/**
+ * Body of `PUT /api/v1/routes/:id/stops` — the full ordered stop manifest.
+ *
+ * The array must contain every active stop of the route exactly once; the API
+ * renumbers the stops 1..N in the given order inside a transaction.
+ */
+export interface RouteStopsOrderRequest {
+  stop_ids: string[];
+}
+
+/** Successful payload of `GET /api/v1/routes/:id/stops` (and the reorder). */
+export interface RouteStopsListResponse {
+  items: StopResponse[];
+}
+
+/** Body of `POST /api/v1/stops`. */
+export interface StopCreateRequest {
+  /** Target route; must belong to the authenticated school. */
+  route_id: string;
+  name: string;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Geofence radius in metres (10..2000); defaults to 100. */
+  geofence_radius_meters?: number;
+  /**
+   * 1-based position on the route, unique per route. When omitted the API
+   * appends the stop at the end of the route.
+   */
+  sequence_number?: number;
+  /** Local wall-clock arrival, `HH:MM` or `HH:MM:SS`. */
+  estimated_arrival_time?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/stops/:id` — every field is optional. */
+export interface StopUpdateRequest {
+  route_id?: string;
+  name?: string;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  geofence_radius_meters?: number;
+  sequence_number?: number;
+  estimated_arrival_time?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of a stop owned by the authenticated school. */
+export interface StopResponse {
+  id: string;
+  school_id: string;
+  route_id: string;
+  name: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  geofence_radius_meters: number;
+  sequence_number: number;
+  estimated_arrival_time: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/stops`. */
+export interface StopListResponse {
+  items: StopResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/stops/:id`. */
+export interface StopDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/stops`. */
+export interface StopListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  /** Optional filter: only stops of this route. */
+  route_id?: string;
+}
+
 export interface TenantContext {
   tenantId: string;
   tenantName: string;

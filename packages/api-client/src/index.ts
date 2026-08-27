@@ -1,5 +1,11 @@
 import {
   ApiResponse,
+  BusCreateRequest,
+  BusDeleteResponse,
+  BusListQuery,
+  BusListResponse,
+  BusResponse,
+  BusUpdateRequest,
   HealthResponse,
   LoginRequest,
   LoginResponse,
@@ -13,8 +19,22 @@ import {
   ParentUpdateRequest,
   ParentStudentRelationshipUpdateRequest,
   RefreshResponse,
+  RouteCreateRequest,
+  RouteDeleteResponse,
+  RouteListQuery,
+  RouteListResponse,
+  RouteResponse,
+  RouteStopsListResponse,
+  RouteStopsOrderRequest,
+  RouteUpdateRequest,
   SchoolOnboardingRequest,
   SchoolOnboardingResponse,
+  StopCreateRequest,
+  StopDeleteResponse,
+  StopListQuery,
+  StopListResponse,
+  StopResponse,
+  StopUpdateRequest,
   StudentCreateRequest,
   StudentDeleteResponse,
   StudentGuardianCreateRequest,
@@ -128,6 +148,18 @@ export class ApiClient {
     return this.request<ApiResponse<T>>(endpoint, {
       ...options,
       method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  public async put<T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<ApiResponse<T>> {
+    return this.request<ApiResponse<T>>(endpoint, {
+      ...options,
+      method: 'PUT',
       body: body ? JSON.stringify(body) : undefined,
     });
   }
@@ -295,6 +327,102 @@ export class ApiClient {
   /** A parent can read only the relationships belonging to their JWT subject. */
   public async listMyStudents(): Promise<ApiResponse<StudentGuardianListResponse>> {
     return this.get<StudentGuardianListResponse>('/parents/me/students');
+  }
+
+  /**
+   * Fleet, route and stop management. The API derives school_id exclusively
+   * from the bearer token — these methods never accept a client tenant id.
+   */
+  public async createBus(body: BusCreateRequest): Promise<ApiResponse<BusResponse>> {
+    return this.post<BusResponse>('/buses', body);
+  }
+
+  public async listBuses(query: BusListQuery = {}): Promise<ApiResponse<BusListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<BusListResponse>(`/buses${suffix}`);
+  }
+
+  public async getBus(id: string): Promise<ApiResponse<BusResponse>> {
+    return this.get<BusResponse>(`/buses/${encodeURIComponent(id)}`);
+  }
+
+  public async updateBus(id: string, body: BusUpdateRequest): Promise<ApiResponse<BusResponse>> {
+    return this.patch<BusResponse>(`/buses/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteBus(id: string): Promise<ApiResponse<BusDeleteResponse>> {
+    return this.delete<BusDeleteResponse>(`/buses/${encodeURIComponent(id)}`);
+  }
+
+  public async createRoute(body: RouteCreateRequest): Promise<ApiResponse<RouteResponse>> {
+    return this.post<RouteResponse>('/routes', body);
+  }
+
+  public async listRoutes(query: RouteListQuery = {}): Promise<ApiResponse<RouteListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<RouteListResponse>(`/routes${suffix}`);
+  }
+
+  public async getRoute(id: string): Promise<ApiResponse<RouteResponse>> {
+    return this.get<RouteResponse>(`/routes/${encodeURIComponent(id)}`);
+  }
+
+  public async updateRoute(
+    id: string,
+    body: RouteUpdateRequest,
+  ): Promise<ApiResponse<RouteResponse>> {
+    return this.patch<RouteResponse>(`/routes/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteRoute(id: string): Promise<ApiResponse<RouteDeleteResponse>> {
+    return this.delete<RouteDeleteResponse>(`/routes/${encodeURIComponent(id)}`);
+  }
+
+  /** Ordered stop manifest of a route (ascending sequence_number). */
+  public async listRouteStops(id: string): Promise<ApiResponse<RouteStopsListResponse>> {
+    return this.get<RouteStopsListResponse>(`/routes/${encodeURIComponent(id)}/stops`);
+  }
+
+  /** Renumbers the route's stops 1..N in the given order. */
+  public async reorderRouteStops(
+    id: string,
+    body: RouteStopsOrderRequest,
+  ): Promise<ApiResponse<RouteStopsListResponse>> {
+    return this.put<RouteStopsListResponse>(`/routes/${encodeURIComponent(id)}/stops`, body);
+  }
+
+  public async createStop(body: StopCreateRequest): Promise<ApiResponse<StopResponse>> {
+    return this.post<StopResponse>('/stops', body);
+  }
+
+  public async listStops(query: StopListQuery = {}): Promise<ApiResponse<StopListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.route_id) params.set('route_id', query.route_id);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<StopListResponse>(`/stops${suffix}`);
+  }
+
+  public async getStop(id: string): Promise<ApiResponse<StopResponse>> {
+    return this.get<StopResponse>(`/stops/${encodeURIComponent(id)}`);
+  }
+
+  public async updateStop(id: string, body: StopUpdateRequest): Promise<ApiResponse<StopResponse>> {
+    return this.patch<StopResponse>(`/stops/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteStop(id: string): Promise<ApiResponse<StopDeleteResponse>> {
+    return this.delete<StopDeleteResponse>(`/stops/${encodeURIComponent(id)}`);
   }
 }
 

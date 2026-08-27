@@ -246,3 +246,147 @@ export type StudentGuardianCreateInput = z.infer<typeof studentGuardianCreateSch
 
 export const studentGuardianUpdateSchema = parentStudentRelationshipUpdateSchema;
 export type StudentGuardianUpdateInput = z.infer<typeof studentGuardianUpdateSchema>;
+
+/**
+ * Phase 2 — Bus, route and stop management.
+ *
+ * Tenant fields (`school_id`) are deliberately absent: the API derives the
+ * tenant exclusively from the JWT claims and a client-supplied `school_id` is
+ * rejected instead of silently stripped.
+ */
+
+/** Vehicle registration / fleet number; trimmed, up to 32 characters. */
+const vehicleIdentifierSchema = z
+  .string()
+  .trim()
+  .min(1, 'registration_number is required')
+  .max(32, 'registration_number must be at most 32 characters');
+
+const busNumberSchema = z
+  .string()
+  .trim()
+  .max(32, 'bus_number must be at most 32 characters')
+  .nullish();
+
+export const busCreateSchema = z
+  .object({
+    registration_number: vehicleIdentifierSchema,
+    bus_number: busNumberSchema,
+    capacity: z.number().int('capacity must be an integer').min(1, 'capacity must be at least 1'),
+    is_active: z.boolean().nullish(),
+  })
+  .strict();
+
+export type BusCreateInput = z.infer<typeof busCreateSchema>;
+
+/** PATCH body — every field is optional and `null` clears the value. */
+export const busUpdateSchema = busCreateSchema.partial();
+
+export type BusUpdateInput = z.infer<typeof busUpdateSchema>;
+
+export const busListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+});
+
+export type BusListQueryInput = z.infer<typeof busListQuerySchema>;
+
+const routeNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'name is required')
+  .max(150, 'name must be at most 150 characters');
+
+const routeCodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'code is required')
+  .max(32, 'code must be at most 32 characters');
+
+export const routeCreateSchema = z
+  .object({
+    name: routeNameSchema,
+    code: routeCodeSchema,
+    description: z
+      .string()
+      .trim()
+      .max(2000, 'description must be at most 2000 characters')
+      .nullish(),
+    is_active: z.boolean().nullish(),
+  })
+  .strict();
+
+export type RouteCreateInput = z.infer<typeof routeCreateSchema>;
+
+export const routeUpdateSchema = routeCreateSchema.partial();
+
+export type RouteUpdateInput = z.infer<typeof routeUpdateSchema>;
+
+export const routeListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+});
+
+export type RouteListQueryInput = z.infer<typeof routeListQuerySchema>;
+
+/**
+ * Full ordered stop manifest of a route: every active stop exactly once.
+ * The service validates set equality — unknown, duplicate or missing ids are
+ * rejected there.
+ */
+export const routeStopsOrderSchema = z
+  .object({
+    stop_ids: z.array(z.string().uuid('stop_ids must contain valid UUIDs')),
+  })
+  .strict();
+
+export type RouteStopsOrderInput = z.infer<typeof routeStopsOrderSchema>;
+
+const stopNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'name is required')
+  .max(150, 'name must be at most 150 characters');
+
+/** Local wall-clock arrival time: `HH:MM` or `HH:MM:SS`. */
+const arrivalTimeSchema = z
+  .string()
+  .regex(
+    /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/,
+    'estimated_arrival_time must be in HH:MM or HH:MM:SS format',
+  )
+  .nullish();
+
+export const stopCreateSchema = z
+  .object({
+    route_id: z.string().uuid('route_id must be a valid UUID'),
+    name: stopNameSchema,
+    address: z.string().trim().max(500, 'address must be at most 500 characters').nullish(),
+    latitude: z.number().min(-90, 'latitude must be between -90 and 90').max(90).nullish(),
+    longitude: z.number().min(-180, 'longitude must be between -180 and 180').max(180).nullish(),
+    geofence_radius_meters: z
+      .number()
+      .int('geofence_radius_meters must be an integer')
+      .min(10, 'geofence_radius_meters must be between 10 and 2000')
+      .max(2000)
+      .nullish(),
+    sequence_number: z
+      .number()
+      .int('sequence_number must be an integer')
+      .min(1, 'sequence_number must be at least 1')
+      .nullish(),
+    estimated_arrival_time: arrivalTimeSchema,
+    is_active: z.boolean().nullish(),
+  })
+  .strict();
+
+export type StopCreateInput = z.infer<typeof stopCreateSchema>;
+
+export const stopUpdateSchema = stopCreateSchema.partial();
+
+export type StopUpdateInput = z.infer<typeof stopUpdateSchema>;
+
+export const stopListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+  route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+});
+
+export type StopListQueryInput = z.infer<typeof stopListQuerySchema>;
