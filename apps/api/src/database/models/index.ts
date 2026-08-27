@@ -1,6 +1,14 @@
-/**
- * Database Models Registry (Phase 1 placeholder)
- * Domain models (Tenant, User, School, Bus, Route, Stop, Student, etc.) will be registered here in Phase 2.
- */
+import type { ModelCtor } from 'sequelize-typescript';
+import type { BaseModel } from './base.model';
 
-export const models = [];
+export { BaseModel } from './base.model';
+export type { BaseModelAttributes } from './base.model';
+
+/**
+ * Concrete Sequelize model registry.
+ *
+ * Domain models are registered here as they are introduced in upcoming
+ * Phase 2 tasks (e.g. Tenant, School, User, Bus, Route, Stop, Student).
+ * The schema itself is migration-driven — models are never synced.
+ */
+export const models: ModelCtor<BaseModel>[] = [];
