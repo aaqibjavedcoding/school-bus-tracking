@@ -39,3 +39,25 @@ export const healthCheckSchema = z.object({
 });
 
 export type HealthCheckOutput = z.infer<typeof healthCheckSchema>;
+
+/** Reasonable minimum length for a user password. */
+export const MIN_PASSWORD_LENGTH = 8;
+
+/**
+ * Reusable password validation.
+ *
+ * Requirements are deliberately small: a non-empty string of reasonable length
+ * that is not only whitespace. Stronger composition rules belong to a later
+ * policy task.
+ */
+export const passwordSchema = z
+  .string({ required_error: 'Password is required' })
+  .min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+  .refine((value) => value.trim().length > 0, {
+    message: 'Password cannot be empty or whitespace',
+  })
+  .refine((value) => value === value.trim(), {
+    message: 'Password must not start or end with whitespace',
+  });
+
+export type PasswordInput = z.infer<typeof passwordSchema>;

@@ -13,8 +13,8 @@ import type { QueryInterface, QueryOptions } from 'sequelize';
  * Guarantees:
  * - **Idempotent**: every row uses a fixed UUID and `ON CONFLICT DO NOTHING`
  *   (`ignoreDuplicates`), so re-running the seeder never duplicates or fails.
- * - **No credentials**: `users` has no password/token columns at all (see the
- *   model), so nothing secret can be seeded here.
+ * - **No plaintext credentials**: demo users leave `password_hash` and
+ *   `email_verified_at` null. Never seed a plaintext password.
  * - **Refuses to run in production** (see the guard below).
  * - **Reversible**: `down` deletes exactly what `up` inserted.
  *
