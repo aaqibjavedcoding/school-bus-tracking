@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { StudentGender } from '@school-bus-tracking/shared-types';
+import { RouteAssignmentRole, StudentGender } from '@school-bus-tracking/shared-types';
 
 /**
  * Common validation schemas (Phase 1)
@@ -442,3 +442,92 @@ export const staffListQuerySchema = paginationSchema.extend({
 });
 
 export type StaffListQueryInput = z.infer<typeof staffListQuerySchema>;
+/**
+ * Phase 4 — Bus, route and crew assignment management.
+ *
+ * Assignment requests are strict and contain no school_id. The API pins the
+ * tenant from JWT claims, and only DRIVER/CONDUCTOR are valid assignment roles.
+ */
+
+const assignmentDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be in YYYY-MM-DD format')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  }, 'date must be a valid calendar date');
+
+export const routeAssignmentCreateSchema = z
+  .object({
+    route_id: z.string().uuid('route_id must be a valid UUID'),
+    bus_id: z.string().uuid('bus_id must be a valid UUID'),
+    user_id: z.string().uuid('user_id must be a valid UUID'),
+    role: z.nativeEnum(RouteAssignmentRole),
+    effective_from: assignmentDateSchema,
+    effective_to: assignmentDateSchema.nullish(),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.effective_to && value.effective_to < value.effective_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['effective_to'],
+        message: 'effective_to must be on or after effective_from',
+      });
+    }
+  });
+
+export type RouteAssignmentCreateInput = z.infer<typeof routeAssignmentCreateSchema>;
+
+export const routeAssignmentUpdateSchema = z
+  .object({
+    route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+    bus_id: z.string().uuid('bus_id must be a valid UUID').nullable().optional(),
+    user_id: z.string().uuid('user_id must be a valid UUID').optional(),
+    role: z.nativeEnum(RouteAssignmentRole).optional(),
+    effective_from: assignmentDateSchema.optional(),
+    effective_to: assignmentDateSchema.nullish(),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.effective_from && value.effective_to && value.effective_to < value.effective_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['effective_to'],
+        message: 'effective_to must be on or after effective_from',
+      });
+    }
+  });
+
+export type RouteAssignmentUpdateInput = z.infer<typeof routeAssignmentUpdateSchema>;
+
+const assignmentBooleanQuerySchema = z.preprocess((value) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}, z.boolean());
+
+export const routeAssignmentListQuerySchema = paginationSchema.extend({
+  route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+  bus_id: z.string().uuid('bus_id must be a valid UUID').optional(),
+  user_id: z.string().uuid('user_id must be a valid UUID').optional(),
+  role: z.nativeEnum(RouteAssignmentRole).optional(),
+  is_active: assignmentBooleanQuerySchema.optional(),
+});
+
+export type RouteAssignmentListQueryInput = z.infer<typeof routeAssignmentListQuerySchema>;
+
+/** Short schema aliases for clients that call the resource `assignments`. */
+export const assignmentCreateSchema = routeAssignmentCreateSchema;
+export const assignmentUpdateSchema = routeAssignmentUpdateSchema;
+export const assignmentListQuerySchema = routeAssignmentListQuerySchema;
+export type AssignmentCreateInput = RouteAssignmentCreateInput;
+export type AssignmentUpdateInput = RouteAssignmentUpdateInput;
+export type AssignmentListQueryInput = RouteAssignmentListQueryInput;

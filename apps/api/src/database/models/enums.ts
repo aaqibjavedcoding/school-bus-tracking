@@ -1,4 +1,4 @@
-import { StudentGender, UserRole } from '@school-bus-tracking/shared-types';
+import { RouteAssignmentRole, StudentGender, UserRole } from '@school-bus-tracking/shared-types';
 
 /**
  * Enumerations persisted by the core domain models.
@@ -24,12 +24,10 @@ export const STUDENT_GENDER_VALUES: StudentGender[] = Object.values(StudentGende
  * Operational role a user performs on a route within a {@link RouteAssignment}.
  *
  * Kept separate from `UserRole` on purpose: a person is hired once (`DRIVER`)
- * but can be assigned to several routes over time.
+ * but can be assigned to several routes over time. The enum itself is shared
+ * with API contracts so database, API and clients cannot drift.
  */
-export enum RouteAssignmentRole {
-  DRIVER = 'DRIVER',
-  CONDUCTOR = 'CONDUCTOR',
-}
+export { RouteAssignmentRole };
 
 export const ROUTE_ASSIGNMENT_ROLE_VALUES: RouteAssignmentRole[] =
   Object.values(RouteAssignmentRole);

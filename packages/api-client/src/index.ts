@@ -18,6 +18,12 @@ import {
   BusListResponse,
   BusResponse,
   BusUpdateRequest,
+  RouteAssignmentCreateRequest,
+  RouteAssignmentDeleteResponse,
+  RouteAssignmentListQuery,
+  RouteAssignmentListResponse,
+  RouteAssignmentResponse,
+  RouteAssignmentUpdateRequest,
   HealthResponse,
   LoginRequest,
   LoginResponse,
@@ -500,6 +506,92 @@ export class ApiClient {
 
   public async deleteConductor(id: string): Promise<ApiResponse<ConductorDeleteResponse>> {
     return this.delete<ConductorDeleteResponse>(`/conductors/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Bus, route and crew assignment management. Each RouteAssignment row
+   * represents one DRIVER or CONDUCTOR on a route/bus for an effective period.
+   * The API derives school_id from the bearer token; these methods never accept
+   * a client tenant id.
+   */
+  public async createRouteAssignment(
+    body: RouteAssignmentCreateRequest,
+  ): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.post<RouteAssignmentResponse>('/route-assignments', body);
+  }
+
+  public async listRouteAssignments(
+    query: RouteAssignmentListQuery = {},
+  ): Promise<ApiResponse<RouteAssignmentListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.route_id) params.set('route_id', query.route_id);
+    if (query.bus_id) params.set('bus_id', query.bus_id);
+    if (query.user_id) params.set('user_id', query.user_id);
+    if (query.role) params.set('role', query.role);
+    if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<RouteAssignmentListResponse>(`/route-assignments${suffix}`);
+  }
+
+  public async getRouteAssignment(id: string): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.get<RouteAssignmentResponse>(`/route-assignments/${encodeURIComponent(id)}`);
+  }
+
+  public async updateRouteAssignment(
+    id: string,
+    body: RouteAssignmentUpdateRequest,
+  ): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.patch<RouteAssignmentResponse>(
+      `/route-assignments/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  public async deleteRouteAssignment(
+    id: string,
+  ): Promise<ApiResponse<RouteAssignmentDeleteResponse>> {
+    return this.delete<RouteAssignmentDeleteResponse>(
+      `/route-assignments/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Short aliases for screens that call the resource simply "assignments". */
+  public async createAssignment(
+    body: RouteAssignmentCreateRequest,
+  ): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.post<RouteAssignmentResponse>('/assignments', body);
+  }
+
+  public async listAssignments(
+    query: RouteAssignmentListQuery = {},
+  ): Promise<ApiResponse<RouteAssignmentListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.route_id) params.set('route_id', query.route_id);
+    if (query.bus_id) params.set('bus_id', query.bus_id);
+    if (query.user_id) params.set('user_id', query.user_id);
+    if (query.role) params.set('role', query.role);
+    if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<RouteAssignmentListResponse>(`/assignments${suffix}`);
+  }
+
+  public async getAssignment(id: string): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.get<RouteAssignmentResponse>(`/assignments/${encodeURIComponent(id)}`);
+  }
+
+  public async updateAssignment(
+    id: string,
+    body: RouteAssignmentUpdateRequest,
+  ): Promise<ApiResponse<RouteAssignmentResponse>> {
+    return this.patch<RouteAssignmentResponse>(`/assignments/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteAssignment(id: string): Promise<ApiResponse<RouteAssignmentDeleteResponse>> {
+    return this.delete<RouteAssignmentDeleteResponse>(`/assignments/${encodeURIComponent(id)}`);
   }
 }
 

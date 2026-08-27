@@ -10,6 +10,7 @@ import { StaffModule } from './modules/staff/staff.module';
 import { BusesModule } from './modules/buses/buses.module';
 import { RoutesModule } from './modules/routes/routes.module';
 import { StopsModule } from './modules/stops/stops.module';
+import { RouteAssignmentsModule } from './modules/assignments/assignments.module';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, jwtConfig } from './config';
 
@@ -31,6 +32,7 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     BusesModule,
     RoutesModule,
     StopsModule,
+    RouteAssignmentsModule,
   ],
 })
 export class AppModule {}

@@ -41,6 +41,15 @@ export enum UserRole {
   PARENT = 'PARENT',
 }
 
+/** Operational role stored by a RouteAssignment row. */
+export enum RouteAssignmentRole {
+  DRIVER = 'DRIVER',
+  CONDUCTOR = 'CONDUCTOR',
+}
+
+/** Short alias for consumers that call the resource simply `assignments`. */
+export type AssignmentRole = RouteAssignmentRole;
+
 export enum StudentGender {
   MALE = 'MALE',
   FEMALE = 'FEMALE',
@@ -460,6 +469,86 @@ export interface StaffListQuery {
 
 export type DriverListQuery = StaffListQuery;
 export type ConductorListQuery = StaffListQuery;
+
+/**
+ * Phase 4 — Bus, route and crew assignment management.
+ *
+ * `RouteAssignment` stores one row per crew member and role. A complete route
+ * roster normally has one DRIVER row and one CONDUCTOR row sharing a bus,
+ * route and effective period. `school_id` is never accepted in a request; the
+ * API derives it from the verified JWT claims.
+ */
+
+/** Body of `POST /api/v1/route-assignments`. */
+export interface RouteAssignmentCreateRequest {
+  route_id: string;
+  bus_id: string;
+  user_id: string;
+  role: RouteAssignmentRole;
+  /** Inclusive tenant-local date in `YYYY-MM-DD` format. */
+  effective_from: string;
+  /** Inclusive end date; omitted/null means open ended. */
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/route-assignments/:id` — every field is optional. */
+export interface RouteAssignmentUpdateRequest {
+  route_id?: string;
+  /** `null` removes the vehicle from an inactive historical row. */
+  bus_id?: string | null;
+  user_id?: string;
+  role?: RouteAssignmentRole;
+  effective_from?: string;
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of a tenant-scoped driver/conductor roster row. */
+export interface RouteAssignmentResponse {
+  id: string;
+  school_id: string;
+  route_id: string;
+  bus_id: string | null;
+  user_id: string;
+  role: RouteAssignmentRole;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/route-assignments`. */
+export interface RouteAssignmentListResponse {
+  items: RouteAssignmentResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/route-assignments/:id`. */
+export interface RouteAssignmentDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/route-assignments`. */
+export interface RouteAssignmentListQuery {
+  page?: number;
+  limit?: number;
+  route_id?: string;
+  bus_id?: string;
+  user_id?: string;
+  role?: RouteAssignmentRole;
+  is_active?: boolean;
+}
+
+/** Short resource aliases for clients that call the feature `assignments`. */
+export type AssignmentCreateRequest = RouteAssignmentCreateRequest;
+export type AssignmentUpdateRequest = RouteAssignmentUpdateRequest;
+export type AssignmentResponse = RouteAssignmentResponse;
+export type AssignmentListResponse = RouteAssignmentListResponse;
+export type AssignmentDeleteResponse = RouteAssignmentDeleteResponse;
+export type AssignmentListQuery = RouteAssignmentListQuery;
 
 /**
  * Phase 2 — Bus, route and stop management.
