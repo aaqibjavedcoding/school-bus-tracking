@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthTestModule } from './modules/auth-test/auth-test.module';
+import { SchoolsModule } from './modules/schools/schools.module';
+import { StudentsModule } from './modules/students/students.module';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, jwtConfig } from './config';
 
@@ -17,6 +19,8 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     HealthModule,
     AuthModule,
     AuthTestModule,
+    SchoolsModule,
+    StudentsModule,
   ],
 })
 export class AppModule {}
