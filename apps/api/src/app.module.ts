@@ -6,6 +6,7 @@ import { AuthTestModule } from './modules/auth-test/auth-test.module';
 import { SchoolsModule } from './modules/schools/schools.module';
 import { StudentsModule } from './modules/students/students.module';
 import { ParentsModule } from './modules/parents/parents.module';
+import { StaffModule } from './modules/staff/staff.module';
 import { BusesModule } from './modules/buses/buses.module';
 import { RoutesModule } from './modules/routes/routes.module';
 import { StopsModule } from './modules/stops/stops.module';
@@ -26,6 +27,7 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     SchoolsModule,
     StudentsModule,
     ParentsModule,
+    StaffModule,
     BusesModule,
     RoutesModule,
     StopsModule,

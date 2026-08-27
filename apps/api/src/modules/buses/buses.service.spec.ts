@@ -322,7 +322,7 @@ describe('BusesService.findAll', () => {
 
     await service.findAll(SCHOOL_A, makeQuery({ search: '100%' }));
 
-    const or = capture.findAndCountWhere?.[Op.or] as Array<Record<string, unknown>>;
+    const or = capture.findAndCountWhere?.[Op.or] as Array<Record<string, Record<symbol, unknown>>>;
     assert.equal(or?.[0]?.['registration_number']?.[Op.iLike], '%100\\%%');
   });
 });
