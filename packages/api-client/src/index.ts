@@ -1,5 +1,17 @@
 import {
   ApiResponse,
+  ConductorCreateRequest,
+  ConductorDeleteResponse,
+  ConductorListQuery,
+  ConductorListResponse,
+  ConductorResponse,
+  ConductorUpdateRequest,
+  DriverCreateRequest,
+  DriverDeleteResponse,
+  DriverListQuery,
+  DriverListResponse,
+  DriverResponse,
+  DriverUpdateRequest,
   BusCreateRequest,
   BusDeleteResponse,
   BusListQuery,
@@ -423,6 +435,71 @@ export class ApiClient {
 
   public async deleteStop(id: string): Promise<ApiResponse<StopDeleteResponse>> {
     return this.delete<StopDeleteResponse>(`/stops/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Driver & conductor staff management. The API derives school_id from the
+   * bearer token and pins the role per resource, so these methods never
+   * accept a client tenant id or role.
+   */
+  public async createDriver(body: DriverCreateRequest): Promise<ApiResponse<DriverResponse>> {
+    return this.post<DriverResponse>('/drivers', body);
+  }
+
+  public async listDrivers(query: DriverListQuery = {}): Promise<ApiResponse<DriverListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<DriverListResponse>(`/drivers${suffix}`);
+  }
+
+  public async getDriver(id: string): Promise<ApiResponse<DriverResponse>> {
+    return this.get<DriverResponse>(`/drivers/${encodeURIComponent(id)}`);
+  }
+
+  public async updateDriver(
+    id: string,
+    body: DriverUpdateRequest,
+  ): Promise<ApiResponse<DriverResponse>> {
+    return this.patch<DriverResponse>(`/drivers/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteDriver(id: string): Promise<ApiResponse<DriverDeleteResponse>> {
+    return this.delete<DriverDeleteResponse>(`/drivers/${encodeURIComponent(id)}`);
+  }
+
+  public async createConductor(
+    body: ConductorCreateRequest,
+  ): Promise<ApiResponse<ConductorResponse>> {
+    return this.post<ConductorResponse>('/conductors', body);
+  }
+
+  public async listConductors(
+    query: ConductorListQuery = {},
+  ): Promise<ApiResponse<ConductorListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<ConductorListResponse>(`/conductors${suffix}`);
+  }
+
+  public async getConductor(id: string): Promise<ApiResponse<ConductorResponse>> {
+    return this.get<ConductorResponse>(`/conductors/${encodeURIComponent(id)}`);
+  }
+
+  public async updateConductor(
+    id: string,
+    body: ConductorUpdateRequest,
+  ): Promise<ApiResponse<ConductorResponse>> {
+    return this.patch<ConductorResponse>(`/conductors/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteConductor(id: string): Promise<ApiResponse<ConductorDeleteResponse>> {
+    return this.delete<ConductorDeleteResponse>(`/conductors/${encodeURIComponent(id)}`);
   }
 }
 

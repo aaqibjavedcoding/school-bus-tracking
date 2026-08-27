@@ -358,6 +358,110 @@ export interface ParentListQuery {
 }
 
 /**
+ * Phase 3 — Driver & conductor staff management.
+ *
+ * Staff accounts reuse the existing `User` model with the fixed roles
+ * `DRIVER` and `CONDUCTOR`. The school admin manages them through the
+ * `/drivers` and `/conductors` resources. The staff role and `school_id` are
+ * server-owned: the API derives the tenant exclusively from the verified JWT
+ * claims and pins the role per resource, so a client can never create or
+ * escalate an account.
+ */
+
+/** The two staff roles managed through the driver/conductor resources. */
+export type StaffRole = UserRole.DRIVER | UserRole.CONDUCTOR;
+
+/**
+ * Body of `POST /api/v1/drivers` and `POST /api/v1/conductors`.
+ *
+ * Deliberately has no `school_id` or `role`: a client-supplied tenant or role
+ * is rejected instead of silently stripped.
+ */
+export interface StaffCreateRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of driver/conductor `PATCH .../:id` — every field is optional. */
+export interface StaffUpdateRequest {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  password?: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of a driver or conductor account. */
+export interface StaffResponse<R extends StaffRole = StaffRole> {
+  id: string;
+  school_id: string;
+  role: R;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Public projection of a driver account. Credential columns are never exposed. */
+export type DriverResponse = StaffResponse<UserRole.DRIVER>;
+
+/** Public projection of a conductor account. Credential columns are never exposed. */
+export type ConductorResponse = StaffResponse<UserRole.CONDUCTOR>;
+
+/** Resource-oriented aliases of the staff request bodies. */
+export type DriverCreateRequest = StaffCreateRequest;
+export type ConductorCreateRequest = StaffCreateRequest;
+export type DriverUpdateRequest = StaffUpdateRequest;
+export type ConductorUpdateRequest = StaffUpdateRequest;
+
+/** Generic paginated staff payload; the concrete resource fixes the item type. */
+export interface StaffListResponse<T = StaffResponse> {
+  items: T[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `GET /api/v1/drivers`. */
+export type DriverListResponse = StaffListResponse<DriverResponse>;
+
+/** Successful payload of `GET /api/v1/conductors`. */
+export type ConductorListResponse = StaffListResponse<ConductorResponse>;
+
+/** Successful payload of a driver/conductor `DELETE .../:id`. */
+export interface StaffDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Successful payload of `DELETE /api/v1/drivers/:id`. */
+export type DriverDeleteResponse = StaffDeleteResponse;
+
+/** Successful payload of `DELETE /api/v1/conductors/:id`. */
+export type ConductorDeleteResponse = StaffDeleteResponse;
+
+/**
+ * Query string of `GET /api/v1/drivers` and `GET /api/v1/conductors`.
+ *
+ * The API applies the tenant scope from the verified JWT rather than from a
+ * query/header value supplied by a client.
+ */
+export interface StaffListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+export type DriverListQuery = StaffListQuery;
+export type ConductorListQuery = StaffListQuery;
+
+/**
  * Phase 2 — Bus, route and stop management.
  *
  * The school admin manages the fleet (`/buses`), the route plan (`/routes`)

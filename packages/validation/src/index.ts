@@ -163,10 +163,11 @@ export const studentListQuerySchema = paginationSchema.extend({
 
 export type StudentListQueryInput = z.infer<typeof studentListQuerySchema>;
 
-/** Parent account creation is intentionally strict: tenant and role fields are
- * not client-controlled and are rejected instead of silently stripped. */
+/** Person account creation is intentionally strict: tenant and role fields are
+ * not client-controlled and are rejected instead of silently stripped.
+ * Shared by parent accounts and driver/conductor staff accounts. */
 const personNameSchema = z.string().trim().min(1).max(100);
-const parentPhoneSchema = z.string().trim().max(32).nullish();
+const personPhoneSchema = z.string().trim().max(32).nullish();
 
 export const parentCreateSchema = z
   .object({
@@ -174,7 +175,7 @@ export const parentCreateSchema = z
     last_name: personNameSchema,
     email: emailSchema,
     password: passwordSchema,
-    phone: parentPhoneSchema,
+    phone: personPhoneSchema,
     is_active: z.boolean().optional(),
   })
   .strict();
@@ -187,7 +188,7 @@ export const parentUpdateSchema = z
     last_name: personNameSchema.optional(),
     email: emailSchema.optional(),
     password: passwordSchema.optional(),
-    phone: parentPhoneSchema,
+    phone: personPhoneSchema,
     is_active: z.boolean().optional(),
   })
   .strict();
@@ -390,3 +391,54 @@ export const stopListQuerySchema = paginationSchema.extend({
 });
 
 export type StopListQueryInput = z.infer<typeof stopListQuerySchema>;
+
+/**
+ * Phase 3 — Driver & conductor staff management.
+ *
+ * Driver and conductor accounts share one body shape; the fixed role
+ * (`DRIVER` / `CONDUCTOR`) and the tenant are pinned by the API endpoint and
+ * the JWT claims respectively, so neither appears here. Tenant and role
+ * fields are rejected (`.strict()`) rather than silently stripped.
+ */
+export const staffCreateSchema = z
+  .object({
+    first_name: personNameSchema,
+    last_name: personNameSchema,
+    email: emailSchema,
+    password: passwordSchema,
+    phone: personPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type StaffCreateInput = z.infer<typeof staffCreateSchema>;
+
+/** PATCH body — every field is optional and `null` clears the phone. */
+export const staffUpdateSchema = z
+  .object({
+    first_name: personNameSchema.optional(),
+    last_name: personNameSchema.optional(),
+    email: emailSchema.optional(),
+    password: passwordSchema.optional(),
+    phone: personPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type StaffUpdateInput = z.infer<typeof staffUpdateSchema>;
+
+/** Resource-oriented aliases used by driver/conductor screens and clients. */
+export const driverCreateSchema = staffCreateSchema;
+export const driverUpdateSchema = staffUpdateSchema;
+export const conductorCreateSchema = staffCreateSchema;
+export const conductorUpdateSchema = staffUpdateSchema;
+export type DriverCreateInput = StaffCreateInput;
+export type DriverUpdateInput = StaffUpdateInput;
+export type ConductorCreateInput = StaffCreateInput;
+export type ConductorUpdateInput = StaffUpdateInput;
+
+export const staffListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+});
+
+export type StaffListQueryInput = z.infer<typeof staffListQuerySchema>;
