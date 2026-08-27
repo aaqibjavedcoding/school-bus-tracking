@@ -99,6 +99,20 @@ export interface LoginResponse {
   user: AuthenticatedUser;
 }
 
+/** Successful response payload of `POST /api/v1/auth/refresh`. */
+export interface RefreshResponse {
+  access_token: string;
+  token_type: 'Bearer';
+  /** Access token lifetime in seconds. */
+  expires_in: number;
+  user: AuthenticatedUser;
+}
+
+/** Successful response payload of `POST /api/v1/auth/logout`. */
+export interface LogoutResponse {
+  message: string;
+}
+
 export interface TenantContext {
   tenantId: string;
   tenantName: string;

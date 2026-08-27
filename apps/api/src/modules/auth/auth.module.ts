@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { User } from '../../database/models';
+import { RefreshToken, User } from '../../database/models';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { USERS_REPOSITORY } from './auth.constants';
+import { REFRESH_TOKENS_REPOSITORY, USERS_REPOSITORY } from './auth.constants';
 
 @Module({
   imports: [
@@ -23,10 +23,11 @@ import { USERS_REPOSITORY } from './auth.constants';
   controllers: [AuthController],
   providers: [
     AuthService,
-    // The `User` model class is provided behind a token instead of
-    // `SequelizeModule.forFeature` so the app still boots while
-    // DB_AUTO_CONNECT=false, and unit tests can substitute a stub.
+    // The `User` and `RefreshToken` model classes are provided behind tokens
+    // instead of `SequelizeModule.forFeature` so the app still boots while
+    // DB_AUTO_CONNECT=false, and unit tests can substitute stubs.
     { provide: USERS_REPOSITORY, useValue: User },
+    { provide: REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
   ],
   exports: [AuthService],
 })

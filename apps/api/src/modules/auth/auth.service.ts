@@ -1,13 +1,32 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import type { CookieOptions } from 'express';
 import {
   AuthenticatedUser,
   JwtAccessTokenPayload,
   LoginResponse,
+  LogoutResponse,
+  RefreshResponse,
 } from '@school-bus-tracking/shared-types';
-import { comparePassword, normalizeEmail } from '../../auth';
-import { User } from '../../database/models';
-import { INVALID_CREDENTIALS_MESSAGE, USERS_REPOSITORY } from './auth.constants';
+import {
+  comparePassword,
+  generateRefreshToken,
+  hashToken,
+  normalizeEmail,
+  parseDurationToMs,
+} from '../../auth';
+import { RefreshToken, User } from '../../database/models';
+import {
+  DEFAULT_REFRESH_COOKIE_NAME,
+  EXPIRED_REFRESH_TOKEN_MESSAGE,
+  INVALID_CREDENTIALS_MESSAGE,
+  INVALID_REFRESH_TOKEN_MESSAGE,
+  LOGOUT_SUCCESS_MESSAGE,
+  REFRESH_TOKENS_REPOSITORY,
+  REVOKED_REFRESH_TOKEN_MESSAGE,
+  USERS_REPOSITORY,
+} from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 
 /**
@@ -18,21 +37,27 @@ import { LoginDto } from './dto/login.dto';
  */
 const TIMING_EQUALIZATION_HASH = '$2b$12$soESu/j94RmCRdbw9np7i.i3xYN/EEH.2t.q0FleCvYHQqRvA.eIW';
 
+export interface AuthSessionResult<T = LoginResponse | RefreshResponse> {
+  response: T;
+  refreshToken: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
     @Inject(USERS_REPOSITORY) private readonly users: typeof User,
+    @Inject(REFRESH_TOKENS_REPOSITORY) private readonly refreshTokens: typeof RefreshToken,
     private readonly jwtService: JwtService,
+    private readonly configService?: ConfigService,
   ) {}
 
   /**
    * Tenant-scoped login: the user is looked up by `(school_id, email)` so an
    * email that exists under another school can never authenticate here.
    *
-   * Every failure path throws the same generic 401 — never log or return
-   * `password` / `password_hash`.
+   * Creates an access token and a hashed refresh token session in the database.
    */
-  async login(dto: LoginDto): Promise<LoginResponse> {
+  async login(dto: LoginDto): Promise<AuthSessionResult<LoginResponse>> {
     const email = normalizeEmail(dto.email);
 
     // `unscoped()` opts out of the default scope that hides `password_hash`;
@@ -57,15 +82,160 @@ export class AuthService {
       role: user.role,
     };
 
-    // Secret and lifetime come from JwtModule, wired from `jwt.*` config
-    // (environment) in AuthModule — never hard-coded here.
+    const accessToken = await this.jwtService.signAsync({ ...payload });
+    const rawRefreshToken = generateRefreshToken();
+    const tokenHash = hashToken(rawRefreshToken);
+    const expiresAt = new Date(Date.now() + this.getRefreshTtlMs());
+
+    await this.refreshTokens.create({
+      school_id: user.school_id,
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+      revoked_at: null,
+      replaced_by_token_id: null,
+    } as unknown as RefreshToken);
+
+    return {
+      response: {
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: this.resolveExpiresIn(accessToken),
+        user: this.toAuthenticatedUser(user),
+      },
+      refreshToken: rawRefreshToken,
+    };
+  }
+
+  /**
+   * Validates a refresh token, performs token rotation, and returns a new access token.
+   *
+   * Security constraints:
+   * - Refresh token must exist in the database.
+   * - Refresh token must not have been revoked.
+   * - Refresh token must not have expired.
+   * - The associated user account must still exist and be active.
+   * - Rotation: Old token is revoked and linked to the new token (`replaced_by_token_id`).
+   */
+  async refresh(rawRefreshToken: string | undefined): Promise<AuthSessionResult<RefreshResponse>> {
+    if (!rawRefreshToken || typeof rawRefreshToken !== 'string' || !rawRefreshToken.trim()) {
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
+    }
+
+    const tokenHash = hashToken(rawRefreshToken.trim());
+    const storedToken = await this.refreshTokens.unscoped().findOne({
+      where: { token_hash: tokenHash },
+    });
+
+    if (!storedToken) {
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN_MESSAGE);
+    }
+
+    if (storedToken.revoked_at !== null) {
+      throw new UnauthorizedException(REVOKED_REFRESH_TOKEN_MESSAGE);
+    }
+
+    if (new Date(storedToken.expires_at).getTime() <= Date.now()) {
+      throw new UnauthorizedException(EXPIRED_REFRESH_TOKEN_MESSAGE);
+    }
+
+    const user = await this.users.unscoped().findOne({
+      where: { id: storedToken.user_id, school_id: storedToken.school_id },
+    });
+
+    if (!user || !user.is_active) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    const newRawRefreshToken = generateRefreshToken();
+    const newTokenHash = hashToken(newRawRefreshToken);
+    const newExpiresAt = new Date(Date.now() + this.getRefreshTtlMs());
+
+    const newStoredToken = await this.refreshTokens.create({
+      school_id: user.school_id,
+      user_id: user.id,
+      token_hash: newTokenHash,
+      expires_at: newExpiresAt,
+      revoked_at: null,
+      replaced_by_token_id: null,
+    } as unknown as RefreshToken);
+
+    storedToken.revoked_at = new Date();
+    storedToken.replaced_by_token_id = newStoredToken.id;
+    await storedToken.save();
+
+    const payload: JwtAccessTokenPayload = {
+      sub: user.id,
+      school_id: user.school_id,
+      role: user.role,
+    };
+
     const accessToken = await this.jwtService.signAsync({ ...payload });
 
     return {
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: this.resolveExpiresIn(accessToken),
-      user: this.toAuthenticatedUser(user),
+      response: {
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: this.resolveExpiresIn(accessToken),
+        user: this.toAuthenticatedUser(user),
+      },
+      refreshToken: newRawRefreshToken,
+    };
+  }
+
+  /**
+   * Revokes the refresh token session in the database.
+   * Idempotent: succeeds even if no token is provided or already revoked.
+   */
+  async logout(rawRefreshToken: string | undefined): Promise<LogoutResponse> {
+    if (rawRefreshToken && typeof rawRefreshToken === 'string' && rawRefreshToken.trim()) {
+      const tokenHash = hashToken(rawRefreshToken.trim());
+      const storedToken = await this.refreshTokens.unscoped().findOne({
+        where: { token_hash: tokenHash },
+      });
+
+      if (storedToken && storedToken.revoked_at === null) {
+        storedToken.revoked_at = new Date();
+        await storedToken.save();
+      }
+    }
+
+    return {
+      message: LOGOUT_SUCCESS_MESSAGE,
+    };
+  }
+
+  getRefreshCookieName(): string {
+    return this.configService?.get<string>('jwt.refreshCookieName') ?? DEFAULT_REFRESH_COOKIE_NAME;
+  }
+
+  getRefreshTtlMs(): number {
+    const rawTtl = this.configService?.get<string>('jwt.refreshExpiresIn');
+    return parseDurationToMs(rawTtl);
+  }
+
+  getRefreshCookieOptions(): CookieOptions {
+    const isProduction = this.configService?.get<string>('app.nodeEnv') === 'production';
+    const apiPrefix = this.configService?.get<string>('app.apiPrefix', 'api/v1') ?? 'api/v1';
+    const normalizedPrefix = apiPrefix.replace(/^\/+|\/+$/g, '');
+    return {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: `/${normalizedPrefix}/auth`,
+      maxAge: this.getRefreshTtlMs(),
+    };
+  }
+
+  getClearCookieOptions(): CookieOptions {
+    const isProduction = this.configService?.get<string>('app.nodeEnv') === 'production';
+    const apiPrefix = this.configService?.get<string>('app.apiPrefix', 'api/v1') ?? 'api/v1';
+    const normalizedPrefix = apiPrefix.replace(/^\/+|\/+$/g, '');
+    return {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: `/${normalizedPrefix}/auth`,
     };
   }
 

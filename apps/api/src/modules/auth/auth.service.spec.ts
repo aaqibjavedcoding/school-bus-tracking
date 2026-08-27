@@ -1,12 +1,19 @@
 import { beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { hashPassword } from '../../auth';
-import { User } from '../../database/models';
+import { hashPassword, hashToken } from '../../auth';
+import { RefreshToken, User } from '../../database/models';
 import { AuthService } from './auth.service';
-import { INVALID_CREDENTIALS_MESSAGE } from './auth.constants';
+import {
+  EXPIRED_REFRESH_TOKEN_MESSAGE,
+  INVALID_CREDENTIALS_MESSAGE,
+  INVALID_REFRESH_TOKEN_MESSAGE,
+  LOGOUT_SUCCESS_MESSAGE,
+  REVOKED_REFRESH_TOKEN_MESSAGE,
+} from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 
 const JWT_SECRET = 'test-only-secret';
@@ -27,16 +34,74 @@ interface StubUser {
   is_active: boolean;
 }
 
-/** In-memory stand-in for the tenant-scoped `(school_id, email)` lookup. */
-function makeUsersRepository(user: StubUser | null, capture: { where?: unknown } = {}) {
+interface StubRefreshToken {
+  id: string;
+  school_id: string;
+  user_id: string;
+  token_hash: string;
+  expires_at: Date;
+  revoked_at: Date | null;
+  replaced_by_token_id: string | null;
+  save: () => Promise<void>;
+}
+
+/** In-memory stand-in for the tenant-scoped user lookup. */
+function makeUsersRepository(
+  user: StubUser | null,
+  capture: { where?: unknown; findOneCalls?: number } = {},
+) {
   return {
     unscoped: () => ({
       findOne: (options: { where: Record<string, unknown> }) => {
         capture.where = options.where;
+        capture.findOneCalls = (capture.findOneCalls ?? 0) + 1;
         return Promise.resolve(user);
       },
     }),
   } as unknown as typeof User;
+}
+
+/** In-memory stand-in for the refresh tokens repository. */
+function makeRefreshTokensRepository(
+  initialTokens: StubRefreshToken[] = [],
+  capture: { created?: StubRefreshToken[]; where?: unknown } = {},
+) {
+  const tokens = [...initialTokens];
+  capture.created = [];
+
+  return {
+    tokens,
+    repo: {
+      unscoped: () => ({
+        findOne: (options: { where: Record<string, unknown> }) => {
+          capture.where = options.where;
+          const match = tokens.find((t) => {
+            if (options.where.token_hash && t.token_hash !== options.where.token_hash) {
+              return false;
+            }
+            return true;
+          });
+          return Promise.resolve(match ?? null);
+        },
+      }),
+      create: (payload: Partial<StubRefreshToken>) => {
+        const id = `token-${tokens.length + 1}`;
+        const record: StubRefreshToken = {
+          id,
+          school_id: payload.school_id ?? SCHOOL_ID,
+          user_id: payload.user_id ?? USER_ID,
+          token_hash: payload.token_hash ?? '',
+          expires_at: payload.expires_at ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          revoked_at: payload.revoked_at ?? null,
+          replaced_by_token_id: payload.replaced_by_token_id ?? null,
+          save: async () => {},
+        };
+        tokens.push(record);
+        capture.created?.push(record);
+        return Promise.resolve(record);
+      },
+    } as unknown as typeof RefreshToken,
+  };
 }
 
 function makeJwtService(): JwtService {
@@ -44,6 +109,21 @@ function makeJwtService(): JwtService {
     secret: JWT_SECRET,
     signOptions: { expiresIn: JWT_EXPIRES_IN },
   });
+}
+
+function makeConfigService(overrides: Record<string, unknown> = {}): ConfigService {
+  const store: Record<string, unknown> = {
+    'jwt.secret': JWT_SECRET,
+    'jwt.expiresIn': JWT_EXPIRES_IN,
+    'jwt.refreshExpiresIn': '7d',
+    'jwt.refreshCookieName': 'refresh_token',
+    'app.nodeEnv': 'test',
+    'app.apiPrefix': 'api/v1',
+    ...overrides,
+  };
+  return {
+    get: (key: string, defaultValue?: unknown) => store[key] ?? defaultValue,
+  } as unknown as ConfigService;
 }
 
 function makeLoginDto(overrides: Partial<LoginDto> = {}): LoginDto {
@@ -68,11 +148,14 @@ async function makeActiveUser(overrides: Partial<StubUser> = {}): Promise<StubUs
   };
 }
 
-async function expectInvalidCredentials(promise: Promise<unknown>): Promise<void> {
+async function expectUnauthorized(
+  promise: Promise<unknown>,
+  expectedMessage: string,
+): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof UnauthorizedException, 'expected an UnauthorizedException');
     assert.equal(error.getStatus(), 401);
-    assert.equal(error.message, INVALID_CREDENTIALS_MESSAGE);
+    assert.equal(error.message, expectedMessage);
     return true;
   });
 }
@@ -85,14 +168,20 @@ describe('AuthService.login', () => {
   });
 
   it('returns a signed access token and public user data for valid credentials', async () => {
-    const service = new AuthService(makeUsersRepository(user), makeJwtService());
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
 
     const result = await service.login(makeLoginDto());
 
-    assert.equal(typeof result.access_token, 'string');
-    assert.ok(result.access_token.split('.').length === 3, 'expected a JWT (3 segments)');
-    assert.equal(result.token_type, 'Bearer');
-    assert.deepEqual(result.user, {
+    assert.equal(typeof result.response.access_token, 'string');
+    assert.ok(result.response.access_token.split('.').length === 3, 'expected a JWT (3 segments)');
+    assert.equal(result.response.token_type, 'Bearer');
+    assert.deepEqual(result.response.user, {
       id: USER_ID,
       school_id: SCHOOL_ID,
       role: UserRole.DRIVER,
@@ -102,45 +191,94 @@ describe('AuthService.login', () => {
     });
   });
 
+  it('creates and persists a hashed refresh token associated with user and school', async () => {
+    const capture: { created?: StubRefreshToken[] } = {};
+    const { repo: refreshRepo } = makeRefreshTokensRepository([], capture);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    const result = await service.login(makeLoginDto());
+
+    assert.equal(typeof result.refreshToken, 'string');
+    assert.equal(result.refreshToken.length, 64);
+    assert.equal(capture.created?.length, 1);
+
+    const createdRecord = capture.created![0];
+    assert.equal(createdRecord.school_id, SCHOOL_ID);
+    assert.equal(createdRecord.user_id, USER_ID);
+    assert.equal(createdRecord.token_hash, hashToken(result.refreshToken));
+    assert.equal(createdRecord.revoked_at, null);
+    assert.equal(createdRecord.replaced_by_token_id, null);
+    assert.ok(createdRecord.expires_at.getTime() > Date.now());
+  });
+
   it('issues a JWT carrying exactly sub, school_id and role claims', async () => {
     const jwtService = makeJwtService();
-    const service = new AuthService(makeUsersRepository(user), jwtService);
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      jwtService,
+      makeConfigService(),
+    );
 
-    const { access_token: accessToken } = await service.login(makeLoginDto());
+    const { response } = await service.login(makeLoginDto());
     const claims = await jwtService.verifyAsync<JwtAccessTokenPayload & Record<string, unknown>>(
-      accessToken,
+      response.access_token,
       { secret: JWT_SECRET },
     );
 
     assert.equal(claims.sub, USER_ID);
     assert.equal(claims.school_id, SCHOOL_ID);
     assert.equal(claims.role, UserRole.DRIVER);
-    // Only the three domain claims plus the standard iat/exp timestamps.
+    // Only the three domain claims plus standard iat/exp timestamps
     assert.deepEqual(Object.keys(claims).sort(), ['exp', 'iat', 'role', 'school_id', 'sub']);
   });
 
   it('rejects a token signed with a different secret', async () => {
-    const service = new AuthService(makeUsersRepository(user), makeJwtService());
-    const { access_token: accessToken } = await service.login(makeLoginDto());
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    const { response } = await service.login(makeLoginDto());
 
     const verifier = new JwtService({ secret: 'a-different-secret' });
-    await assert.rejects(verifier.verifyAsync(accessToken));
+    await assert.rejects(verifier.verifyAsync(response.access_token));
   });
 
   it('reports the configured expiry via expires_in and the exp claim', async () => {
     const jwtService = makeJwtService();
-    const service = new AuthService(makeUsersRepository(user), jwtService);
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      jwtService,
+      makeConfigService(),
+    );
 
-    const result = await service.login(makeLoginDto());
-    const claims = jwtService.decode<{ exp: number; iat: number }>(result.access_token);
+    const { response } = await service.login(makeLoginDto());
+    const claims = jwtService.decode<{ exp: number; iat: number }>(response.access_token);
 
-    assert.equal(result.expires_in, 15 * 60);
+    assert.equal(response.expires_in, 15 * 60);
     assert.equal(claims.exp - claims.iat, 15 * 60);
   });
 
   it('normalizes the email before the tenant-scoped lookup', async () => {
     const capture: { where?: unknown } = {};
-    const service = new AuthService(makeUsersRepository(user, capture), makeJwtService());
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user, capture),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
 
     await service.login(makeLoginDto({ email: '  Driver@School.ORG  ' }));
 
@@ -148,36 +286,374 @@ describe('AuthService.login', () => {
   });
 
   it('returns generic 401 when no user matches school_id + email', async () => {
-    const service = new AuthService(makeUsersRepository(null), makeJwtService());
-    await expectInvalidCredentials(service.login(makeLoginDto()));
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(null),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    await expectUnauthorized(service.login(makeLoginDto()), INVALID_CREDENTIALS_MESSAGE);
   });
 
   it('returns generic 401 for a wrong password', async () => {
-    const service = new AuthService(makeUsersRepository(user), makeJwtService());
-    await expectInvalidCredentials(service.login(makeLoginDto({ password: 'wrong-password' })));
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    await expectUnauthorized(
+      service.login(makeLoginDto({ password: 'wrong-password' })),
+      INVALID_CREDENTIALS_MESSAGE,
+    );
   });
 
   it('returns generic 401 for a deactivated user even with the right password', async () => {
     const inactive = await makeActiveUser({ is_active: false });
-    const service = new AuthService(makeUsersRepository(inactive), makeJwtService());
-    await expectInvalidCredentials(service.login(makeLoginDto()));
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(inactive),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    await expectUnauthorized(service.login(makeLoginDto()), INVALID_CREDENTIALS_MESSAGE);
   });
 
   it('returns generic 401 for a user without stored credentials', async () => {
     const noCredentials = await makeActiveUser({ password_hash: null });
-    const service = new AuthService(makeUsersRepository(noCredentials), makeJwtService());
-    await expectInvalidCredentials(service.login(makeLoginDto()));
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(noCredentials),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    await expectUnauthorized(service.login(makeLoginDto()), INVALID_CREDENTIALS_MESSAGE);
   });
 
-  it('never exposes password or password_hash anywhere in the response', async () => {
-    const service = new AuthService(makeUsersRepository(user), makeJwtService());
-    const result = await service.login(makeLoginDto());
+  it('never exposes password, password_hash, or refresh token in the response JSON', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+    const { response, refreshToken } = await service.login(makeLoginDto());
 
-    const serialized = JSON.stringify(result);
+    const serialized = JSON.stringify(response);
     assert.ok(!serialized.includes('password'), 'response must not contain a password field');
     assert.ok(
       !serialized.includes(user.password_hash as string),
       'response must not contain the stored hash',
     );
+    assert.ok(
+      !serialized.includes(refreshToken),
+      'response JSON must not expose the raw refresh token',
+    );
+  });
+});
+
+describe('AuthService.refresh & token rotation', () => {
+  let user: StubUser;
+  const rawToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const tokenHash = hashToken(rawToken);
+
+  beforeEach(async () => {
+    user = await makeActiveUser();
+  });
+
+  it('successfully refreshes token, issues new access token, and rotates refresh token', async () => {
+    let oldTokenSaved = false;
+    const existingToken: StubRefreshToken = {
+      id: 'token-old-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {
+        oldTokenSaved = true;
+      },
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([existingToken]);
+    const jwtService = makeJwtService();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      jwtService,
+      makeConfigService(),
+    );
+
+    const result = await service.refresh(rawToken);
+
+    // 1. Issues a new access token
+    assert.equal(typeof result.response.access_token, 'string');
+    assert.equal(result.response.token_type, 'Bearer');
+    assert.deepEqual(result.response.user, {
+      id: USER_ID,
+      school_id: SCHOOL_ID,
+      role: UserRole.DRIVER,
+      first_name: 'Dana',
+      last_name: 'Driver',
+      email: 'driver@school.org',
+    });
+
+    const claims = await jwtService.verifyAsync<JwtAccessTokenPayload>(
+      result.response.access_token,
+      { secret: JWT_SECRET },
+    );
+    assert.equal(claims.sub, USER_ID);
+    assert.equal(claims.school_id, SCHOOL_ID);
+    assert.equal(claims.role, UserRole.DRIVER);
+
+    // 2. Refresh token rotation: old token is revoked and linked to replacement
+    assert.ok(existingToken.revoked_at instanceof Date, 'old token must be revoked');
+    assert.ok(existingToken.replaced_by_token_id !== null, 'replaced_by_token_id must be set');
+    assert.ok(oldTokenSaved, 'old token save must be called');
+
+    // 3. New refresh token is issued and returned separately
+    assert.equal(typeof result.refreshToken, 'string');
+    assert.notEqual(result.refreshToken, rawToken, 'must issue a brand new refresh token');
+    assert.equal(result.refreshToken.length, 64);
+
+    // 4. Response JSON does not contain refresh token
+    const serialized = JSON.stringify(result.response);
+    assert.ok(!serialized.includes(result.refreshToken));
+    assert.ok(!serialized.includes(rawToken));
+  });
+
+  it('rejects an undefined or empty refresh token', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh(undefined), INVALID_REFRESH_TOKEN_MESSAGE);
+    await expectUnauthorized(service.refresh(''), INVALID_REFRESH_TOKEN_MESSAGE);
+    await expectUnauthorized(service.refresh('   '), INVALID_REFRESH_TOKEN_MESSAGE);
+  });
+
+  it('rejects a nonexistent refresh token', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh('nonexistent-token'), INVALID_REFRESH_TOKEN_MESSAGE);
+  });
+
+  it('rejects an already-revoked refresh token', async () => {
+    const revokedToken: StubRefreshToken = {
+      id: 'token-revoked-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: new Date(Date.now() - 1000),
+      replaced_by_token_id: 'token-next-uuid',
+      save: async () => {},
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([revokedToken]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh(rawToken), REVOKED_REFRESH_TOKEN_MESSAGE);
+  });
+
+  it('rejects an expired refresh token', async () => {
+    const expiredToken: StubRefreshToken = {
+      id: 'token-expired-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() - 1000), // in the past
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {},
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([expiredToken]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh(rawToken), EXPIRED_REFRESH_TOKEN_MESSAGE);
+  });
+
+  it('rejects refresh when associated user is deactivated', async () => {
+    const inactiveUser = await makeActiveUser({ is_active: false });
+    const existingToken: StubRefreshToken = {
+      id: 'token-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {},
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([existingToken]);
+    const service = new AuthService(
+      makeUsersRepository(inactiveUser),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh(rawToken), INVALID_CREDENTIALS_MESSAGE);
+  });
+
+  it('rejects refresh when associated user no longer exists', async () => {
+    const existingToken: StubRefreshToken = {
+      id: 'token-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {},
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([existingToken]);
+    const service = new AuthService(
+      makeUsersRepository(null),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectUnauthorized(service.refresh(rawToken), INVALID_CREDENTIALS_MESSAGE);
+  });
+});
+
+describe('AuthService.logout', () => {
+  let user: StubUser;
+  const rawToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const tokenHash = hashToken(rawToken);
+
+  beforeEach(async () => {
+    user = await makeActiveUser();
+  });
+
+  it('revokes an active refresh token in the database', async () => {
+    let saved = false;
+    const tokenRecord: StubRefreshToken = {
+      id: 'token-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {
+        saved = true;
+      },
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([tokenRecord]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    const result = await service.logout(rawToken);
+
+    assert.equal(result.message, LOGOUT_SUCCESS_MESSAGE);
+    assert.ok(tokenRecord.revoked_at instanceof Date, 'revoked_at must be set');
+    assert.ok(saved, 'token save must be called');
+  });
+
+  it('is idempotent when no token is provided', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    const result = await service.logout(undefined);
+    assert.equal(result.message, LOGOUT_SUCCESS_MESSAGE);
+  });
+
+  it('is idempotent when token is not found or already revoked', async () => {
+    const revokedToken: StubRefreshToken = {
+      id: 'token-uuid',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: new Date(Date.now() - 1000),
+      replaced_by_token_id: null,
+      save: async () => {
+        assert.fail('should not save an already revoked token');
+      },
+    };
+
+    const { repo: refreshRepo } = makeRefreshTokensRepository([revokedToken]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    const result = await service.logout(rawToken);
+    assert.equal(result.message, LOGOUT_SUCCESS_MESSAGE);
+  });
+});
+
+describe('AuthService cookie options', () => {
+  it('configures httpOnly, secure, path, and maxAge properly', () => {
+    const service = new AuthService(
+      makeUsersRepository(null),
+      makeRefreshTokensRepository().repo,
+      makeJwtService(),
+      makeConfigService({
+        'app.nodeEnv': 'production',
+        'app.apiPrefix': 'api/v1',
+        'jwt.refreshExpiresIn': '7d',
+        'jwt.refreshCookieName': 'custom_refresh_token',
+      }),
+    );
+
+    assert.equal(service.getRefreshCookieName(), 'custom_refresh_token');
+
+    const options = service.getRefreshCookieOptions();
+    assert.equal(options.httpOnly, true);
+    assert.equal(options.secure, true);
+    assert.equal(options.sameSite, 'lax');
+    assert.equal(options.path, '/api/v1/auth');
+    assert.equal(options.maxAge, 7 * 24 * 60 * 60 * 1000);
+
+    const clearOptions = service.getClearCookieOptions();
+    assert.equal(clearOptions.httpOnly, true);
+    assert.equal(clearOptions.secure, true);
+    assert.equal(clearOptions.sameSite, 'lax');
+    assert.equal(clearOptions.path, '/api/v1/auth');
   });
 });

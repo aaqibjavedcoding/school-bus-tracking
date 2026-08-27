@@ -12,6 +12,7 @@
     "build:apps": "npm --prefix apps/api run build && npm --prefix apps/web run build && npm --prefix apps/mobile run build",
     "build": "npm run build:packages && npm run build:apps",
     "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "test": "npm --prefix apps/api test",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,scss,yml,yaml}\"",
