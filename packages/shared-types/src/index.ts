@@ -57,6 +57,48 @@ export enum StudentBoardingStatus {
   ABSENT = 'ABSENT',
 }
 
+/**
+ * Body of `POST /api/v1/auth/login`. Login is tenant-scoped: the same email
+ * may exist under multiple schools, so the school id is always required.
+ */
+export interface LoginRequest {
+  school_id: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Claims carried by an access token issued by the API.
+ * `sub` is the user id; `school_id` scopes every claim to a tenant.
+ */
+export interface JwtAccessTokenPayload {
+  sub: string;
+  school_id: string;
+  role: UserRole;
+}
+
+/**
+ * Public projection of an authenticated user. Never contains credentials
+ * (`password` / `password_hash` must not appear in any API response).
+ */
+export interface AuthenticatedUser {
+  id: string;
+  school_id: string;
+  role: UserRole;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+}
+
+/** Successful response payload of `POST /api/v1/auth/login`. */
+export interface LoginResponse {
+  access_token: string;
+  token_type: 'Bearer';
+  /** Access token lifetime in seconds. */
+  expires_in: number;
+  user: AuthenticatedUser;
+}
+
 export interface TenantContext {
   tenantId: string;
   tenantName: string;
