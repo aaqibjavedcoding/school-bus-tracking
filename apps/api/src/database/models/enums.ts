@@ -1,4 +1,9 @@
-import { RouteAssignmentRole, StudentGender, UserRole } from '@school-bus-tracking/shared-types';
+import {
+  RouteAssignmentRole,
+  StudentGender,
+  TripStatus,
+  UserRole,
+} from '@school-bus-tracking/shared-types';
 
 /**
  * Enumerations persisted by the core domain models.
@@ -44,13 +49,10 @@ export const ROUTE_ASSIGNMENT_ROLE_VALUES: RouteAssignmentRole[] =
  * Terminal states are `COMPLETED` and `CANCELLED`. Live-location reporting
  * (Phase 3) will move trips between the non-terminal states; the state machine
  * itself is enforced in the service layer, not by the database.
+ *
+ * The enum is owned by `@school-bus-tracking/shared-types` so the database,
+ * API contracts and clients can never drift; it is only re-exported here.
  */
-export enum TripStatus {
-  SCHEDULED = 'SCHEDULED',
-  BOARDING = 'BOARDING',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
+export { TripStatus };
 
 export const TRIP_STATUS_VALUES: TripStatus[] = Object.values(TripStatus);

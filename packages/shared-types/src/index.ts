@@ -50,6 +50,26 @@ export enum RouteAssignmentRole {
 /** Short alias for consumers that call the resource simply `assignments`. */
 export type AssignmentRole = RouteAssignmentRole;
 
+/**
+ * Lifecycle of a single scheduled bus run (`trips.status`).
+ *
+ * SCHEDULED   → planned, nothing has happened yet
+ * BOARDING    → crew is at the first stop and students are getting on
+ * IN_PROGRESS → the bus departed and is driving the route
+ * COMPLETED   → the final stop was reached and the run is closed
+ * CANCELLED   → the run will not happen (weather, vehicle fault, holiday, …)
+ *
+ * `COMPLETED` and `CANCELLED` are terminal. The database only guarantees the
+ * value set; the transition rules are enforced by the API service layer.
+ */
+export enum TripStatus {
+  SCHEDULED = 'SCHEDULED',
+  BOARDING = 'BOARDING',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
 export enum StudentGender {
   MALE = 'MALE',
   FEMALE = 'FEMALE',
@@ -549,6 +569,109 @@ export type AssignmentResponse = RouteAssignmentResponse;
 export type AssignmentListResponse = RouteAssignmentListResponse;
 export type AssignmentDeleteResponse = RouteAssignmentDeleteResponse;
 export type AssignmentListQuery = RouteAssignmentListQuery;
+
+/**
+ * Phase 4 — Trip management.
+ *
+ * A trip is one concrete execution of a route. It is always created from an
+ * existing **active** `RouteAssignment`: the API derives the school, route,
+ * bus, driver and conductor from that roster row, so a client can never mix
+ * resources from another tenant or pair a bus with the wrong crew.
+ * `school_id` is never accepted in a request body.
+ */
+
+/** Body of `POST /api/v1/trips`. */
+export interface TripCreateRequest {
+  /** Active roster row the trip is dispatched from. */
+  route_assignment_id: string;
+  /** Planned departure as an ISO-8601 date-time string (stored in UTC). */
+  scheduled_start_at: string;
+  /** Planned completion; omitted/null means open ended. */
+  scheduled_end_at?: string | null;
+}
+
+/**
+ * Body of `PATCH /api/v1/trips/:id` — rescheduling and re-dispatch.
+ *
+ * Only trips that are still `SCHEDULED` can be updated. `status` is not part
+ * of this payload: lifecycle changes go through
+ * `PATCH /api/v1/trips/:id/status` so the transition rules stay explicit.
+ */
+export interface TripUpdateRequest {
+  route_assignment_id?: string;
+  scheduled_start_at?: string;
+  scheduled_end_at?: string | null;
+}
+
+/** Body of `PATCH /api/v1/trips/:id/status` — a single lifecycle transition. */
+export interface TripStatusUpdateRequest {
+  status: TripStatus;
+  /** Overrides the server clock when moving into `IN_PROGRESS`. */
+  actual_start_at?: string | null;
+  /** Overrides the server clock when moving into `COMPLETED`. */
+  actual_end_at?: string | null;
+  /** Required-free audit note recorded when moving into `CANCELLED`. */
+  cancellation_reason?: string | null;
+}
+
+/** Body of `POST /api/v1/trips/:id/cancel`. */
+export interface TripCancelRequest {
+  cancellation_reason?: string | null;
+}
+
+/** Public projection of a trip owned by the authenticated school. */
+export interface TripResponse {
+  id: string;
+  school_id: string;
+  route_id: string;
+  bus_id: string | null;
+  driver_id: string | null;
+  conductor_id: string | null;
+  status: TripStatus;
+  scheduled_start_at: string;
+  scheduled_end_at: string | null;
+  actual_start_at: string | null;
+  actual_end_at: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/trips`. */
+export interface TripListResponse {
+  items: TripResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/trips/:id`. */
+export interface TripDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/**
+ * Query string of `GET /api/v1/trips`.
+ *
+ * `date` selects a single UTC calendar day, while `date_from`/`date_to` select
+ * an inclusive range of UTC calendar days. All of them filter on
+ * `scheduled_start_at`.
+ */
+export interface TripListQuery {
+  page?: number;
+  limit?: number;
+  status?: TripStatus;
+  route_id?: string;
+  bus_id?: string;
+  driver_id?: string;
+  conductor_id?: string;
+  /** Single day in `YYYY-MM-DD` format. */
+  date?: string;
+  /** Inclusive range start in `YYYY-MM-DD` format. */
+  date_from?: string;
+  /** Inclusive range end in `YYYY-MM-DD` format. */
+  date_to?: string;
+}
 
 /**
  * Phase 2 — Bus, route and stop management.

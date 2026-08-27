@@ -63,6 +63,14 @@ import {
   StudentListResponse,
   StudentResponse,
   StudentUpdateRequest,
+  TripCancelRequest,
+  TripCreateRequest,
+  TripDeleteResponse,
+  TripListQuery,
+  TripListResponse,
+  TripResponse,
+  TripStatusUpdateRequest,
+  TripUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
@@ -592,6 +600,60 @@ export class ApiClient {
 
   public async deleteAssignment(id: string): Promise<ApiResponse<RouteAssignmentDeleteResponse>> {
     return this.delete<RouteAssignmentDeleteResponse>(`/assignments/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Trip management. A trip is dispatched from an active route assignment and
+   * the API derives school, route, bus, driver and conductor from it, so these
+   * methods never send a tenant id or crew ids.
+   */
+  public async createTrip(body: TripCreateRequest): Promise<ApiResponse<TripResponse>> {
+    return this.post<TripResponse>('/trips', body);
+  }
+
+  public async listTrips(query: TripListQuery = {}): Promise<ApiResponse<TripListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.status) params.set('status', query.status);
+    if (query.route_id) params.set('route_id', query.route_id);
+    if (query.bus_id) params.set('bus_id', query.bus_id);
+    if (query.driver_id) params.set('driver_id', query.driver_id);
+    if (query.conductor_id) params.set('conductor_id', query.conductor_id);
+    if (query.date) params.set('date', query.date);
+    if (query.date_from) params.set('date_from', query.date_from);
+    if (query.date_to) params.set('date_to', query.date_to);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<TripListResponse>(`/trips${suffix}`);
+  }
+
+  public async getTrip(id: string): Promise<ApiResponse<TripResponse>> {
+    return this.get<TripResponse>(`/trips/${encodeURIComponent(id)}`);
+  }
+
+  public async updateTrip(id: string, body: TripUpdateRequest): Promise<ApiResponse<TripResponse>> {
+    return this.patch<TripResponse>(`/trips/${encodeURIComponent(id)}`, body);
+  }
+
+  /** Applies a single lifecycle transition (SCHEDULED → IN_PROGRESS → COMPLETED). */
+  public async updateTripStatus(
+    id: string,
+    body: TripStatusUpdateRequest,
+  ): Promise<ApiResponse<TripResponse>> {
+    return this.patch<TripResponse>(`/trips/${encodeURIComponent(id)}/status`, body);
+  }
+
+  /** Cancels a non-terminal trip while keeping it visible in reporting. */
+  public async cancelTrip(
+    id: string,
+    body: TripCancelRequest = {},
+  ): Promise<ApiResponse<TripResponse>> {
+    return this.post<TripResponse>(`/trips/${encodeURIComponent(id)}/cancel`, body);
+  }
+
+  /** Cancels (when still open) and soft-deletes the trip. */
+  public async deleteTrip(id: string): Promise<ApiResponse<TripDeleteResponse>> {
+    return this.delete<TripDeleteResponse>(`/trips/${encodeURIComponent(id)}`);
   }
 }
 
