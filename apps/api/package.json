@@ -9,7 +9,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "typecheck": "tsc --noEmit",
-    "test": "node -r ts-node/register/transpile-only --test src/auth/password.util.spec.ts src/auth/token.util.spec.ts src/modules/auth/auth.service.spec.ts src/modules/auth/auth.controller.spec.ts src/modules/auth/dto/login.dto.spec.ts",
+    "test": "node -r ts-node/register/transpile-only --test src/auth/password.util.spec.ts src/auth/token.util.spec.ts src/common/guards/jwt-auth.guard.spec.ts src/common/guards/roles.guard.spec.ts src/modules/auth/auth.service.spec.ts src/modules/auth/auth.controller.spec.ts src/modules/auth/dto/login.dto.spec.ts src/modules/auth-test/auth-test.controller.spec.ts",
     "clean": "rimraf dist",
     "db:migrate": "node scripts/sequelize-cli.js db:migrate",
     "db:migrate:status": "node scripts/sequelize-cli.js db:migrate:status",
