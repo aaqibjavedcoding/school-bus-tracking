@@ -1,7 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import cookieParser from 'cookie-parser';
+// `cookie-parser` is a CommonJS module without an `__esModule` marker, so the
+// default-import sugar would emit `require(...).default` (undefined) under the
+// API's CommonJS tsc build. A namespace import keeps the runtime call correct
+// while remaining type-safe.
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';

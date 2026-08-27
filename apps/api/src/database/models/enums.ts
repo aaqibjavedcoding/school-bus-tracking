@@ -1,11 +1,11 @@
-import { UserRole } from '@school-bus-tracking/shared-types';
+import { StudentGender, UserRole } from '@school-bus-tracking/shared-types';
 
 /**
  * Enumerations persisted by the core domain models.
  *
- * The canonical list of user roles already lives in
- * `@school-bus-tracking/shared-types` (Phase 1) and is re-exported here so the
- * API layer has a single import point — the values are never re-declared.
+ * The canonical role and student gender values live in
+ * `@school-bus-tracking/shared-types` (Phase 1) and are re-exported here so
+ * the API layer has a single import point — the values are never re-declared.
  * `SUPER_ADMIN` is a platform-level role; every other role is scoped to a
  * school (tenant).
  *
@@ -14,18 +14,9 @@ import { UserRole } from '@school-bus-tracking/shared-types';
  * literal values: a migration is an immutable record of what a released
  * schema looked like and must not change meaning when a constant evolves.
  */
-export { UserRole };
+export { StudentGender, UserRole };
 
 export const USER_ROLE_VALUES: UserRole[] = Object.values(UserRole);
-
-/**
- * Optional demographic field captured by schools for reporting.
- */
-export enum StudentGender {
-  MALE = 'MALE',
-  FEMALE = 'FEMALE',
-  OTHER = 'OTHER',
-}
 
 export const STUDENT_GENDER_VALUES: StudentGender[] = Object.values(StudentGender);
 

@@ -5,6 +5,13 @@ import {
   LoginResponse,
   LogoutResponse,
   RefreshResponse,
+  SchoolOnboardingRequest,
+  SchoolOnboardingResponse,
+  StudentCreateRequest,
+  StudentDeleteResponse,
+  StudentListResponse,
+  StudentResponse,
+  StudentUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
@@ -100,6 +107,22 @@ export class ApiClient {
     });
   }
 
+  public async patch<T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<ApiResponse<T>> {
+    return this.request<ApiResponse<T>>(endpoint, {
+      ...options,
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  public async delete<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
+    return this.request<ApiResponse<T>>(endpoint, { ...options, method: 'DELETE' });
+  }
+
   public async login(body: LoginRequest): Promise<ApiResponse<LoginResponse>> {
     return this.post<LoginResponse>('/auth/login', body);
   }
@@ -110,6 +133,42 @@ export class ApiClient {
 
   public async logout(): Promise<ApiResponse<LogoutResponse>> {
     return this.post<LogoutResponse>('/auth/logout');
+  }
+
+  public async onboardSchool(
+    body: SchoolOnboardingRequest,
+  ): Promise<ApiResponse<SchoolOnboardingResponse>> {
+    return this.post<SchoolOnboardingResponse>('/schools', body);
+  }
+
+  public async createStudent(body: StudentCreateRequest): Promise<ApiResponse<StudentResponse>> {
+    return this.post<StudentResponse>('/students', body);
+  }
+
+  public async listStudents(
+    query: { page?: number; limit?: number; search?: string } = {},
+  ): Promise<ApiResponse<StudentListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<StudentListResponse>(`/students${suffix}`);
+  }
+
+  public async getStudent(id: string): Promise<ApiResponse<StudentResponse>> {
+    return this.get<StudentResponse>(`/students/${encodeURIComponent(id)}`);
+  }
+
+  public async updateStudent(
+    id: string,
+    body: StudentUpdateRequest,
+  ): Promise<ApiResponse<StudentResponse>> {
+    return this.patch<StudentResponse>(`/students/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteStudent(id: string): Promise<ApiResponse<StudentDeleteResponse>> {
+    return this.delete<StudentDeleteResponse>(`/students/${encodeURIComponent(id)}`);
   }
 }
 
