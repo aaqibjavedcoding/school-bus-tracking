@@ -9,8 +9,11 @@ import { REFRESH_TOKENS_REPOSITORY, USERS_REPOSITORY } from './auth.constants';
 @Module({
   imports: [
     // Secret and expiry always come from configuration (environment) —
-    // see `config/jwt.config.ts`.
+    // see `config/jwt.config.ts`. Registered as a *global* module so the
+    // single, centrally configured `JwtService` is injectable by guards in
+    // every feature module (e.g. `JwtAuthGuard`) without re-registration.
     JwtModule.registerAsync({
+      global: true,
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('jwt.secret'),
