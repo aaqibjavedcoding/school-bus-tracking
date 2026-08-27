@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true
+  },
+  "include": [],
+  "references": [
+    { "path": "./packages/shared-types" },
+    { "path": "./packages/design-tokens" },
+    { "path": "./packages/config" },
+    { "path": "./packages/validation" },
+    { "path": "./packages/api-client" },
+    { "path": "./apps/api" },
+    { "path": "./apps/web" },
+    { "path": "./apps/mobile" }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "name": "school-bus-tracking",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-grade, multi-tenant School Bus Tracking SaaS platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:packages": "npm --prefix packages/shared-types run build && npm --prefix packages/design-tokens run build && npm --prefix packages/config run build && npm --prefix packages/validation run build && npm --prefix packages/api-client run build",
+    "build:apps": "npm --prefix apps/api run build && npm --prefix apps/web run build && npm --prefix apps/mobile run build",
+    "build": "npm run build:packages && npm run build:apps",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,scss,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,scss,yml,yaml}\"",
+    "clean": "rimraf dist build .next .expo apps/*/dist apps/*/.next apps/*/.expo packages/*/dist"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/node": "^22.13.4",
+    "eslint": "^9.20.1",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^15.15.0",
+    "prettier": "^3.5.1",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.24.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
