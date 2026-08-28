@@ -63,9 +63,12 @@ export class RoutesController {
   /**
    * `GET /api/v1/routes/:id`
    *
-   * Returns the route only when both id and school match.
+   * Returns the route only when both id and school match. Crew and parents
+   * may read a route they already know (typically from an assigned trip) so
+   * the live map can label it — listing and mutations stay admin-only.
    */
   @Get(':id')
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
   async findOne(
     @CurrentUser('school_id') schoolId: string,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
@@ -107,9 +110,12 @@ export class RoutesController {
   /**
    * `GET /api/v1/routes/:id/stops`
    *
-   * Ordered stop manifest of the route (ascending sequence_number).
+   * Ordered stop manifest of the route (ascending sequence_number). Open to
+   * observers so the live map can draw stop markers without listing every
+   * route in the school.
    */
   @Get(':id/stops')
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
   async findRouteStops(
     @CurrentUser('school_id') schoolId: string,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))

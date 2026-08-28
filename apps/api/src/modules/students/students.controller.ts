@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
@@ -58,15 +58,18 @@ export class StudentsController {
   /**
    * `GET /api/v1/students/:id`
    *
-   * Returns the student only when both id and school match.
+   * Returns the student only when both id and school match. Parents may read
+   * a linked child so the "My children" screen can show a name without
+   * listing the whole roster.
    */
   @Get(':id')
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.PARENT)
   async findOne(
-    @CurrentUser('school_id') schoolId: string,
+    @CurrentUser() actor: AuthenticatedRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
   ) {
-    return this.studentsService.findOne(schoolId, id);
+    return this.studentsService.findOneForActor(actor, id);
   }
 
   /**

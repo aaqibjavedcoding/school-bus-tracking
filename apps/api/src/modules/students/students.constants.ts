@@ -7,6 +7,7 @@
  */
 export const STUDENTS_REPOSITORY = 'STUDENTS_REPOSITORY';
 export const STUDENTS_STOPS_REPOSITORY = 'STUDENTS_STOPS_REPOSITORY';
+export const STUDENTS_GUARDIANS_REPOSITORY = 'STUDENTS_GUARDIANS_REPOSITORY';
 
 /**
  * Generic not-found message. It deliberately does not distinguish "does not

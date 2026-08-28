@@ -1,0 +1,98 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import React, { useMemo, useState } from 'react';
+import { fullName, initials, roleLabel } from '../../lib/format';
+import { navItemsForRole } from '../../lib/roles';
+import { useAuth } from '../../features/auth/AuthProvider';
+import { Button } from '../ui';
+import { NavIcon } from './icons';
+
+export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, logout } = useAuth();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  const items = useMemo(() => (user ? navItemsForRole(user.role) : []), [user]);
+
+  if (!user) return <>{children}</>;
+
+  return (
+    <div className="app-shell">
+      {open ? (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+      <aside className={`sidebar ${open ? 'open' : ''}`.trim()} aria-label="Primary">
+        <div className="sidebar-brand">
+          <span className="brand-mark">SBT</span>
+          <div className="brand-copy">
+            <h1>School Bus Tracking</h1>
+            <p>Live fleet operations</p>
+          </div>
+        </div>
+        <nav className="sidebar-nav">
+          {items.map((item) => {
+            const active =
+              item.href === '/'
+                ? pathname === '/'
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-link ${active ? 'active' : ''}`.trim()}
+                onClick={() => setOpen(false)}
+              >
+                <NavIcon name={item.icon} />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="sidebar-footer">
+          <div className="user-chip" style={{ marginBottom: '0.85rem' }}>
+            <span className="avatar">{initials(user)}</span>
+            <div>
+              <strong>{fullName(user)}</strong>
+              <span>{roleLabel(user.role)}</span>
+            </div>
+          </div>
+          <Button variant="secondary" onClick={() => void logout()} style={{ width: '100%' }}>
+            Sign out
+          </Button>
+        </div>
+      </aside>
+      <div className="app-main">
+        <header className="topbar">
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label="Open navigation"
+            onClick={() => setOpen(true)}
+          >
+            Menu
+          </button>
+          <div className="topbar-title">
+            {[...items]
+              .sort((a, b) => b.href.length - a.href.length)
+              .find((item) =>
+                item.href === '/'
+                  ? pathname === '/'
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`),
+              )?.label ?? 'Workspace'}
+          </div>
+          <div className="muted" style={{ fontSize: '0.8rem' }}>
+            {fullName(user)}
+          </div>
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+};

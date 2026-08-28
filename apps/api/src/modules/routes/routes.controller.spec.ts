@@ -49,6 +49,12 @@ async function activateGuards(
 }
 
 const createHandler = RoutesController.prototype.create as unknown as (...args: never[]) => unknown;
+const findOneHandler = RoutesController.prototype.findOne as unknown as (
+  ...args: never[]
+) => unknown;
+const findStopsHandler = RoutesController.prototype.findRouteStops as unknown as (
+  ...args: never[]
+) => unknown;
 const reorderHandler = RoutesController.prototype.reorderRouteStops as unknown as (
   ...args: never[]
 ) => unknown;
@@ -69,6 +75,22 @@ describe('RoutesController (authorization)', () => {
     const user = request.user as AuthenticatedRequestUser;
     assert.equal(user.role, UserRole.SCHOOL_ADMIN);
     assert.equal(user.school_id, SCHOOL_A);
+  });
+
+  it('allows crew and parents to read a route and its stops', async () => {
+    for (const role of [
+      UserRole.SCHOOL_ADMIN,
+      UserRole.DRIVER,
+      UserRole.CONDUCTOR,
+      UserRole.PARENT,
+    ]) {
+      const request: MockRequest = {
+        headers: { authorization: `Bearer ${await signAccessToken(role)}` },
+      };
+      await activateGuards(request, findOneHandler);
+      await activateGuards(request, findStopsHandler);
+      assert.equal(request.user?.role, role);
+    }
   });
 
   it('rejects non-admin roles with 403', async () => {

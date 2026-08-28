@@ -83,6 +83,16 @@ export interface ApiClientConfig {
   baseUrl: string;
   defaultHeaders?: Record<string, string>;
   tenantId?: string;
+  /**
+   * In-memory access-token accessor. The client never writes tokens to
+   * localStorage or the DOM — callers keep the JWT in process memory and
+   * supply it here so REST calls can attach `Authorization: Bearer`.
+   */
+  getAccessToken?: () => string | null;
+  /** Called after a successful `/auth/refresh` so the in-memory token can rotate. */
+  setAccessToken?: (token: string | null) => void;
+  /** Called when refresh fails so the UI can return to the login screen. */
+  onUnauthorized?: () => void;
 }
 
 export class ApiClientError extends Error {
@@ -97,9 +107,15 @@ export class ApiClientError extends Error {
   }
 }
 
+const AUTH_SKIP_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
+  private readonly getAccessToken?: () => string | null;
+  private readonly setAccessToken?: (token: string | null) => void;
+  private readonly onUnauthorized?: () => void;
+  private refreshInFlight: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
@@ -109,14 +125,82 @@ export class ApiClient {
       ...(config.tenantId ? { 'X-Tenant-ID': config.tenantId } : {}),
       ...(config.defaultHeaders || {}),
     };
+    this.getAccessToken = config.getAccessToken;
+    this.setAccessToken = config.setAccessToken;
+    this.onUnauthorized = config.onUnauthorized;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private isAuthSkipPath(endpoint: string): boolean {
+    const path = endpoint.split('?')[0];
+    return AUTH_SKIP_PATHS.has(path);
+  }
+
+  private mergeHeaders(extra?: RequestInit['headers']): Record<string, string> {
+    const headers: Record<string, string> = { ...this.defaultHeaders };
+    if (!extra) {
+      return headers;
+    }
+    if (Array.isArray(extra)) {
+      for (const [key, value] of extra) {
+        headers[key] = value;
+      }
+      return headers;
+    }
+    if (typeof extra === 'object' && 'forEach' in extra && typeof extra.forEach === 'function') {
+      extra.forEach((value: string, key: string) => {
+        headers[key] = value;
+      });
+      return headers;
+    }
+    Object.assign(headers, extra);
+    return headers;
+  }
+
+  private async refreshSession(): Promise<boolean> {
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+
+    this.refreshInFlight = (async () => {
+      try {
+        const envelope = await this.request<ApiResponse<RefreshResponse>>(
+          '/auth/refresh',
+          { method: 'POST' },
+          true,
+        );
+        const token = envelope.data?.access_token ?? null;
+        if (!token) {
+          this.setAccessToken?.(null);
+          return false;
+        }
+        this.setAccessToken?.(token);
+        return true;
+      } catch {
+        this.setAccessToken?.(null);
+        return false;
+      }
+    })().finally(() => {
+      this.refreshInFlight = null;
+    });
+
+    return this.refreshInFlight;
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {},
+    skipRefresh = false,
+  ): Promise<T> {
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-    const headers = {
-      ...this.defaultHeaders,
-      ...(options.headers || {}),
-    };
+    const headers = this.mergeHeaders(options.headers);
+    const skipAuth = this.isAuthSkipPath(endpoint);
+
+    if (!skipAuth && !headers.Authorization && !headers.authorization) {
+      const token = this.getAccessToken?.();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    }
 
     try {
       const response = await fetch(url, {
@@ -124,6 +208,14 @@ export class ApiClient {
         ...options,
         headers,
       });
+
+      if (response.status === 401 && !skipRefresh && !skipAuth) {
+        const refreshed = await this.refreshSession();
+        if (refreshed) {
+          return this.request<T>(endpoint, options, true);
+        }
+        this.onUnauthorized?.();
+      }
 
       if (!response.ok) {
         let errorData: unknown;
@@ -201,15 +293,27 @@ export class ApiClient {
   }
 
   public async login(body: LoginRequest): Promise<ApiResponse<LoginResponse>> {
-    return this.post<LoginResponse>('/auth/login', body);
+    const envelope = await this.post<LoginResponse>('/auth/login', body);
+    if (envelope.data?.access_token) {
+      this.setAccessToken?.(envelope.data.access_token);
+    }
+    return envelope;
   }
 
   public async refresh(): Promise<ApiResponse<RefreshResponse>> {
-    return this.post<RefreshResponse>('/auth/refresh');
+    const envelope = await this.post<RefreshResponse>('/auth/refresh');
+    if (envelope.data?.access_token) {
+      this.setAccessToken?.(envelope.data.access_token);
+    }
+    return envelope;
   }
 
   public async logout(): Promise<ApiResponse<LogoutResponse>> {
-    return this.post<LogoutResponse>('/auth/logout');
+    try {
+      return await this.post<LogoutResponse>('/auth/logout');
+    } finally {
+      this.setAccessToken?.(null);
+    }
   }
 
   public async onboardSchool(

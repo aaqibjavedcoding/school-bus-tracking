@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
-import { Stop, Student } from '../../database/models';
+import { Stop, Student, StudentGuardian } from '../../database/models';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
-import { STUDENTS_REPOSITORY, STUDENTS_STOPS_REPOSITORY } from './students.constants';
+import {
+  STUDENTS_GUARDIANS_REPOSITORY,
+  STUDENTS_REPOSITORY,
+  STUDENTS_STOPS_REPOSITORY,
+} from './students.constants';
 
 /**
  * Student management module.
@@ -16,6 +20,7 @@ import { STUDENTS_REPOSITORY, STUDENTS_STOPS_REPOSITORY } from './students.const
     StudentsService,
     { provide: STUDENTS_REPOSITORY, useValue: Student },
     { provide: STUDENTS_STOPS_REPOSITORY, useValue: Stop },
+    { provide: STUDENTS_GUARDIANS_REPOSITORY, useValue: StudentGuardian },
   ],
   exports: [StudentsService],
 })

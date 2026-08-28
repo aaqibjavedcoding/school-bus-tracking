@@ -233,6 +233,45 @@ export class LiveTrackingService {
    * to an active student whose home stop belongs to the trip's route — the
    * same manifest derivation trip attendance uses.
    */
+  /**
+   * Route ids a parent may observe: every route that currently carries an
+   * active linked child's home stop. Used by trip listing so a parent never
+   * receives another family's runs.
+   */
+  async getParentObservableRouteIds(user: RequestUser): Promise<string[]> {
+    if (user.role !== UserRole.PARENT) {
+      return [];
+    }
+
+    const links = await this.guardians.findAll({
+      where: { school_id: user.school_id, user_id: user.id, is_active: true },
+    });
+    if (links.length === 0) {
+      return [];
+    }
+
+    const students = await this.students.findAll({
+      where: {
+        school_id: user.school_id,
+        is_active: true,
+        id: { [Op.in]: links.map((link) => link.student_id) },
+      },
+      attributes: ['id', 'home_stop_id'],
+    });
+    const stopIds = students
+      .map((student) => student.home_stop_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (stopIds.length === 0) {
+      return [];
+    }
+
+    const stops = await this.stops.findAll({
+      where: { school_id: user.school_id, id: { [Op.in]: stopIds } },
+      attributes: ['id', 'route_id'],
+    });
+    return [...new Set(stops.map((stop) => stop.route_id))];
+  }
+
   async hasLinkedChildOnTrip(user: RequestUser, trip: Trip): Promise<boolean> {
     const links = await this.guardians.findAll({
       where: { school_id: user.school_id, user_id: user.id, is_active: true },

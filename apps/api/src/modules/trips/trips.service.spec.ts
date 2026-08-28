@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import type { AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -308,12 +309,26 @@ function makeRepositories(
  */
 function makeLiveTrackingStub(
   capture: { calls: Array<{ id: string; deleted?: boolean }> } = { calls: [] },
+  options: {
+    authorizeOk?: boolean;
+    isCrew?: boolean;
+    parentRouteIds?: string[];
+  } = {},
 ) {
   return {
-    onTripStatusChanged: async (trip: { id: string }, options: { deleted?: boolean } = {}) => {
-      capture.calls.push({ id: trip.id, deleted: options.deleted });
+    onTripStatusChanged: async (trip: { id: string }, optionsInner: { deleted?: boolean } = {}) => {
+      capture.calls.push({ id: trip.id, deleted: optionsInner.deleted });
       return { event: null, payload: null };
     },
+    authorizeObservation: async (_user: AuthenticatedRequestUser, tripId: string) => {
+      if (options.authorizeOk === false) {
+        return { ok: false as const, reason: 'unauthorized' as const };
+      }
+      const trip = makeTrip({ id: tripId });
+      return { ok: true as const, trip };
+    },
+    isCrewOfTrip: async () => options.isCrew !== false,
+    getParentObservableRouteIds: async () => options.parentRouteIds ?? [],
   } as unknown as LiveTrackingService;
 }
 
@@ -964,6 +979,106 @@ describe('TripsService lifecycle', () => {
     await service.remove(SCHOOL_A, TRIP_A);
 
     assert.deepEqual(liveTrackingCapture.calls, [{ id: TRIP_A, deleted: true }]);
+  });
+});
+
+describe('TripsService observer access', () => {
+  const admin: AuthenticatedRequestUser = {
+    id: DRIVER_A,
+    school_id: SCHOOL_A,
+    role: UserRole.SCHOOL_ADMIN,
+  };
+  const driver: AuthenticatedRequestUser = {
+    id: DRIVER_A,
+    school_id: SCHOOL_A,
+    role: UserRole.DRIVER,
+  };
+  const parent: AuthenticatedRequestUser = {
+    id: 'parent-1',
+    school_id: SCHOOL_A,
+    role: UserRole.PARENT,
+  };
+
+  it('pins driver and conductor lists to the JWT subject', async () => {
+    const capture: Capture = {};
+    const service = makeService(
+      makeRepositories([makeTrip()], defaultAssignments(), defaultResources(), capture),
+    );
+
+    await service.findAllForActor(driver, new ListTripsQueryDto());
+    assert.equal(capture.findAndCountWhere?.driver_id, DRIVER_A);
+    assert.equal(capture.findAndCountWhere?.school_id, SCHOOL_A);
+
+    const conductor: AuthenticatedRequestUser = {
+      id: CONDUCTOR_A,
+      school_id: SCHOOL_A,
+      role: UserRole.CONDUCTOR,
+    };
+    await service.findAllForActor(conductor, new ListTripsQueryDto());
+    assert.equal(capture.findAndCountWhere?.conductor_id, CONDUCTOR_A);
+  });
+
+  it('returns an empty page when a parent has no observable routes', async () => {
+    const repos = makeRepositories([makeTrip()]);
+    const service = makeService(
+      repos,
+      makeLiveTrackingStub(liveTrackingCapture, { parentRouteIds: [] }),
+    );
+    const result = await service.findAllForActor(parent, new ListTripsQueryDto());
+    assert.deepEqual(result.items, []);
+    assert.equal(result.meta.total, 0);
+  });
+
+  it('scopes a parent list to the routes of linked children', async () => {
+    const capture: Capture = {};
+    const repos = makeRepositories([makeTrip()], defaultAssignments(), defaultResources(), capture);
+    const service = makeService(
+      repos,
+      makeLiveTrackingStub(liveTrackingCapture, { parentRouteIds: [ROUTE_A] }),
+    );
+    await service.findAllForActor(parent, new ListTripsQueryDto());
+    assert.equal(capture.findAndCountWhere?.school_id, SCHOOL_A);
+    const routeFilter = capture.findAndCountWhere?.route_id as
+      { [key: symbol]: string[] } | undefined;
+    assert.ok(routeFilter);
+  });
+
+  it('hides unobservable trips behind the generic 404', async () => {
+    const service = makeService(
+      makeRepositories([makeTrip()]),
+      makeLiveTrackingStub(liveTrackingCapture, { authorizeOk: false }),
+    );
+    await expectNotFound(service.findOneForActor(parent, TRIP_A));
+  });
+
+  it('lets an observer read a trip they are authorized for', async () => {
+    const service = makeService(
+      makeRepositories([makeTrip()]),
+      makeLiveTrackingStub(liveTrackingCapture, { authorizeOk: true }),
+    );
+    const trip = await service.findOneForActor(admin, TRIP_A);
+    assert.equal(trip.id, TRIP_A);
+  });
+
+  it('lets rostered crew change status and rejects everyone else with 404', async () => {
+    const allowed = makeService(
+      makeRepositories([makeTrip()]),
+      makeLiveTrackingStub(liveTrackingCapture, { isCrew: true }),
+    );
+    const boarding = await allowed.updateStatusForActor(
+      driver,
+      TRIP_A,
+      statusDto(TripStatus.BOARDING),
+    );
+    assert.equal(boarding.status, TripStatus.BOARDING);
+
+    const denied = makeService(
+      makeRepositories([makeTrip()]),
+      makeLiveTrackingStub(liveTrackingCapture, { isCrew: false }),
+    );
+    await expectNotFound(
+      denied.updateStatusForActor(driver, TRIP_A, statusDto(TripStatus.BOARDING)),
+    );
   });
 });
 
