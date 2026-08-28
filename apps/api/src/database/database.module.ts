@@ -1,12 +1,6 @@
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import {
-  DynamicModule,
-  Logger,
-  Module,
-  OnApplicationBootstrap,
-  Optional,
-} from '@nestjs/common';
+import { DynamicModule, Logger, Module, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { InjectConnection, SequelizeModule } from '@nestjs/sequelize';
 import { config as loadDotenv } from 'dotenv';
@@ -17,10 +11,8 @@ import { models } from './models';
 /**
  * `DatabaseModule.forRoot()` runs while `AppModule` is being evaluated — before
  * Nest bootstraps `ConfigModule` and before it loads `.env` files. Without an
- * early load here, a developer who only sets `DB_AUTO_CONNECT` in `.env` (or
- * who inherits `DB_AUTO_CONNECT=false` from a smoke-test shell) can boot the
- * API with no Sequelize instance. Every subsequent `User.unscoped()` call then
- * throws `Model not initialized`.
+ * early load here, a developer who only sets database settings in `.env` can
+ * boot the API with incomplete connection options.
  *
  * Existing process env always wins (`override: false`) so CI/shell values are
  * respected; we only fill gaps from the conventional env files.
@@ -45,6 +37,51 @@ function loadEnvFilesEarly(): void {
 }
 
 loadEnvFilesEarly();
+
+/**
+ * Returns true only for test/smoke bootstraps that intentionally replace every
+ * repository with in-memory stubs. A normal API process must never honor
+ * `DB_AUTO_CONNECT=false`: doing so starts Nest without a Sequelize instance,
+ * leaving static model methods such as `User.unscoped()` uninitialized until a
+ * request crashes with `Model not initialized`.
+ */
+function isNoDatabaseBootstrapAllowed(): boolean {
+  if (process.env.NODE_ENV === 'test') {
+    return true;
+  }
+
+  if (process.env.DB_ALLOW_NO_CONNECT === 'true') {
+    return true;
+  }
+
+  return process.argv.some(
+    (arg) => /[\\/]scripts[\\/]smoke[\\/]/.test(arg) || /\.(spec|test)\.[cm]?[tj]sx?$/.test(arg),
+  );
+}
+
+/**
+ * `DB_AUTO_CONNECT=false` is a dangerous footgun for the real API because this
+ * project injects Sequelize model classes behind custom tokens. Without a
+ * connection, those classes are never initialized. Keep the opt-out for tests
+ * and smoke scripts, but ignore it for normal `start` / `start:dev` /
+ * `start:prod` bootstraps so login cannot fail at runtime.
+ */
+function shouldAutoConnectDatabase(logger: Logger): boolean {
+  const disabled = process.env.DB_AUTO_CONNECT?.trim().toLowerCase() === 'false';
+
+  if (!disabled) {
+    return true;
+  }
+
+  if (isNoDatabaseBootstrapAllowed()) {
+    return false;
+  }
+
+  logger.warn(
+    'Ignoring DB_AUTO_CONNECT=false for this API process. Database connectivity is required so Sequelize models are initialized. Use DB_ALLOW_NO_CONNECT=true only in stubbed test/smoke bootstraps.',
+  );
+  return true;
+}
 
 /**
  * Final safety net: if the Sequelize connection came up without every domain
@@ -90,11 +127,10 @@ export class DatabaseModule {
   static forRoot(): DynamicModule {
     // A running API needs an initialized Sequelize instance before any model
     // method (for example `User.unscoped()` during login) can be called. Keep
-    // the opt-out for unit/smoke tests, but default to connecting so a normal
-    // development or production start cannot expose uninitialized models when
-    // DB_AUTO_CONNECT is omitted.
-    const isDbAutoConnect = process.env.DB_AUTO_CONNECT !== 'false';
+    // the opt-out only for unit/smoke tests that replace repositories with
+    // stubs; normal development and production starts must always connect.
     const logger = new Logger('DatabaseModule');
+    const isDbAutoConnect = shouldAutoConnectDatabase(logger);
 
     if (!isDbAutoConnect) {
       logger.log('Database auto-connect is disabled for this process.');

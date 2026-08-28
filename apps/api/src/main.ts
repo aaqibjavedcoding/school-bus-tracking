@@ -10,7 +10,20 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { models } from './database/models';
 import { LiveTrackingIoAdapter } from './modules/live-tracking/live-tracking.ws-adapter';
+
+function assertSequelizeModelsInitialized(): void {
+  const uninitialized = models.filter((model) => !model.isInitialized).map((model) => model.name);
+
+  if (uninitialized.length > 0) {
+    throw new Error(
+      `Database models were not initialized (${uninitialized.join(
+        ', ',
+      )}). Start the API with database connectivity enabled; DB_AUTO_CONNECT=false is only for stubbed tests/smoke scripts.`,
+    );
+  }
+}
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -45,6 +58,12 @@ async function bootstrap() {
   // policy and packet caps through the custom adapter (see
   // `live-tracking.ws-adapter.ts`).
   app.useWebSocketAdapter(new LiveTrackingIoAdapter(app));
+
+  // Initialize providers before listening, then fail fast if any Sequelize
+  // model class is still detached. This turns the previous login-time
+  // `Model not initialized: User.unscoped()` 500 into a clear startup error.
+  await app.init();
+  assertSequelizeModelsInitialized();
 
   await app.listen(port);
   logger.log(`API Application is running on: http://localhost:${port}/${apiPrefix}`);
