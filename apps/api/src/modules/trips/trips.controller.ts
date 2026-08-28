@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { JwtAuthGuard, RolesGuard, TenantRequestUser } from '../../common/guards';
 import { TripsService } from './trips.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -48,7 +48,7 @@ export class TripsController {
   /** `GET /api/v1/trips` — paginated, filterable, visibility-scoped list. */
   @Get()
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
-  async findAll(@CurrentUser() actor: AuthenticatedRequestUser, @Query() query: ListTripsQueryDto) {
+  async findAll(@CurrentUser() actor: TenantRequestUser, @Query() query: ListTripsQueryDto) {
     return this.tripsService.findAllForActor(actor, query);
   }
 
@@ -56,7 +56,7 @@ export class TripsController {
   @Get(':id')
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
   async findOne(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
   ) {
@@ -78,7 +78,7 @@ export class TripsController {
   @Patch(':id/status')
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   async updateStatus(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
     @Body() dto: UpdateTripStatusDto,

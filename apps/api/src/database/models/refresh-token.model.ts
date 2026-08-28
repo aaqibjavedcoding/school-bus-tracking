@@ -5,7 +5,8 @@ import { School } from './school.model';
 import { User } from './user.model';
 
 export interface RefreshTokenAttributes extends BaseModelAttributes {
-  school_id: string;
+  /** Tenant anchor; null for platform SUPER_ADMIN sessions. */
+  school_id: string | null;
   user_id: string;
   /**
    * SHA-256 hash of the random refresh token. Plaintext tokens are never
@@ -23,7 +24,7 @@ export interface RefreshTokenAttributes extends BaseModelAttributes {
 
 export type RefreshTokenCreationAttributes = Optional<
   RefreshTokenAttributes,
-  BaseModelManagedFields | 'revoked_at' | 'replaced_by_token_id'
+  BaseModelManagedFields | 'school_id' | 'revoked_at' | 'replaced_by_token_id'
 >;
 
 /**
@@ -65,8 +66,8 @@ export class RefreshToken extends BaseModel<
   RefreshTokenCreationAttributes
 > {
   @ForeignKey(() => School)
-  @Column({ type: DataType.UUID, allowNull: false })
-  declare school_id: string;
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare school_id: string | null;
 
   @ForeignKey(() => User)
   @Column({ type: DataType.UUID, allowNull: false })

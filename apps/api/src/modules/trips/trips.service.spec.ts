@@ -4,7 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';

@@ -6,7 +6,8 @@ import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { JwtAccessTokenPayload, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
-import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { JwtAuthGuard, RolesGuard } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { TripsController } from './trips.controller';
 import { TripsService } from './trips.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
@@ -27,7 +28,11 @@ const jwtAuthGuard = new JwtAuthGuard(jwtService);
 const rolesGuard = new RolesGuard(new Reflector());
 
 async function signAccessToken(role: UserRole, schoolId = SCHOOL_A): Promise<string> {
-  const payload: JwtAccessTokenPayload = { sub: USER_ID, school_id: schoolId, role };
+  const payload: JwtAccessTokenPayload = {
+    sub: USER_ID,
+    school_id: role === UserRole.SUPER_ADMIN ? null : schoolId,
+    role,
+  };
   return jwtService.signAsync(payload);
 }
 

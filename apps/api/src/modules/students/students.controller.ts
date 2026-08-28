@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { JwtAuthGuard, RolesGuard, TenantRequestUser } from '../../common/guards';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
@@ -65,7 +65,7 @@ export class StudentsController {
   @Get(':id')
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.PARENT)
   async findOne(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
   ) {

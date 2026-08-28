@@ -1,4 +1,17 @@
 import {
+  AdminDashboardResponse,
+  AdminSchoolAdminCreateRequest,
+  AdminSchoolAdminListResponse,
+  AdminSchoolAdminResetPasswordRequest,
+  AdminSchoolAdminResponse,
+  AdminSchoolAdminUpdateRequest,
+  AdminSchoolCreateRequest,
+  AdminSchoolDetailsResponse,
+  AdminSchoolLifecycleResponse,
+  AdminSchoolListQuery,
+  AdminSchoolListResponse,
+  AdminSchoolResponse,
+  AdminSchoolUpdateRequest,
   ApiResponse,
   ConductorCreateRequest,
   ConductorDeleteResponse,
@@ -320,6 +333,122 @@ export class ApiClient {
     body: SchoolOnboardingRequest,
   ): Promise<ApiResponse<SchoolOnboardingResponse>> {
     return this.post<SchoolOnboardingResponse>('/schools', body);
+  }
+
+  /**
+   * Super Admin platform console (`/admin/*`).
+   *
+   * Every method here requires a SUPER_ADMIN access token; the API rejects
+   * anonymous callers with 401 and school users with 403. The managed school
+   * id is always passed explicitly in the path — it is never taken from the
+   * caller's own session because a platform admin acts across tenants.
+   */
+
+  /** Platform dashboard: aggregate school/user/transport metrics. */
+  public async getAdminDashboard(): Promise<ApiResponse<AdminDashboardResponse>> {
+    return this.get<AdminDashboardResponse>('/admin/dashboard');
+  }
+
+  public async createAdminSchool(
+    body: AdminSchoolCreateRequest,
+  ): Promise<ApiResponse<AdminSchoolDetailsResponse>> {
+    return this.post<AdminSchoolDetailsResponse>('/admin/schools', body);
+  }
+
+  public async listAdminSchools(
+    query: AdminSchoolListQuery = {},
+  ): Promise<ApiResponse<AdminSchoolListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    if (query.sort) params.set('sort', query.sort);
+    if (query.order) params.set('order', query.order);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<AdminSchoolListResponse>(`/admin/schools${suffix}`);
+  }
+
+  public async getAdminSchool(id: string): Promise<ApiResponse<AdminSchoolDetailsResponse>> {
+    return this.get<AdminSchoolDetailsResponse>(`/admin/schools/${encodeURIComponent(id)}`);
+  }
+
+  public async updateAdminSchool(
+    id: string,
+    body: AdminSchoolUpdateRequest,
+  ): Promise<ApiResponse<AdminSchoolResponse>> {
+    return this.patch<AdminSchoolResponse>(`/admin/schools/${encodeURIComponent(id)}`, body);
+  }
+
+  public async activateAdminSchool(id: string): Promise<ApiResponse<AdminSchoolLifecycleResponse>> {
+    return this.post<AdminSchoolLifecycleResponse>(
+      `/admin/schools/${encodeURIComponent(id)}/activate`,
+    );
+  }
+
+  public async deactivateAdminSchool(
+    id: string,
+  ): Promise<ApiResponse<AdminSchoolLifecycleResponse>> {
+    return this.post<AdminSchoolLifecycleResponse>(
+      `/admin/schools/${encodeURIComponent(id)}/deactivate`,
+    );
+  }
+
+  public async listSchoolAdmins(
+    schoolId: string,
+    query: { page?: number; limit?: number; search?: string } = {},
+  ): Promise<ApiResponse<AdminSchoolAdminListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<AdminSchoolAdminListResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/admins${suffix}`,
+    );
+  }
+
+  public async createSchoolAdmin(
+    schoolId: string,
+    body: AdminSchoolAdminCreateRequest,
+  ): Promise<ApiResponse<AdminSchoolAdminResponse>> {
+    return this.post<AdminSchoolAdminResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/admins`,
+      body,
+    );
+  }
+
+  public async updateSchoolAdmin(
+    schoolId: string,
+    adminId: string,
+    body: AdminSchoolAdminUpdateRequest,
+  ): Promise<ApiResponse<AdminSchoolAdminResponse>> {
+    return this.patch<AdminSchoolAdminResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(adminId)}`,
+      body,
+    );
+  }
+
+  public async setSchoolAdminActive(
+    schoolId: string,
+    adminId: string,
+    isActive: boolean,
+  ): Promise<ApiResponse<AdminSchoolAdminResponse>> {
+    const action = isActive ? 'activate' : 'deactivate';
+    return this.post<AdminSchoolAdminResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(adminId)}/${action}`,
+    );
+  }
+
+  public async resetSchoolAdminPassword(
+    schoolId: string,
+    adminId: string,
+    body: AdminSchoolAdminResetPasswordRequest,
+  ): Promise<ApiResponse<{ id: string; message: string }>> {
+    return this.post<{ id: string; message: string }>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(adminId)}/reset-password`,
+      body,
+    );
   }
 
   public async createStudent(body: StudentCreateRequest): Promise<ApiResponse<StudentResponse>> {

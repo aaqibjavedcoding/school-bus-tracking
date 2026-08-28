@@ -17,8 +17,16 @@ export interface NavItem {
     | 'school';
 }
 
+/**
+ * Landing page after login / refresh for each role.
+ *
+ * The platform SUPER_ADMIN is not a school user: it lands on the platform
+ * console (`/admin`), while school roles land in their tenant workspace.
+ */
 export function homePath(role: UserRole): string {
   switch (role) {
+    case UserRole.SUPER_ADMIN:
+      return '/admin';
     case UserRole.DRIVER:
     case UserRole.CONDUCTOR:
       return '/crew';
@@ -31,6 +39,11 @@ export function homePath(role: UserRole): string {
 
 export function navItemsForRole(role: UserRole): NavItem[] {
   switch (role) {
+    case UserRole.SUPER_ADMIN:
+      return [
+        { href: '/admin', label: 'Overview', icon: 'home' },
+        { href: '/admin/schools', label: 'Schools', icon: 'school' },
+      ];
     case UserRole.SCHOOL_ADMIN:
       return [
         { href: '/', label: 'Dashboard', icon: 'home' },
@@ -59,13 +72,30 @@ export function navItemsForRole(role: UserRole): NavItem[] {
   }
 }
 
+/**
+ * Frontend route guard. Mirrors the backend role enforcement so a school user
+ * never even renders a platform page (and vice versa); the API is the real
+ * boundary and would return 401/403 regardless.
+ */
 export function canAccessPath(role: UserRole, pathname: string): boolean {
   if (pathname === '/login') return true;
+
+  // The platform console belongs exclusively to the SUPER_ADMIN.
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return role === UserRole.SUPER_ADMIN;
+  }
+  // School tenants must never see platform pages; the platform admin never
+  // lands inside a school workspace.
+  if (role === UserRole.SUPER_ADMIN) {
+    return false;
+  }
+
   const allowed = new Set(navItemsForRole(role).map((item) => item.href));
   if (pathname === '/') {
-    return allowed.has('/') || role === UserRole.SCHOOL_ADMIN || role === UserRole.SUPER_ADMIN;
+    return allowed.has('/') || role === UserRole.SCHOOL_ADMIN;
   }
   for (const href of allowed) {
+    if (href === '/admin') continue;
     if (pathname === href || pathname.startsWith(`${href}/`)) {
       return true;
     }

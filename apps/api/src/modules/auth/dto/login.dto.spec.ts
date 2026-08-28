@@ -24,10 +24,12 @@ describe('LoginDto validation', () => {
     assert.equal(errors.length, 0);
   });
 
-  it('rejects a missing or malformed school_id', async () => {
-    assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: undefined })), [
-      'school_id',
-    ]);
+  it('accepts an omitted or null school_id (platform SUPER_ADMIN login)', async () => {
+    assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: undefined })), []);
+    assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: null })), []);
+  });
+
+  it('rejects a malformed school_id', async () => {
     assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: 'not-a-uuid' })), [
       'school_id',
     ]);

@@ -214,7 +214,7 @@ export class StaffService {
   private toStaffResponse<R extends StaffRole>(member: User, role: R): StaffResponse<R> {
     return {
       id: member.id,
-      school_id: member.school_id,
+      school_id: member.school_id as string,
       // Echo the server-pinned role rather than trusting the stored row: a
       // response can never advertise a role different from its resource.
       role,

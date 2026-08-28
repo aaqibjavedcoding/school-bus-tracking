@@ -1,0 +1,13 @@
+export {
+  CreateAdminSchoolDto,
+  AdminSchoolProfileDto,
+  AdminSchoolInitialAdminDto,
+} from './create-admin-school.dto';
+export { UpdateAdminSchoolDto } from './update-admin-school.dto';
+export { ListAdminSchoolsQueryDto } from './list-admin-schools-query.dto';
+export {
+  CreateSchoolAdminDto,
+  UpdateSchoolAdminDto,
+  ResetSchoolAdminPasswordDto,
+  ListSchoolAdminsQueryDto,
+} from './school-admin.dto';

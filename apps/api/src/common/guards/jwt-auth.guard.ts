@@ -1,6 +1,13 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
+import { SCHOOL_INACTIVE_MESSAGE, SchoolAccessService } from '../access';
 
 /**
  * Non-sensitive user context attached to `request.user` once the bearer
@@ -11,9 +18,22 @@ import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-typ
  */
 export interface AuthenticatedRequestUser {
   id: string;
-  school_id: string;
+  /** Tenant id for school users; null for the platform SUPER_ADMIN. */
+  school_id: string | null;
   role: UserRole;
 }
+
+/**
+ * Non-null tenant context for school-scoped services.
+ *
+ * Tenant feature controllers are reachable only by non-platform roles whose
+ * payload validation guarantees a non-empty `school_id`; they pass this
+ * narrowed type to their services. The platform `/admin/*` surface never
+ * uses the JWT tenant — it manages schools through route parameters.
+ */
+export type TenantRequestUser = Omit<AuthenticatedRequestUser, 'school_id'> & {
+  school_id: string;
+};
 
 /** Generic message when the Authorization header is absent or malformed. */
 export const MISSING_AUTH_TOKEN_MESSAGE = 'Missing bearer access token';
@@ -31,24 +51,32 @@ const VALID_ROLES: readonly string[] = Object.values(UserRole);
  * Structural validation of a verified access-token payload.
  *
  * A cryptographically valid token is not enough — the payload must carry the
- * complete tenant-scoped claim set (`sub`, `school_id`, `role`) with a
- * recognized role. This is the single implementation of that rule: the HTTP
- * `JwtAuthGuard` and the live-tracking Socket.IO gateway both rely on it so
- * the two authentication surfaces can never drift.
+ * complete claim set (`sub`, `school_id`, `role`) with a recognized role.
+ * `school_id` is a non-empty tenant id for every school-scoped role and
+ * `null` for the platform `SUPER_ADMIN`, which belongs to no tenant. This is
+ * the single implementation of that rule: the HTTP `JwtAuthGuard` and the
+ * live-tracking Socket.IO gateway both rely on it so the two authentication
+ * surfaces can never drift.
  */
 export function isAccessTokenPayloadValid(payload: unknown): payload is JwtAccessTokenPayload {
   if (typeof payload !== 'object' || payload === null) {
     return false;
   }
   const candidate = payload as Partial<JwtAccessTokenPayload>;
-  return (
-    typeof candidate.sub === 'string' &&
-    candidate.sub.length > 0 &&
-    typeof candidate.school_id === 'string' &&
-    candidate.school_id.length > 0 &&
-    typeof candidate.role === 'string' &&
-    VALID_ROLES.includes(candidate.role)
-  );
+  if (
+    typeof candidate.sub !== 'string' ||
+    candidate.sub.length === 0 ||
+    typeof candidate.role !== 'string' ||
+    !VALID_ROLES.includes(candidate.role)
+  ) {
+    return false;
+  }
+  if (candidate.role === UserRole.SUPER_ADMIN) {
+    // Platform accounts are not tenants: school_id must be absent/null.
+    return candidate.school_id === null || candidate.school_id === undefined;
+  }
+  // Every other role is a school user and must carry a real tenant id.
+  return typeof candidate.school_id === 'string' && candidate.school_id.length > 0;
 }
 
 /** Minimal shape of the incoming request the guard interacts with. */
@@ -69,7 +97,16 @@ interface RequestWithUser {
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
+  /**
+   * The school-lifecycle check is optional so this guard stays trivially
+   * unit-constructible (`new JwtAuthGuard(jwtService)`, matching the existing
+   * tests). In a running Nest application the global `AccessModule` injects
+   * the real {@link SchoolAccessService}.
+   */
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly schoolAccess?: SchoolAccessService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<RequestWithUser>();
@@ -92,6 +129,17 @@ export class JwtAuthGuard implements CanActivate {
 
     if (!this.isValidPayload(payload)) {
       throw new UnauthorizedException(INVALID_AUTH_TOKEN_MESSAGE);
+    }
+
+    // Centralized school-lifecycle enforcement: once a tenant is deactivated
+    // its existing access tokens must stop granting access, immediately. The
+    // platform SUPER_ADMIN has no school claim (null) and always passes so it
+    // can keep managing inactive tenants — no lookup is made for it.
+    if (this.schoolAccess && payload.role !== UserRole.SUPER_ADMIN) {
+      const accessible = await this.schoolAccess.isSchoolAccessible(payload.school_id);
+      if (!accessible) {
+        throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
+      }
     }
 
     request.user = {
