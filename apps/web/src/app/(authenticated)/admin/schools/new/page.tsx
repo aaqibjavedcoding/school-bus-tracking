@@ -121,7 +121,10 @@ export default function NewSchoolPage() {
     try {
       const envelope = await apiClient.createAdminSchool(parsed.data);
       const school = envelope.data?.school;
-      toast.push(`School ${school?.name ?? 'created'} provisioned successfully`, 'success');
+      toast.push(
+        `School ${school?.name ?? 'created'} provisioned. ${school?.code ? `School code ${school.code}. ` : ''}The admin signs in with email + school code.`,
+        'success',
+      );
       if (school) {
         router.push(`/admin/schools/${school.id}`);
       } else {

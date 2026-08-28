@@ -60,9 +60,9 @@ export default function LoginPage() {
         <form className="form-grid" onSubmit={(event) => void onSubmit(event)} noValidate>
           <Field
             id="school_id"
-            label="School ID"
+            label="School code / ID"
             error={fieldErrors.school_id}
-            hint="The school UUID from your administrator. Platform administrators sign in with this left blank."
+            hint="Your school's code (e.g. lincoln-high) or its UUID, supplied by the school administrator. Platform administrators leave this blank."
           >
             <Input
               id="school_id"

@@ -101,12 +101,22 @@ describe('platform validation schemas', () => {
     assert.equal(attack.success, false);
   });
 
-  it('login schema allows an omitted/empty school_id for platform login but not a bad UUID', () => {
+  it('login schema allows an omitted/empty school_id for platform login but not a malformed tenant id', () => {
     assert.ok(loginSchema.safeParse({ email: 'a@b.test', password: 'x' }).success);
     assert.ok(loginSchema.safeParse({ school_id: '', email: 'a@b.test', password: 'x' }).success);
     assert.ok(loginSchema.safeParse({ school_id: null, email: 'a@b.test', password: 'x' }).success);
+    // A UUID or a lowercase alphanumeric/hyphenated code is accepted; anything
+    // else (spaces, symbols, uppercase-with-spaces) is rejected.
+    assert.ok(
+      loginSchema.safeParse({ school_id: 'lincoln-high', email: 'a@b.test', password: 'x' })
+        .success,
+    );
     assert.equal(
-      loginSchema.safeParse({ school_id: 'not-a-uuid', email: 'a@b.test', password: 'x' }).success,
+      loginSchema.safeParse({ school_id: 'not a code', email: 'a@b.test', password: 'x' }).success,
+      false,
+    );
+    assert.equal(
+      loginSchema.safeParse({ school_id: 'bad@code!', email: 'a@b.test', password: 'x' }).success,
       false,
     );
   });

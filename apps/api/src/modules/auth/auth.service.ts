@@ -18,8 +18,9 @@ import {
   parseDurationToMs,
 } from '../../auth';
 import { SCHOOL_INACTIVE_MESSAGE, SchoolAccessService } from '../../common/access';
-import { RefreshToken, User } from '../../database/models';
+import { RefreshToken, School, User } from '../../database/models';
 import {
+  AUTH_SCHOOLS_REPOSITORY,
   DEFAULT_REFRESH_COOKIE_NAME,
   EXPIRED_REFRESH_TOKEN_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
@@ -38,6 +39,10 @@ import { LoginDto } from './dto/login.dto';
  * password check — response timing must not reveal whether an account exists.
  */
 const TIMING_EQUALIZATION_HASH = '$2b$12$soESu/j94RmCRdbw9np7i.i3xYN/EEH.2t.q0FleCvYHQqRvA.eIW';
+
+/** Canonical RFC 4122 UUID (any variant / version), used to tell a raw tenant
+ * UUID apart from a human-friendly school `code` at login. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface AuthSessionResult<T = LoginResponse | RefreshResponse> {
   response: T;
@@ -58,6 +63,14 @@ export class AuthService {
      * running application.
      */
     private readonly schoolAccess?: SchoolAccessService,
+    /**
+     * `School` model used to resolve a tenant `code` supplied at login into
+     * its `school_id`. Optional so the service stays unit-constructible: a raw
+     * UUID needs no school lookup, and existing tests that pass a UUID never
+     * touch this dependency.
+     */
+    @Inject(AUTH_SCHOOLS_REPOSITORY)
+    private readonly schools?: typeof School,
   ) {}
 
   /**
@@ -77,13 +90,28 @@ export class AuthService {
     const email = normalizeEmail(dto.email);
     const isPlatformLogin = dto.school_id === null || dto.school_id === undefined;
 
+    // A school user identifies the tenant either by its raw UUID or by its
+    // human-friendly `code`. Resolve the code to the tenant id; if the code is
+    // unknown (`schoolId === null`) we must NOT hand the raw code to a
+    // tenant-scoped lookup — `users.school_id` is a PostgreSQL UUID and would
+    // surface a 500 "invalid input syntax for type uuid". Instead we skip the
+    // query and let the generic credential failure below run, which keeps the
+    // response (and its timing) identical to a wrong password / unknown email
+    // so an attacker cannot probe which tenant codes exist.
+    const schoolId = isPlatformLogin
+      ? null
+      : await this.resolveTenantId((dto.school_id as string).trim());
+
     // `unscoped()` opts out of the default scope that hides `password_hash`;
     // the hash is needed here for comparison and is never returned.
-    const user = await this.users.unscoped().findOne({
-      where: isPlatformLogin
-        ? { email, role: UserRole.SUPER_ADMIN, school_id: null }
-        : { school_id: dto.school_id, email },
-    });
+    const user =
+      isPlatformLogin || schoolId
+        ? await this.users.unscoped().findOne({
+            where: isPlatformLogin
+              ? { email, role: UserRole.SUPER_ADMIN, school_id: null }
+              : { school_id: schoolId, email },
+          })
+        : null;
 
     // Always perform exactly one bcrypt comparison (see TIMING_EQUALIZATION_HASH).
     const passwordMatches = await comparePassword(
@@ -249,6 +277,27 @@ export class AuthService {
     return {
       message: LOGOUT_SUCCESS_MESSAGE,
     };
+  }
+
+  /**
+   * Resolves the tenant identifier supplied at login to a `school_id`.
+   *
+   * A canonical UUID is returned unchanged. Anything else is treated as the
+   * school's tenant `code` and looked up on the `School` model; an unknown
+   * code resolves to `null` so the caller can fall through to the generic
+   * credential failure. Enforces the same trailing/leading space trimming and
+   * lower-casing used at provisioning (`normalizeEmail`-style) so a code a
+   * school admin types is matched consistently.
+   */
+  private async resolveTenantId(identifier: string): Promise<string | null> {
+    if (UUID_PATTERN.test(identifier)) {
+      return identifier;
+    }
+    if (!this.schools) {
+      return null;
+    }
+    const school = await this.schools.findOne({ where: { code: identifier.toLowerCase() } });
+    return school ? school.id : null;
   }
 
   getRefreshCookieName(): string {

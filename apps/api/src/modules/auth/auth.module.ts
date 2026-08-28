@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { RefreshToken, User } from '../../database/models';
+import { RefreshToken, School, User } from '../../database/models';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { REFRESH_TOKENS_REPOSITORY, USERS_REPOSITORY } from './auth.constants';
+import {
+  AUTH_SCHOOLS_REPOSITORY,
+  REFRESH_TOKENS_REPOSITORY,
+  USERS_REPOSITORY,
+} from './auth.constants';
 
 @Module({
   imports: [
@@ -35,6 +39,8 @@ import { REFRESH_TOKENS_REPOSITORY, USERS_REPOSITORY } from './auth.constants';
     // `User.unscoped()` works at login.
     { provide: USERS_REPOSITORY, useValue: User },
     { provide: REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
+    // Used to resolve a tenant `code` supplied at login into its `school_id`.
+    { provide: AUTH_SCHOOLS_REPOSITORY, useValue: School },
   ],
   exports: [AuthService],
 })
