@@ -4,7 +4,13 @@ import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
 import { adminSchoolCreateSchema } from '@school-bus-tracking/validation';
 import { Button, Card, Field, Input, PageHeader, useToast } from '../../../../../components/ui';
-import { fieldErrorsFromUnknown, getApiErrorMessage, emptyToNull } from '../../../../../lib/errors';
+import {
+  fieldErrorsFromUnknown,
+  fieldErrorsFromZod,
+  formErrorsFromZod,
+  getApiErrorMessage,
+  emptyToNull,
+} from '../../../../../lib/errors';
 import { apiClient } from '../../../../../services/api';
 
 interface FormState {
@@ -36,6 +42,28 @@ const EMPTY: FormState = {
   adminPassword: '',
   adminPhone: '',
 };
+
+/**
+ * Schema path → DOM id, in the order the fields appear on the page.
+ *
+ * Used to move focus (and therefore the scroll position) to the first field
+ * that failed validation, so a rejected submit is impossible to miss even
+ * when the offending field is above the fold.
+ */
+const FIELD_IDS: ReadonlyArray<readonly [path: string, id: string]> = [
+  ['school.name', 'name'],
+  ['school.code', 'code'],
+  ['school.email', 'email'],
+  ['school.phone', 'phone'],
+  ['school.city', 'city'],
+  ['school.country', 'country'],
+  ['school.timezone', 'timezone'],
+  ['admin.first_name', 'adminFirstName'],
+  ['admin.last_name', 'adminLastName'],
+  ['admin.email', 'adminEmail'],
+  ['admin.phone', 'adminPhone'],
+  ['admin.password', 'adminPassword'],
+];
 
 export default function NewSchoolPage() {
   const router = useRouter();
@@ -73,11 +101,19 @@ export default function NewSchoolPage() {
 
     const parsed = adminSchoolCreateSchema.safeParse(payload);
     if (!parsed.success) {
-      setFieldErrors(
-        flattenNestedErrors(
-          parsed.error.flatten() as { fieldErrors: Record<string, string[] | undefined> },
-        ),
+      // Map every issue by its full path (`school.code`, `admin.password`) so
+      // the message lands next to the field the user has to fix.
+      const errors = fieldErrorsFromZod(parsed.error);
+      setFieldErrors(errors);
+      // Never fail silently: always explain why nothing was submitted, even
+      // for object-level issues that belong to no single field.
+      const objectErrors = formErrorsFromZod(parsed.error);
+      setFormError(
+        objectErrors.length > 0
+          ? objectErrors.join(' ')
+          : 'Please fix the highlighted fields and try again.',
       );
+      focusFirstInvalidField(errors);
       return;
     }
     setFieldErrors({});
@@ -281,15 +317,19 @@ export default function NewSchoolPage() {
   );
 }
 
-/** Zod field errors for nested objects arrive keyed as `school.name`. */
-function flattenNestedErrors(error: {
-  fieldErrors: Record<string, string[] | undefined>;
-}): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(error.fieldErrors)) {
-    if (messages && messages.length > 0) {
-      result[key] = messages[0];
-    }
+/**
+ * Moves focus to the first invalid field in visual order.
+ *
+ * The error state is applied after this handler returns, so the lookup waits
+ * one animation frame — the highlighted input exists in the DOM by then and
+ * focusing it also scrolls it into view.
+ */
+function focusFirstInvalidField(errors: Record<string, string>): void {
+  const target = FIELD_IDS.find(([path]) => errors[path]);
+  if (!target) {
+    return;
   }
-  return result;
+  window.requestAnimationFrame(() => {
+    document.getElementById(target[1])?.focus();
+  });
 }

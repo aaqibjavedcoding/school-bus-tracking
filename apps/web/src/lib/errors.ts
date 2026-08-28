@@ -46,16 +46,59 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
   return fallback;
 }
 
-export function fieldErrorsFromZod(error: {
-  flatten: () => { fieldErrors: Record<string, string[] | undefined> };
-}): Record<string, string> {
+/**
+ * The slice of a Zod error the form helpers need.
+ *
+ * `ZodError` satisfies this structurally, so callers can pass the error from
+ * `safeParse()` directly without importing Zod types here.
+ */
+export interface ZodIssueLike {
+  path: ReadonlyArray<string | number>;
+  message: string;
+}
+
+export interface ZodErrorLike {
+  issues: ReadonlyArray<ZodIssueLike>;
+}
+
+/**
+ * Maps a Zod error to the `field -> message` keys the forms render.
+ *
+ * Errors are read from `error.issues` (the full path of every issue) rather
+ * than `error.flatten().fieldErrors`, because `flatten()` only reports the
+ * **top-level** key of a nested object. For a schema such as
+ * `adminSchoolCreateSchema` a bad code arrives as `school.code`, but
+ * `flatten()` keys it simply as `school` — looking up `school.code` in that
+ * map returns nothing, so the form silently swallowed every validation error
+ * and the submit button appeared to do nothing.
+ *
+ * Paths are joined with dots (`school.code`, `admin.password`), which is
+ * exactly how nested forms address their fields; single-segment paths
+ * (`code`) behave exactly as before.
+ */
+export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(error.flatten().fieldErrors)) {
-    if (messages && messages.length > 0) {
-      result[key] = messages[0];
+  for (const issue of error.issues) {
+    if (issue.path.length === 0) {
+      continue;
+    }
+    const key = issue.path.join('.');
+    if (!result[key]) {
+      result[key] = issue.message;
     }
   }
   return result;
+}
+
+/**
+ * Object-level Zod messages that belong to no single field (e.g. `.strict()`
+ * reporting an unrecognized key, or a `.refine()` on the whole object).
+ *
+ * These have an empty path, so `fieldErrorsFromZod()` skips them; forms show
+ * them in the form-level error area instead of dropping them.
+ */
+export function formErrorsFromZod(error: ZodErrorLike): string[] {
+  return error.issues.filter((issue) => issue.path.length === 0).map((issue) => issue.message);
 }
 
 export function unwrapEnvelope<T>(
