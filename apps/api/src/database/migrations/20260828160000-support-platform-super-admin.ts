@@ -31,25 +31,17 @@ import type { QueryInterface } from 'sequelize';
  */
 export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {
-    // Platform accounts (SUPER_ADMIN) belong to no tenant. The column stays
-    // UUID-typed and keeps its foreign key — a null simply means "platform".
-    await queryInterface.changeColumn(
-      'users',
-      'school_id',
-      {
-        type: 'UUID',
-        allowNull: true,
-      },
+    // Platform accounts (SUPER_ADMIN) belong to no tenant. Relax only the
+    // nullability; altering the column type is unnecessary and could cause a
+    // migration implementation to rebuild/drop dependencies of the existing
+    // composite foreign keys. The UUID type and both foreign keys stay intact.
+    await queryInterface.sequelize.query(
+      'ALTER TABLE "users" ALTER COLUMN "school_id" DROP NOT NULL;',
       { transaction },
     );
 
-    await queryInterface.changeColumn(
-      'refresh_tokens',
-      'school_id',
-      {
-        type: 'UUID',
-        allowNull: true,
-      },
+    await queryInterface.sequelize.query(
+      'ALTER TABLE "refresh_tokens" ALTER COLUMN "school_id" DROP NOT NULL;',
       { transaction },
     );
 
@@ -84,23 +76,16 @@ export async function down(queryInterface: QueryInterface): Promise<void> {
       { transaction },
     );
 
-    await queryInterface.changeColumn(
-      'refresh_tokens',
-      'school_id',
-      {
-        type: 'UUID',
-        allowNull: false,
-      },
+    // All remaining rows are tenant-scoped at this point, so nullability can
+    // be restored without changing the UUID type or touching the composite
+    // foreign keys.
+    await queryInterface.sequelize.query(
+      'ALTER TABLE "refresh_tokens" ALTER COLUMN "school_id" SET NOT NULL;',
       { transaction },
     );
 
-    await queryInterface.changeColumn(
-      'users',
-      'school_id',
-      {
-        type: 'UUID',
-        allowNull: false,
-      },
+    await queryInterface.sequelize.query(
+      'ALTER TABLE "users" ALTER COLUMN "school_id" SET NOT NULL;',
       { transaction },
     );
   });

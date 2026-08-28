@@ -64,6 +64,9 @@ export type TripCreationAttributes = Optional<
   timestamps: true,
   paranoid: true,
   indexes: [
+    // Referenced by tenant-pinned foreign keys from attendance and live
+    // tracking. This must be a non-partial unique index.
+    { name: 'uq_trips_school_id', unique: true, fields: ['school_id', 'id'] },
     {
       name: 'uq_trips_route_scheduled_start',
       unique: true,
