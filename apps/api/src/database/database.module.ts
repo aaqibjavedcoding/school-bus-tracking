@@ -1,6 +1,12 @@
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { DynamicModule, Logger, Module, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  DynamicModule,
+  Logger,
+  Module,
+  OnApplicationBootstrap,
+  Optional,
+} from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { InjectConnection, SequelizeModule } from '@nestjs/sequelize';
 import { config as loadDotenv } from 'dotenv';
@@ -48,7 +54,7 @@ loadEnvFilesEarly();
  * Registered only when auto-connect is enabled so unit/smoke tests that run
  * with `DB_AUTO_CONNECT=false` do not need a real Sequelize provider.
  */
-class SequelizeModelInitService implements OnModuleInit {
+class SequelizeModelInitService implements OnApplicationBootstrap {
   private readonly logger = new Logger('SequelizeModelInitService');
 
   constructor(
@@ -57,7 +63,7 @@ class SequelizeModelInitService implements OnModuleInit {
     private readonly sequelize?: Sequelize,
   ) {}
 
-  onModuleInit(): void {
+  onApplicationBootstrap(): void {
     if (!this.sequelize) {
       return;
     }
