@@ -1,7 +1,7 @@
 'use strict';
 
 import type { QueryInterface, QueryOptions } from 'sequelize';
-import bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcryptjs';
 
 /**
  * DEV SEED — platform SUPER_ADMIN bootstrap account.
