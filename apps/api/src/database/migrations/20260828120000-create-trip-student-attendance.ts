@@ -17,28 +17,9 @@ import { DataTypes } from 'sequelize';
  * `database/models/enums.ts`): PENDING → BOARDED → DROPPED. The one-way
  * progression is enforced by the service layer, while the check constraints
  * below guarantee that the stored timestamps can never contradict the status.
- *
- * Two helper unique indexes — `uq_trips_school_id` and `uq_students_school_id`
- * — are created first: PostgreSQL requires a unique index on the referenced
- * `(school_id, id)` columns before a tenant-pinned composite foreign key can
- * point at them, exactly like `uq_routes_school_id` / `uq_users_school_id` do
- * for the earlier tables. They are created `IF NOT EXISTS` and dropped again
- * on `down` only when no remaining foreign key depends on them, which keeps
- * this migration reversible without breaking neighbouring constraints.
  */
 export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {
-    await queryInterface.sequelize.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_trips_school_id" ON "trips" ("school_id", "id");`,
-      { transaction },
-    );
-
-    await queryInterface.sequelize.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_students_school_id"
-         ON "students" ("school_id", "id");`,
-      { transaction },
-    );
-
     await queryInterface.createTable(
       'trip_student_attendance',
       {
@@ -219,22 +200,5 @@ export async function down(queryInterface: QueryInterface): Promise<void> {
       'DROP TYPE IF EXISTS "enum_trip_student_attendance_status";',
       { transaction },
     );
-
-    // Only remove the helper unique indexes when nothing else references them
-    // any more — `student_guardians`, for instance, also points at
-    // `students (school_id, id)`.
-    for (const indexName of ['uq_trips_school_id', 'uq_students_school_id']) {
-      await queryInterface.sequelize.query(
-        `DO $$
-           DECLARE target oid := to_regclass('public.${indexName}')::oid;
-           BEGIN
-             IF target IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conindid = target) THEN
-               EXECUTE 'DROP INDEX public.${indexName}';
-             END IF;
-           END $$;`,
-        { transaction },
-      );
-    }
   });
 }

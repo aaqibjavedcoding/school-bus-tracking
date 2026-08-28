@@ -14,6 +14,11 @@ import { DataTypes } from 'sequelize';
  * - once set, the stop is guaranteed to belong to the same school;
  * - deleting a stop clears the reference instead of breaking the row.
  *
+ * The `(school_id, id)` unique index is created here, alongside the students
+ * table, because it is the target key for every later tenant-pinned student
+ * reference (`student_guardians` and `trip_student_attendance`). A primary key
+ * on `id` alone is not sufficient for a composite foreign key.
+ *
  * Guardian/parent linkage intentionally stays out of this table: it is a
  * many-to-many relationship with relationship + pickup rights, persisted by
  * the later `student_guardians` migration.
@@ -109,6 +114,15 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
          ON DELETE SET NULL;`,
       { transaction },
     );
+
+    // This is the referenced key for tenant-pinned student foreign keys. It
+    // must be non-partial: PostgreSQL cannot use the soft-delete admission
+    // index above as the target of a foreign key.
+    await queryInterface.addIndex('students', ['school_id', 'id'], {
+      name: 'uq_students_school_id',
+      unique: true,
+      transaction,
+    });
 
     await queryInterface.addIndex('students', ['school_id', 'admission_number'], {
       name: 'uq_students_school_admission',

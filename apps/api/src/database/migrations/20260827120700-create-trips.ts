@@ -17,6 +17,11 @@ import { DataTypes, Op, col } from 'sequelize';
  * service layer; the database guarantees the value set and the time ordering.
  *
  * Uniqueness: one open trip per route per scheduled departure.
+ *
+ * The `(school_id, id)` unique index is created here, alongside the trips
+ * table, because it is the target key for the later tenant-pinned attendance
+ * and live-location foreign keys. A primary key on `id` alone is not
+ * sufficient for a composite foreign key.
  */
 export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {
@@ -164,6 +169,15 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
           { actual_end_at: { [Op.gte]: col('actual_start_at') } },
         ],
       },
+      transaction,
+    });
+
+    // This is the referenced key for tenant-pinned trip foreign keys. It must
+    // be non-partial: PostgreSQL cannot use the soft-delete trip uniqueness
+    // index below as the target of a foreign key.
+    await queryInterface.addIndex('trips', ['school_id', 'id'], {
+      name: 'uq_trips_school_id',
+      unique: true,
       transaction,
     });
 

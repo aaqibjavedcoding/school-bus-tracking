@@ -61,14 +61,18 @@ export type StudentCreationAttributes = Optional<
   timestamps: true,
   paranoid: true,
   indexes: [
+    // Referenced by tenant-pinned foreign keys from student_guardians and
+    // trip_student_attendance. This must be a non-partial unique index;
+    // soft-delete indexes cannot be used as foreign-key targets in PostgreSQL.
+    { name: 'uq_students_school_id', unique: true, fields: ['school_id', 'id'] },
     {
       name: 'uq_students_school_admission',
       unique: true,
       fields: ['school_id', 'admission_number'],
       where: { deleted_at: null },
     },
-    // Stop manifest lookup (also backs the composite foreign key). Its
-    // leftmost prefix covers plain tenant-scoped lookups.
+    // Stop manifest lookup. Its leftmost prefix covers plain tenant-scoped
+    // lookups.
     { name: 'idx_students_school_stop', fields: ['school_id', 'home_stop_id'] },
     { name: 'idx_students_school_name', fields: ['school_id', 'last_name', 'first_name'] },
   ],

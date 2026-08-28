@@ -17,8 +17,8 @@ import { DataTypes } from 'sequelize';
  * tied to a trip. Every reference is tenant-pinned:
  * `(school_id, trip_id)` is a composite foreign key into `trips`
  * (`school_id`, `id`), enforced through the `uq_trips_school_id` unique
- * index created by the trip-student-attendance migration (re-created here
- * with `IF NOT EXISTS` so the migration is self-contained).
+ * index created by the trips migration, before any child migration can add
+ * this foreign key.
  *
  * Indexes:
  * - `idx_trip_locations_school_trip_recorded` — chronological history scan
@@ -35,14 +35,6 @@ import { DataTypes } from 'sequelize';
  */
 export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {
-    // The composite foreign key below needs the unique (school_id, id)
-    // index on `trips`; the attendance migration already creates it, so this
-    // is a no-op unless the migrations are run out of order.
-    await queryInterface.sequelize.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_trips_school_id" ON "trips" ("school_id", "id");`,
-      { transaction },
-    );
-
     await queryInterface.createTable(
       'trip_locations',
       {
@@ -175,7 +167,5 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
 export async function down(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.sequelize.transaction(async (transaction) => {
     await queryInterface.dropTable('trip_locations', { transaction });
-    // `uq_trips_school_id` is intentionally kept: the trip-student-attendance
-    // foreign keys still depend on it.
   });
 }
