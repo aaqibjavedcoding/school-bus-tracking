@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { RouteAssignmentRole, StudentGender, TripStatus } from '@school-bus-tracking/shared-types';
+import {
+  RouteAssignmentRole,
+  StudentGender,
+  TripAttendanceStatus,
+  TripStatus,
+} from '@school-bus-tracking/shared-types';
 
 /**
  * Common validation schemas (Phase 1)
@@ -670,3 +675,68 @@ export const TRIP_STATUS_TRANSITIONS: Readonly<Record<TripStatus, readonly TripS
 /** True when `to` is a legal next state for a trip currently in `from`. */
 export const isTripStatusTransitionAllowed = (from: TripStatus, to: TripStatus): boolean =>
   TRIP_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
+
+/**
+ * Phase 4 — Trip student attendance (boarding / drop management).
+ *
+ * The board/drop payloads are intentionally empty objects: the acting user is
+ * taken from the JWT subject and the event time from the server clock, so a
+ * client has nothing to contribute. `.strict()` therefore rejects any attempt
+ * to smuggle a tenant id, a crew id or a forged timestamp into the request.
+ */
+
+export const tripStudentBoardSchema = z.object({}).strict();
+
+export type TripStudentBoardInput = z.infer<typeof tripStudentBoardSchema>;
+
+export const tripStudentDropSchema = z.object({}).strict();
+
+export type TripStudentDropInput = z.infer<typeof tripStudentDropSchema>;
+
+export const tripStudentManifestQuerySchema = z
+  .object({
+    status: z.nativeEnum(TripAttendanceStatus).optional(),
+    stop_id: z.string().uuid('stop_id must be a valid UUID').optional(),
+  })
+  .strict();
+
+export type TripStudentManifestQueryInput = z.infer<typeof tripStudentManifestQuerySchema>;
+
+/**
+ * Allowed attendance transitions.
+ *
+ * A student walks the manifest exactly once: PENDING → BOARDED → DROPPED.
+ * There is no way back, which is what makes duplicate boarding, dropping
+ * before boarding and duplicate drops detectable with a single lookup.
+ */
+export const TRIP_ATTENDANCE_STATUS_TRANSITIONS: Readonly<
+  Record<TripAttendanceStatus, readonly TripAttendanceStatus[]>
+> = Object.freeze({
+  [TripAttendanceStatus.PENDING]: [TripAttendanceStatus.BOARDED],
+  [TripAttendanceStatus.BOARDED]: [TripAttendanceStatus.DROPPED],
+  [TripAttendanceStatus.DROPPED]: [],
+});
+
+/** True when `to` is a legal next attendance state for a student in `from`. */
+export const isTripAttendanceTransitionAllowed = (
+  from: TripAttendanceStatus,
+  to: TripAttendanceStatus,
+): boolean => TRIP_ATTENDANCE_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
+
+/**
+ * Trip lifecycle states during which attendance may be recorded.
+ *
+ * Boarding legitimately starts before the bus departs (`SCHEDULED`), so the
+ * open window spans everything that is not terminal. A `COMPLETED` or
+ * `CANCELLED` run is closed: its attendance record is an audit artefact and
+ * must not change any more.
+ */
+export const TRIP_ATTENDANCE_OPEN_TRIP_STATUSES: readonly TripStatus[] = Object.freeze([
+  TripStatus.SCHEDULED,
+  TripStatus.BOARDING,
+  TripStatus.IN_PROGRESS,
+]);
+
+/** True when the trip is in a state that still accepts attendance changes. */
+export const isTripOpenForAttendance = (status: TripStatus): boolean =>
+  TRIP_ATTENDANCE_OPEN_TRIP_STATUSES.includes(status);

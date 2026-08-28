@@ -9,6 +9,7 @@ import { RouteAssignment } from './route-assignment.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
+import { TripStudentAttendance } from './trip-student-attendance.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -16,10 +17,12 @@ export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
 export {
   ROUTE_ASSIGNMENT_ROLE_VALUES,
   STUDENT_GENDER_VALUES,
+  TRIP_ATTENDANCE_STATUS_VALUES,
   TRIP_STATUS_VALUES,
   USER_ROLE_VALUES,
   RouteAssignmentRole,
   StudentGender,
+  TripAttendanceStatus,
   TripStatus,
   UserRole,
 } from './enums';
@@ -50,6 +53,11 @@ export type {
   StudentGuardianAttributes,
   StudentGuardianCreationAttributes,
 } from './student-guardian.model';
+export { TripStudentAttendance } from './trip-student-attendance.model';
+export type {
+  TripStudentAttendanceAttributes,
+  TripStudentAttendanceCreationAttributes,
+} from './trip-student-attendance.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -62,8 +70,8 @@ export type {
  * (`@BelongsTo(() => School)`), which is what makes the mutual imports safe:
  * the target class is only resolved once the whole graph is registered. The
  * imports above are still ordered by dependency (tenant → users/fleet/routes →
- * stops → students → assignments → trips → refresh tokens → student guardians)
- * to keep the graph easy to read.
+ * stops → students → assignments → trips → refresh tokens → student guardians
+ * → trip attendance) to keep the graph easy to read.
  */
 export const models: ModelCtor<Model>[] = [
   School,
@@ -76,4 +84,5 @@ export const models: ModelCtor<Model>[] = [
   Trip,
   RefreshToken,
   StudentGuardian,
+  TripStudentAttendance,
 ];

@@ -1,6 +1,7 @@
 import {
   RouteAssignmentRole,
   StudentGender,
+  TripAttendanceStatus,
   TripStatus,
   UserRole,
 } from '@school-bus-tracking/shared-types';
@@ -56,3 +57,22 @@ export const ROUTE_ASSIGNMENT_ROLE_VALUES: RouteAssignmentRole[] =
 export { TripStatus };
 
 export const TRIP_STATUS_VALUES: TripStatus[] = Object.values(TripStatus);
+
+/**
+ * Attendance state of a student on a concrete trip
+ * (`trip_student_attendance.status`).
+ *
+ * PENDING → on the manifest, not on the bus yet (the implicit state of a
+ *           student without a stored attendance row)
+ * BOARDED → the crew confirmed the student onto the bus
+ * DROPPED → the student left the bus
+ *
+ * The progression is one-way; the service layer rejects boarding twice,
+ * dropping before boarding and dropping twice. The enum is owned by
+ * `@school-bus-tracking/shared-types` so database, API contracts and clients
+ * can never drift; it is only re-exported here.
+ */
+export { TripAttendanceStatus };
+
+export const TRIP_ATTENDANCE_STATUS_VALUES: TripAttendanceStatus[] =
+  Object.values(TripAttendanceStatus);

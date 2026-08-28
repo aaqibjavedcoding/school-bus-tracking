@@ -70,6 +70,9 @@ import {
   TripListResponse,
   TripResponse,
   TripStatusUpdateRequest,
+  TripStudentAttendanceResponse,
+  TripStudentManifestQuery,
+  TripStudentManifestResponse,
   TripUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 
@@ -654,6 +657,54 @@ export class ApiClient {
   /** Cancels (when still open) and soft-deletes the trip. */
   public async deleteTrip(id: string): Promise<ApiResponse<TripDeleteResponse>> {
     return this.delete<TripDeleteResponse>(`/trips/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Trip student attendance. The manifest is derived server-side from the
+   * trip's route and stops, and boarding/drop events are timestamped by the
+   * server, so these methods never send a tenant id, a stop id or a
+   * timestamp — the board/drop calls deliberately carry no body at all.
+   */
+  public async listTripStudents(
+    tripId: string,
+    query: TripStudentManifestQuery = {},
+  ): Promise<ApiResponse<TripStudentManifestResponse>> {
+    const params = new URLSearchParams();
+    if (query.status) params.set('status', query.status);
+    if (query.stop_id) params.set('stop_id', query.stop_id);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<TripStudentManifestResponse>(
+      `/trips/${encodeURIComponent(tripId)}/students${suffix}`,
+    );
+  }
+
+  public async getTripStudent(
+    tripId: string,
+    studentId: string,
+  ): Promise<ApiResponse<TripStudentAttendanceResponse>> {
+    return this.get<TripStudentAttendanceResponse>(
+      `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}`,
+    );
+  }
+
+  /** Marks the student as boarded; the server records who and when. */
+  public async boardTripStudent(
+    tripId: string,
+    studentId: string,
+  ): Promise<ApiResponse<TripStudentAttendanceResponse>> {
+    return this.post<TripStudentAttendanceResponse>(
+      `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}/board`,
+    );
+  }
+
+  /** Marks a previously boarded student as dropped off. */
+  public async dropTripStudent(
+    tripId: string,
+    studentId: string,
+  ): Promise<ApiResponse<TripStudentAttendanceResponse>> {
+    return this.post<TripStudentAttendanceResponse>(
+      `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}/drop`,
+    );
   }
 }
 

@@ -12,6 +12,7 @@ import { RoutesModule } from './modules/routes/routes.module';
 import { StopsModule } from './modules/stops/stops.module';
 import { RouteAssignmentsModule } from './modules/assignments/assignments.module';
 import { TripsModule } from './modules/trips/trips.module';
+import { TripAttendanceModule } from './modules/trip-attendance/trip-attendance.module';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, jwtConfig } from './config';
 
@@ -35,6 +36,7 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     StopsModule,
     RouteAssignmentsModule,
     TripsModule,
+    TripAttendanceModule,
   ],
 })
 export class AppModule {}
