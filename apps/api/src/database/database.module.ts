@@ -10,11 +10,16 @@ import { models } from './models';
 })
 export class DatabaseModule {
   static forRoot(): DynamicModule {
-    const isDbAutoConnect = process.env.DB_AUTO_CONNECT === 'true';
+    // A running API needs an initialized Sequelize instance before any model
+    // method (for example `User.unscoped()` during login) can be called. Keep
+    // the opt-out for unit/smoke tests, but default to connecting so a normal
+    // development or production start cannot expose uninitialized models when
+    // DB_AUTO_CONNECT is omitted.
+    const isDbAutoConnect = process.env.DB_AUTO_CONNECT !== 'false';
     const logger = new Logger('DatabaseModule');
 
     if (!isDbAutoConnect) {
-      logger.log('Database auto-connect is disabled (Phase 1). Database infrastructure ready.');
+      logger.log('Database auto-connect is disabled for this process.');
       return {
         module: DatabaseModule,
         providers: [...databaseProviders],

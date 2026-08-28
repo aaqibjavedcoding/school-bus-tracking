@@ -15,5 +15,8 @@ export default registerAs('database', () => ({
     acquire: parseInt(process.env.DB_POOL_ACQUIRE || '30000', 10),
     idle: parseInt(process.env.DB_POOL_IDLE || '10000', 10),
   },
-  autoConnect: process.env.DB_AUTO_CONNECT === 'true',
+  // Database connectivity is enabled by default for the actual API. Set
+  // DB_AUTO_CONNECT=false only for tests or scripts that provide repository
+  // stubs instead of a Sequelize connection.
+  autoConnect: process.env.DB_AUTO_CONNECT !== 'false',
 }));
