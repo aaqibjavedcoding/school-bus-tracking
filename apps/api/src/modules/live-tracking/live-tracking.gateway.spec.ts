@@ -150,7 +150,13 @@ function makeSocket(auth: unknown = { access_token: 'x' }): FakeSocket {
 
 function makeGateway() {
   const { service, store, capture } = makeService();
-  const gateway = new LiveTrackingGateway(service, jwtService);
+  // Tests cover school-scoped (active) tenants; the access stub always
+  // reports the tenant as accessible. Inactive-school enforcement has its
+  // own dedicated assertions in the guard/auth suites.
+  const schoolAccess = {
+    isSchoolAccessible: async (): Promise<boolean> => true,
+  };
+  const gateway = new LiveTrackingGateway(service, jwtService, schoolAccess as never);
   // The gateway is wired to the real socket.io `Socket` type; the fake socket
   // implements only the surface the gateway touches, so calls are funneled
   // through this shim to keep the test bodies readable.

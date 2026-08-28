@@ -17,8 +17,9 @@ import {
   liveTrackingRoomName,
 } from '@school-bus-tracking/shared-types';
 import { getTripTrackingState, trackingJoinSchema } from '@school-bus-tracking/validation';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { AuthenticatedRequestUser, TenantRequestUser } from '../../common/guards';
 import { isAccessTokenPayloadValid } from '../../common/guards';
+import { SchoolAccessService } from '../../common/access';
 import { LiveTrackingService, extractTripId } from './live-tracking.service';
 
 /**
@@ -61,6 +62,9 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
   constructor(
     private readonly liveTracking: LiveTrackingService,
     private readonly jwtService: JwtService,
+    // Centralized inactive-school enforcement at the socket handshake; the
+    // global AccessModule injects the same instance the HTTP guard uses.
+    private readonly schoolAccess: SchoolAccessService,
   ) {}
 
   /** Called once the namespace is up — room broadcasts go through it. */
@@ -204,10 +208,10 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
     return ack;
   }
 
-  /** The user claims attached during `handleConnection`, or `null`. */
-  private userOf(client: Socket): AuthenticatedRequestUser | null {
+  /** The tenant user claims attached during `handleConnection`, or `null`. */
+  private userOf(client: Socket): TenantRequestUser | null {
     const data = client.data as Record<string, unknown> | undefined;
-    const user = data?.user as Partial<AuthenticatedRequestUser> | undefined;
+    const user = data?.user as Partial<TenantRequestUser> | undefined;
     if (
       user &&
       typeof user.id === 'string' &&
@@ -216,7 +220,7 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
       user.school_id.length > 0 &&
       typeof user.role === 'string'
     ) {
-      return user as AuthenticatedRequestUser;
+      return user as TenantRequestUser;
     }
     return null;
   }
@@ -237,6 +241,18 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
     }
 
     if (!isAccessTokenPayloadValid(payload)) {
+      return null;
+    }
+
+    // Centralized lifecycle enforcement mirrors the HTTP JwtAuthGuard: once a
+    // tenant is deactivated, its crews/parents must not open new tracking
+    // sockets. The platform SUPER_ADMIN (null school) has no tenant to
+    // observe and is refused like any other non-tenant socket.
+    if (payload.school_id === null || payload.school_id === undefined) {
+      return null;
+    }
+    const accessible = await this.schoolAccess.isSchoolAccessible(payload.school_id);
+    if (!accessible) {
       return null;
     }
 

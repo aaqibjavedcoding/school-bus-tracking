@@ -30,7 +30,7 @@ import {
   Trip,
   TripLocation,
 } from '../../database/models';
-import type { AuthenticatedRequestUser as RequestUser } from '../../common/guards';
+import type { TenantRequestUser as RequestUser } from '../../common/guards';
 import {
   DEFAULT_HISTORY_LIMIT,
   LIVE_TRACKING_ASSIGNMENTS_REPOSITORY,

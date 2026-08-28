@@ -18,7 +18,11 @@ const rolesGuard = new RolesGuard(new Reflector());
 const controller = new AuthTestController();
 
 async function signAccessToken(role: UserRole): Promise<string> {
-  const payload: JwtAccessTokenPayload = { sub: USER_ID, school_id: SCHOOL_ID, role };
+  const payload: JwtAccessTokenPayload = {
+    sub: USER_ID,
+    school_id: role === UserRole.SUPER_ADMIN ? null : SCHOOL_ID,
+    role,
+  };
   return jwtService.signAsync(payload);
 }
 

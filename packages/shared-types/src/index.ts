@@ -112,32 +112,43 @@ export enum TripAttendanceStatus {
 }
 
 /**
- * Body of `POST /api/v1/auth/login`. Login is tenant-scoped: the same email
- * may exist under multiple schools, so the school id is always required.
+ * Body of `POST /api/v1/auth/login`.
+ *
+ * Normal school users (SCHOOL_ADMIN, DRIVER, CONDUCTOR, PARENT) log in
+ * tenant-scoped: the same email may exist under multiple schools, so their
+ * `school_id` is required. A platform `SUPER_ADMIN` belongs to no tenant and
+ * logs in with `school_id` omitted (or `null`) — the API resolves the
+ * platform account by email.
  */
 export interface LoginRequest {
-  school_id: string;
+  school_id?: string | null;
   email: string;
   password: string;
 }
 
 /**
  * Claims carried by an access token issued by the API.
- * `sub` is the user id; `school_id` scopes every claim to a tenant.
+ *
+ * `sub` is the user id and `role` the platform role. `school_id` scopes every
+ * claim to a tenant for school users; it is `null` for the platform
+ * `SUPER_ADMIN`, which is explicitly not a member of any school tenant.
  */
 export interface JwtAccessTokenPayload {
   sub: string;
-  school_id: string;
+  school_id: string | null;
   role: UserRole;
 }
 
 /**
  * Public projection of an authenticated user. Never contains credentials
  * (`password` / `password_hash` must not appear in any API response).
+ *
+ * `school_id` is the tenant anchor for school users and `null` for a
+ * platform `SUPER_ADMIN`.
  */
 export interface AuthenticatedUser {
   id: string;
-  school_id: string;
+  school_id: string | null;
   role: UserRole;
   first_name: string;
   last_name: string;
@@ -211,6 +222,255 @@ export interface OnboardedAdmin {
 export interface SchoolOnboardingResponse {
   school: OnboardedSchool;
   admin: OnboardedAdmin;
+}
+
+/**
+ * Super Admin platform console (Task 19).
+ *
+ * Everything below is served under `/api/v1/admin/*` and is reachable only by
+ * an authenticated `SUPER_ADMIN` (JwtAuthGuard + RolesGuard on every route).
+ * A platform admin is not a member of any school tenant: these endpoints take
+ * the managed school id from the route (or the request body for creation),
+ * never from a trusted client claim.
+ *
+ * The domain layer is deliberately shaped so the next SaaS phase can add
+ * Plans / Subscriptions / Billing without reshaping these contracts: school
+ * rows already carry a `subscription` placeholder and every response is a
+ * plain, additive projection.
+ */
+
+/** Lifecycle state of a tenant school as seen by the platform console. */
+export type AdminSchoolStatus = 'active' | 'inactive';
+
+/** Contact/profile block of a school accepted by the platform create flow. */
+export interface AdminSchoolProfileRequest {
+  name: string;
+  code: string;
+  subdomain?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  timezone?: string;
+}
+
+/**
+ * Initial SCHOOL_ADMIN account provisioned with a new school. The password is
+ * accepted on the way in, bcrypt-hashed server-side and is never returned.
+ */
+export interface AdminSchoolInitialAdminRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+}
+
+/** Body of `POST /api/v1/admin/schools`. */
+export interface AdminSchoolCreateRequest {
+  school: AdminSchoolProfileRequest;
+  admin: AdminSchoolInitialAdminRequest;
+}
+
+/**
+ * Body of `PATCH /api/v1/admin/schools/:id` — profile fields only.
+ *
+ * Identity/ownership fields are deliberately absent and rejected: the school
+ * `id`, `code`, `subdomain` ownership may not be mutated through this
+ * endpoint, and there is no `is_active` field — lifecycle changes go through
+ * the explicit activate/deactivate endpoints.
+ */
+export interface AdminSchoolUpdateRequest {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  timezone?: string;
+}
+
+/**
+ * Subscription placeholder. No billing is implemented in this phase; the
+ * object always reports `status: 'none'` so the web console can render a
+ * ready-for-billing section and the next phase can fill in plan/period
+ * details without a contract change.
+ */
+export interface AdminSchoolSubscriptionInfo {
+  status: 'none';
+  plan: null;
+  current_period_end: null;
+}
+
+/** Platform-level school profile projection (no credentials, ever). */
+export interface AdminSchoolResponse {
+  id: string;
+  name: string;
+  code: string;
+  subdomain: string | null;
+  email: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  timezone: string;
+  status: AdminSchoolStatus;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One row of the platform school list with aggregate tenant statistics. */
+export interface AdminSchoolSummary extends AdminSchoolResponse {
+  /** Primary school admin (first created), used as the table's contact. */
+  primary_admin: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string | null;
+  } | null;
+  stats: {
+    admin_count: number;
+    student_count: number;
+    /** Active drivers + conductors. */
+    active_staff_count: number;
+    bus_count: number;
+  };
+  /** Subscription placeholder — always present, ready for the billing phase. */
+  subscription: AdminSchoolSubscriptionInfo;
+}
+
+/** Query string of `GET /api/v1/admin/schools`. */
+export interface AdminSchoolListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: AdminSchoolStatus;
+  sort?: 'created_at' | 'name' | 'code';
+  order?: 'asc' | 'desc';
+}
+
+/** Successful payload of `GET /api/v1/admin/schools`. */
+export interface AdminSchoolListResponse {
+  items: AdminSchoolSummary[];
+  meta: PaginationMeta;
+}
+
+/** Public projection of a SCHOOL_ADMIN account managed by the platform. */
+export interface AdminSchoolAdminResponse {
+  id: string;
+  school_id: string;
+  role: UserRole.SCHOOL_ADMIN;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  email_verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/admin/schools/:id/admins`. */
+export interface AdminSchoolAdminListResponse {
+  items: AdminSchoolAdminResponse[];
+  meta: PaginationMeta;
+}
+
+/** Body of `POST /api/v1/admin/schools/:id/admins`. */
+export interface AdminSchoolAdminCreateRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/admin/schools/:id/admins/:adminId`. */
+export interface AdminSchoolAdminUpdateRequest {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  password?: string;
+  phone?: string | null;
+  is_active?: boolean;
+}
+
+/** Body of `POST .../admins/:adminId/reset-password`. */
+export interface AdminSchoolAdminResetPasswordRequest {
+  password: string;
+}
+
+/** Tenant statistics block of `GET /api/v1/admin/schools/:id`. */
+export interface AdminSchoolStats {
+  admin_count: number;
+  active_admin_count: number;
+  student_count: number;
+  active_student_count: number;
+  driver_count: number;
+  conductor_count: number;
+  active_staff_count: number;
+  parent_count: number;
+  bus_count: number;
+  active_bus_count: number;
+  route_count: number;
+  active_route_count: number;
+  trip_count: number;
+  active_trip_count: number;
+}
+
+/** Successful payload of `GET /api/v1/admin/schools/:id`. */
+export interface AdminSchoolDetailsResponse {
+  school: AdminSchoolResponse;
+  stats: AdminSchoolStats;
+  admins: AdminSchoolAdminResponse[];
+  subscription: AdminSchoolSubscriptionInfo;
+}
+
+/** Body/response of the activate/deactivate lifecycle endpoints. */
+export interface AdminSchoolLifecycleResponse {
+  id: string;
+  status: AdminSchoolStatus;
+  is_active: boolean;
+  message: string;
+}
+
+/** Successful payload of `GET /api/v1/admin/dashboard`. */
+export interface AdminDashboardResponse {
+  schools: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  users: {
+    total: number;
+    school_admins: number;
+    students: number;
+    parents: number;
+    drivers: number;
+    conductors: number;
+    super_admins: number;
+  };
+  transport: {
+    buses: number;
+    active_buses: number;
+    routes: number;
+    active_routes: number;
+    trips: number;
+    active_trips: number;
+  };
+  generated_at: string;
 }
 
 /** Body of `POST /api/v1/students`. */

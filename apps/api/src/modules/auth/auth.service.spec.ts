@@ -657,3 +657,161 @@ describe('AuthService cookie options', () => {
     assert.equal(clearOptions.path, '/api/v1/auth');
   });
 });
+
+/**
+ * Task 19 — platform SUPER_ADMIN login and inactive-school enforcement.
+ */
+describe('AuthService platform & lifecycle', () => {
+  it('logs a SUPER_ADMIN in with no school_id and issues a null-school token', async () => {
+    const admin: StubUser = {
+      id: USER_ID,
+      school_id: null as unknown as string,
+      role: UserRole.SUPER_ADMIN,
+      first_name: 'Parker',
+      last_name: 'Platform',
+      email: 'superadmin@platform.test',
+      password_hash: await hashPassword(PASSWORD),
+      is_active: true,
+    };
+    const capture: { where?: unknown } = {};
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(admin, capture),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    const dto = makeLoginDto({ school_id: undefined, email: 'superadmin@platform.test' });
+    const { response } = await service.login(dto);
+
+    // The lookup targeted the platform account (null school + role).
+    assert.deepEqual(capture.where, {
+      email: 'superadmin@platform.test',
+      role: UserRole.SUPER_ADMIN,
+      school_id: null,
+    });
+    assert.equal(response.user.role, UserRole.SUPER_ADMIN);
+    assert.equal(response.user.school_id, null);
+    const decoded = makeJwtService().decode<{ school_id: string | null; role: UserRole }>(
+      response.access_token,
+    );
+    assert.equal(decoded?.role, UserRole.SUPER_ADMIN);
+    assert.equal(decoded?.school_id, null);
+  });
+
+  it('refuses platform login when a school_id is supplied for a SUPER_ADMIN account', async () => {
+    const admin: StubUser = {
+      id: USER_ID,
+      school_id: null as unknown as string,
+      role: UserRole.SUPER_ADMIN,
+      first_name: 'Parker',
+      last_name: 'Platform',
+      email: 'superadmin@platform.test',
+      password_hash: await hashPassword(PASSWORD),
+      is_active: true,
+    };
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(admin),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    // School id present -> tenant lookup path -> platform row not found there.
+    await expectUnauthorized(
+      service.login(makeLoginDto({ school_id: SCHOOL_ID, email: 'superadmin@platform.test' })),
+      INVALID_CREDENTIALS_MESSAGE,
+    );
+  });
+
+  it('blocks a school user login with 403 when the school is inactive', async () => {
+    const user = await makeActiveUser();
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const schoolAccess = {
+      isSchoolAccessible: async (schoolId: string | null | undefined) => schoolId === null,
+    };
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      schoolAccess as never,
+    );
+
+    await assert.rejects(
+      service.login(makeLoginDto()),
+      (error: { getStatus?: () => number; message?: string }) => {
+        assert.equal(error.getStatus?.(), 403);
+        assert.equal(error.message, 'School is inactive');
+        return true;
+      },
+    );
+  });
+
+  it('still allows the school login when the tenant is active', async () => {
+    const user = await makeActiveUser();
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const schoolAccess = {
+      isSchoolAccessible: async () => true,
+    };
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      schoolAccess as never,
+    );
+
+    const { response } = await service.login(makeLoginDto());
+    assert.equal(response.user.role, UserRole.DRIVER);
+  });
+
+  it('blocks refresh for an inactive school and succeeds for the platform admin', async () => {
+    const rawToken = 'raw-refresh-token';
+    const storedToken: StubRefreshToken = {
+      id: 'token-1',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: hashToken(rawToken),
+      expires_at: new Date(Date.now() + 7 * 86_400_000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {},
+    };
+    const driver = await makeActiveUser();
+
+    const inactiveService = new AuthService(
+      makeUsersRepository(driver),
+      makeRefreshTokensRepository([storedToken]).repo,
+      makeJwtService(),
+      makeConfigService(),
+      { isSchoolAccessible: async () => false } as never,
+    );
+    await assert.rejects(
+      inactiveService.refresh(rawToken),
+      (error: { getStatus?: () => number }) => error.getStatus?.() === 403,
+    );
+
+    // Platform refresh token (null school) always passes the lifecycle check.
+    const platformToken: StubRefreshToken = {
+      ...storedToken,
+      school_id: null as unknown as string,
+    };
+    const admin: StubUser = {
+      ...driver,
+      school_id: null as unknown as string,
+      role: UserRole.SUPER_ADMIN,
+    };
+    const platformService = new AuthService(
+      makeUsersRepository(admin),
+      makeRefreshTokensRepository([platformToken]).repo,
+      makeJwtService(),
+      makeConfigService(),
+      { isSchoolAccessible: async () => false } as never,
+    );
+    const result = await platformService.refresh(rawToken);
+    assert.equal(result.response.user.role, UserRole.SUPER_ADMIN);
+  });
+});

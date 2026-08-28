@@ -176,7 +176,7 @@ export class ParentsService {
   private toParentResponse(parent: User): ParentResponse {
     return {
       id: parent.id,
-      school_id: parent.school_id,
+      school_id: parent.school_id as string,
       role: UserRole.PARENT,
       first_name: parent.first_name,
       last_name: parent.last_name,

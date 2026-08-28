@@ -14,7 +14,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { Student, StudentAttributes, StudentGuardian, Stop } from '../../database/models';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import {
   STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE,
   STUDENT_DATE_OF_BIRTH_INVALID_MESSAGE,

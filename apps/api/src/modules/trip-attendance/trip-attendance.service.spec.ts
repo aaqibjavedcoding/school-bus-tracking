@@ -16,7 +16,7 @@ import {
   Trip,
   TripStudentAttendance,
 } from '../../database/models';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
 import { TripAttendanceService } from './trip-attendance.service';
 import {

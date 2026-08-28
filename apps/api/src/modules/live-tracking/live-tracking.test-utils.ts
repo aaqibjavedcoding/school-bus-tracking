@@ -9,7 +9,7 @@
  */
 import { Op } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import type { LiveTrackingConfig } from './live-tracking.service';
 
 export const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

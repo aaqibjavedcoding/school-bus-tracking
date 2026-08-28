@@ -25,7 +25,11 @@ const jwtAuthGuard = new JwtAuthGuard(jwtService);
 const rolesGuard = new RolesGuard(new Reflector());
 
 async function signAccessToken(role: UserRole, schoolId = SCHOOL_A, userId = USER_ID) {
-  const payload: JwtAccessTokenPayload = { sub: userId, school_id: schoolId, role };
+  const payload: JwtAccessTokenPayload = {
+    sub: userId,
+    school_id: role === UserRole.SUPER_ADMIN ? null : schoolId,
+    role,
+  };
   return jwtService.signAsync(payload);
 }
 

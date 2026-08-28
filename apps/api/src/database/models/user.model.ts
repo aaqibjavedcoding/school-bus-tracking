@@ -9,7 +9,13 @@ import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
 
 export interface UserAttributes extends BaseModelAttributes {
-  school_id: string;
+  /**
+   * Tenant anchor. Non-null for every school-scoped role. A platform
+   * `SUPER_ADMIN` is explicitly not a member of any tenant, so this is
+   * `null` for platform accounts — the platform-wide unique partial index
+   * `uq_users_super_admin_email` guards their login email instead.
+   */
+  school_id: string | null;
   /**
    * Platform role of the account. Stored as the PostgreSQL enum
    * `enum_users_role`; values come from the shared `UserRole` enum so the API,
@@ -38,7 +44,13 @@ export interface UserAttributes extends BaseModelAttributes {
 
 export type UserCreationAttributes = Optional<
   UserAttributes,
-  BaseModelManagedFields | 'email' | 'phone' | 'is_active' | 'password_hash' | 'email_verified_at'
+  | BaseModelManagedFields
+  | 'school_id'
+  | 'email'
+  | 'phone'
+  | 'is_active'
+  | 'password_hash'
+  | 'email_verified_at'
 >;
 
 /**
@@ -72,6 +84,16 @@ export type UserCreationAttributes = Optional<
       fields: ['school_id', 'email'],
       where: { deleted_at: null },
     },
+    // Platform accounts (SUPER_ADMIN) have a NULL school_id, so the
+    // tenant-scoped unique index above cannot constrain their login email —
+    // each NULL is distinct in Postgres. This partial index enforces exactly
+    // one platform login per email.
+    {
+      name: 'uq_users_super_admin_email',
+      unique: true,
+      fields: ['email'],
+      where: { role: 'SUPER_ADMIN', deleted_at: null },
+    },
     // No standalone (school_id) index: the unique index above already covers
     // tenant-scoped lookups as its leftmost prefix.
     { name: 'idx_users_school_role', fields: ['school_id', 'role'] },
@@ -79,8 +101,8 @@ export type UserCreationAttributes = Optional<
 })
 export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
   @ForeignKey(() => School)
-  @Column({ type: DataType.UUID, allowNull: false })
-  declare school_id: string;
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare school_id: string | null;
 
   @Column({ type: DataType.ENUM(...USER_ROLE_VALUES), allowNull: false })
   declare role: UserRole;

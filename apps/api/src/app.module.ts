@@ -14,6 +14,8 @@ import { RouteAssignmentsModule } from './modules/assignments/assignments.module
 import { TripsModule } from './modules/trips/trips.module';
 import { TripAttendanceModule } from './modules/trip-attendance/trip-attendance.module';
 import { LiveTrackingModule } from './modules/live-tracking/live-tracking.module';
+import { AdminModule } from './modules/admin/admin.module';
+import { AccessModule } from './common/access';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './config';
 
@@ -25,6 +27,9 @@ import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './conf
       envFilePath: ['.env', '.env.local'],
     }),
     DatabaseModule.forRoot(),
+    // Global school-lifecycle access checks (inactive-tenant enforcement),
+    // injected into the shared JwtAuthGuard and AuthService.
+    AccessModule,
     HealthModule,
     AuthModule,
     AuthTestModule,
@@ -39,6 +44,8 @@ import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './conf
     TripsModule,
     TripAttendanceModule,
     LiveTrackingModule,
+    // Platform Super Admin console (`/api/v1/admin/*`).
+    AdminModule,
   ],
 })
 export class AppModule {}

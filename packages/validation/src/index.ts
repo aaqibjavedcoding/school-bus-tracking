@@ -104,11 +104,20 @@ export const emailSchema = z.string().trim().toLowerCase().email().max(255);
 
 /**
  * Body of `POST /api/v1/auth/login`. Login only requires a non-empty password;
- * composition rules apply when credentials are created, not when they are checked.
+ * composition rules apply when credentials are created, not when they are
+ * checked.
+ *
+ * `school_id` identifies the tenant for school users and must be a UUID when
+ * present. A platform `SUPER_ADMIN` belongs to no tenant and logs in with it
+ * omitted or `null`; an empty string (empty form field) is normalized to
+ * `null` before validation so a browser login form can share one schema.
  */
 export const loginSchema = z
   .object({
-    school_id: z.string().uuid('school_id must be a valid UUID'),
+    school_id: z.preprocess(
+      (value) => (value === '' ? null : value),
+      z.string().uuid('school_id must be a valid UUID').nullable().optional(),
+    ),
     email: emailSchema,
     password: z.string().min(1, 'Password is required'),
   })
@@ -911,3 +920,191 @@ export const getTripTrackingState = (status: TripStatus): TripTrackingState => {
   }
   return 'unavailable';
 };
+
+/**
+ * Task 19 — Super Admin platform console.
+ *
+ * Strict Zod contracts for the `/admin/*` surface. Every request body is
+ * `.strict()`: client-supplied `id`, `school_id`, `role` or lifecycle fields
+ * are rejected rather than silently stripped, so a request can never forge a
+ * tenant or escalate a role.
+ */
+
+/** Lifecycle filter value used by the platform school list. */
+export const adminSchoolStatusSchema = z.enum(['active', 'inactive']);
+
+export type AdminSchoolStatusInput = z.infer<typeof adminSchoolStatusSchema>;
+
+/** Tenant subdomain: DNS-label style, mirrors `schools.subdomain`. */
+export const schoolSubdomainSchema = z
+  .string()
+  .trim()
+  .min(2, 'subdomain must be at least 2 characters')
+  .max(63, 'subdomain must be at most 63 characters')
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    'subdomain must be lowercase alphanumeric segments separated by hyphens',
+  );
+
+/** IANA timezone string, bounded length (full validation happens via Intl). */
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1, 'timezone is required')
+  .max(64, 'timezone must be at most 64 characters')
+  .refine((value) => {
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'timezone must be a valid IANA timezone name');
+
+const nullableText = (max: number, label: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, `${label} must be at most ${max} characters`)
+    .nullish()
+    .transform((value) => (value === undefined ? undefined : value === '' ? null : value));
+
+const schoolProfileShape = {
+  name: schoolNameSchema,
+  code: schoolCodeSchema,
+  subdomain: schoolSubdomainSchema
+    .nullish()
+    .transform((value) => (value === undefined ? undefined : value === '' ? null : value)),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email()
+    .max(255)
+    .nullish()
+    .transform((value) => (value === undefined ? undefined : value === '' ? null : value)),
+  phone: nullableText(32, 'phone'),
+  address_line1: nullableText(255, 'address_line1'),
+  address_line2: nullableText(255, 'address_line2'),
+  city: nullableText(100, 'city'),
+  state: nullableText(100, 'state'),
+  postal_code: nullableText(20, 'postal_code'),
+  country: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/, 'country must be a 2-letter ISO country code')
+    .nullish()
+    .transform((value) => (!value ? (value === null ? null : undefined) : value.toUpperCase())),
+  timezone: timezoneSchema.optional(),
+};
+
+/** Body of `POST /api/v1/admin/schools`. */
+export const adminSchoolCreateSchema = z
+  .object({
+    school: z.object(schoolProfileShape).strict(),
+    admin: z
+      .object({
+        first_name: personNameSchema,
+        last_name: personNameSchema,
+        email: emailSchema,
+        password: passwordSchema,
+        phone: personPhoneSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
+export type AdminSchoolCreateInput = z.infer<typeof adminSchoolCreateSchema>;
+
+/** Body of `PATCH /api/v1/admin/schools/:id` — profile fields only. */
+export const adminSchoolUpdateSchema = z
+  .object({
+    name: schoolNameSchema.optional(),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email()
+      .max(255)
+      .nullish()
+      .transform((value) => (value === undefined ? undefined : value === '' ? null : value)),
+    phone: nullableText(32, 'phone'),
+    address_line1: nullableText(255, 'address_line1'),
+    address_line2: nullableText(255, 'address_line2'),
+    city: nullableText(100, 'city'),
+    state: nullableText(100, 'state'),
+    postal_code: nullableText(20, 'postal_code'),
+    country: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$/, 'country must be a 2-letter ISO country code')
+      .nullish()
+      .transform((value) => (!value ? (value === null ? null : undefined) : value.toUpperCase())),
+    timezone: timezoneSchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one school profile field must be provided',
+  });
+
+export type AdminSchoolUpdateInput = z.infer<typeof adminSchoolUpdateSchema>;
+
+/** Query string of `GET /api/v1/admin/schools`. */
+export const adminSchoolListQuerySchema = paginationSchema
+  .extend({
+    search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+    status: adminSchoolStatusSchema.optional(),
+    sort: z.enum(['created_at', 'name', 'code']).optional(),
+    order: z.enum(['asc', 'desc']).optional(),
+  })
+  .strict();
+
+export type AdminSchoolListQueryInput = z.infer<typeof adminSchoolListQuerySchema>;
+
+/** Body of `POST /api/v1/admin/schools/:id/admins`. */
+export const adminSchoolAdminCreateSchema = z
+  .object({
+    first_name: personNameSchema,
+    last_name: personNameSchema,
+    email: emailSchema,
+    password: passwordSchema,
+    phone: personPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type AdminSchoolAdminCreateInput = z.infer<typeof adminSchoolAdminCreateSchema>;
+
+/** Body of `PATCH /api/v1/admin/schools/:id/admins/:adminId`. */
+export const adminSchoolAdminUpdateSchema = z
+  .object({
+    first_name: personNameSchema.optional(),
+    last_name: personNameSchema.optional(),
+    email: emailSchema.optional(),
+    password: passwordSchema.optional(),
+    phone: personPhoneSchema,
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type AdminSchoolAdminUpdateInput = z.infer<typeof adminSchoolAdminUpdateSchema>;
+
+/** Query string of `GET /api/v1/admin/schools/:id/admins`. */
+export const adminSchoolAdminListQuerySchema = paginationSchema
+  .extend({
+    search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+  })
+  .strict();
+
+export type AdminSchoolAdminListQueryInput = z.infer<typeof adminSchoolAdminListQuerySchema>;
+
+/** Body of `POST .../admins/:adminId/reset-password`. */
+export const adminSchoolAdminResetPasswordSchema = z
+  .object({
+    password: passwordSchema,
+  })
+  .strict();
+
+export type AdminSchoolAdminResetPasswordInput = z.infer<
+  typeof adminSchoolAdminResetPasswordSchema
+>;

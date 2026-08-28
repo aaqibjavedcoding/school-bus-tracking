@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { JwtAuthGuard, RolesGuard, TenantRequestUser } from '../../common/guards';
 import { LiveTrackingService } from './live-tracking.service';
 import { ListTripLocationHistoryQueryDto } from './dto/list-trip-location-history-query.dto';
 
@@ -38,7 +38,7 @@ export class LiveTrackingController {
   /** `GET /api/v1/trips/:tripId/location` — latest known position. */
   @Get()
   async getLatest(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
   ) {
     return this.liveTrackingService.getLatestLocation(actor, tripId);
@@ -52,7 +52,7 @@ export class LiveTrackingController {
    */
   @Get('history')
   async getHistory(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
     @Query() query: ListTripLocationHistoryQueryDto,
   ) {

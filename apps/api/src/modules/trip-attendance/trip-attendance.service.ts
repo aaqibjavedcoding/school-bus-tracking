@@ -23,7 +23,7 @@ import {
   Trip,
   TripStudentAttendance,
 } from '../../database/models';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import {
   TRIP_ATTENDANCE_ALREADY_BOARDED_MESSAGE,
   TRIP_ATTENDANCE_ALREADY_DROPPED_MESSAGE,

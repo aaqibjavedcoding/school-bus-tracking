@@ -28,7 +28,7 @@ export default function LoginPage() {
     event.preventDefault();
     setFormError(null);
     const parsed = loginSchema.safeParse({
-      school_id: schoolId.trim(),
+      school_id: schoolId.trim() === '' ? null : schoolId.trim(),
       email: email.trim(),
       password,
     });
@@ -62,7 +62,7 @@ export default function LoginPage() {
             id="school_id"
             label="School ID"
             error={fieldErrors.school_id}
-            hint="The school UUID from your administrator"
+            hint="The school UUID from your administrator. Platform administrators sign in with this left blank."
           >
             <Input
               id="school_id"

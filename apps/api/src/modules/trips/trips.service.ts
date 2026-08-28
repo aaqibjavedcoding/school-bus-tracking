@@ -17,7 +17,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
-import type { AuthenticatedRequestUser } from '../../common/guards';
+import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import {
   TRIP_ACTUAL_RANGE_MESSAGE,

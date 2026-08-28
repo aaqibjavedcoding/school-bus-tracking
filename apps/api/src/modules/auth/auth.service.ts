@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { CookieOptions } from 'express';
@@ -8,6 +8,7 @@ import {
   LoginResponse,
   LogoutResponse,
   RefreshResponse,
+  UserRole,
 } from '@school-bus-tracking/shared-types';
 import {
   comparePassword,
@@ -16,6 +17,7 @@ import {
   normalizeEmail,
   parseDurationToMs,
 } from '../../auth';
+import { SCHOOL_INACTIVE_MESSAGE, SchoolAccessService } from '../../common/access';
 import { RefreshToken, User } from '../../database/models';
 import {
   DEFAULT_REFRESH_COOKIE_NAME,
@@ -49,21 +51,38 @@ export class AuthService {
     @Inject(REFRESH_TOKENS_REPOSITORY) private readonly refreshTokens: typeof RefreshToken,
     private readonly jwtService: JwtService,
     private readonly configService?: ConfigService,
+    /**
+     * Centralized school-lifecycle check. Optional so the service stays
+     * trivially unit-constructible (existing tests instantiate it with four
+     * arguments); the global `AccessModule` injects the real service in the
+     * running application.
+     */
+    private readonly schoolAccess?: SchoolAccessService,
   ) {}
 
   /**
-   * Tenant-scoped login: the user is looked up by `(school_id, email)` so an
-   * email that exists under another school can never authenticate here.
+   * Login.
    *
-   * Creates an access token and a hashed refresh token session in the database.
+   * - School users (SCHOOL_ADMIN, DRIVER, CONDUCTOR, PARENT) are tenant
+   *   scoped: looked up by `(school_id, email)` so an email that exists under
+   *   another school can never authenticate here.
+   * - A platform SUPER_ADMIN belongs to no tenant: it logs in with no
+   *   `school_id` and is looked up by email across the platform.
+   *
+   * Creates an access token and a hashed refresh token session in the
+   * database. A deactivated tenant is refused with the generic
+   * `School is inactive` business error.
    */
   async login(dto: LoginDto): Promise<AuthSessionResult<LoginResponse>> {
     const email = normalizeEmail(dto.email);
+    const isPlatformLogin = dto.school_id === null || dto.school_id === undefined;
 
     // `unscoped()` opts out of the default scope that hides `password_hash`;
     // the hash is needed here for comparison and is never returned.
     const user = await this.users.unscoped().findOne({
-      where: { school_id: dto.school_id, email },
+      where: isPlatformLogin
+        ? { email, role: UserRole.SUPER_ADMIN, school_id: null }
+        : { school_id: dto.school_id, email },
     });
 
     // Always perform exactly one bcrypt comparison (see TIMING_EQUALIZATION_HASH).
@@ -74,6 +93,24 @@ export class AuthService {
 
     if (!user || !user.password_hash || !user.is_active || !passwordMatches) {
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    // A school login must not cross into the platform tenant and vice versa:
+    // a school id supplied for a SUPER_ADMIN row, or missing for a school
+    // user, is treated as invalid credentials rather than a login.
+    const platformUser = user.role === UserRole.SUPER_ADMIN;
+    if (platformUser !== isPlatformLogin || (platformUser && user.school_id !== null)) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    // Centralized lifecycle enforcement: a deactivated tenant cannot log in.
+    // Checked only after the password is verified so existence/state of a
+    // tenant cannot be probed with an arbitrary email.
+    if (!platformUser && this.schoolAccess) {
+      const accessible = await this.schoolAccess.isSchoolAccessible(user.school_id);
+      if (!accessible) {
+        throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
+      }
     }
 
     const payload: JwtAccessTokenPayload = {
@@ -145,6 +182,15 @@ export class AuthService {
 
     if (!user || !user.is_active) {
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    // A deactivated tenant must not be able to refresh an existing session.
+    // SUPER_ADMIN sessions carry a null school and always pass.
+    if (user.role !== UserRole.SUPER_ADMIN && this.schoolAccess) {
+      const accessible = await this.schoolAccess.isSchoolAccessible(user.school_id);
+      if (!accessible) {
+        throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
+      }
     }
 
     const newRawRefreshToken = generateRefreshToken();

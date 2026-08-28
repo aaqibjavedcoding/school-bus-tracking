@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateIf } from 'class-validator';
 import { LoginRequest } from '@school-bus-tracking/shared-types';
 
 /**
@@ -12,10 +12,17 @@ import { LoginRequest } from '@school-bus-tracking/shared-types';
  * Password strength policy (`passwordSchema` in `@school-bus-tracking/validation`)
  * applies when credentials are created, not when they are checked — otherwise
  * a policy change could lock out existing users.
+ *
+ * `school_id` identifies the tenant for school users and must be a UUID when
+ * present. A platform SUPER_ADMIN belongs to no tenant and logs in with it
+ * omitted (or null); an empty string from a browser form is normalized to
+ * null by the client and accepted here as absent.
  */
 export class LoginDto implements LoginRequest {
+  @IsOptional()
+  @ValidateIf((object: LoginDto) => object.school_id !== null)
   @IsUUID(undefined, { message: 'school_id must be a valid UUID' })
-  school_id!: string;
+  school_id?: string | null;
 
   @IsEmail({}, { message: 'email must be a valid email address' })
   email!: string;

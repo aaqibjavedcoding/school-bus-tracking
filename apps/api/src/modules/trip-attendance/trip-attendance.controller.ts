@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { JwtAuthGuard, RolesGuard, TenantRequestUser } from '../../common/guards';
 import { TripAttendanceService } from './trip-attendance.service';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
 
@@ -40,7 +40,7 @@ export class TripAttendanceController {
   /** `GET /api/v1/trips/:tripId/students` — ordered manifest of the trip. */
   @Get()
   async findAll(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
     @Query() query: ListTripStudentsQueryDto,
   ) {
@@ -50,7 +50,7 @@ export class TripAttendanceController {
   /** `GET /api/v1/trips/:tripId/students/:studentId` — one manifest entry. */
   @Get(':studentId')
   async findOne(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
     @Param('studentId', uuidParam()) studentId: string,
   ) {
@@ -67,7 +67,7 @@ export class TripAttendanceController {
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   @HttpCode(HttpStatus.OK)
   async board(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
     @Param('studentId', uuidParam()) studentId: string,
   ) {
@@ -79,7 +79,7 @@ export class TripAttendanceController {
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   @HttpCode(HttpStatus.OK)
   async drop(
-    @CurrentUser() actor: AuthenticatedRequestUser,
+    @CurrentUser() actor: TenantRequestUser,
     @Param('tripId', uuidParam()) tripId: string,
     @Param('studentId', uuidParam()) studentId: string,
   ) {
