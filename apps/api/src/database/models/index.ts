@@ -10,6 +10,7 @@ import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
 import { TripStudentAttendance } from './trip-student-attendance.model';
+import { TripLocation } from './trip-location.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -58,6 +59,8 @@ export type {
   TripStudentAttendanceAttributes,
   TripStudentAttendanceCreationAttributes,
 } from './trip-student-attendance.model';
+export { TripLocation } from './trip-location.model';
+export type { TripLocationAttributes, TripLocationCreationAttributes } from './trip-location.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -71,7 +74,7 @@ export type {
  * the target class is only resolved once the whole graph is registered. The
  * imports above are still ordered by dependency (tenant → users/fleet/routes →
  * stops → students → assignments → trips → refresh tokens → student guardians
- * → trip attendance) to keep the graph easy to read.
+ * → trip attendance → trip locations) to keep the graph easy to read.
  */
 export const models: ModelCtor<Model>[] = [
   School,
@@ -85,4 +88,5 @@ export const models: ModelCtor<Model>[] = [
   RefreshToken,
   StudentGuardian,
   TripStudentAttendance,
+  TripLocation,
 ];

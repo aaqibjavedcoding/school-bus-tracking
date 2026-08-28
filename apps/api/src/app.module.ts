@@ -13,14 +13,15 @@ import { StopsModule } from './modules/stops/stops.module';
 import { RouteAssignmentsModule } from './modules/assignments/assignments.module';
 import { TripsModule } from './modules/trips/trips.module';
 import { TripAttendanceModule } from './modules/trip-attendance/trip-attendance.module';
+import { LiveTrackingModule } from './modules/live-tracking/live-tracking.module';
 import { DatabaseModule } from './database/database.module';
-import { appConfig, databaseConfig, jwtConfig } from './config';
+import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig],
+      load: [appConfig, databaseConfig, jwtConfig, liveTrackingConfig],
       envFilePath: ['.env', '.env.local'],
     }),
     DatabaseModule.forRoot(),
@@ -37,6 +38,7 @@ import { appConfig, databaseConfig, jwtConfig } from './config';
     RouteAssignmentsModule,
     TripsModule,
     TripAttendanceModule,
+    LiveTrackingModule,
   ],
 })
 export class AppModule {}

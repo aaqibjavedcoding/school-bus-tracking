@@ -1,9 +1,10 @@
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { ListTripsQueryDto } from './dto/list-trips-query.dto';
@@ -300,13 +301,35 @@ function makeRepositories(
   return { trips, tripRepo, assignmentRepo, routeRepo, busRepo, userRepo };
 }
 
-function makeService(repos: ReturnType<typeof makeRepositories>): TripsService {
+/**
+ * Live-tracking stub capturing every lifecycle notification. The real
+ * service is exercised in its own spec; here we only verify that the trip
+ * lifecycle forwards its transitions.
+ */
+function makeLiveTrackingStub(
+  capture: { calls: Array<{ id: string; deleted?: boolean }> } = { calls: [] },
+) {
+  return {
+    onTripStatusChanged: async (trip: { id: string }, options: { deleted?: boolean } = {}) => {
+      capture.calls.push({ id: trip.id, deleted: options.deleted });
+      return { event: null, payload: null };
+    },
+  } as unknown as LiveTrackingService;
+}
+
+const liveTrackingCapture: { calls: Array<{ id: string; deleted?: boolean }> } = { calls: [] };
+
+function makeService(
+  repos: ReturnType<typeof makeRepositories>,
+  liveTracking: LiveTrackingService = makeLiveTrackingStub(liveTrackingCapture),
+): TripsService {
   return new TripsService(
     repos.tripRepo,
     repos.assignmentRepo,
     repos.routeRepo,
     repos.busRepo,
     repos.userRepo,
+    liveTracking,
   );
 }
 
@@ -357,6 +380,14 @@ async function expectConflict(promise: Promise<unknown>, message: string) {
     return true;
   });
 }
+
+/**
+ * The shared live-tracking capture is reset between tests so the
+ * lifecycle-notification assertions below see only their own transitions.
+ */
+beforeEach(() => {
+  liveTrackingCapture.calls.length = 0;
+});
 
 describe('TripsService.create', () => {
   it('derives school, route, bus, driver and conductor from the assignment', async () => {
@@ -902,6 +933,37 @@ describe('TripsService lifecycle', () => {
     const service = makeService(makeRepositories([makeTrip()]));
     await expectNotFound(service.updateStatus(SCHOOL_B, TRIP_A, statusDto(TripStatus.BOARDING)));
     await expectNotFound(service.cancel(SCHOOL_B, TRIP_A, new CancelTripDto()));
+  });
+
+  it('forwards every successful lifecycle transition to live tracking', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.IN_PROGRESS));
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.COMPLETED));
+
+    assert.deepEqual(liveTrackingCapture.calls, [
+      { id: TRIP_A, deleted: undefined },
+      { id: TRIP_A, deleted: undefined },
+    ]);
+  });
+
+  it('does not notify live tracking for a rejected transition', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await expectBadRequest(
+      service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.COMPLETED)),
+      TRIP_INVALID_TRANSITION_MESSAGE(TripStatus.SCHEDULED, TripStatus.COMPLETED),
+    );
+
+    assert.deepEqual(liveTrackingCapture.calls, []);
+  });
+
+  it('notifies live tracking with the deleted flag when removing a trip', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await service.remove(SCHOOL_A, TRIP_A);
+
+    assert.deepEqual(liveTrackingCapture.calls, [{ id: TRIP_A, deleted: true }]);
   });
 });
 

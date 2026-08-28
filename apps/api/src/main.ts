@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { LiveTrackingIoAdapter } from './modules/live-tracking/live-tracking.ws-adapter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -39,6 +40,11 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new LoggingInterceptor(), new TransformInterceptor());
+
+  // The live-tracking Socket.IO server inherits the application's CORS
+  // policy and packet caps through the custom adapter (see
+  // `live-tracking.ws-adapter.ts`).
+  app.useWebSocketAdapter(new LiveTrackingIoAdapter(app));
 
   await app.listen(port);
   logger.log(`API Application is running on: http://localhost:${port}/${apiPrefix}`);

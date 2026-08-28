@@ -774,6 +774,248 @@ export type TripStudentBoardRequest = Record<string, never>;
 export type TripStudentDropRequest = Record<string, never>;
 
 /**
+ * Phase 5 — Live GPS tracking (real-time bus location).
+ *
+ * Coordinates originate exclusively from the driver's or conductor's mobile
+ * device. The API persists every accepted fix, stamps it with the *server*
+ * receipt time (`received_at` — a client can never fake it) and re-broadcasts
+ * it to the Socket.IO room of the trip. Observers never supply a tenant id, a
+ * crew id or a timestamp the API has not verified: the tenant and the crew
+ * identity come from the JWT, the bus and the route come from the trip.
+ *
+ * No map provider is required by the backend: `latitude` / `longitude` are
+ * plain WGS-84 numbers that a future Leaflet/OpenStreetMap layer (or any
+ * other renderer) can consume as-is.
+ */
+
+/** A single GPS fix as reported by the crew device. */
+export interface GpsLocationFix {
+  /** WGS-84 latitude, -90..90. */
+  latitude: number;
+  /** WGS-84 longitude, -180..180. */
+  longitude: number;
+  /** Horizontal accuracy in metres (device-reported, optional). */
+  accuracy?: number;
+  /** Ground speed in km/h (device-reported, optional). */
+  speed?: number;
+  /** Compass heading in degrees, 0..360 (device-reported, optional). */
+  heading?: number;
+  /** ISO-8601 time the fix was taken on the device. */
+  recorded_at: string;
+}
+
+/**
+ * State of the live tracking stream for a trip, derived from its lifecycle:
+ *
+ * `unavailable` → `SCHEDULED` (nothing can be broadcast yet)
+ * `active`      → `BOARDING` / `IN_PROGRESS` (updates are accepted)
+ * `stopped`     → `COMPLETED` / `CANCELLED` (no further updates are ever
+ *                  accepted; the last recorded location stays readable)
+ */
+export type TripTrackingState = 'unavailable' | 'active' | 'stopped';
+
+/** One persisted GPS fix of a trip. */
+export interface TripLocationResponse {
+  id: string;
+  school_id: string;
+  trip_id: string;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  speed: number | null;
+  heading: number | null;
+  /** ISO-8601 device time of the fix. */
+  recorded_at: string;
+  /** ISO-8601 server time the update was received. */
+  received_at: string;
+}
+
+/** Successful payload of `GET /api/v1/trips/:tripId/location`. */
+export interface TripLocationLatestResponse extends TripLocationResponse {
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+}
+
+/** Query string of `GET /api/v1/trips/:tripId/location/history`. */
+export interface TripLocationHistoryQuery {
+  /** Inclusive ISO-8601 lower bound on `recorded_at`. */
+  from?: string;
+  /** Inclusive ISO-8601 upper bound on `recorded_at`. */
+  to?: string;
+  /** Maximum number of fixes (1..500, default 100). */
+  limit?: number;
+}
+
+/**
+ * Successful payload of `GET /api/v1/trips/:tripId/location/history`.
+ *
+ * Items are ordered chronologically (oldest fix first) so a client can draw
+ * the travelled path directly; `has_more` signals that the window continues
+ * past the newest returned fix.
+ */
+export interface TripLocationHistoryResponse {
+  trip_id: string;
+  school_id: string;
+  items: TripLocationResponse[];
+  /** True when further fixes exist after the last returned item. */
+  has_more: boolean;
+}
+
+/**
+ * Socket.IO contract for live tracking.
+ *
+ * The gateway lives in its own namespace so the tracking socket surface stays
+ * separate from any future chat/notification namespaces. Every socket must
+ * authenticate with the same JWT bearer token as the HTTP API
+ * (`handshake.auth.access_token`); a socket without a valid token is
+ * disconnected immediately.
+ *
+ * Rooms are named `trip:<tripId>` (see {@link liveTrackingRoomName}). Room
+ * membership is the only authorization boundary for broadcasts: a socket can
+ * enter the room only after the server has verified that its user may observe
+ * that specific trip, and it must repeat that handshake after every
+ * reconnect.
+ */
+export const LIVE_TRACKING_NAMESPACE = '/live-tracking';
+
+/** Socket.IO event names of the live tracking namespace. */
+export const LIVE_TRACKING_EVENTS = {
+  /** Client → server: request membership in one trip's room. */
+  join: 'tracking:join',
+  /** Client → server: leave a trip's room again. */
+  leave: 'tracking:leave',
+  /** Crew → server: one GPS fix; server → room: the accepted fix. */
+  locationUpdate: 'trip:location:update',
+  /** Server → room: the trip entered a state where tracking can run. */
+  trackingStarted: 'trip:tracking:started',
+  /** Server → room: the trip reached a terminal state; tracking has stopped. */
+  trackingStopped: 'trip:tracking:stopped',
+} as const;
+
+export type LiveTrackingEvent = (typeof LIVE_TRACKING_EVENTS)[keyof typeof LIVE_TRACKING_EVENTS];
+
+/**
+ * Room name for one trip. Centralised so client and server can never drift on
+ * the naming scheme; the value is always built server-side from a verified
+ * trip id, never from raw client input.
+ */
+export const liveTrackingRoomName = (tripId: string): string => `trip:${tripId}`;
+
+/** Body of the `tracking:join` event. */
+export interface TrackingJoinPayload {
+  trip_id: string;
+}
+
+/** Why a `tracking:join` request was refused. */
+export type TrackingJoinDenialReason =
+  'unauthenticated' | 'invalid_payload' | 'unauthorized' | 'trip_not_found' | 'trip_not_open';
+
+/** Ack of `tracking:join`. */
+export interface TrackingJoinAck {
+  status: 'joined' | 'denied';
+  trip_id: string;
+  /**
+   * The room the socket entered. On a denied join this is the room that
+   * would have been entered (or `unknown` when the payload was unparseable).
+   */
+  room: string;
+  /** Present only when `status` is `joined`. */
+  trip_status?: TripStatus;
+  tracking_state?: TripTrackingState;
+  /** Present only when `status` is `joined`: the current latest fix, or `null` while the trip has not moved yet. */
+  latest?: TripLocationResponse | null;
+  /** Present only when `status` is `denied`. */
+  reason?: TrackingJoinDenialReason;
+}
+
+/** Body of the `tracking:leave` event. */
+export interface TrackingLeavePayload {
+  trip_id: string;
+}
+
+/** Ack of `tracking:leave`. */
+export interface TrackingLeaveAck {
+  status: 'left' | 'not_joined';
+  trip_id: string;
+}
+
+/**
+ * Crew → server body of `trip:location:update`.
+ *
+ * Deliberately contains only the GPS data: no `school_id`, no crew id, no bus
+ * or route id and no server receipt time — all of those are derived by the
+ * server from the JWT and the trip record.
+ */
+export interface TripLocationUpdatePayload extends GpsLocationFix {
+  trip_id: string;
+}
+
+/** Why a `trip:location:update` was refused (the socket stays connected). */
+export type TripLocationUpdateRejectionReason =
+  | 'unauthenticated'
+  | 'unauthorized'
+  | 'trip_not_found'
+  | 'trip_not_open'
+  | 'invalid_payload'
+  | 'invalid_timestamp'
+  | 'future_timestamp'
+  | 'throttled';
+
+/** Ack of `trip:location:update`. */
+export interface TripLocationUpdateAck {
+  status: 'accepted' | 'rejected';
+  trip_id: string;
+  /** Server receipt time, present for accepted updates. */
+  received_at?: string;
+  /**
+   * Accepted updates only: `true` when this fix is not the latest one (an
+   * older or equal timestamp arrived out of order). It is kept for the
+   * history but does not move the live position forward.
+   */
+  stale?: boolean;
+  /** Present only when `status` is `rejected`. */
+  reason?: TripLocationUpdateRejectionReason;
+}
+
+/** Server → room broadcast of an accepted, latest GPS fix. */
+export interface TripLocationUpdateEvent {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  speed: number | null;
+  heading: number | null;
+  /** ISO-8601 device time of the fix. */
+  recorded_at: string;
+  /** ISO-8601 server time the fix was received (authoritative receipt time). */
+  received_at: string;
+}
+
+/** Server → room: tracking became possible (trip entered BOARDING/IN_PROGRESS). */
+export interface TripTrackingStartedEvent {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  /** ISO-8601 server time of the transition. */
+  at: string;
+}
+
+/** Server → room: the trip is terminal and will never accept GPS updates. */
+export interface TripTrackingStoppedEvent {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  reason: 'completed' | 'cancelled' | 'deleted';
+  /** ISO-8601 server time of the transition. */
+  at: string;
+}
+
+/**
  * Phase 2 — Bus, route and stop management.
  *
  * The school admin manages the fleet (`/buses`), the route plan (`/routes`)
