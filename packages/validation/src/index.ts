@@ -4,6 +4,7 @@ import {
   StudentGender,
   TripAttendanceStatus,
   TripStatus,
+  TripTrackingState,
 } from '@school-bus-tracking/shared-types';
 
 /**
@@ -740,3 +741,159 @@ export const TRIP_ATTENDANCE_OPEN_TRIP_STATUSES: readonly TripStatus[] = Object.
 /** True when the trip is in a state that still accepts attendance changes. */
 export const isTripOpenForAttendance = (status: TripStatus): boolean =>
   TRIP_ATTENDANCE_OPEN_TRIP_STATUSES.includes(status);
+
+/**
+ * Phase 5 — Live GPS tracking.
+ *
+ * These schemas guard the Socket.IO payload surface, which has no global
+ * validation pipe: everything a client can send through the tracking
+ * namespace is checked here with `.strict()`, so an unknown or forged field
+ * (a `school_id`, a crew id, a server timestamp) is rejected instead of
+ * silently stripped.
+ */
+
+/**
+ * Horizontal accuracy bounds in metres. A fix wider than 10 km carries no
+ * routing information for a school bus, so it is treated as malformed.
+ */
+export const GPS_ACCURACY_MAX_METERS = 10_000;
+
+/** Ground-speed sanity bound in km/h (a school bus cannot exceed it). */
+export const GPS_SPEED_MAX_KMH = 300;
+
+/** ISO-8601 date-time that must actually parse to a real moment. */
+export const gpsDateTimeSchema = z
+  .string({ required_error: 'recorded_at must be a date-time string' })
+  .refine(
+    (value) => !Number.isNaN(Date.parse(value)),
+    'recorded_at must be a valid ISO-8601 date-time',
+  );
+
+/**
+ * One GPS fix exactly as the crew device reports it.
+ *
+ * `accuracy`, `speed` and `heading` are optional device readings; `latitude`,
+ * `longitude` and `recorded_at` are mandatory. All bounds are finite-number
+ * checks — `NaN` and infinities are malformed, not out of range.
+ */
+export const gpsLocationFixSchema = z
+  .object({
+    latitude: z
+      .number({ required_error: 'latitude must be a number' })
+      .finite('latitude must be a finite number')
+      .min(-90, 'latitude must be between -90 and 90')
+      .max(90, 'latitude must be between -90 and 90'),
+    longitude: z
+      .number({ required_error: 'longitude must be a number' })
+      .finite('longitude must be a finite number')
+      .min(-180, 'longitude must be between -180 and 180')
+      .max(180, 'longitude must be between -180 and 180'),
+    accuracy: z
+      .number()
+      .finite('accuracy must be a finite number')
+      .min(0, 'accuracy must be at least 0 metres')
+      .max(GPS_ACCURACY_MAX_METERS, `accuracy must be at most ${GPS_ACCURACY_MAX_METERS} metres`)
+      .optional(),
+    speed: z
+      .number()
+      .finite('speed must be a finite number')
+      .min(0, 'speed must be at least 0 km/h')
+      .max(GPS_SPEED_MAX_KMH, `speed must be at most ${GPS_SPEED_MAX_KMH} km/h`)
+      .optional(),
+    heading: z
+      .number()
+      .finite('heading must be a finite number')
+      .min(0, 'heading must be between 0 and 360 degrees')
+      .max(360, 'heading must be between 0 and 360 degrees')
+      .optional(),
+    recorded_at: gpsDateTimeSchema,
+  })
+  .strict();
+
+export type GpsLocationFixInput = z.infer<typeof gpsLocationFixSchema>;
+
+/**
+ * Full `trip:location:update` socket payload: the fix plus the trip it
+ * belongs to. The trip id is the only "which trip" input a client ever
+ * supplies; ownership of everything else is derived server-side.
+ */
+export const tripLocationUpdateSchema = gpsLocationFixSchema
+  .extend({
+    trip_id: z.string().uuid('trip_id must be a valid UUID'),
+  })
+  .strict();
+
+export type TripLocationUpdateInput = z.infer<typeof tripLocationUpdateSchema>;
+
+/** `tracking:join` socket payload — one trip id and nothing else. */
+export const trackingJoinSchema = z
+  .object({
+    trip_id: z.string().uuid('trip_id must be a valid UUID'),
+  })
+  .strict();
+
+export type TrackingJoinInput = z.infer<typeof trackingJoinSchema>;
+
+/**
+ * `GET /trips/:tripId/location/history` query: an inclusive time window on
+ * `recorded_at` plus a bounded page size. Unlimited history is impossible by
+ * construction — `limit` is always present after parsing.
+ */
+export const tripLocationHistoryQuerySchema = z
+  .object({
+    from: gpsDateTimeSchema.optional(),
+    to: gpsDateTimeSchema.optional(),
+    limit: z
+      .number()
+      .int('limit must be an integer')
+      .min(1, 'limit must be at least 1')
+      .max(500, 'limit must be at most 500')
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.from && value.to && Date.parse(value.to) < Date.parse(value.from)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['to'],
+        message: 'to must be on or after from',
+      });
+    }
+  });
+
+export type TripLocationHistoryQueryInput = z.infer<typeof tripLocationHistoryQuerySchema>;
+
+/**
+ * Trip states in which live GPS tracking can run.
+ *
+ * `SCHEDULED` is deliberately excluded: the crew has not started, so a fix
+ * would be noise. `BOARDING` is the first state in which the bus position is
+ * meaningful (crew at the first stop), so tracking opens with it and stays
+ * open through `IN_PROGRESS`. `COMPLETED` and `CANCELLED` are terminal — the
+ * last recorded location stays readable, but no new fix is ever accepted.
+ */
+export const TRIP_TRACKING_ACTIVE_STATUSES: readonly TripStatus[] = Object.freeze([
+  TripStatus.BOARDING,
+  TripStatus.IN_PROGRESS,
+]);
+
+/** True when the trip is in a state that accepts live GPS updates. */
+export const isTripTrackingActive = (status: TripStatus): boolean =>
+  TRIP_TRACKING_ACTIVE_STATUSES.includes(status);
+
+/**
+ * Maps a trip status to the tracking-stream state clients render:
+ *
+ * - `SCHEDULED`        → `unavailable` (join is allowed, no updates arrive)
+ * - `BOARDING` / `IN_PROGRESS` → `active`
+ * - `COMPLETED` / `CANCELLED`  → `stopped` (no joins, last fix still readable)
+ */
+export const getTripTrackingState = (status: TripStatus): TripTrackingState => {
+  if (status === TripStatus.COMPLETED || status === TripStatus.CANCELLED) {
+    return 'stopped';
+  }
+  if (isTripTrackingActive(status)) {
+    return 'active';
+  }
+  return 'unavailable';
+};

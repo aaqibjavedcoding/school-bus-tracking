@@ -27,6 +27,30 @@ export const INVALID_AUTH_TOKEN_MESSAGE = 'Invalid or expired access token';
 /** Canonical role values accepted inside an access token payload. */
 const VALID_ROLES: readonly string[] = Object.values(UserRole);
 
+/**
+ * Structural validation of a verified access-token payload.
+ *
+ * A cryptographically valid token is not enough — the payload must carry the
+ * complete tenant-scoped claim set (`sub`, `school_id`, `role`) with a
+ * recognized role. This is the single implementation of that rule: the HTTP
+ * `JwtAuthGuard` and the live-tracking Socket.IO gateway both rely on it so
+ * the two authentication surfaces can never drift.
+ */
+export function isAccessTokenPayloadValid(payload: unknown): payload is JwtAccessTokenPayload {
+  if (typeof payload !== 'object' || payload === null) {
+    return false;
+  }
+  const candidate = payload as Partial<JwtAccessTokenPayload>;
+  return (
+    typeof candidate.sub === 'string' &&
+    candidate.sub.length > 0 &&
+    typeof candidate.school_id === 'string' &&
+    candidate.school_id.length > 0 &&
+    typeof candidate.role === 'string' &&
+    VALID_ROLES.includes(candidate.role)
+  );
+}
+
 /** Minimal shape of the incoming request the guard interacts with. */
 interface RequestWithUser {
   headers?: Record<string, unknown>;
@@ -103,20 +127,8 @@ export class JwtAuthGuard implements CanActivate {
     return token;
   }
 
-  /**
-   * A cryptographically valid token is not enough — the payload must carry
-   * the complete tenant-scoped claim set with a recognized role.
-   */
-  private isValidPayload(
-    payload: Partial<JwtAccessTokenPayload>,
-  ): payload is JwtAccessTokenPayload {
-    return (
-      typeof payload?.sub === 'string' &&
-      payload.sub.length > 0 &&
-      typeof payload?.school_id === 'string' &&
-      payload.school_id.length > 0 &&
-      typeof payload?.role === 'string' &&
-      VALID_ROLES.includes(payload.role)
-    );
+  /** Delegates to the shared payload rule (see `isAccessTokenPayloadValid`). */
+  private isValidPayload(payload: unknown): payload is JwtAccessTokenPayload {
+    return isAccessTokenPayloadValid(payload);
   }
 }

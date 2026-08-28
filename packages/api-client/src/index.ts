@@ -69,6 +69,9 @@ import {
   TripListQuery,
   TripListResponse,
   TripResponse,
+  TripLocationHistoryQuery,
+  TripLocationHistoryResponse,
+  TripLocationLatestResponse,
   TripStatusUpdateRequest,
   TripStudentAttendanceResponse,
   TripStudentManifestQuery,
@@ -657,6 +660,37 @@ export class ApiClient {
   /** Cancels (when still open) and soft-deletes the trip. */
   public async deleteTrip(id: string): Promise<ApiResponse<TripDeleteResponse>> {
     return this.delete<TripDeleteResponse>(`/trips/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Live GPS tracking. The API resolves the trip inside the caller's tenant
+   * and authorizes the caller for it (admin, rostered crew or the parent of
+   * a student on the trip), so these methods never send a tenant id, a crew
+   * id or a timestamp. Live updates themselves travel over the
+   * `/live-tracking` Socket.IO namespace, not over REST.
+   */
+
+  /** Latest known position of the trip's bus. `404` until the first fix lands. */
+  public async getTripLocation(tripId: string): Promise<ApiResponse<TripLocationLatestResponse>> {
+    return this.get<TripLocationLatestResponse>(`/trips/${encodeURIComponent(tripId)}/location`);
+  }
+
+  /**
+   * Chronological location history of the trip, bounded by an optional
+   * `recorded_at` window and always by `limit` (1..500, default 100).
+   */
+  public async getTripLocationHistory(
+    tripId: string,
+    query: TripLocationHistoryQuery = {},
+  ): Promise<ApiResponse<TripLocationHistoryResponse>> {
+    const params = new URLSearchParams();
+    if (query.from) params.set('from', query.from);
+    if (query.to) params.set('to', query.to);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<TripLocationHistoryResponse>(
+      `/trips/${encodeURIComponent(tripId)}/location/history${suffix}`,
+    );
   }
 
   /**

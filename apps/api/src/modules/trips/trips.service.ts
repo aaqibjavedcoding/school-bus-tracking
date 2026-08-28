@@ -17,6 +17,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import {
   TRIP_ACTUAL_RANGE_MESSAGE,
   TRIP_ASSIGNMENT_BUS_MISSING_MESSAGE,
@@ -70,6 +71,11 @@ interface DispatchTarget {
  * The lifecycle (`SCHEDULED → BOARDING → IN_PROGRESS → COMPLETED`, with
  * `CANCELLED` reachable from any non-terminal state) is enforced here through
  * the shared transition table; the database only constrains the value set.
+ *
+ * Every successful transition (and the soft delete that cancels still-open
+ * runs) is forwarded to `LiveTrackingService.onTripStatusChanged`, which is
+ * what stops a terminal trip from accepting GPS fixes and notifies the
+ * connected sockets. The transition rules themselves are untouched.
  */
 @Injectable()
 export class TripsService {
@@ -84,6 +90,7 @@ export class TripsService {
     private readonly buses: typeof Bus,
     @Inject(TRIPS_USERS_REPOSITORY)
     private readonly users: typeof User,
+    private readonly liveTracking: LiveTrackingService,
   ) {}
 
   /** Dispatches a new `SCHEDULED` trip from an active roster row. */
@@ -262,6 +269,7 @@ export class TripsService {
     }
 
     await trip.update(values);
+    await this.liveTracking.onTripStatusChanged(trip);
     return this.toResponse(trip);
   }
 
@@ -292,6 +300,9 @@ export class TripsService {
     }
 
     await trip.destroy();
+    // The run is gone: observers get a terminal `trip:tracking:stopped`
+    // event and no fix for this trip is ever accepted again.
+    await this.liveTracking.onTripStatusChanged(trip, { deleted: true });
     return { id, message: TRIP_DELETED_MESSAGE };
   }
 
