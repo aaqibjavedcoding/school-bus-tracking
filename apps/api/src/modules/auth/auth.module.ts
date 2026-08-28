@@ -29,6 +29,10 @@ import { REFRESH_TOKENS_REPOSITORY, USERS_REPOSITORY } from './auth.constants';
     // The `User` and `RefreshToken` model classes are provided behind tokens
     // instead of `SequelizeModule.forFeature` so the app still boots while
     // DB_AUTO_CONNECT=false, and unit tests can substitute stubs.
+    //
+    // Initialization of these classes is owned by `DatabaseModule.forRoot()`,
+    // which registers every domain model with the Sequelize connection so
+    // `User.unscoped()` works at login.
     { provide: USERS_REPOSITORY, useValue: User },
     { provide: REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
   ],

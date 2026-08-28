@@ -10,6 +10,10 @@ import { SchoolAccessService } from './school-access.service';
  * shared `JwtAuthGuard` (which guards controllers in every feature module)
  * without each module having to import it. The service encapsulates the
  * single centralized rule for school lifecycle (inactive tenant) access.
+ *
+ * `School` is provided as the bare model class (same pattern as every feature
+ * module). `DatabaseModule.forRoot()` is responsible for attaching it to the
+ * live Sequelize connection so `findOne` works at runtime.
  */
 @Global()
 @Module({
