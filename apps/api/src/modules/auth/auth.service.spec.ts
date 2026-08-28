@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { hashPassword, hashToken } from '../../auth';
-import { RefreshToken, User } from '../../database/models';
+import { RefreshToken, School, User } from '../../database/models';
 import { AuthService } from './auth.service';
 import {
   EXPIRED_REFRESH_TOKEN_MESSAGE,
@@ -59,6 +59,16 @@ function makeUsersRepository(
       },
     }),
   } as unknown as typeof User;
+}
+
+/** In-memory stand-in for the `School` model used to resolve a tenant code. */
+function makeSchoolsRepository(schoolIdByCode: Record<string, string>) {
+  return {
+    findOne: (options: { where: { code: string } }) => {
+      const id = schoolIdByCode[(options.where.code ?? '').toLowerCase()];
+      return Promise.resolve(id ? { id } : null);
+    },
+  } as unknown as typeof School;
 }
 
 /** In-memory stand-in for the refresh tokens repository. */
@@ -283,6 +293,42 @@ describe('AuthService.login', () => {
     await service.login(makeLoginDto({ email: '  Driver@School.ORG  ' }));
 
     assert.deepEqual(capture.where, { school_id: SCHOOL_ID, email: 'driver@school.org' });
+  });
+
+  it('resolves a school tenant code to its UUID before the user lookup', async () => {
+    const capture: { where?: unknown } = {};
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user, capture),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      undefined,
+      makeSchoolsRepository({ 'lincoln-high': SCHOOL_ID }),
+    );
+
+    const { response } = await service.login(makeLoginDto({ school_id: 'lincoln-high' }));
+
+    // The tenant code was resolved to the school UUID before the lookup,
+    // and the JWT still carries the resolved tenant id.
+    assert.deepEqual(capture.where, { school_id: SCHOOL_ID, email: 'driver@school.org' });
+    assert.equal(response.user.school_id, SCHOOL_ID);
+  });
+
+  it('returns generic 401 when the supplied school code is unknown', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(null),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      undefined,
+      makeSchoolsRepository({}),
+    );
+    await expectUnauthorized(
+      service.login(makeLoginDto({ school_id: 'no-such-school' })),
+      INVALID_CREDENTIALS_MESSAGE,
+    );
   });
 
   it('returns generic 401 when no user matches school_id + email', async () => {

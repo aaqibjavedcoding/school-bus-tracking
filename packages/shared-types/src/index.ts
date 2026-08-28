@@ -116,9 +116,11 @@ export enum TripAttendanceStatus {
  *
  * Normal school users (SCHOOL_ADMIN, DRIVER, CONDUCTOR, PARENT) log in
  * tenant-scoped: the same email may exist under multiple schools, so their
- * `school_id` is required. A platform `SUPER_ADMIN` belongs to no tenant and
- * logs in with `school_id` omitted (or `null`) — the API resolves the
- * platform account by email.
+ * `school_id` is required. `school_id` identifies the tenant and may be either
+ * the school's opaque UUID or its human-friendly tenant `code` (e.g.
+ * `lincoln-high`) — the API resolves a code to the matching tenant. A platform
+ * `SUPER_ADMIN` belongs to no tenant and logs in with `school_id` omitted (or
+ * `null`) — the API resolves the platform account by email.
  */
 export interface LoginRequest {
   school_id?: string | null;

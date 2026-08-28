@@ -14,6 +14,14 @@ export const USERS_REPOSITORY = 'AUTH_USERS_REPOSITORY';
 export const REFRESH_TOKENS_REPOSITORY = 'AUTH_REFRESH_TOKENS_REPOSITORY';
 
 /**
+ * Injection token for the `School` model used to resolve a tenant `code`
+ * supplied at login into its `school_id`. Bound to the `School`
+ * sequelize-typescript model in AuthModule; optional in unit tests (a UUID
+ * tenant id needs no school lookup).
+ */
+export const AUTH_SCHOOLS_REPOSITORY = 'AUTH_SCHOOLS_REPOSITORY';
+
+/**
  * Single generic message for every credential failure (unknown school,
  * unknown email, wrong password, inactive account). A single message avoids
  * leaking which part of the credentials was wrong (account enumeration).

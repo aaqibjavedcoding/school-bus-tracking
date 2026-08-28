@@ -103,20 +103,39 @@ export const adminNameSchema = z
 export const emailSchema = z.string().trim().toLowerCase().email().max(255);
 
 /**
+ * School tenant identifier accepted at login. A school user identifies the
+ * tenant either by its opaque UUID or its human-friendly `code`; the union
+ * accepts both so the login form can take a code a school admin already knows
+ * (e.g. `lincoln-high`) without exposing the internal UUID.
+ */
+const loginSchoolCodePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i;
+
+export const loginTenantIdSchema = z.union([
+  z.string().uuid('school_id must be a valid UUID'),
+  z
+    .string()
+    .trim()
+    .min(2, 'school_id must be a valid UUID or school code')
+    .max(32, 'school_id must be a valid UUID or school code')
+    .regex(loginSchoolCodePattern, 'school_id must be a valid UUID or school code'),
+]);
+
+/**
  * Body of `POST /api/v1/auth/login`. Login only requires a non-empty password;
  * composition rules apply when credentials are created, not when they are
  * checked.
  *
- * `school_id` identifies the tenant for school users and must be a UUID when
- * present. A platform `SUPER_ADMIN` belongs to no tenant and logs in with it
- * omitted or `null`; an empty string (empty form field) is normalized to
- * `null` before validation so a browser login form can share one schema.
+ * `school_id` identifies the tenant for school users and may be the school's
+ * UUID or its tenant `code`. A platform `SUPER_ADMIN` belongs to no tenant and
+ * logs in with it omitted or `null`; an empty string (empty form field) is
+ * normalized to `null` before validation so a browser login form can share one
+ * schema.
  */
 export const loginSchema = z
   .object({
     school_id: z.preprocess(
       (value) => (value === '' ? null : value),
-      z.string().uuid('school_id must be a valid UUID').nullable().optional(),
+      loginTenantIdSchema.nullable().optional(),
     ),
     email: emailSchema,
     password: z.string().min(1, 'Password is required'),

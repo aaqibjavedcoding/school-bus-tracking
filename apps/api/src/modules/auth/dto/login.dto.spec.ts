@@ -29,8 +29,15 @@ describe('LoginDto validation', () => {
     assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: null })), []);
   });
 
-  it('rejects a malformed school_id', async () => {
-    assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: 'not-a-uuid' })), [
+  it('accepts a school tenant code as school_id', async () => {
+    assert.deepEqual(
+      properties(await validateBody({ ...VALID_BODY, school_id: 'lincoln-high' })),
+      [],
+    );
+  });
+
+  it('rejects a school_id that is neither a UUID nor a school code', async () => {
+    assert.deepEqual(properties(await validateBody({ ...VALID_BODY, school_id: 'not a uuid!' })), [
       'school_id',
     ]);
   });
