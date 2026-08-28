@@ -1,0 +1,95 @@
+import { ApiClientError } from '@school-bus-tracking/api-client';
+
+function readMessage(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => readMessage(item))
+      .filter((item): item is string => Boolean(item));
+    return parts.length > 0 ? parts.join(' ') : null;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (record.error && typeof record.error === 'object') {
+      const nested = record.error as Record<string, unknown>;
+      const fromNested = readMessage(nested.message) ?? readMessage(nested.details);
+      if (fromNested) return fromNested;
+    }
+    const fromMessage = readMessage(record.message);
+    if (fromMessage) return fromMessage;
+    const fromDetails = readMessage(record.details);
+    if (fromDetails) return fromDetails;
+  }
+  return null;
+}
+
+export function getApiErrorMessage(error: unknown, fallback = 'Something went wrong'): string {
+  if (error instanceof ApiClientError) {
+    const fromDetails = readMessage(error.details);
+    if (fromDetails) return fromDetails;
+    if (error.status === 0) {
+      return 'Network error. Check your connection and try again.';
+    }
+    if (error.status === 401) {
+      return 'Your session has expired. Please sign in again.';
+    }
+    if (error.status === 403) {
+      return 'You do not have permission to do that.';
+    }
+    return error.message || fallback;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
+export function fieldErrorsFromZod(error: {
+  flatten: () => { fieldErrors: Record<string, string[] | undefined> };
+}): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, messages] of Object.entries(error.flatten().fieldErrors)) {
+    if (messages && messages.length > 0) {
+      result[key] = messages[0];
+    }
+  }
+  return result;
+}
+
+export function unwrapEnvelope<T>(
+  envelope: { success: boolean; data?: T; message?: string; error?: { message: string } },
+  fallback = 'Request failed',
+): T {
+  if (envelope.data !== undefined) {
+    return envelope.data;
+  }
+  throw new Error(envelope.error?.message || envelope.message || fallback);
+}
+
+export function emptyToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+export function fieldErrorsFromUnknown(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiClientError) || !error.details || typeof error.details !== 'object') {
+    return {};
+  }
+  const details = error.details as Record<string, unknown>;
+  const nested =
+    details.error && typeof details.error === 'object'
+      ? (details.error as Record<string, unknown>)
+      : details;
+  const raw = nested.details;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const message = readMessage(value);
+    if (message) result[key] = message;
+  }
+  return result;
+}

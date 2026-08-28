@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
-import { JwtAuthGuard, RolesGuard } from '../../common/guards';
+import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { TripsService } from './trips.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -26,9 +26,11 @@ import { UpdateTripStatusDto } from './dto/update-trip-status.dto';
  * Tenant-safe trip endpoints.
  *
  * A trip is one concrete execution of a route, always dispatched from an
- * active `RouteAssignment`. Only school administrators can manage trips, and
- * every handler takes the tenant exclusively from the verified JWT claims —
- * `school_id` is never read from a body, query string or header.
+ * active `RouteAssignment`. School administrators manage the full lifecycle.
+ * Rostered drivers and conductors may list/read their own trips and apply
+ * allowed status transitions; parents may list/read trips that carry a linked
+ * child. Every handler takes the tenant exclusively from the verified JWT
+ * claims — `school_id` is never read from a body, query string or header.
  */
 @Controller('trips')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -43,20 +45,22 @@ export class TripsController {
     return this.tripsService.create(schoolId, dto);
   }
 
-  /** `GET /api/v1/trips` — paginated, filterable, tenant-scoped list. */
+  /** `GET /api/v1/trips` — paginated, filterable, visibility-scoped list. */
   @Get()
-  async findAll(@CurrentUser('school_id') schoolId: string, @Query() query: ListTripsQueryDto) {
-    return this.tripsService.findAll(schoolId, query);
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
+  async findAll(@CurrentUser() actor: AuthenticatedRequestUser, @Query() query: ListTripsQueryDto) {
+    return this.tripsService.findAllForActor(actor, query);
   }
 
-  /** `GET /api/v1/trips/:id` — tenant-scoped lookup. */
+  /** `GET /api/v1/trips/:id` — tenant-scoped lookup, visibility-checked. */
   @Get(':id')
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT)
   async findOne(
-    @CurrentUser('school_id') schoolId: string,
+    @CurrentUser() actor: AuthenticatedRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
   ) {
-    return this.tripsService.findOne(schoolId, id);
+    return this.tripsService.findOneForActor(actor, id);
   }
 
   /** `PATCH /api/v1/trips/:id` — reschedule or re-dispatch a scheduled trip. */
@@ -72,13 +76,14 @@ export class TripsController {
 
   /** `PATCH /api/v1/trips/:id/status` — one validated lifecycle transition. */
   @Patch(':id/status')
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   async updateStatus(
-    @CurrentUser('school_id') schoolId: string,
+    @CurrentUser() actor: AuthenticatedRequestUser,
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
     id: string,
     @Body() dto: UpdateTripStatusDto,
   ) {
-    return this.tripsService.updateStatus(schoolId, id, dto);
+    return this.tripsService.updateStatusForActor(actor, id, dto);
   }
 
   /** `POST /api/v1/trips/:id/cancel` — cancel a run that will not happen. */

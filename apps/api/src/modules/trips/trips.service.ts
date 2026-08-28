@@ -17,6 +17,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import type { AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import {
   TRIP_ACTUAL_RANGE_MESSAGE,
@@ -130,14 +131,66 @@ export class TripsService {
     }
   }
 
+  /**
+   * Lists trips the caller is allowed to see.
+   *
+   * Admins see the whole school. Drivers and conductors are pinned to the
+   * dispatch snapshot (`driver_id` / `conductor_id`) so they cannot probe
+   * another crew's runs. Parents see only trips whose route carries a linked
+   * child's home stop.
+   */
+  async findAllForActor(
+    actor: AuthenticatedRequestUser,
+    query: ListTripsQueryDto,
+  ): Promise<TripListResponse> {
+    if (actor.role === UserRole.SCHOOL_ADMIN) {
+      return this.findAll(actor.school_id, query);
+    }
+
+    if (actor.role === UserRole.DRIVER) {
+      const scoped = cloneTripListQuery(query);
+      scoped.driver_id = actor.id;
+      return this.findAll(actor.school_id, scoped);
+    }
+
+    if (actor.role === UserRole.CONDUCTOR) {
+      const scoped = cloneTripListQuery(query);
+      scoped.conductor_id = actor.id;
+      return this.findAll(actor.school_id, scoped);
+    }
+
+    if (actor.role === UserRole.PARENT) {
+      const routeIds = await this.liveTracking.getParentObservableRouteIds(actor);
+      if (routeIds.length === 0) {
+        return emptyTripList(query);
+      }
+      if (query.route_id !== undefined && !routeIds.includes(query.route_id)) {
+        return emptyTripList(query);
+      }
+      return this.findAll(actor.school_id, query, {
+        routeIds: query.route_id ? [query.route_id] : routeIds,
+      });
+    }
+
+    return emptyTripList(query);
+  }
+
   /** Lists trips of the authenticated school only. */
-  async findAll(schoolId: string, query: ListTripsQueryDto): Promise<TripListResponse> {
+  async findAll(
+    schoolId: string,
+    query: ListTripsQueryDto,
+    scope?: { routeIds?: string[] },
+  ): Promise<TripListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where: Record<PropertyKey, unknown> = { school_id: schoolId };
 
     if (query.status !== undefined) where.status = query.status;
-    if (query.route_id !== undefined) where.route_id = query.route_id;
+    if (scope?.routeIds !== undefined) {
+      where.route_id = { [Op.in]: scope.routeIds };
+    } else if (query.route_id !== undefined) {
+      where.route_id = query.route_id;
+    }
     if (query.bus_id !== undefined) where.bus_id = query.bus_id;
     if (query.driver_id !== undefined) where.driver_id = query.driver_id;
     if (query.conductor_id !== undefined) where.conductor_id = query.conductor_id;
@@ -172,6 +225,18 @@ export class TripsService {
   async findOne(schoolId: string, id: string): Promise<TripResponse> {
     const trip = await this.findTripOrThrow(schoolId, id);
     return this.toResponse(trip);
+  }
+
+  /**
+   * Returns a trip the caller is allowed to observe. Unknown ids, other
+   * tenants and "not my trip" collapse into the same generic 404.
+   */
+  async findOneForActor(actor: AuthenticatedRequestUser, id: string): Promise<TripResponse> {
+    const auth = await this.liveTracking.authorizeObservation(actor, id);
+    if (!auth.ok) {
+      throw new NotFoundException(TRIP_NOT_FOUND_MESSAGE);
+    }
+    return this.toResponse(auth.trip);
   }
 
   /**
@@ -228,6 +293,25 @@ export class TripsService {
     }
 
     return this.toResponse(trip);
+  }
+
+  /**
+   * Applies exactly one lifecycle transition when the caller is the school
+   * admin or rostered crew of the trip. Non-crew callers see the generic 404.
+   */
+  async updateStatusForActor(
+    actor: AuthenticatedRequestUser,
+    id: string,
+    dto: UpdateTripStatusDto,
+  ): Promise<TripResponse> {
+    const trip = await this.findTripOrThrow(actor.school_id, id);
+    if (actor.role !== UserRole.SCHOOL_ADMIN) {
+      const isCrew = await this.liveTracking.isCrewOfTrip(actor, trip);
+      if (!isCrew) {
+        throw new NotFoundException(TRIP_NOT_FOUND_MESSAGE);
+      }
+    }
+    return this.updateStatus(actor.school_id, id, dto);
   }
 
   /** Applies exactly one lifecycle transition. */
@@ -604,4 +688,35 @@ function toIsoString(value: Date | string): string {
 
 function toNullableIsoString(value: Date | string | null | undefined): string | null {
   return value == null ? null : toIsoString(value);
+}
+
+function cloneTripListQuery(query: ListTripsQueryDto): ListTripsQueryDto {
+  const clone = new ListTripsQueryDto();
+  clone.page = query.page;
+  clone.limit = query.limit;
+  clone.status = query.status;
+  clone.route_id = query.route_id;
+  clone.bus_id = query.bus_id;
+  clone.driver_id = query.driver_id;
+  clone.conductor_id = query.conductor_id;
+  clone.date = query.date;
+  clone.date_from = query.date_from;
+  clone.date_to = query.date_to;
+  return clone;
+}
+
+function emptyTripList(query: ListTripsQueryDto): TripListResponse {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 20;
+  return {
+    items: [],
+    meta: {
+      page,
+      limit,
+      total: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: page > 1,
+    },
+  };
 }

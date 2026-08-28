@@ -11,14 +11,17 @@ import {
   StudentDeleteResponse,
   StudentListResponse,
   StudentResponse,
+  UserRole,
 } from '@school-bus-tracking/shared-types';
-import { Student, StudentAttributes, Stop } from '../../database/models';
+import { Student, StudentAttributes, StudentGuardian, Stop } from '../../database/models';
+import type { AuthenticatedRequestUser } from '../../common/guards';
 import {
   STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE,
   STUDENT_DATE_OF_BIRTH_INVALID_MESSAGE,
   STUDENT_DELETED_MESSAGE,
   STUDENT_HOME_STOP_INVALID_MESSAGE,
   STUDENT_NOT_FOUND_MESSAGE,
+  STUDENTS_GUARDIANS_REPOSITORY,
   STUDENTS_REPOSITORY,
   STUDENTS_STOPS_REPOSITORY,
 } from './students.constants';
@@ -45,6 +48,7 @@ export class StudentsService {
   constructor(
     @Inject(STUDENTS_REPOSITORY) private readonly students: typeof Student,
     @Inject(STUDENTS_STOPS_REPOSITORY) private readonly stops: typeof Stop,
+    @Inject(STUDENTS_GUARDIANS_REPOSITORY) private readonly guardians: typeof StudentGuardian,
   ) {}
 
   /**
@@ -135,6 +139,29 @@ export class StudentsService {
    */
   async findOne(schoolId: string, id: string): Promise<StudentResponse> {
     const student = await this.findStudentOrThrow(schoolId, id);
+    return this.toStudentResponse(student);
+  }
+
+  /**
+   * Visibility-checked student lookup. School admins may read any student of
+   * their school; a parent may read only a child they are actively linked to.
+   * Every other combination is the same generic 404.
+   */
+  async findOneForActor(actor: AuthenticatedRequestUser, id: string): Promise<StudentResponse> {
+    const student = await this.findStudentOrThrow(actor.school_id, id);
+    if (actor.role === UserRole.PARENT) {
+      const link = await this.guardians.findOne({
+        where: {
+          school_id: actor.school_id,
+          user_id: actor.id,
+          student_id: id,
+          is_active: true,
+        },
+      });
+      if (!link) {
+        throw new NotFoundException(STUDENT_NOT_FOUND_MESSAGE);
+      }
+    }
     return this.toStudentResponse(student);
   }
 

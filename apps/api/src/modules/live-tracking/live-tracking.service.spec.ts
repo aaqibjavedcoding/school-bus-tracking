@@ -36,6 +36,8 @@ import {
   PARENT_INACTIVE_LINK,
   PARENT_OTHER_SCHOOL,
   PARENT_UNRELATED,
+  ROUTE_A,
+  ROUTE_A2,
   SCHOOL_A,
   SCHOOL_B,
   SUPER_ADMIN,
@@ -666,6 +668,22 @@ describe('LiveTrackingService.recordLocation — throttling', () => {
 
     const retry = await service.recordLocation(DRIVER, locationPayload(TRIP_A), { socketId: 's2' });
     assert.equal(retry.ack.status, 'accepted');
+  });
+});
+
+describe('LiveTrackingService.getParentObservableRouteIds', () => {
+  it("returns the unique route ids of a parent's active linked children", async () => {
+    const { service } = makeService();
+    const routeIds = await service.getParentObservableRouteIds(PARENT);
+    assert.deepEqual(routeIds.sort(), [ROUTE_A].sort());
+  });
+
+  it('returns an empty list for inactive links and non-parents', async () => {
+    const { service } = makeService();
+    assert.deepEqual(await service.getParentObservableRouteIds(UNRELATED_PARENT), [ROUTE_A2]);
+    assert.deepEqual(await service.getParentObservableRouteIds(INACTIVE_LINK_PARENT), []);
+    assert.deepEqual(await service.getParentObservableRouteIds(ADMIN), []);
+    assert.deepEqual(await service.getParentObservableRouteIds(DRIVER), []);
   });
 });
 

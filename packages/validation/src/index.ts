@@ -102,6 +102,20 @@ export const adminNameSchema = z
 
 export const emailSchema = z.string().trim().toLowerCase().email().max(255);
 
+/**
+ * Body of `POST /api/v1/auth/login`. Login only requires a non-empty password;
+ * composition rules apply when credentials are created, not when they are checked.
+ */
+export const loginSchema = z
+  .object({
+    school_id: z.string().uuid('school_id must be a valid UUID'),
+    email: emailSchema,
+    password: z.string().min(1, 'Password is required'),
+  })
+  .strict();
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
 export const schoolOnboardingSchema = z.object({
   school: z.object({
     name: schoolNameSchema,

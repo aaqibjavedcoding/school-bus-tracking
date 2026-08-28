@@ -121,8 +121,8 @@ describe('StudentsController (authorization)', () => {
         seen.push({ method: 'findAll', schoolId, page: query.page, limit: query.limit });
         return { items: [], meta: {} };
       },
-      findOne: async (schoolId: string, id: string) => {
-        seen.push({ method: 'findOne', schoolId, id });
+      findOneForActor: async (user: AuthenticatedRequestUser, id: string) => {
+        seen.push({ method: 'findOne', schoolId: user.school_id, id });
         return { id };
       },
       update: async (schoolId: string, id: string, dto: UpdateStudentDto) => {
@@ -136,8 +136,13 @@ describe('StudentsController (authorization)', () => {
     } as unknown as StudentsService;
     const controller = new StudentsController(service);
 
+    const actor: AuthenticatedRequestUser = {
+      id: USER_ID,
+      school_id: SCHOOL_A,
+      role: UserRole.SCHOOL_ADMIN,
+    };
     await controller.findAll(SCHOOL_A, makeQuery());
-    await controller.findOne(SCHOOL_A, 'student-1');
+    await controller.findOne(actor, 'student-1');
     await controller.update(SCHOOL_A, 'student-1', new UpdateStudentDto());
     await controller.remove(SCHOOL_A, 'student-1');
 
