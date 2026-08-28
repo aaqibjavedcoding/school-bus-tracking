@@ -4,13 +4,31 @@ import { DatabaseModule } from './database.module';
 import { models } from './models';
 
 const originalDbAutoConnect = process.env.DB_AUTO_CONNECT;
+const originalDbAllowNoConnect = process.env.DB_ALLOW_NO_CONNECT;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalArgv = [...process.argv];
+
+function resetEnvValue(
+  key: 'DB_AUTO_CONNECT' | 'DB_ALLOW_NO_CONNECT' | 'NODE_ENV',
+  value: string | undefined,
+) {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
+
+function setArgv(...args: string[]) {
+  process.argv.length = 0;
+  process.argv.push(...args);
+}
 
 afterEach(() => {
-  if (originalDbAutoConnect === undefined) {
-    delete process.env.DB_AUTO_CONNECT;
-  } else {
-    process.env.DB_AUTO_CONNECT = originalDbAutoConnect;
-  }
+  resetEnvValue('DB_AUTO_CONNECT', originalDbAutoConnect);
+  resetEnvValue('DB_ALLOW_NO_CONNECT', originalDbAllowNoConnect);
+  resetEnvValue('NODE_ENV', originalNodeEnv);
+  setArgv(...originalArgv);
 });
 
 describe('DatabaseModule.forRoot', () => {
@@ -54,8 +72,24 @@ describe('DatabaseModule.forRoot', () => {
     );
   });
 
+  it('ignores DB_AUTO_CONNECT=false during a real API bootstrap', () => {
+    process.env.DB_AUTO_CONNECT = 'false';
+    delete process.env.DB_ALLOW_NO_CONNECT;
+    delete process.env.NODE_ENV;
+    setArgv('/usr/local/bin/node', 'dist/main.js');
+
+    const dynamicModule = DatabaseModule.forRoot();
+
+    assert.equal(
+      dynamicModule.imports?.length,
+      2,
+      'real API starts must still register Sequelize so User.unscoped() is initialized',
+    );
+  });
+
   it('keeps the explicit opt-out for in-memory tests and smoke scripts', () => {
     process.env.DB_AUTO_CONNECT = 'false';
+    process.env.DB_ALLOW_NO_CONNECT = 'true';
 
     const dynamicModule = DatabaseModule.forRoot();
 

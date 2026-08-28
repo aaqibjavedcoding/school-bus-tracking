@@ -1,5 +1,15 @@
 import { registerAs } from '@nestjs/config';
 
+function isNoDatabaseBootstrapAllowed(): boolean {
+  return (
+    process.env.NODE_ENV === 'test' ||
+    process.env.DB_ALLOW_NO_CONNECT === 'true' ||
+    process.argv.some(
+      (arg) => /[\\/]scripts[\\/]smoke[\\/]/.test(arg) || /\.(spec|test)\.[cm]?[tj]sx?$/.test(arg),
+    )
+  );
+}
+
 export default registerAs('database', () => ({
   dialect: 'postgres',
   host: process.env.DB_HOST || 'localhost',
@@ -15,8 +25,11 @@ export default registerAs('database', () => ({
     acquire: parseInt(process.env.DB_POOL_ACQUIRE || '30000', 10),
     idle: parseInt(process.env.DB_POOL_IDLE || '10000', 10),
   },
-  // Database connectivity is enabled by default for the actual API. Set
-  // DB_AUTO_CONNECT=false only for tests or scripts that provide repository
-  // stubs instead of a Sequelize connection.
-  autoConnect: process.env.DB_AUTO_CONNECT !== 'false',
+  // Informational flag for diagnostics. `DatabaseModule` uses the same guard:
+  // a real API bootstrap ignores DB_AUTO_CONNECT=false unless no-DB mode is
+  // explicitly allowed for tests/smoke, because otherwise Sequelize model
+  // classes stay uninitialized and login fails at runtime.
+  autoConnect:
+    process.env.DB_AUTO_CONNECT?.trim().toLowerCase() !== 'false' ||
+    !isNoDatabaseBootstrapAllowed(),
 }));
