@@ -93,6 +93,25 @@ export enum StudentBoardingStatus {
 }
 
 /**
+ * Attendance state of one student on one concrete trip
+ * (`trip_student_attendance.status`).
+ *
+ * PENDING → the student is on the trip manifest but has not boarded yet. It
+ *           is the implicit state of every manifest entry without a stored
+ *           attendance row, so the crew app never has to special-case `null`.
+ * BOARDED → the crew scanned/confirmed the student onto the bus.
+ * DROPPED → the student left the bus at their stop.
+ *
+ * The only legal progression is PENDING → BOARDED → DROPPED; the API rejects
+ * boarding twice, dropping before boarding and dropping twice.
+ */
+export enum TripAttendanceStatus {
+  PENDING = 'PENDING',
+  BOARDED = 'BOARDED',
+  DROPPED = 'DROPPED',
+}
+
+/**
  * Body of `POST /api/v1/auth/login`. Login is tenant-scoped: the same email
  * may exist under multiple schools, so the school id is always required.
  */
@@ -672,6 +691,87 @@ export interface TripListQuery {
   /** Inclusive range end in `YYYY-MM-DD` format. */
   date_to?: string;
 }
+
+/**
+ * Phase 4 — Trip student attendance (boarding / drop management).
+ *
+ * The manifest of a trip is *derived*, never stored: it is every active
+ * student whose home stop belongs to the trip's route, ordered by the stop
+ * sequence. Only the attendance events (boarded / dropped) are persisted, and
+ * their timestamps are always taken from the server clock.
+ *
+ * Requests carry no tenant id, no route id, no stop id and no crew id: the
+ * API resolves the trip from the verified JWT tenant and derives everything
+ * else from it.
+ */
+
+/** One manifest row: the student plus their attendance state on this trip. */
+export interface TripStudentAttendanceResponse {
+  /** Attendance row id; `null` while the student is still `PENDING`. */
+  id: string | null;
+  school_id: string;
+  trip_id: string;
+  student_id: string;
+  admission_number: string;
+  first_name: string;
+  last_name: string;
+  grade_level: string | null;
+  /** Route stop the student is expected to board at. */
+  stop_id: string;
+  stop_name: string;
+  stop_sequence_number: number;
+  status: TripAttendanceStatus;
+  /** Server-generated timestamps; never accepted from a client. */
+  boarded_at: string | null;
+  /** Crew/admin user id that recorded the boarding. */
+  boarded_by: string | null;
+  dropped_at: string | null;
+  dropped_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Aggregated counts for the manifest scope the caller is allowed to see. */
+export interface TripStudentManifestSummary {
+  total: number;
+  pending: number;
+  boarded: number;
+  dropped: number;
+}
+
+/** Successful payload of `GET /api/v1/trips/:tripId/students`. */
+export interface TripStudentManifestResponse {
+  trip_id: string;
+  school_id: string;
+  route_id: string;
+  trip_status: TripStatus;
+  /**
+   * Manifest entries ordered by route stop sequence, then by student name —
+   * consecutive entries with the same `stop_id` form the stop's group.
+   */
+  items: TripStudentAttendanceResponse[];
+  /** Counts over the whole visible manifest, before any `status` filter. */
+  summary: TripStudentManifestSummary;
+}
+
+/** Query string of `GET /api/v1/trips/:tripId/students`. */
+export interface TripStudentManifestQuery {
+  /** Only entries currently in this attendance state. */
+  status?: TripAttendanceStatus;
+  /** Only entries boarding at this route stop. */
+  stop_id?: string;
+}
+
+/**
+ * Bodies of `POST /api/v1/trips/:tripId/students/:studentId/board` and
+ * `.../drop`.
+ *
+ * Deliberately empty: who performed the action comes from the JWT subject and
+ * when it happened comes from the server clock, so there is nothing safe for
+ * a client to contribute.
+ */
+export type TripStudentBoardRequest = Record<string, never>;
+export type TripStudentDropRequest = Record<string, never>;
 
 /**
  * Phase 2 — Bus, route and stop management.
