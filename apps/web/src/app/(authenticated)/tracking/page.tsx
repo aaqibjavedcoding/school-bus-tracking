@@ -18,19 +18,27 @@ function TrackingInner() {
   const [tripId, setTripId] = useState(requested ?? '');
 
   const { data, loading, error, reload } = useLoad(async () => {
-    const trips = unwrapEnvelope(
-      await apiClient.listTrips({
+    const [tripList, routeList] = await Promise.all([
+      apiClient.listTrips({
         page: 1,
         limit: 50,
         date: user?.role === UserRole.SCHOOL_ADMIN ? utcDateOnly() : undefined,
       }),
-    ).items;
+      apiClient.listRoutes({ page: 1, limit: 100 }),
+    ]);
+    const trips = unwrapEnvelope(tripList).items;
     const selectedId = requested || tripId || trips[0]?.id || '';
     const selected = trips.find((trip) => trip.id === selectedId) ?? trips[0] ?? null;
     const stops = selected
       ? unwrapEnvelope(await apiClient.listRouteStops(selected.route_id)).items
       : [];
-    return { trips, selected, stops, selectedId: selected?.id ?? '' };
+    return {
+      trips,
+      routes: unwrapEnvelope(routeList).items,
+      selected,
+      stops,
+      selectedId: selected?.id ?? '',
+    };
   }, [requested, user?.role]);
 
   const activeId = tripId || data?.selectedId || requested || null;
@@ -73,7 +81,7 @@ function TrackingInner() {
             onChange={(event) => setTripId(event.target.value)}
             options={data.trips.map((trip) => ({
               value: trip.id,
-              label: `${tripStatusLabel(trip.status)} · ${formatDateTime(trip.scheduled_start_at)}`,
+              label: `${data.routes.find((route) => route.id === trip.route_id)?.code ?? 'Route unavailable'} · ${formatDateTime(trip.scheduled_start_at)} · ${tripStatusLabel(trip.status)}`,
             }))}
           />
         </div>

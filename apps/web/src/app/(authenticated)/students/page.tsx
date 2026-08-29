@@ -25,6 +25,7 @@ import {
   Textarea,
   useToast,
 } from '../../../components/ui';
+import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
   emptyToNull,
@@ -33,7 +34,7 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../lib/errors';
-import { fullName } from '../../../lib/format';
+import { fullName, stopCode } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 
 const GENDER_OPTIONS = [
@@ -76,6 +77,16 @@ function toPayload(form: FormState): StudentCreateRequest {
 
 export default function StudentsPage() {
   const toast = useToast();
+  const stopLookups = useLoad(async () => {
+    const [stops, routes] = await Promise.all([
+      apiClient.listStops({ page: 1, limit: 100 }),
+      apiClient.listRoutes({ page: 1, limit: 100 }),
+    ]);
+    return {
+      stops: unwrapEnvelope(stops).items,
+      routes: unwrapEnvelope(routes).items,
+    };
+  }, []);
   const list = usePagedResource(
     async (page, search) =>
       unwrapEnvelope(await apiClient.listStudents({ page, limit: 20, search })),
@@ -299,14 +310,24 @@ export default function StudentsPage() {
           </Field>
           <Field
             id="home_stop_id"
-            label="Home stop ID"
+            label="Home stop"
             error={fieldErrors.home_stop_id}
-            hint="UUID of the student's boarding stop"
+            hint={stopLookups.error || 'Choose the student’s regular boarding stop.'}
           >
-            <Input
+            <Select
               id="home_stop_id"
+              placeholder={stopLookups.loading ? 'Loading stops…' : 'Not assigned'}
               value={form.home_stop_id}
+              disabled={stopLookups.loading || Boolean(stopLookups.error)}
               onChange={(event) => setForm({ ...form, home_stop_id: event.target.value })}
+              options={(stopLookups.data?.stops ?? []).map((stop) => {
+                const route = stopLookups.data?.routes.find((item) => item.id === stop.route_id);
+                const code = route ? stopCode(route.code, stop.sequence_number) : 'Stop';
+                return {
+                  value: stop.id,
+                  label: `${code} — ${stop.name}`,
+                };
+              })}
             />
           </Field>
           <Field

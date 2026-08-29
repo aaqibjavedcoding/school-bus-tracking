@@ -309,28 +309,31 @@ export class AuthService {
     return parseDurationToMs(rawTtl);
   }
 
-  getRefreshCookieOptions(): CookieOptions {
+  getRefreshCookieOptions(isHttpsRequest = false): CookieOptions {
     const isProduction = this.configService?.get<string>('app.nodeEnv') === 'production';
+    const secure = isProduction || isHttpsRequest;
     const apiPrefix = this.configService?.get<string>('app.apiPrefix', 'api/v1') ?? 'api/v1';
     const normalizedPrefix = apiPrefix.replace(/^\/+|\/+$/g, '');
     return {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
+      secure,
+      // Embedded HTTPS previews are a cross-site cookie context. `Lax` drops
+      // the refresh cookie on the load-time POST, while `None; Secure` allows
+      // that same-origin API request to restore the session. Keep Lax for
+      // plain-http local development, where Secure cookies cannot be stored.
+      sameSite: secure ? 'none' : 'lax',
       path: `/${normalizedPrefix}/auth`,
       maxAge: this.getRefreshTtlMs(),
     };
   }
 
-  getClearCookieOptions(): CookieOptions {
-    const isProduction = this.configService?.get<string>('app.nodeEnv') === 'production';
-    const apiPrefix = this.configService?.get<string>('app.apiPrefix', 'api/v1') ?? 'api/v1';
-    const normalizedPrefix = apiPrefix.replace(/^\/+|\/+$/g, '');
+  getClearCookieOptions(isHttpsRequest = false): CookieOptions {
+    const options = this.getRefreshCookieOptions(isHttpsRequest);
     return {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: `/${normalizedPrefix}/auth`,
+      httpOnly: options.httpOnly,
+      secure: options.secure,
+      sameSite: options.sameSite,
+      path: options.path,
     };
   }
 

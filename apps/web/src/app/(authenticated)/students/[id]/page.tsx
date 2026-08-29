@@ -25,22 +25,26 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../../lib/errors';
-import { fullName } from '../../../../lib/format';
+import { fullName, stopCode } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
 
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
   const toast = useToast();
   const { data, loading, error, reload } = useLoad(async () => {
-    const [student, guardians, parents] = await Promise.all([
+    const [student, guardians, parents, stops, routes] = await Promise.all([
       apiClient.getStudent(params.id),
       apiClient.listStudentGuardians(params.id),
       apiClient.listParents({ page: 1, limit: 100 }),
+      apiClient.listStops({ page: 1, limit: 100 }),
+      apiClient.listRoutes({ page: 1, limit: 100 }),
     ]);
     return {
       student: unwrapEnvelope(student),
       guardians: unwrapEnvelope(guardians).items,
       parents: unwrapEnvelope(parents).items,
+      stops: unwrapEnvelope(stops).items,
+      routes: unwrapEnvelope(routes).items,
     };
   }, [params.id]);
 
@@ -142,8 +146,14 @@ export default function StudentDetailPage() {
 
   const parentName = (guardian: StudentGuardianResponse) => {
     const parent = data.parents.find((item: ParentResponse) => item.id === guardian.parent_id);
-    return parent ? fullName(parent) : guardian.parent_id;
+    return parent ? `${fullName(parent)} (${parent.email})` : 'Guardian unavailable';
   };
+  const homeStop = data.stops.find((stop) => stop.id === data.student.home_stop_id);
+  const homeStopRoute = data.routes.find((route) => route.id === homeStop?.route_id);
+  const homeStopLabel =
+    homeStop && homeStopRoute
+      ? `${stopCode(homeStopRoute.code, homeStop.sequence_number)} — ${homeStop.name}`
+      : 'Not assigned';
 
   return (
     <div className="page">
@@ -159,7 +169,7 @@ export default function StudentDetailPage() {
       <div className="grid grid-2">
         <Card title="Profile">
           <p>Grade: {data.student.grade_level || '—'}</p>
-          <p className="muted">Home stop: {data.student.home_stop_id || 'Not assigned'}</p>
+          <p className="muted">Home stop: {homeStopLabel}</p>
           <p className="muted">
             Emergency: {data.student.emergency_contact_name || '—'}{' '}
             {data.student.emergency_contact_phone || ''}

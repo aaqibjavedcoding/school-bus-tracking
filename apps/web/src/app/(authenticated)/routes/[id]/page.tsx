@@ -30,6 +30,7 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../../lib/errors';
+import { stopCode } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
 
 const emptyStop = {
@@ -196,6 +197,7 @@ export default function RouteDetailPage() {
               <thead>
                 <tr>
                   <th>#</th>
+                  <th>Code</th>
                   <th>Name</th>
                   <th>Coordinates</th>
                   <th>ETA</th>
@@ -206,6 +208,7 @@ export default function RouteDetailPage() {
                 {data.stops.map((stop, index) => (
                   <tr key={stop.id}>
                     <td>{stop.sequence_number}</td>
+                    <td>{stopCode(data.route.code, stop.sequence_number)}</td>
                     <td>
                       {stop.name} {!stop.is_active ? <Badge tone="neutral">Inactive</Badge> : null}
                     </td>

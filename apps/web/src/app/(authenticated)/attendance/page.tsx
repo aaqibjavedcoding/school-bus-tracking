@@ -11,19 +11,21 @@ import { apiClient } from '../../../services/api';
 export default function AttendancePage() {
   const [tripId, setTripId] = useState('');
   const trips = useLoad(async () => {
-    const list = unwrapEnvelope(
-      await apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
-    );
-    const first = list.items[0]?.id ?? '';
+    const [tripList, routeList] = await Promise.all([
+      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+      apiClient.listRoutes({ page: 1, limit: 100 }),
+    ]);
+    const items = unwrapEnvelope(tripList).items;
+    const first = items[0]?.id ?? '';
     if (!tripId && first) setTripId(first);
-    return list.items;
+    return { items, routes: unwrapEnvelope(routeList).items };
   }, []);
 
   const manifest = useLoad(async () => {
-    const id = tripId || trips.data?.[0]?.id;
+    const id = tripId || trips.data?.items[0]?.id;
     if (!id) return null;
     return unwrapEnvelope(await apiClient.listTripStudents(id));
-  }, [tripId, trips.data?.[0]?.id]);
+  }, [tripId, trips.data?.items[0]?.id]);
 
   return (
     <div className="page">
@@ -38,10 +40,13 @@ export default function AttendancePage() {
             value={tripId}
             placeholder="Select trip"
             onChange={(event) => setTripId(event.target.value)}
-            options={(trips.data ?? []).map((trip) => ({
-              value: trip.id,
-              label: `${tripStatusLabel(trip.status)} · ${formatDateTime(trip.scheduled_start_at)}`,
-            }))}
+            options={(trips.data?.items ?? []).map((trip) => {
+              const route = trips.data?.routes.find((item) => item.id === trip.route_id);
+              return {
+                value: trip.id,
+                label: `${route?.code ?? 'Route unavailable'} · ${formatDateTime(trip.scheduled_start_at)} · ${tripStatusLabel(trip.status)}`,
+              };
+            })}
           />
         </Card>
       )}
