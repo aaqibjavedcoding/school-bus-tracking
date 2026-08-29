@@ -10,6 +10,7 @@
 import { Op } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
+import type { StopArrivalsService } from '../eta/stop-arrivals.service';
 import type { LiveTrackingConfig } from './live-tracking.service';
 
 export const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -362,6 +363,18 @@ export function makeLocationStore(seed: StubLocation[] = []): LocationStore & {
   };
 
   return { rows, createPayloads, repo };
+}
+
+/**
+ * A no-op stop-arrivals double for the tracking pipeline tests: accepts every
+ * evaluation call, records nothing and never throws. The Task 22 arrival
+ * behavior itself is covered by the eta module specs.
+ */
+export function makeNoopArrivalsStub(): StopArrivalsService {
+  return {
+    onAcceptedFix: async () => null,
+    resetForTrip: () => undefined,
+  } as unknown as StopArrivalsService;
 }
 
 /** A location fix with explicit recorded/received times. */

@@ -314,6 +314,11 @@ async function main(): Promise<void> {
         received_at: now().toISOString(),
       }),
     },
+    // Task 22 ETA is out of scope for this smoke: the portal tracking read
+    // stays independent of the ETA feature (its own smoke covers it).
+    eta: {
+      computeTripEta: async () => null,
+    },
     tripAttendance: {
       // Read-only attendance: child already boarded today.
       getStudent: async () => ({

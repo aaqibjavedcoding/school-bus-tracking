@@ -19,6 +19,8 @@ export function notificationIcon(type: NotificationType): string {
       return '🏁';
     case NotificationType.TRIP_CANCELLED:
       return '⚠️';
+    case NotificationType.STOP_ARRIVED:
+      return '📍';
     default:
       return '🔔';
   }

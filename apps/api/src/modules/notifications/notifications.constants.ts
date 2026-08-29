@@ -44,6 +44,10 @@ export const TRIP_STATUS_TITLES: Record<string, string> = {
   TRIP_CANCELLED: 'Trip cancelled',
 };
 
+/** Title/message copy of the Task 22 stop-arrival notification. */
+export const STOP_ARRIVED_TITLE = 'Bus arrived';
+export const STOP_ARRIVED_MESSAGE = (stopName: string): string => `Bus arrived at ${stopName}.`;
+
 export const TRIP_STATUS_MESSAGES: Record<string, string> = {
   TRIP_BOARDING: "Your child's bus is now boarding.",
   TRIP_IN_PROGRESS: "Your child's bus has started the trip.",

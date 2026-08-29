@@ -11,6 +11,7 @@ import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
 import { TripStudentAttendance } from './trip-student-attendance.model';
 import { TripLocation } from './trip-location.model';
+import { TripStopArrival } from './trip-stop-arrival.model';
 import { Notification } from './notification.model';
 
 export { BaseModel } from './base.model';
@@ -62,6 +63,11 @@ export type {
 } from './trip-student-attendance.model';
 export { TripLocation } from './trip-location.model';
 export type { TripLocationAttributes, TripLocationCreationAttributes } from './trip-location.model';
+export { TripStopArrival } from './trip-stop-arrival.model';
+export type {
+  TripStopArrivalAttributes,
+  TripStopArrivalCreationAttributes,
+} from './trip-stop-arrival.model';
 export { Notification } from './notification.model';
 export type { NotificationAttributes, NotificationCreationAttributes } from './notification.model';
 
@@ -92,5 +98,6 @@ export const models: ModelCtor<Model>[] = [
   StudentGuardian,
   TripStudentAttendance,
   TripLocation,
+  TripStopArrival,
   Notification,
 ];

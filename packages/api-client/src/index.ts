@@ -94,11 +94,14 @@ import {
   TripLocationHistoryQuery,
   TripLocationHistoryResponse,
   TripLocationLatestResponse,
+  TripProgressResponse,
   TripStatusUpdateRequest,
+  TripStopArrivalListResponse,
   TripStudentAttendanceResponse,
   TripStudentManifestQuery,
   TripStudentManifestResponse,
   TripUpdateRequest,
+  TripEtaResponse,
 } from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
@@ -994,6 +997,32 @@ export class ApiClient {
     return this.get<TripLocationHistoryResponse>(
       `/trips/${encodeURIComponent(tripId)}/location/history${suffix}`,
     );
+  }
+
+  /**
+   * Task 22 — approximate ETA, stop arrivals and crew progress. The API
+   * resolves the trip inside the caller's tenant and authorizes the caller
+   * for it (the same observer rule as the location endpoints), so these
+   * methods never send a tenant id or any coordinates. The ETA is
+   * GPS-based (Haversine + device/fallback speed), never road-routing.
+   */
+
+  /** Approximate ETA/progress summary of the trip (`GET /trips/:tripId/eta`). */
+  public async getTripEta(tripId: string): Promise<ApiResponse<TripEtaResponse>> {
+    return this.get<TripEtaResponse>(`/trips/${encodeURIComponent(tripId)}/eta`);
+  }
+
+  /** Every recorded stop arrival of the trip (`GET /trips/:tripId/arrivals`). */
+  public async getTripArrivals(tripId: string): Promise<ApiResponse<TripStopArrivalListResponse>> {
+    return this.get<TripStopArrivalListResponse>(`/trips/${encodeURIComponent(tripId)}/arrivals`);
+  }
+
+  /**
+   * Crew progress snapshot: current/next stop, arrivals and the ETA summary
+   * (`GET /trips/:tripId/progress`).
+   */
+  public async getTripProgress(tripId: string): Promise<ApiResponse<TripProgressResponse>> {
+    return this.get<TripProgressResponse>(`/trips/${encodeURIComponent(tripId)}/progress`);
   }
 
   /**

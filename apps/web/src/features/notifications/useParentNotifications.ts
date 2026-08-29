@@ -51,6 +51,7 @@ export function useParentNotifications(options: { recentLimit?: number } = {}) {
         message: string;
         student_id: string | null;
         trip_id: string | null;
+        stop_id: string | null;
         created_at: string;
       };
       if (!event?.notification_id) return;
@@ -61,6 +62,7 @@ export function useParentNotifications(options: { recentLimit?: number } = {}) {
         type: event.type,
         trip_id: event.trip_id,
         student_id: event.student_id,
+        stop_id: event.stop_id,
         title: event.title,
         message: event.message,
         payload: null,

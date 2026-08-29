@@ -10,6 +10,7 @@ import {
   User,
 } from '../../database/models';
 import { LiveTrackingModule } from '../live-tracking/live-tracking.module';
+import { EtaModule } from '../eta/eta.module';
 import { TripAttendanceModule } from '../trip-attendance/trip-attendance.module';
 import { ParentPortalController } from './parent-portal.controller';
 import { ParentPortalService } from './parent-portal.service';
@@ -35,7 +36,7 @@ import {
  * unit-testable while `DB_AUTO_CONNECT=false`.
  */
 @Module({
-  imports: [LiveTrackingModule, TripAttendanceModule],
+  imports: [LiveTrackingModule, EtaModule, TripAttendanceModule],
   controllers: [ParentPortalController],
   providers: [
     ParentPortalService,

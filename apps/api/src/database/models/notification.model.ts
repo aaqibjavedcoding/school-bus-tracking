@@ -3,6 +3,7 @@ import { Optional } from 'sequelize';
 import { NotificationType } from '@school-bus-tracking/shared-types';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { School } from './school.model';
+import { Stop } from './stop.model';
 import { Student } from './student.model';
 import { Trip } from './trip.model';
 import { User } from './user.model';
@@ -16,6 +17,8 @@ export interface NotificationAttributes extends BaseModelAttributes {
   trip_id: string | null;
   /** Child the event is about, when the event is student-scoped. */
   student_id: string | null;
+  /** Stop the event is about, when the event is stop-scoped (Task 22 arrivals). */
+  stop_id: string | null;
   title: string;
   message: string;
   /** Event-specific extra data (student name, trip status, …). */
@@ -26,7 +29,7 @@ export interface NotificationAttributes extends BaseModelAttributes {
 
 export type NotificationCreationAttributes = Optional<
   NotificationAttributes,
-  BaseModelManagedFields | 'trip_id' | 'student_id' | 'payload' | 'is_read' | 'read_at'
+  BaseModelManagedFields | 'trip_id' | 'student_id' | 'stop_id' | 'payload' | 'is_read' | 'read_at'
 >;
 
 /**
@@ -64,6 +67,8 @@ export type NotificationCreationAttributes = Optional<
     // Debug/cleanup lookups by trip or by child.
     { name: 'idx_notifications_school_trip', fields: ['school_id', 'trip_id'] },
     { name: 'idx_notifications_school_student', fields: ['school_id', 'student_id'] },
+    // Stop-scoped notifications (Task 22 arrivals) and their composite FK.
+    { name: 'idx_notifications_school_stop', fields: ['school_id', 'stop_id'] },
   ],
 })
 export class Notification extends BaseModel<
@@ -92,6 +97,10 @@ export class Notification extends BaseModel<
   @Column({ type: DataType.UUID, allowNull: true })
   declare student_id: string | null;
 
+  @ForeignKey(() => Stop)
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare stop_id: string | null;
+
   @Column({ type: DataType.STRING(160), allowNull: false })
   declare title: string;
 
@@ -118,4 +127,7 @@ export class Notification extends BaseModel<
 
   @BelongsTo(() => Student, { foreignKey: 'student_id', as: 'student' })
   declare student?: Student;
+
+  @BelongsTo(() => Stop, { foreignKey: 'stop_id', as: 'stop' })
+  declare stop?: Stop;
 }

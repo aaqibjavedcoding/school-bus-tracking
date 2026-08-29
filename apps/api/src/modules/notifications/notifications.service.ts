@@ -26,6 +26,8 @@ import {
   NOTIFICATIONS_TRIPS_REPOSITORY,
   NOTIFICATIONS_USERS_REPOSITORY,
   NOTIFICATION_NOT_FOUND_MESSAGE,
+  STOP_ARRIVED_MESSAGE,
+  STOP_ARRIVED_TITLE,
   STUDENT_BOARDED_MESSAGE,
   STUDENT_BOARDED_TITLE,
   STUDENT_DROPPED_MESSAGE,
@@ -53,6 +55,15 @@ export interface TripStatusNotificationInput {
   trip_id: string;
   status: TripStatus;
   cancellation_reason?: string | null;
+}
+
+/** Input of one stop-arrival notification, derived by the Task 22 arrival flow. */
+export interface StopArrivalNotificationInput {
+  school_id: string;
+  trip_id: string;
+  stop: { id: string; name: string };
+  /** Server time at which the bus entered the stop's geofence. */
+  occurred_at: Date;
 }
 
 /** Room-scoped broadcast sink attached by the gateway once sockets are up. */
@@ -247,6 +258,65 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Task 22: notifies every actively linked parent whose child's home stop
+   * is the stop the bus just reached, e.g. "Bus arrived at Green Park Stop."
+   *
+   * Called by the stop-arrival pipeline only *after* the arrival row was
+   * persisted, and deduplicated on `(school_id, user_id, type, trip_id,
+   * stop_id)` — a replayed or racing arrival can never notify a parent
+   * twice. Best-effort: errors are logged, never re-thrown.
+   */
+  async notifyStopArrival(input: StopArrivalNotificationInput): Promise<void> {
+    try {
+      const userIds = await this.resolveGuardianUserIdsForStop(input.school_id, input.stop.id);
+      if (userIds.length === 0) {
+        return;
+      }
+
+      const title = STOP_ARRIVED_TITLE;
+      const message = STOP_ARRIVED_MESSAGE(input.stop.name);
+
+      for (const userId of userIds) {
+        // Duplicate protection for the same (trip, stop, type) — the arrival
+        // row's unique index guarantees one arrival per trip-stop, and this
+        // check makes the notification exactly-once as well (e.g. after a
+        // crash between insert and notify).
+        const existing = await this.notifications.findOne({
+          where: {
+            school_id: input.school_id,
+            user_id: userId,
+            type: NotificationType.STOP_ARRIVED,
+            trip_id: input.trip_id,
+            stop_id: input.stop.id,
+          },
+        });
+        if (existing) {
+          continue;
+        }
+
+        await this.createAndBroadcast({
+          school_id: input.school_id,
+          user_id: userId,
+          type: NotificationType.STOP_ARRIVED,
+          trip_id: input.trip_id,
+          student_id: null,
+          stop_id: input.stop.id,
+          title,
+          message,
+          payload: { stop_id: input.stop.id, stop_name: input.stop.name },
+          created_at: input.occurred_at,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to create stop-arrival notification for trip ${input.trip_id}, stop ${
+          input.stop.id
+        }: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   // -------------------------------------------------------------------
   // Parent reads (PARENT-only surface, scoped to the JWT)
   // -------------------------------------------------------------------
@@ -390,6 +460,29 @@ export class NotificationsService {
     return this.filterParentUserIds(schoolId, [...new Set(links.map((link) => link.user_id))]);
   }
 
+  /**
+   * Every parent account linked to an active student whose home stop is the
+   * given stop, inside the tenant — exactly the parents the arrival concerns.
+   */
+  private async resolveGuardianUserIdsForStop(schoolId: string, stopId: string): Promise<string[]> {
+    const studentsAtStop = await this.students.findAll({
+      where: { school_id: schoolId, home_stop_id: stopId, is_active: true },
+      attributes: ['id'],
+    });
+    if (studentsAtStop.length === 0) {
+      return [];
+    }
+
+    const links = await this.guardians.findAll({
+      where: {
+        school_id: schoolId,
+        student_id: { [Op.in]: studentsAtStop.map((student) => student.id) },
+        is_active: true,
+      },
+    });
+    return this.filterParentUserIds(schoolId, [...new Set(links.map((link) => link.user_id))]);
+  }
+
   /** Narrow the candidate ids to active accounts whose role is PARENT. */
   private async filterParentUserIds(schoolId: string, candidateIds: string[]): Promise<string[]> {
     if (candidateIds.length === 0) {
@@ -433,6 +526,7 @@ export class NotificationsService {
     type: NotificationType;
     trip_id: string | null;
     student_id: string | null;
+    stop_id?: string | null;
     title: string;
     message: string;
     payload: Record<string, unknown>;
@@ -444,6 +538,7 @@ export class NotificationsService {
       type: values.type,
       trip_id: values.trip_id,
       student_id: values.student_id,
+      stop_id: values.stop_id ?? null,
       title: values.title,
       message: values.message,
       payload: values.payload,
@@ -458,6 +553,7 @@ export class NotificationsService {
       message: created.message,
       student_id: created.student_id ?? null,
       trip_id: created.trip_id ?? null,
+      stop_id: created.stop_id ?? null,
       created_at: toIsoString(created.created_at),
     };
 
@@ -473,6 +569,7 @@ export class NotificationsService {
       type: row.type,
       trip_id: row.trip_id ?? null,
       student_id: row.student_id ?? null,
+      stop_id: row.stop_id ?? null,
       title: row.title,
       message: row.message,
       payload: row.payload ?? null,

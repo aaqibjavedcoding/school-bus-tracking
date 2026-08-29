@@ -37,6 +37,7 @@ import {
   matchesWhere,
   locationPayload,
   type StubTrip,
+  makeNoopArrivalsStub,
 } from './live-tracking.test-utils';
 
 const SECRET = 'live-tracking-gateway-test-secret';
@@ -104,6 +105,7 @@ function makeService() {
         ) as unknown as import('../../database/models').StudentGuardian[],
     } as unknown as typeof import('../../database/models').StudentGuardian,
     { gpsMinIntervalMs: 0, maxFutureSkewMs: 300_000, maxPastSkewMs: 86_400_000 },
+    makeNoopArrivalsStub(),
   );
   service.attachBroadcaster(capture.fn);
   return { service, store, capture };
@@ -156,7 +158,12 @@ function makeGateway() {
   const schoolAccess = {
     isSchoolAccessible: async (): Promise<boolean> => true,
   };
-  const gateway = new LiveTrackingGateway(service, jwtService, schoolAccess as never);
+  const gateway = new LiveTrackingGateway(
+    service,
+    makeNoopArrivalsStub(),
+    jwtService,
+    schoolAccess as never,
+  );
   // The gateway is wired to the real socket.io `Socket` type; the fake socket
   // implements only the surface the gateway touches, so calls are funneled
   // through this shim to keep the test bodies readable.

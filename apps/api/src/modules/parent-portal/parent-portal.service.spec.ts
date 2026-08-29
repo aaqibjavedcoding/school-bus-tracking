@@ -9,6 +9,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
+import { EtaService } from '../eta/eta.service';
 import { TripAttendanceService } from '../trip-attendance/trip-attendance.service';
 import { PARENT_PORTAL_CHILD_NOT_FOUND_MESSAGE } from './parent-portal.constants';
 import { ParentPortalService } from './parent-portal.service';
@@ -206,6 +207,7 @@ function createService(
   stubs: RepoStubs,
   trackingOpts?: { latest?: unknown },
   attendance?: TripStudentAttendanceResponse | null,
+  etaResult: unknown = null,
 ): ParentPortalService {
   const repo = (findAll: unknown[], findOne: StubRow | null) => ({
     findAll: async () => findAll,
@@ -248,6 +250,10 @@ function createService(
     getStudent: async () => attendance ?? null,
   } as unknown as TripAttendanceService;
 
+  // Task 22: the parent portal re-uses the ETA service; the stub returns
+  // the given result (null unless a test overrides it).
+  const eta = { computeTripEta: async () => etaResult } as unknown as EtaService;
+
   return new ParentPortalService(
     guardians as never,
     students as never,
@@ -259,6 +265,7 @@ function createService(
     schools as never,
     liveTracking,
     tripAttendance,
+    eta,
   );
 }
 
@@ -352,6 +359,14 @@ describe('ParentPortalService', () => {
     const tracking = await service.getChildTracking(parentA, STUDENT_A);
     assert.equal(tracking.trip?.id, TRIP_A);
     assert.equal(tracking.latest?.latitude, 40.7);
+  });
+
+  it('attaches the approximate ETA of the trip (Task 22)', async () => {
+    const etaResult = { trip_id: TRIP_A, school_id: SCHOOL_A, eta_available: false };
+    const service = createService(defaultStubs(), {}, makeAttendance(), etaResult);
+    const tracking = await service.getChildTracking(parentA, STUDENT_A);
+    assert.equal(tracking.eta?.trip_id, TRIP_A);
+    assert.equal(tracking.eta?.eta_available, false);
   });
 
   it('returns null location when no GPS exists (never fabricated)', async () => {
