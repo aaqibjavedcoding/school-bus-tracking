@@ -49,6 +49,11 @@ import {
   ParentStudentRelationshipCreateRequest,
   ParentUpdateRequest,
   ParentStudentRelationshipUpdateRequest,
+  ParentChildDetailResponse,
+  ParentChildListResponse,
+  ParentChildTodayResponse,
+  ParentDashboardResponse,
+  ParentTrackingResponse,
   RefreshResponse,
   RouteCreateRequest,
   RouteDeleteResponse,
@@ -592,6 +597,38 @@ export class ApiClient {
   /** A parent can read only the relationships belonging to their JWT subject. */
   public async listMyStudents(): Promise<ApiResponse<StudentGuardianListResponse>> {
     return this.get<StudentGuardianListResponse>('/parents/me/students');
+  }
+
+  /**
+   * Read-only Parent Portal (Task 20) — served under `/api/v1/parent/*` and
+   * reachable only by an authenticated PARENT. The API derives the tenant and
+   * the parent identity from the JWT, so none of these methods send a parent
+   * id or school id.
+   */
+
+  /** Parent dashboard: profile + today's view of the parent's own children. */
+  public async getParentDashboard(): Promise<ApiResponse<ParentDashboardResponse>> {
+    return this.get<ParentDashboardResponse>('/parent/dashboard');
+  }
+
+  /** The authenticated parent's own children (today's trip included). */
+  public async listParentChildren(): Promise<ApiResponse<ParentChildListResponse>> {
+    return this.get<ParentChildListResponse>('/parent/children');
+  }
+
+  /** One linked child with today's crew. 404 when not associated with parent. */
+  public async getParentChild(id: string): Promise<ApiResponse<ParentChildDetailResponse>> {
+    return this.get<ParentChildDetailResponse>(`/parent/children/${encodeURIComponent(id)}`);
+  }
+
+  /** One child's today's trip + attendance + route stops. */
+  public async getParentChildToday(id: string): Promise<ApiResponse<ParentChildTodayResponse>> {
+    return this.get<ParentChildTodayResponse>(`/parent/children/${encodeURIComponent(id)}/today`);
+  }
+
+  /** One child's active trip + route stops + crew + latest verified GPS fix. */
+  public async getParentChildTracking(id: string): Promise<ApiResponse<ParentTrackingResponse>> {
+    return this.get<ParentTrackingResponse>(`/parent/children/${encodeURIComponent(id)}/tracking`);
   }
 
   /**

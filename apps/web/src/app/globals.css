@@ -674,6 +674,38 @@ table.data tbody tr:hover {
   flex-wrap: wrap;
 }
 
+/* Parent portal fact list: responsive two-column definition list. */
+.fact-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 0.85rem 0 0;
+}
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.fact dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-slate-500);
+}
+.fact dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-slate-900);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .fact-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pagination {
   display: flex;
   align-items: center;

@@ -31,7 +31,7 @@ export function homePath(role: UserRole): string {
     case UserRole.CONDUCTOR:
       return '/crew';
     case UserRole.PARENT:
-      return '/children';
+      return '/parent';
     default:
       return '/';
   }
@@ -64,8 +64,9 @@ export function navItemsForRole(role: UserRole): NavItem[] {
       ];
     case UserRole.PARENT:
       return [
-        { href: '/children', label: 'My children', icon: 'child' },
-        { href: '/tracking', label: 'Track bus', icon: 'map' },
+        { href: '/parent', label: 'Dashboard', icon: 'home' },
+        { href: '/parent/children', label: 'My children', icon: 'child' },
+        { href: '/parent/tracking', label: 'Track bus', icon: 'map' },
       ];
     default:
       return [];

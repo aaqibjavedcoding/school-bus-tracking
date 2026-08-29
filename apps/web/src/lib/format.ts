@@ -96,6 +96,36 @@ export function attendanceStatusLabel(status: TripAttendanceStatus): string {
   }
 }
 
+/** Parent-facing boarding label: PENDING → "Not boarded", BOARDED → "Boarded". */
+export function boardingStatusLabel(status: TripAttendanceStatus | null | undefined): string {
+  switch (status) {
+    case TripAttendanceStatus.BOARDED:
+      return 'Boarded';
+    case TripAttendanceStatus.DROPPED:
+      return 'Dropped';
+    case TripAttendanceStatus.PENDING:
+    case null:
+    case undefined:
+      return 'Not boarded';
+    default:
+      return 'Not boarded';
+  }
+}
+
+/** Tone used for the parent-facing boarding badge. */
+export function boardingStatusTone(
+  status: TripAttendanceStatus | null | undefined,
+): 'neutral' | 'info' | 'warning' | 'success' | 'danger' {
+  switch (status) {
+    case TripAttendanceStatus.BOARDED:
+      return 'info';
+    case TripAttendanceStatus.DROPPED:
+      return 'success';
+    default:
+      return 'neutral';
+  }
+}
+
 export function roleLabel(role: UserRole | RouteAssignmentRole): string {
   switch (role) {
     case UserRole.SCHOOL_ADMIN:
