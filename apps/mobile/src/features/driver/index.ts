@@ -1,9 +1,7 @@
 /**
- * Driver Feature Module (Phase 1 placeholder)
- * Route navigation, turn-by-turn guidance, GPS broadcast, and trip dispatch will be implemented in Phase 2.
+ * Driver entry point into the shared crew feature. The driver and conductor
+ * run the same screens (today's trip, manifest, stops) — see
+ * `../crew`. The only driver-specific surface is the GPS sharing panel,
+ * which is available to both crew roles but aimed at the driver's device.
  */
-
-export const driverFeature = {
-  name: 'driver',
-  ready: false,
-};
+export * from '../crew';

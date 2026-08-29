@@ -1,9 +1,5 @@
 /**
- * Conductor Feature Module (Phase 1 placeholder)
- * Student manifest, RFID/QR scan boarding/deboarding, emergency contacts, and stop attendance will be implemented in Phase 2.
+ * Conductor entry point into the shared crew feature — identical screens and
+ * identical server authorization as the driver (see `../crew`).
  */
-
-export const conductorFeature = {
-  name: 'conductor',
-  ready: false,
-};
+export * from '../crew';

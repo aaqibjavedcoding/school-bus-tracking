@@ -1,9 +1,15 @@
 /**
- * Parent Feature Module (Phase 1 placeholder)
- * Live map bus tracking, ETA alerts, student boarding notifications, and direct conductor communication will be implemented in Phase 2.
+ * Parent feature — read-only portal surfaces (`/parent/*` REST + realtime
+ * notifications), built on the same endpoints the web parent pages use.
  */
-
-export const parentFeature = {
-  name: 'parent',
-  ready: false,
-};
+export { NotificationsProvider, useParentNotifications } from './NotificationsProvider';
+export {
+  applyAllNotificationsRead,
+  applyNotificationEvent,
+  applyNotificationsLoaded,
+  applyNotificationRead,
+  initialNotificationsState,
+  notificationTypeLabel,
+  realtimeEventToNotification,
+} from './notifications-state';
+export type { NotificationsState } from './notifications-state';

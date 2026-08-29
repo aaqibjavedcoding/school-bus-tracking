@@ -9,16 +9,19 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0F172A"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.schoolbustracking.app"
+      "bundleIdentifier": "com.schoolbustracking.app",
+      "infoPlist": {
+        "UIBackgroundModes": ["location"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0F172A"
       },
       "package": "com.schoolbustracking.app"
     },
@@ -26,7 +29,17 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "The app shows your school's parents where the bus is while you drive your route.",
+          "locationAlwaysAndWhenInUsePermission": "Allow background location so the school keeps seeing the live bus position while the screen is off.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ],
     "scheme": "schoolbustracking"
   }
 }
