@@ -42,13 +42,15 @@ export default function TripsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(utcDateOnly());
   const lookups = useLoad(async () => {
-    const [assignments, routes] = await Promise.all([
+    const [assignments, routes, buses] = await Promise.all([
       apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true }),
       apiClient.listRoutes({ page: 1, limit: 100 }),
+      apiClient.listBuses({ page: 1, limit: 100 }),
     ]);
     return {
       assignments: unwrapEnvelope(assignments).items,
       routes: unwrapEnvelope(routes).items,
+      buses: unwrapEnvelope(buses).items,
     };
   }, []);
   const list = usePagedResource(
@@ -121,8 +123,13 @@ export default function TripsPage() {
     }
   };
 
-  const routeName = (id: string) =>
-    lookups.data?.routes.find((route) => route.id === id)?.name ?? id;
+  const routeName = (id: string) => {
+    const route = lookups.data?.routes.find((item) => item.id === id);
+    return route ? `${route.code} — ${route.name}` : 'Route unavailable';
+  };
+  const busNumber = (id: string | null) =>
+    lookups.data?.buses.find((bus) => bus.id === id)?.registration_number ??
+    (id ? 'Bus unavailable' : 'No bus');
 
   return (
     <div className="page">
@@ -217,7 +224,7 @@ export default function TripsPage() {
               onChange={(event) => setForm({ ...form, route_assignment_id: event.target.value })}
               options={(lookups.data?.assignments ?? []).map((assignment) => ({
                 value: assignment.id,
-                label: `${routeName(assignment.route_id)} · ${assignment.role}`,
+                label: `${routeName(assignment.route_id)} · ${busNumber(assignment.bus_id)} · ${assignment.role.toLowerCase()}`,
               }))}
             />
           </Field>

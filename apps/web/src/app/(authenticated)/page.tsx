@@ -21,13 +21,14 @@ export default function DashboardPage() {
     const [students, buses, routes, trips] = await Promise.all([
       apiClient.listStudents({ page: 1, limit: 1 }),
       apiClient.listBuses({ page: 1, limit: 1 }),
-      apiClient.listRoutes({ page: 1, limit: 1 }),
+      apiClient.listRoutes({ page: 1, limit: 100 }),
       apiClient.listTrips({ page: 1, limit: 8, date: today }),
     ]);
     return {
       studentCount: unwrapEnvelope(students).meta.total,
       busCount: unwrapEnvelope(buses).meta.total,
       routeCount: unwrapEnvelope(routes).meta.total,
+      routes: unwrapEnvelope(routes).items,
       trips: unwrapEnvelope(trips),
     };
   }, [today, isSchoolAdmin]);
@@ -118,7 +119,10 @@ export default function DashboardPage() {
                       </Badge>
                     </td>
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
-                    <td className="muted">{trip.route_id.slice(0, 8)}…</td>
+                    <td className="muted">
+                      {data.routes.find((route) => route.id === trip.route_id)?.code ??
+                        'Route unavailable'}
+                    </td>
                     <td>
                       <Link className="linkish" href={`/trips/${trip.id}`}>
                         Open

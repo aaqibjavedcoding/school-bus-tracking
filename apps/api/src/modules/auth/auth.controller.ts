@@ -19,10 +19,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResponse> {
     const { response, refreshToken } = await this.authService.login(dto);
-    this.setRefreshTokenCookie(res, refreshToken);
+    this.setRefreshTokenCookie(req, res, refreshToken);
     return response;
   }
 
@@ -41,7 +42,7 @@ export class AuthController {
   ): Promise<RefreshResponse> {
     const rawRefreshToken = this.extractRefreshToken(req);
     const { response, refreshToken } = await this.authService.refresh(rawRefreshToken);
-    this.setRefreshTokenCookie(res, refreshToken);
+    this.setRefreshTokenCookie(req, res, refreshToken);
     return response;
   }
 
@@ -59,7 +60,7 @@ export class AuthController {
   ): Promise<LogoutResponse> {
     const rawRefreshToken = this.extractRefreshToken(req);
     const result = await this.authService.logout(rawRefreshToken);
-    this.clearRefreshTokenCookie(res);
+    this.clearRefreshTokenCookie(req, res);
     return result;
   }
 
@@ -87,15 +88,23 @@ export class AuthController {
     return undefined;
   }
 
-  private setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  private isHttpsRequest(req: Request): boolean {
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const firstForwardedProto = Array.isArray(forwardedProto)
+      ? forwardedProto[0]
+      : forwardedProto?.split(',')[0];
+    return req.secure || firstForwardedProto?.trim().toLowerCase() === 'https';
+  }
+
+  private setRefreshTokenCookie(req: Request, res: Response, refreshToken: string): void {
     const cookieName = this.authService.getRefreshCookieName();
-    const cookieOptions = this.authService.getRefreshCookieOptions();
+    const cookieOptions = this.authService.getRefreshCookieOptions(this.isHttpsRequest(req));
     res.cookie(cookieName, refreshToken, cookieOptions);
   }
 
-  private clearRefreshTokenCookie(res: Response): void {
+  private clearRefreshTokenCookie(req: Request, res: Response): void {
     const cookieName = this.authService.getRefreshCookieName();
-    const clearOptions = this.authService.getClearCookieOptions();
+    const clearOptions = this.authService.getClearCookieOptions(this.isHttpsRequest(req));
     res.clearCookie(cookieName, clearOptions);
   }
 }

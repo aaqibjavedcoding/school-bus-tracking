@@ -60,13 +60,14 @@ export default function LoginPage() {
         <form className="form-grid" onSubmit={(event) => void onSubmit(event)} noValidate>
           <Field
             id="school_id"
-            label="School code / ID"
+            label="School code"
             error={fieldErrors.school_id}
-            hint="Your school's code (e.g. lincoln-high) or its UUID, supplied by the school administrator. Platform administrators leave this blank."
+            hint="Enter your school's short code (for example, triumph-academy). A school UUID also works for existing accounts. Platform administrators leave this blank."
           >
             <Input
               id="school_id"
               name="school_id"
+              placeholder="triumph-academy"
               autoComplete="organization"
               value={schoolId}
               error={Boolean(fieldErrors.school_id)}

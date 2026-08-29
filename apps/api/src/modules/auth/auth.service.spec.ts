@@ -692,14 +692,14 @@ describe('AuthService cookie options', () => {
     const options = service.getRefreshCookieOptions();
     assert.equal(options.httpOnly, true);
     assert.equal(options.secure, true);
-    assert.equal(options.sameSite, 'lax');
+    assert.equal(options.sameSite, 'none');
     assert.equal(options.path, '/api/v1/auth');
     assert.equal(options.maxAge, 7 * 24 * 60 * 60 * 1000);
 
     const clearOptions = service.getClearCookieOptions();
     assert.equal(clearOptions.httpOnly, true);
     assert.equal(clearOptions.secure, true);
-    assert.equal(clearOptions.sameSite, 'lax');
+    assert.equal(clearOptions.sameSite, 'none');
     assert.equal(clearOptions.path, '/api/v1/auth');
   });
 });

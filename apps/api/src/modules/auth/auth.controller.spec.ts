@@ -45,17 +45,17 @@ function makeMockRequest(overrides: Partial<Request> = {}): Request {
 function makeMockAuthService(): AuthService {
   return {
     getRefreshCookieName: () => 'refresh_token',
-    getRefreshCookieOptions: () => ({
+    getRefreshCookieOptions: (isHttpsRequest = false) => ({
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: isHttpsRequest,
+      sameSite: isHttpsRequest ? ('none' as const) : ('lax' as const),
       path: '/api/v1/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     }),
-    getClearCookieOptions: () => ({
+    getClearCookieOptions: (isHttpsRequest = false) => ({
       httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secure: isHttpsRequest,
+      sameSite: isHttpsRequest ? ('none' as const) : ('lax' as const),
       path: '/api/v1/auth',
     }),
     login: async (_dto: LoginDto) => ({
@@ -112,7 +112,7 @@ describe('AuthController', () => {
     dto.email = 'driver@school.org';
     dto.password = 'correct-horse-battery';
 
-    const result: LoginResponse = await controller.login(dto, res);
+    const result: LoginResponse = await controller.login(dto, makeMockRequest(), res);
 
     assert.equal(result.access_token, 'mock-access-token');
     assert.equal(result.token_type, 'Bearer');
@@ -126,6 +126,30 @@ describe('AuthController', () => {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
+      path: '/api/v1/auth',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+  });
+
+  it('sets SameSite=None; Secure when HTTPS is terminated by a trusted proxy', async () => {
+    const controller = new AuthController(makeMockAuthService());
+    const { res, cookies } = makeMockResponse();
+    const dto = Object.assign(new LoginDto(), {
+      school_id: SCHOOL_ID,
+      email: 'driver@school.org',
+      password: 'correct-horse-battery',
+    });
+
+    await controller.login(
+      dto,
+      makeMockRequest({ headers: { 'x-forwarded-proto': 'https' } }),
+      res,
+    );
+
+    assert.deepEqual(cookies['refresh_token'].options, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
       path: '/api/v1/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });

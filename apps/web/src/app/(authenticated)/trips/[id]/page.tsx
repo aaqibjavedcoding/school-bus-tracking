@@ -19,12 +19,14 @@ export default function TripDetailPage() {
   const { user } = useAuth();
   const { data, loading, error, reload, setData } = useLoad(async () => {
     const trip = unwrapEnvelope(await apiClient.getTrip(params.id));
-    const [stops, manifest] = await Promise.all([
+    const [route, stops, manifest] = await Promise.all([
+      apiClient.getRoute(trip.route_id),
       apiClient.listRouteStops(trip.route_id),
       apiClient.listTripStudents(params.id),
     ]);
     return {
       trip,
+      route: unwrapEnvelope(route),
       stops: unwrapEnvelope(stops).items,
       manifest: unwrapEnvelope(manifest),
     };
@@ -50,8 +52,8 @@ export default function TripDetailPage() {
   return (
     <div className="page">
       <PageHeader
-        title="Trip"
-        description={`Scheduled ${formatDateTime(data.trip.scheduled_start_at)}`}
+        title={`${data.route.code} trip`}
+        description={`${data.route.name} · Scheduled ${formatDateTime(data.trip.scheduled_start_at)}`}
         actions={
           <>
             <Badge tone={tripStatusTone(data.trip.status)}>

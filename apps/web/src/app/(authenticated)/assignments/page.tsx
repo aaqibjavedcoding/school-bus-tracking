@@ -160,10 +160,13 @@ export default function AssignmentsPage() {
     }
   };
 
-  const routeLabel = (id: string) =>
-    lookups.data?.routes.find((route) => route.id === id)?.name ?? id;
+  const routeLabel = (id: string) => {
+    const route = lookups.data?.routes.find((item) => item.id === id);
+    return route ? `${route.code} — ${route.name}` : 'Route unavailable';
+  };
   const busLabel = (id: string | null) =>
-    lookups.data?.buses.find((bus) => bus.id === id)?.registration_number ?? id ?? '—';
+    lookups.data?.buses.find((bus) => bus.id === id)?.registration_number ??
+    (id ? 'Bus unavailable' : '—');
 
   return (
     <div className="page">
