@@ -1,43 +1,38 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
-import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
+import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { borderRadius, colors, spacing } from '@school-bus-tracking/design-tokens';
+
+export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+const TONES: Record<BadgeTone, { bg: string; fg: string; dot: string }> = {
+  neutral: { bg: colors.neutral[100], fg: colors.neutral[700], dot: colors.neutral[500] },
+  info: { bg: '#e0f2fe', fg: '#0369a1', dot: '#0284c7' },
+  success: { bg: colors.secondary[100], fg: colors.secondary[800], dot: colors.secondary[600] },
+  warning: { bg: colors.primary[100], fg: colors.primary[800], dot: colors.primary[600] },
+  danger: { bg: '#fee2e2', fg: '#991b1b', dot: '#dc2626' },
+};
 
 export interface StatusBadgeProps {
-  status: 'operational' | 'ready' | 'pending';
+  tone?: BadgeTone;
   label: string;
+  compact?: boolean;
+  style?: ViewStyle;
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label }) => {
-  const getColors = () => {
-    switch (status) {
-      case 'operational':
-        return {
-          bg: '#dcfce7',
-          text: colors.secondary[800],
-          dot: colors.secondary[600],
-        };
-      case 'ready':
-        return {
-          bg: '#e0f2fe',
-          text: '#0369a1',
-          dot: '#0284c7',
-        };
-      case 'pending':
-      default:
-        return {
-          bg: colors.neutral[100],
-          text: colors.neutral[700],
-          dot: colors.neutral[500],
-        };
-    }
-  };
-
-  const currentColors = getColors();
-
+/** Clear status pill with a leading tone dot (used for trips, GPS, sync…). */
+export const StatusBadge: React.FC<StatusBadgeProps> = ({
+  tone = 'neutral',
+  label,
+  compact,
+  style,
+}) => {
+  const t = TONES[tone];
   return (
-    <View style={[styles.badge, { backgroundColor: currentColors.bg }]}>
-      <View style={[styles.dot, { backgroundColor: currentColors.dot }]} />
-      <Text style={[styles.text, { color: currentColors.text }]}>{label}</Text>
+    <View style={[styles.badge, compact && styles.compact, { backgroundColor: t.bg }, style]}>
+      <View style={[styles.dot, { backgroundColor: t.dot }]} />
+      <Text style={[styles.text, { color: t.fg }]} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 };
@@ -50,6 +45,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: borderRadius.full,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  compact: {
+    paddingVertical: 2,
   },
   dot: {
     width: 6,
@@ -59,6 +58,6 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });
