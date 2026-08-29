@@ -56,6 +56,7 @@ interface StubNotification {
   type: NotificationType;
   trip_id: string | null;
   student_id: string | null;
+  stop_id: string | null;
   title: string;
   message: string;
   payload: Record<string, unknown> | null;
@@ -120,6 +121,7 @@ function makeNotificationRow(overrides: Partial<StubNotification> = {}): StubNot
     type: NotificationType.STUDENT_BOARDED,
     trip_id: TRIP_A,
     student_id: STUDENT_A,
+    stop_id: null,
     title: 'Aarav boarded',
     message: 'Aarav Sharma boarded the school bus.',
     payload: { student_name: 'Aarav Sharma' },
@@ -288,6 +290,7 @@ function makeService(options: { createError?: Error; initialRows?: StubNotificat
         type: payload.type as NotificationType,
         trip_id: payload.trip_id as string | null,
         student_id: payload.student_id as string | null,
+        stop_id: (payload.stop_id as string | null) ?? null,
         title: payload.title as string,
         message: payload.message as string,
         payload: payload.payload as Record<string, unknown> | null,
@@ -773,5 +776,81 @@ describe('NotificationsService parent reads (isolation)', () => {
         assert.equal(row.is_read, false);
       }
     }
+  });
+});
+
+describe('NotificationsService stop arrivals (Task 22)', () => {
+  it('notifies the active parents of children whose home stop was reached', async () => {
+    const { service, rows, broadcast } = makeService();
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: new Date('2026-09-01T06:40:00.000Z'),
+    });
+
+    // STUDENT_A uses STOP_1: PARENT_A and PARENT_B are its active parents.
+    // The inactive account, the driver and the inactive link are excluded;
+    // STUDENT_B's parents (STOP_2) are not involved at all.
+    assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B].sort());
+    for (const row of rows) {
+      assert.equal(row.type, NotificationType.STOP_ARRIVED);
+      assert.equal(row.title, 'Bus arrived');
+      assert.equal(row.message, 'Bus arrived at Green Park Stop.');
+      assert.equal(row.trip_id, TRIP_A);
+      assert.equal(row.stop_id, STOP_1);
+      assert.equal(row.student_id, null);
+      assert.deepEqual(row.payload, { stop_id: STOP_1, stop_name: 'Green Park Stop' });
+    }
+    assert.deepEqual(
+      broadcast.calls.map((call) => call.room).sort(),
+      [`notification:user:${PARENT_A}`, `notification:user:${PARENT_B}`].sort(),
+    );
+  });
+
+  it('never duplicates a notification for the same trip + stop + type', async () => {
+    const { service, rows } = makeService();
+    const input = {
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: new Date('2026-09-01T06:40:00.000Z'),
+    };
+
+    await service.notifyStopArrival(input);
+    await service.notifyStopArrival(input);
+
+    assert.equal(rows.length, 2); // one per parent, not two per parent
+    assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B].sort());
+  });
+
+  it('creates nothing when no active child uses the reached stop', async () => {
+    const { service, rows, broadcast } = makeService();
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_OTHER_ROUTE, name: 'Birch Rd' },
+      occurred_at: new Date('2026-09-01T06:40:00.000Z'),
+    });
+
+    assert.equal(rows.length, 0);
+    assert.equal(broadcast.calls.length, 0);
+  });
+
+  it('never resolves recipients across tenants (cross-school isolation)', async () => {
+    const { service, rows } = makeService();
+
+    // Same stop id, but inside another tenant: the student/guardian lookups
+    // are pinned to the given school, so nothing is created.
+    await service.notifyStopArrival({
+      school_id: SCHOOL_B,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: new Date('2026-09-01T06:40:00.000Z'),
+    });
+
+    assert.equal(rows.length, 0);
   });
 });

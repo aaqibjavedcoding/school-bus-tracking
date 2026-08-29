@@ -27,6 +27,19 @@ export function formatSpeedKmh(value: number | null | undefined): string {
   return `${Math.round(value)} km/h`;
 }
 
+/** Human distance: "650 m" below a kilometre, otherwise "1.2 km". */
+export function formatDistanceMeters(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  if (value < 1000) return `${Math.max(0, Math.round(value))} m`;
+  return `${(value / 1000).toFixed(1)} km`;
+}
+
+/** Approximate ETA label: "~3 minutes" (or "~1 minute"); null when unknown. */
+export function formatEtaMinutes(value: number | null | undefined): string | null {
+  if (value == null || Number.isNaN(value)) return null;
+  return `~${value} ${value === 1 ? 'minute' : 'minutes'}`;
+}
+
 export function fullName(person: { first_name: string; last_name: string }): string {
   return `${person.first_name} ${person.last_name}`.trim();
 }

@@ -5,8 +5,11 @@ import {
   LIVE_TRACKING_EVENTS,
   TripStatus,
   type TrackingJoinAck,
+  type TripEtaResponse,
+  type TripEtaUpdateEvent,
   type TripLocationLatestResponse,
   type TripLocationUpdateEvent,
+  type TripStopArrivedEvent,
   type TripTrackingStartedEvent,
   type TripTrackingState,
   type TripTrackingStoppedEvent,
@@ -54,6 +57,10 @@ export function useLiveTripTracking(tripId: string | null) {
   const [tripStatus, setTripStatus] = useState<TripStatus | null>(null);
   const [noLocationYet, setNoLocationYet] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Task 22: approximate ETA/progress and the latest recorded stop arrival,
+  // pushed live through the same trip room.
+  const [eta, setEta] = useState<TripEtaResponse | null>(null);
+  const [lastArrival, setLastArrival] = useState<TripStopArrivedEvent | null>(null);
   const joinedRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -63,6 +70,8 @@ export function useLiveTripTracking(tripId: string | null) {
       setTripStatus(null);
       setNoLocationYet(false);
       setError(null);
+      setEta(null);
+      setLastArrival(null);
       setConnection('offline');
       return undefined;
     }
@@ -71,21 +80,36 @@ export function useLiveTripTracking(tripId: string | null) {
     let cancelled = false;
 
     const loadRestSnapshot = async () => {
+      // The two reads are independent: the ETA summary still loads while the
+      // trip has no GPS fix yet (the location endpoint 404s in that case).
       try {
-        const envelope = await apiClient.getTripLocation(tripId);
-        if (cancelled || !envelope.data) return;
-        setFix(toFix(envelope.data));
-        setTrackingState(envelope.data.tracking_state);
-        setTripStatus(envelope.data.trip_status);
-        setNoLocationYet(false);
+        const locationEnvelope = await apiClient.getTripLocation(tripId);
+        if (cancelled) return;
+        if (locationEnvelope.data) {
+          setFix(toFix(locationEnvelope.data));
+          setTrackingState(locationEnvelope.data.tracking_state);
+          setTripStatus(locationEnvelope.data.trip_status);
+          setNoLocationYet(false);
+        }
       } catch (caught) {
         if (caught instanceof ApiClientError && caught.status === 404) {
           setNoLocationYet(true);
-          return;
-        }
-        if (!cancelled) {
+        } else if (!cancelled) {
           setError('Could not load the latest bus location.');
         }
+      }
+
+      try {
+        const etaEnvelope = await apiClient.getTripEta(tripId);
+        if (cancelled) return;
+        if (etaEnvelope.data) {
+          setEta(etaEnvelope.data);
+          setTripStatus(etaEnvelope.data.trip_status);
+          setTrackingState(etaEnvelope.data.tracking_state);
+        }
+      } catch {
+        // A missing ETA never breaks the tracking screen; live updates can
+        // still arrive over the socket.
       }
     };
 
@@ -144,6 +168,19 @@ export function useLiveTripTracking(tripId: string | null) {
       setTrackingState(payload.tracking_state);
       setTripStatus(payload.trip_status);
     };
+    const onEtaUpdate = (payload: TripEtaUpdateEvent) => {
+      if (payload.trip_id !== tripId) return;
+      setEta(payload.eta);
+      setTripStatus(payload.eta.trip_status);
+      setTrackingState(payload.eta.tracking_state);
+      setNoLocationYet(payload.eta.latest === null);
+    };
+    const onStopArrived = (payload: TripStopArrivedEvent) => {
+      if (payload.trip_id !== tripId) return;
+      setLastArrival(payload);
+      setTripStatus(payload.trip_status);
+      setTrackingState(payload.tracking_state);
+    };
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
@@ -151,6 +188,8 @@ export function useLiveTripTracking(tripId: string | null) {
     socket.on(LIVE_TRACKING_EVENTS.locationUpdate, onLocation);
     socket.on(LIVE_TRACKING_EVENTS.trackingStarted, onStarted);
     socket.on(LIVE_TRACKING_EVENTS.trackingStopped, onStopped);
+    socket.on(LIVE_TRACKING_EVENTS.etaUpdate, onEtaUpdate);
+    socket.on(LIVE_TRACKING_EVENTS.stopArrived, onStopArrived);
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
 
@@ -172,6 +211,8 @@ export function useLiveTripTracking(tripId: string | null) {
       socket.off(LIVE_TRACKING_EVENTS.locationUpdate, onLocation);
       socket.off(LIVE_TRACKING_EVENTS.trackingStarted, onStarted);
       socket.off(LIVE_TRACKING_EVENTS.trackingStopped, onStopped);
+      socket.off(LIVE_TRACKING_EVENTS.etaUpdate, onEtaUpdate);
+      socket.off(LIVE_TRACKING_EVENTS.stopArrived, onStopArrived);
       window.removeEventListener('offline', onOffline);
       window.removeEventListener('online', onOnline);
       if (joinedRef.current === tripId) {
@@ -181,7 +222,7 @@ export function useLiveTripTracking(tripId: string | null) {
     };
   }, [tripId]);
 
-  return { connection, fix, trackingState, tripStatus, noLocationYet, error };
+  return { connection, fix, trackingState, tripStatus, noLocationYet, error, eta, lastArrival };
 }
 
 export function useCrewLocationShare(tripId: string | null, enabled: boolean): string | null {

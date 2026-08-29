@@ -57,6 +57,7 @@ import {
   makeTrip,
   matchesWhere,
   locationPayload,
+  makeNoopArrivalsStub,
   type StubTrip,
 } from './live-tracking.test-utils';
 
@@ -150,6 +151,8 @@ interface MakeServiceOptions {
   config?: import('./live-tracking.service').LiveTrackingConfig;
   attachBroadcaster?: boolean;
   seedLocations?: Parameters<typeof makeLocationStore>[0];
+  /** Overrides the no-op Task 22 arrivals double (spy in integration tests). */
+  arrivals?: import('../eta/stop-arrivals.service').StopArrivalsService;
 }
 
 function makeService(options: MakeServiceOptions = {}) {
@@ -163,6 +166,7 @@ function makeService(options: MakeServiceOptions = {}) {
     stopRepo(),
     guardianRepo(),
     options.config ?? { gpsMinIntervalMs: 0, maxFutureSkewMs: 300_000, maxPastSkewMs: 86_400_000 },
+    options.arrivals ?? makeNoopArrivalsStub(),
   );
   if (options.attachBroadcaster !== false) {
     service.attachBroadcaster(capture.fn);
@@ -1041,7 +1045,93 @@ function makeServiceForTrips(
     stopRepo(),
     guardianRepo(),
     config,
+    makeNoopArrivalsStub(),
   );
   service.attachBroadcaster(capture.fn);
   return { service, store, capture };
 }
+
+describe('LiveTrackingService — Task 22 stop-arrival evaluation hook', () => {
+  function makeArrivalSpy() {
+    const calls: Array<{ tripId: string; latitude: number; longitude: number }> = [];
+    const stub = {
+      onAcceptedFix: async (
+        trip: StubTrip,
+        fix: { latitude: number; longitude: number },
+      ): Promise<null> => {
+        calls.push({ tripId: trip.id, latitude: fix.latitude, longitude: fix.longitude });
+        return null;
+      },
+      resetForTrip: () => undefined,
+    } as unknown as import('../eta/stop-arrivals.service').StopArrivalsService;
+    return { calls, stub };
+  }
+
+  it('evaluates every accepted latest fix for stop arrivals', async () => {
+    const spy = makeArrivalSpy();
+    const { service } = makeService({ arrivals: spy.stub });
+
+    const { ack } = await service.recordLocation(DRIVER, locationPayload(TRIP_A));
+
+    assert.equal(ack.status, 'accepted');
+    assert.equal(spy.calls.length, 1);
+    assert.equal(spy.calls[0].tripId, TRIP_A);
+  });
+
+  it('never evaluates rejected fixes', async () => {
+    const spy = makeArrivalSpy();
+    const { service } = makeService({ arrivals: spy.stub });
+
+    // Non-crew writer → rejected before anything is persisted.
+    const { ack } = await service.recordLocation(UNRELATED_DRIVER, locationPayload(TRIP_A));
+
+    assert.equal(ack.status, 'rejected');
+    assert.equal(spy.calls.length, 0);
+  });
+
+  it('never evaluates stale (out-of-order) fixes', async () => {
+    const spy = makeArrivalSpy();
+    const { service } = makeService({
+      arrivals: spy.stub,
+      seedLocations: [makeLocation({ recorded_at: new Date(Date.now() - 60_000) })],
+    });
+
+    // A fix older than the seeded latest is accepted but marked stale.
+    const { ack } = await service.recordLocation(
+      DRIVER,
+      locationPayload(TRIP_A, { recorded_at: new Date(Date.now() - 120_000).toISOString() }),
+    );
+
+    assert.equal(ack.status, 'accepted');
+    assert.equal(ack.stale, true);
+    assert.equal(spy.calls.length, 0);
+  });
+
+  it('never evaluates fixes of terminal trips (completed/cancelled)', async () => {
+    for (const tripId of [TRIP_A_COMPLETED, TRIP_A_CANCELLED]) {
+      const spy = makeArrivalSpy();
+      const { service } = makeService({ arrivals: spy.stub });
+
+      const { ack } = await service.recordLocation(DRIVER, locationPayload(tripId));
+
+      assert.equal(ack.status, 'rejected', `trip ${tripId}`);
+      assert.equal(ack.reason, 'trip_not_open');
+      assert.equal(spy.calls.length, 0);
+    }
+  });
+
+  it('resets the arrival memory when a trip becomes terminal', async () => {
+    const resets: string[] = [];
+    const stub = {
+      onAcceptedFix: async () => null,
+      resetForTrip: (tripId: string) => {
+        resets.push(tripId);
+      },
+    } as unknown as import('../eta/stop-arrivals.service').StopArrivalsService;
+    const { service } = makeService({ arrivals: stub });
+
+    await service.onTripStatusChanged(makeTrip({ status: TripStatus.COMPLETED }));
+
+    assert.deepEqual(resets, [TRIP_A]);
+  });
+});

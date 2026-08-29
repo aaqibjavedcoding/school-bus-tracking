@@ -16,16 +16,17 @@ import { TripAttendanceModule } from './modules/trip-attendance/trip-attendance.
 import { LiveTrackingModule } from './modules/live-tracking/live-tracking.module';
 import { ParentPortalModule } from './modules/parent-portal/parent-portal.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EtaModule } from './modules/eta/eta.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AccessModule } from './common/access';
 import { DatabaseModule } from './database/database.module';
-import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './config';
+import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } from './config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, liveTrackingConfig],
+      load: [appConfig, databaseConfig, jwtConfig, liveTrackingConfig, etaConfig],
       envFilePath: ['.env', '.env.local'],
     }),
     DatabaseModule.forRoot(),
@@ -46,6 +47,9 @@ import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './conf
     TripsModule,
     TripAttendanceModule,
     LiveTrackingModule,
+    // Task 22: approximate ETA + geofence stop-arrival detection
+    // (`/api/v1/trips/:tripId/eta` etc.) over the live-tracking pipeline.
+    EtaModule,
     // Parent portal (`/api/v1/parent/*`) — read-only parent self-service.
     ParentPortalModule,
     // Parent notifications (`/api/v1/parent/notifications` + the

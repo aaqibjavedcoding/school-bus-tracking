@@ -8,6 +8,7 @@ import {
   Trip,
   TripLocation,
 } from '../../database/models';
+import { EtaModule } from '../eta/eta.module';
 import { LiveTrackingController } from './live-tracking.controller';
 import { LiveTrackingGateway } from './live-tracking.gateway';
 import { LiveTrackingService } from './live-tracking.service';
@@ -33,8 +34,13 @@ import {
  * The module exports `LiveTrackingService` so `TripsModule` can notify it
  * about lifecycle transitions (tracking start / stop); nothing else is
  * shared — the gateway's socket surface stays private to this module.
+ *
+ * Task 22: the module imports `EtaModule` so the accepted-fix pipeline can
+ * feed the geofence/arrival evaluation (`StopArrivalsService`) and the
+ * gateway can attach its room broadcaster to the arrival/ETA broadcasts.
  */
 @Module({
+  imports: [EtaModule],
   controllers: [LiveTrackingController],
   providers: [
     LiveTrackingService,

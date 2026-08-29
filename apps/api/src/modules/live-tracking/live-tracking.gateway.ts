@@ -15,12 +15,14 @@ import {
   TrackingLeaveAck,
   TripLocationUpdateAck,
   liveTrackingRoomName,
+  type LiveTrackingEvent,
 } from '@school-bus-tracking/shared-types';
 import { getTripTrackingState, trackingJoinSchema } from '@school-bus-tracking/validation';
 import type { AuthenticatedRequestUser, TenantRequestUser } from '../../common/guards';
 import { isAccessTokenPayloadValid } from '../../common/guards';
 import { SchoolAccessService } from '../../common/access';
 import { LiveTrackingService, extractTripId } from './live-tracking.service';
+import { StopArrivalsService } from '../eta/stop-arrivals.service';
 
 /**
  * Socket.IO gateway for live GPS tracking (Phase 5).
@@ -61,6 +63,10 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
 
   constructor(
     private readonly liveTracking: LiveTrackingService,
+    // Task 22: stop-arrival / ETA broadcasts reuse the exact same room
+    // broadcaster as location updates — one authenticated channel, one
+    // authorization-gated room.
+    private readonly arrivals: StopArrivalsService,
     private readonly jwtService: JwtService,
     // Centralized inactive-school enforcement at the socket handshake; the
     // global AccessModule injects the same instance the HTTP guard uses.
@@ -69,9 +75,11 @@ export class LiveTrackingGateway implements OnGatewayConnection, OnGatewayDiscon
 
   /** Called once the namespace is up — room broadcasts go through it. */
   afterInit(): void {
-    this.liveTracking.attachBroadcaster((room, event, payload) => {
+    const broadcaster = (room: string, event: LiveTrackingEvent, payload: unknown): void => {
       this.server.to(room).emit(event, payload);
-    });
+    };
+    this.liveTracking.attachBroadcaster(broadcaster);
+    this.arrivals.attachBroadcaster(broadcaster);
   }
 
   /**

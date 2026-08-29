@@ -765,7 +765,8 @@ export interface ParentChildTodayResponse {
  *
  * `trip` is the child's active (or most relevant) trip today; `latest` is the
  * latest GPS fix of that trip, or `null` while no fix exists yet (never a
- * fabricated location).
+ * fabricated location); `eta` is the approximate ETA/progress summary of the
+ * same trip (Task 22), or `null` when there is no trip to compute it for.
  */
 export interface ParentTrackingResponse {
   child: ParentChildSummary;
@@ -774,6 +775,7 @@ export interface ParentTrackingResponse {
   conductor: ParentCrewSummary | null;
   stops: StopResponse[];
   latest: TripLocationLatestResponse | null;
+  eta: TripEtaResponse | null;
 }
 
 /** Successful payload of `GET /api/v1/parent/dashboard`. */
@@ -794,8 +796,8 @@ export interface ParentDashboardResponse {
  * (see {@link NOTIFICATIONS_NAMESPACE}) pushes newly created ones to the
  * connected parent's private room.
  *
- * ETA / geofence / push-channel (FCM, APNs, SMS, email) notifications are
- * intentionally out of scope for this phase.
+ * Push-channel (FCM, APNs, SMS, email) delivery is intentionally out of scope
+ * for this phase; ETA and geofence arrival notifications arrive with Task 22.
  */
 
 /** Kinds of notification the system can create (strict enum, persisted). */
@@ -812,6 +814,8 @@ export enum NotificationType {
   TRIP_COMPLETED = 'TRIP_COMPLETED',
   /** The child's trip was cancelled. */
   TRIP_CANCELLED = 'TRIP_CANCELLED',
+  /** The bus entered the geofence of the stop the child uses (Task 22). */
+  STOP_ARRIVED = 'STOP_ARRIVED',
 }
 
 export const NOTIFICATION_TYPE_VALUES: NotificationType[] = Object.values(NotificationType);
@@ -836,6 +840,8 @@ export interface NotificationResponse {
   trip_id: string | null;
   /** Child the event is about, when the event is student-scoped. */
   student_id: string | null;
+  /** Stop the event is about, when the event is stop-scoped (arrivals). */
+  stop_id: string | null;
   title: string;
   message: string;
   /** Additional event-specific data (student name, trip status, …). */
@@ -907,6 +913,8 @@ export interface NotificationRealtimeEvent {
   message: string;
   student_id: string | null;
   trip_id: string | null;
+  /** Stop the event is about, when the event is stop-scoped (arrivals). */
+  stop_id: string | null;
   /** ISO-8601 server time at which the notification was created. */
   created_at: string;
 }
@@ -1396,6 +1404,10 @@ export const LIVE_TRACKING_EVENTS = {
   trackingStarted: 'trip:tracking:started',
   /** Server → room: the trip reached a terminal state; tracking has stopped. */
   trackingStopped: 'trip:tracking:stopped',
+  /** Server → room: the bus entered a stop's geofence (Task 22 arrival). */
+  stopArrived: 'trip:stop:arrived',
+  /** Server → room: the approximate trip ETA was recomputed (Task 22). */
+  etaUpdate: 'trip:eta:update',
 } as const;
 
 export type LiveTrackingEvent = (typeof LIVE_TRACKING_EVENTS)[keyof typeof LIVE_TRACKING_EVENTS];
@@ -1519,6 +1531,125 @@ export interface TripTrackingStoppedEvent {
   reason: 'completed' | 'cancelled' | 'deleted';
   /** ISO-8601 server time of the transition. */
   at: string;
+}
+
+/**
+ * Task 22 — Dynamic ETA, stop geofence arrivals and stop arrival detection.
+ *
+ * The ETA is an *approximate, GPS-based* estimate: straight-line (Haversine)
+ * distances along the ordered stop polyline divided by the device speed (or a
+ * configured fallback speed when the device reports none). It never claims
+ * road-routing accuracy and it is never fabricated — without a GPS fix no
+ * distance or ETA exists and `eta_available` is false.
+ */
+
+/** ETA/progress of one stop of the trip's route, in route order. */
+export interface TripStopEta {
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+  /** Straight-line (Haversine) metres from the bus along the stop path; null without a GPS fix. */
+  distance_meters: number | null;
+  /**
+   * Whole minutes until the bus reaches the stop (>= 1 while moving), rounded
+   * up; null without a GPS fix (an ETA is never invented).
+   */
+  eta_minutes: number | null;
+  /** True when this trip-stop visit has already produced an arrival event. */
+  arrived: boolean;
+}
+
+/** Successful payload of `GET /api/v1/trips/:tripId/eta`. */
+export interface TripEtaResponse {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  /** Latest accepted GPS fix, or null while the bus has never reported. */
+  latest: TripLocationResponse | null;
+  /**
+   * Effective speed (km/h) used for the ETA: the device speed when it is
+   * positive, otherwise the configured fallback. Null only without a fix.
+   */
+  speed_kmh: number | null;
+  /** Where the effective speed came from: the device or the fallback constant. */
+  speed_source: 'gps' | 'fallback' | null;
+  /** The most recently reached stop (arrival recorded), or null before the first. */
+  current_stop: TripStopEta | null;
+  /** The first not-yet-reached stop in route order, or null when all are reached. */
+  next_stop: TripStopEta | null;
+  /** Every route stop in order with its distance / ETA / arrival state. */
+  items: TripStopEta[];
+  /** False exactly when no GPS fix exists — no ETA is fabricated in that case. */
+  eta_available: boolean;
+}
+
+/** One persisted stop-arrival event of a trip. */
+export interface TripStopArrivalResponse {
+  id: string;
+  school_id: string;
+  trip_id: string;
+  stop_id: string;
+  stop_name: string;
+  /** ISO-8601 server time at which the arrival was recorded. */
+  arrived_at: string;
+  /** GPS position of the bus at the moment it entered the stop's geofence. */
+  latitude: number;
+  longitude: number;
+  /** Straight-line (Haversine) metres between the bus and the stop at arrival. */
+  distance_meters: number;
+  created_at: string;
+}
+
+/** Successful payload of `GET /api/v1/trips/:tripId/arrivals`. */
+export interface TripStopArrivalListResponse {
+  trip_id: string;
+  school_id: string;
+  items: TripStopArrivalResponse[];
+}
+
+/**
+ * Crew-facing progress snapshot of `GET /api/v1/trips/:tripId/progress`:
+ * the latest arrival state plus the next stop and the trip's ETA summary.
+ */
+export interface TripProgressResponse {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  /** The most recently reached stop, or null before the first. */
+  current_stop: TripStopEta | null;
+  /** The first not-yet-reached stop in route order, or null when all are reached. */
+  next_stop: TripStopEta | null;
+  /** Every recorded arrival of this trip, in arrival order. */
+  arrivals: TripStopArrivalResponse[];
+  /** The ETA summary (same shape as `GET /trips/:tripId/eta`). */
+  eta: TripEtaResponse;
+}
+
+/** Server → room: the bus entered a stop's geofence and the visit was recorded. */
+export interface TripStopArrivedEvent {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+  /** ISO-8601 server time at which the arrival was recorded. */
+  arrived_at: string;
+  /** GPS position of the bus when it entered the geofence. */
+  latitude: number;
+  longitude: number;
+  /** Straight-line (Haversine) metres between the bus and the stop at arrival. */
+  distance_meters: number;
+}
+
+/** Server → room: the approximate ETA of the trip was recomputed after a fix. */
+export interface TripEtaUpdateEvent {
+  trip_id: string;
+  school_id: string;
+  eta: TripEtaResponse;
 }
 
 /**

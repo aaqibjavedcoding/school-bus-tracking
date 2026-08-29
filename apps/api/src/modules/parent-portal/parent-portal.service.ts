@@ -27,6 +27,7 @@ import {
 } from '../../database/models';
 import type { TenantRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
+import { EtaService } from '../eta/eta.service';
 import { TripAttendanceService } from '../trip-attendance/trip-attendance.service';
 import {
   PARENT_PORTAL_BUSES_REPOSITORY,
@@ -129,6 +130,9 @@ export class ParentPortalService {
     private readonly schools: typeof School,
     private readonly liveTracking: LiveTrackingService,
     private readonly tripAttendance: TripAttendanceService,
+    // Task 22: approximate ETA re-used from the same service the trip ETA
+    // endpoint uses — no duplicate ETA logic exists in the parent portal.
+    private readonly eta: EtaService,
   ) {}
 
   /** `GET /api/v1/parent/dashboard` */
@@ -225,16 +229,28 @@ export class ParentPortalService {
       summary.today.trip?.conductor_id ?? null,
     );
 
-    let latest = null;
+    let latest: ParentTrackingResponse['latest'] = null;
+    let eta: ParentTrackingResponse['eta'] = null;
     const trip = summary.today.trip;
     if (trip) {
-      const location = await this.liveTracking.getLatestLocationResponse(user.school_id, trip.id);
-      if (location) {
-        latest = {
-          ...location,
-          trip_status: trip.status,
-          tracking_state: getTripTrackingState(trip.status),
-        };
+      const tripRow = await this.trips.findOne({
+        where: { school_id: user.school_id, id: trip.id },
+      });
+      if (tripRow) {
+        const location = await this.liveTracking.getLatestLocationResponse(
+          user.school_id,
+          tripRow.id,
+        );
+        if (location) {
+          latest = {
+            ...location,
+            trip_status: tripRow.status,
+            tracking_state: getTripTrackingState(tripRow.status),
+          };
+        }
+        // Task 22: the same approximate ETA the trip ETA endpoint serves —
+        // computed here over the child's own (tenant-resolved) trip.
+        eta = await this.eta.computeTripEta({ trip: tripRow, latest: location });
       }
     }
 
@@ -245,6 +261,7 @@ export class ParentPortalService {
       conductor,
       stops: await this.loadRouteStops(user.school_id, summary.home_stop.route_id),
       latest,
+      eta,
     };
   }
 

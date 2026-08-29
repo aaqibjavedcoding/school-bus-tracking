@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Op, type WhereOptions } from 'sequelize';
 import {
   LIVE_TRACKING_EVENTS,
@@ -31,6 +31,7 @@ import {
   TripLocation,
 } from '../../database/models';
 import type { TenantRequestUser as RequestUser } from '../../common/guards';
+import { StopArrivalsService } from '../eta/stop-arrivals.service';
 import {
   DEFAULT_HISTORY_LIMIT,
   LIVE_TRACKING_ASSIGNMENTS_REPOSITORY,
@@ -135,7 +136,11 @@ export class LiveTrackingService {
     private readonly guardians: typeof StudentGuardian,
     @Inject(LIVE_TRACKING_CONFIG)
     private readonly config: LiveTrackingConfig,
+    // Task 22: geofence arrival evaluation after every accepted latest fix.
+    private readonly arrivals: StopArrivalsService,
   ) {}
+
+  private readonly logger = new Logger(LiveTrackingService.name);
 
   /** Room-scoped broadcaster attached by the gateway; `undefined` in unit tests. */
   private broadcaster: LiveTrackingBroadcaster | undefined;
@@ -507,6 +512,10 @@ export class LiveTrackingService {
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.locationUpdate, payloadOut);
 
+    // Task 22: geofence evaluation for stop arrivals. Best-effort by design
+    // — it can never reject or delay an already-accepted GPS fix.
+    await this.evaluateStopArrivals(trip, location);
+
     return {
       ack,
       broadcast: { event: LIVE_TRACKING_EVENTS.locationUpdate, payload: payloadOut },
@@ -567,6 +576,9 @@ export class LiveTrackingService {
     this.trackingStates.set(trip.id, state);
     if (state === 'stopped') {
       this.resetForTrip(trip.id);
+      // Task 22: drop the per-process arrival memory of the terminal trip —
+      // no further arrivals can be generated for it anyway.
+      this.arrivals.resetForTrip(trip.id);
     }
 
     if (result.event !== null && result.payload !== null) {
@@ -648,6 +660,24 @@ export class LiveTrackingService {
       if (key.startsWith(`${tripId}:`)) {
         this.throttles.delete(key);
       }
+    }
+  }
+
+  /**
+   * Runs the Task 22 geofence/arrival pipeline for an accepted *latest* fix.
+   * Deliberately best-effort: any failure is logged here (the arrivals
+   * service itself also swallows its own errors) and can never reject the
+   * already-persisted fix.
+   */
+  private async evaluateStopArrivals(trip: Trip, location: TripLocation): Promise<void> {
+    try {
+      await this.arrivals.onAcceptedFix(trip, location);
+    } catch (error) {
+      this.logger.error(
+        `Stop arrival evaluation failed for trip ${trip.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
