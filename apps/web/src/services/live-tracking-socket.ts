@@ -20,6 +20,10 @@ export function getLiveTrackingSocket(): Socket {
 
   socket = io(LIVE_TRACKING_NAMESPACE, {
     path: '/socket.io',
+    // Next's rewrite normalizes trailing slashes. Use the same no-slash
+    // Engine.IO endpoint on both sides so polling and WebSocket transports
+    // are not redirected by the web server.
+    addTrailingSlash: false,
     autoConnect: false,
     withCredentials: true,
     transports: ['websocket', 'polling'],
