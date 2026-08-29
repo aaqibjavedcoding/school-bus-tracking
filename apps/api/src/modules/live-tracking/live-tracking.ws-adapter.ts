@@ -33,14 +33,18 @@ export class LiveTrackingIoAdapter extends IoAdapter {
       configService?.get<string>('app.corsOrigin') ??
       '*';
     return super.createIOServer(port, {
+      ...options,
       cors: {
         origin: corsOrigin ?? '*',
         credentials: true,
       },
+      // Keep Engine.IO's endpoint at `/socket.io` without a trailing slash;
+      // the Next web proxy normalizes trailing slashes and redirects break
+      // both WebSocket handshakes and polling fallbacks.
+      addTrailingSlash: false,
       maxHttpBufferSize: 100 * 1024,
       pingInterval: 25_000,
       pingTimeout: 30_000,
-      ...options,
     } as ServerOptions);
   }
 }
