@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import type { Request, Response } from 'express';
 import {
+  CLIENT_SESSION_HEADER,
+  CLIENT_SESSION_REFRESH_TOKEN_BODY,
   LoginResponse,
   LogoutResponse,
   RefreshResponse,
@@ -207,5 +209,72 @@ describe('AuthController', () => {
       sameSite: 'lax',
       path: '/api/v1/auth',
     });
+  });
+
+  it('POST /login never puts the refresh token in the body for browser clients', async () => {
+    const authService = makeMockAuthService();
+    const controller = new AuthController(authService);
+    const { res } = makeMockResponse();
+
+    const dto = new LoginDto();
+    dto.email = 'driver@school.org';
+    dto.password = 'correct-horse-battery';
+
+    const result: LoginResponse = await controller.login(dto, makeMockRequest(), res);
+    assert.equal(result.refresh_token, undefined);
+  });
+
+  it('POST /login echoes the refresh token in the body for mobile session clients', async () => {
+    const authService = makeMockAuthService();
+    const controller = new AuthController(authService);
+    const { res, cookies } = makeMockResponse();
+
+    const dto = new LoginDto();
+    dto.email = 'driver@school.org';
+    dto.password = 'correct-horse-battery';
+
+    const req = makeMockRequest({
+      headers: { [CLIENT_SESSION_HEADER]: CLIENT_SESSION_REFRESH_TOKEN_BODY },
+    });
+
+    const result: LoginResponse = await controller.login(dto, req, res);
+    assert.equal(result.refresh_token, 'mock-refresh-token-123');
+    // The httpOnly cookie is still set for the flow: the body copy is an
+    // opt-in addition, not a replacement.
+    assert.equal(cookies['refresh_token'].val, 'mock-refresh-token-123');
+  });
+
+  it('POST /refresh echoes the rotated refresh token when the client used the body fallback', async () => {
+    const authService = makeMockAuthService();
+    const controller = new AuthController(authService);
+    const { res } = makeMockResponse();
+
+    const req = makeMockRequest({
+      headers: { [CLIENT_SESSION_HEADER]: CLIENT_SESSION_REFRESH_TOKEN_BODY },
+      body: { refresh_token: 'mock-refresh-token-123' },
+    });
+
+    const result = await controller.refresh(req, res);
+    assert.equal(result.access_token, 'new-access-token');
+    assert.equal(result.refresh_token, 'new-rotated-refresh-token-456');
+  });
+
+  it('POST /logout accepts the refresh token from the request body (mobile, no cookies)', async () => {
+    let revokedToken: string | undefined;
+    const authService = makeMockAuthService();
+    (authService as unknown as { logout: (t?: string) => Promise<LogoutResponse> }).logout = async (
+      token?: string,
+    ) => {
+      revokedToken = token;
+      return { message: LOGOUT_SUCCESS_MESSAGE };
+    };
+    const controller = new AuthController(authService);
+    const { res } = makeMockResponse();
+
+    const req = makeMockRequest({ body: { refresh_token: 'mobile-refresh-token-789' } });
+    const result: LogoutResponse = await controller.logout(req, res);
+
+    assert.equal(result.message, LOGOUT_SUCCESS_MESSAGE);
+    assert.equal(revokedToken, 'mobile-refresh-token-789');
   });
 });

@@ -157,6 +157,23 @@ export interface AuthenticatedUser {
   email: string | null;
 }
 
+/**
+ * Request header a non-browser session client (e.g. the Expo mobile app)
+ * sends on `POST /auth/login` and `POST /auth/refresh` to opt into receiving
+ * the raw refresh token in the JSON body.
+ *
+ * Browsers never need this: they receive the refresh token as an httpOnly
+ * cookie and the API never echoes it into a browser response body. A native
+ * app cannot persist that cookie (its networking layer has no cookie jar),
+ * so it requests the token in the body and stores it in device-protected
+ * storage instead. `POST /auth/refresh` and `POST /auth/logout` accept the
+ * same token back as `body.refresh_token` (see the auth controller).
+ */
+export const CLIENT_SESSION_HEADER = 'x-client-session';
+
+/** Value of {@link CLIENT_SESSION_HEADER} that requests a body-delivered refresh token. */
+export const CLIENT_SESSION_REFRESH_TOKEN_BODY = 'refresh-token-body';
+
 /** Successful response payload of `POST /api/v1/auth/login`. */
 export interface LoginResponse {
   access_token: string;
@@ -164,6 +181,12 @@ export interface LoginResponse {
   /** Access token lifetime in seconds. */
   expires_in: number;
   user: AuthenticatedUser;
+  /**
+   * Raw refresh token, present *only* when the client opted in via
+   * {@link CLIENT_SESSION_HEADER} (mobile). Never sent to browsers, which
+   * get the httpOnly cookie only.
+   */
+  refresh_token?: string;
 }
 
 /** Successful response payload of `POST /api/v1/auth/refresh`. */
@@ -173,6 +196,8 @@ export interface RefreshResponse {
   /** Access token lifetime in seconds. */
   expires_in: number;
   user: AuthenticatedUser;
+  /** Rotated raw refresh token — same opt-in contract as {@link LoginResponse}. */
+  refresh_token?: string;
 }
 
 /** Successful response payload of `POST /api/v1/auth/logout`. */

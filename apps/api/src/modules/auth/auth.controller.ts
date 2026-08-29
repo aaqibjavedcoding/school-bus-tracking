@@ -1,6 +1,12 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { LoginResponse, LogoutResponse, RefreshResponse } from '@school-bus-tracking/shared-types';
+import {
+  CLIENT_SESSION_HEADER,
+  CLIENT_SESSION_REFRESH_TOKEN_BODY,
+  LoginResponse,
+  LogoutResponse,
+  RefreshResponse,
+} from '@school-bus-tracking/shared-types';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { parseCookieHeader } from '../../auth';
@@ -14,6 +20,13 @@ export class AuthController {
    *
    * Validates user credentials, returns an access token in the JSON envelope,
    * and sets an httpOnly + secure refresh token cookie.
+   *
+   * Non-browser session clients (the Expo mobile app has no cookie jar) opt
+   * into receiving the raw refresh token in the JSON body as well by sending
+   * `x-client-session: refresh-token-body`; browsers never send it, so the
+   * browser-facing response shape is unchanged. The mobile client stores the
+   * token in device-protected storage and replays it as `body.refresh_token`
+   * on refresh/logout (see `extractRefreshToken`).
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -24,6 +37,9 @@ export class AuthController {
   ): Promise<LoginResponse> {
     const { response, refreshToken } = await this.authService.login(dto);
     this.setRefreshTokenCookie(req, res, refreshToken);
+    if (this.wantsRefreshTokenInBody(req)) {
+      return { ...response, refresh_token: refreshToken };
+    }
     return response;
   }
 
@@ -43,6 +59,9 @@ export class AuthController {
     const rawRefreshToken = this.extractRefreshToken(req);
     const { response, refreshToken } = await this.authService.refresh(rawRefreshToken);
     this.setRefreshTokenCookie(req, res, refreshToken);
+    if (this.wantsRefreshTokenInBody(req)) {
+      return { ...response, refresh_token: refreshToken };
+    }
     return response;
   }
 
@@ -86,6 +105,20 @@ export class AuthController {
     }
 
     return undefined;
+  }
+
+  /**
+   * True when a non-browser client asked for the refresh token to be returned
+   * in the JSON response body (`x-client-session: refresh-token-body`).
+   *
+   * Checked case-insensitively because `req.headers` lower-cases header names
+   * on Node, and a raw client may spell the header differently.
+   */
+  private wantsRefreshTokenInBody(req: Request): boolean {
+    const value = req?.headers?.[CLIENT_SESSION_HEADER];
+    return Array.isArray(value)
+      ? value.includes(CLIENT_SESSION_REFRESH_TOKEN_BODY)
+      : value === CLIENT_SESSION_REFRESH_TOKEN_BODY;
   }
 
   private isHttpsRequest(req: Request): boolean {

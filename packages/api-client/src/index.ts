@@ -13,6 +13,8 @@ import {
   AdminSchoolResponse,
   AdminSchoolUpdateRequest,
   ApiResponse,
+  CLIENT_SESSION_HEADER,
+  CLIENT_SESSION_REFRESH_TOKEN_BODY,
   ConductorCreateRequest,
   ConductorDeleteResponse,
   ConductorListQuery,
@@ -118,6 +120,22 @@ export interface ApiClientConfig {
   setAccessToken?: (token: string | null) => void;
   /** Called when refresh fails so the UI can return to the login screen. */
   onUnauthorized?: () => void;
+  /**
+   * Refresh-token accessor for non-browser clients (mobile) that cannot hold
+   * the API's httpOnly cookie. When provided:
+   *
+   * - `login`/`refresh` send the `x-client-session: refresh-token-body` opt-in
+   *   header so the API echoes the (rotated) refresh token in the JSON body;
+   *   the client stores it via {@link ApiClientConfig.setRefreshToken}.
+   * - `refresh`/`logout` replay it as `body.refresh_token`, which the auth
+   *   controller accepts as the cookie alternative.
+   *
+   * Browsers leave this unset and keep the pure HttpOnly-cookie flow; nothing
+   * changes for them.
+   */
+  getRefreshToken?: () => string | null | Promise<string | null>;
+  /** Stores the (rotated or cleared) refresh token supplied by the API. */
+  setRefreshToken?: (token: string | null) => void | Promise<void>;
 }
 
 export class ApiClientError extends Error {
@@ -140,6 +158,8 @@ export class ApiClient {
   private readonly getAccessToken?: () => string | null;
   private readonly setAccessToken?: (token: string | null) => void;
   private readonly onUnauthorized?: () => void;
+  private readonly getRefreshToken?: () => string | null | Promise<string | null>;
+  private readonly setRefreshToken?: (token: string | null) => void | Promise<void>;
   private refreshInFlight: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
@@ -153,6 +173,28 @@ export class ApiClient {
     this.getAccessToken = config.getAccessToken;
     this.setAccessToken = config.setAccessToken;
     this.onUnauthorized = config.onUnauthorized;
+    this.getRefreshToken = config.getRefreshToken;
+    this.setRefreshToken = config.setRefreshToken;
+  }
+
+  /** True when the caller is a non-browser session client (mobile) holding its own refresh token. */
+  private get usesRefreshTokenBody(): boolean {
+    return this.getRefreshToken !== undefined;
+  }
+
+  /** Headers that opt a mobile client into body-delivered refresh tokens. Never added for browsers. */
+  private mobileSessionHeaders(): Record<string, string> | undefined {
+    return this.usesRefreshTokenBody
+      ? { [CLIENT_SESSION_HEADER]: CLIENT_SESSION_REFRESH_TOKEN_BODY }
+      : undefined;
+  }
+
+  private async currentRefreshToken(): Promise<string | null> {
+    if (!this.getRefreshToken) {
+      return null;
+    }
+    const token = await this.getRefreshToken();
+    return typeof token === 'string' && token.trim() ? token.trim() : null;
   }
 
   private isAuthSkipPath(endpoint: string): boolean {
@@ -188,9 +230,17 @@ export class ApiClient {
 
     this.refreshInFlight = (async () => {
       try {
+        // Mobile clients replay the stored refresh token in the body (the
+        // cookie fallback the auth controller accepts); browsers rely purely
+        // on the HttpOnly cookie and send an empty POST as before.
+        const refreshToken = await this.currentRefreshToken();
         const envelope = await this.request<ApiResponse<RefreshResponse>>(
           '/auth/refresh',
-          { method: 'POST' },
+          {
+            method: 'POST',
+            headers: this.mobileSessionHeaders(),
+            ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
+          },
           true,
         );
         const token = envelope.data?.access_token ?? null;
@@ -199,6 +249,9 @@ export class ApiClient {
           return false;
         }
         this.setAccessToken?.(token);
+        if (refreshToken && envelope.data?.refresh_token) {
+          await this.setRefreshToken?.(envelope.data.refresh_token);
+        }
         return true;
       } catch {
         this.setAccessToken?.(null);
@@ -318,26 +371,46 @@ export class ApiClient {
   }
 
   public async login(body: LoginRequest): Promise<ApiResponse<LoginResponse>> {
-    const envelope = await this.post<LoginResponse>('/auth/login', body);
+    const envelope = await this.post<LoginResponse>('/auth/login', body, {
+      headers: this.mobileSessionHeaders(),
+    });
     if (envelope.data?.access_token) {
       this.setAccessToken?.(envelope.data.access_token);
+    }
+    if (envelope.data?.refresh_token) {
+      await this.setRefreshToken?.(envelope.data.refresh_token);
     }
     return envelope;
   }
 
   public async refresh(): Promise<ApiResponse<RefreshResponse>> {
-    const envelope = await this.post<RefreshResponse>('/auth/refresh');
+    const refreshToken = await this.currentRefreshToken();
+    const envelope = await this.post<RefreshResponse>(
+      '/auth/refresh',
+      refreshToken ? { refresh_token: refreshToken } : undefined,
+      { headers: this.mobileSessionHeaders() },
+    );
     if (envelope.data?.access_token) {
       this.setAccessToken?.(envelope.data.access_token);
+    }
+    if (refreshToken && envelope.data?.refresh_token) {
+      await this.setRefreshToken?.(envelope.data.refresh_token);
     }
     return envelope;
   }
 
   public async logout(): Promise<ApiResponse<LogoutResponse>> {
     try {
-      return await this.post<LogoutResponse>('/auth/logout');
+      // A mobile client must revoke the stored session token; the endpoint
+      // accepts it in the body when there is no cookie to read.
+      const refreshToken = await this.currentRefreshToken();
+      return await this.post<LogoutResponse>(
+        '/auth/logout',
+        refreshToken ? { refresh_token: refreshToken } : undefined,
+      );
     } finally {
       this.setAccessToken?.(null);
+      await this.setRefreshToken?.(null);
     }
   }
 
