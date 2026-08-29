@@ -332,11 +332,42 @@ function makeLiveTrackingStub(
   } as unknown as LiveTrackingService;
 }
 
+/**
+ * Notifications stub capturing every parent notification request. The real
+ * service is exercised in its own spec; here we verify that the trip
+ * lifecycle forwards exactly its successful transitions.
+ */
+function makeNotificationsStub(
+  capture: {
+    calls: Array<{ school_id: string; trip_id: string; status: TripStatus }>;
+  } = { calls: [] },
+) {
+  return {
+    notifyTripStatusChange: async (input: {
+      school_id: string;
+      trip_id: string;
+      status: TripStatus;
+    }) => {
+      capture.calls.push({
+        school_id: input.school_id,
+        trip_id: input.trip_id,
+        status: input.status,
+      });
+    },
+  } as unknown as import('../notifications/notifications.service').NotificationsService;
+}
+
 const liveTrackingCapture: { calls: Array<{ id: string; deleted?: boolean }> } = { calls: [] };
+const notificationsCapture: {
+  calls: Array<{ school_id: string; trip_id: string; status: TripStatus }>;
+} = { calls: [] };
 
 function makeService(
   repos: ReturnType<typeof makeRepositories>,
   liveTracking: LiveTrackingService = makeLiveTrackingStub(liveTrackingCapture),
+  notifications: import('../notifications/notifications.service').NotificationsService = makeNotificationsStub(
+    notificationsCapture,
+  ),
 ): TripsService {
   return new TripsService(
     repos.tripRepo,
@@ -345,6 +376,7 @@ function makeService(
     repos.busRepo,
     repos.userRepo,
     liveTracking,
+    notifications,
   );
 }
 
@@ -397,11 +429,12 @@ async function expectConflict(promise: Promise<unknown>, message: string) {
 }
 
 /**
- * The shared live-tracking capture is reset between tests so the
- * lifecycle-notification assertions below see only their own transitions.
+ * The shared live-tracking and notifications captures are reset between tests
+ * so the lifecycle assertions below see only their own transitions.
  */
 beforeEach(() => {
   liveTrackingCapture.calls.length = 0;
+  notificationsCapture.calls.length = 0;
 });
 
 describe('TripsService.create', () => {
@@ -979,6 +1012,75 @@ describe('TripsService lifecycle', () => {
     await service.remove(SCHOOL_A, TRIP_A);
 
     assert.deepEqual(liveTrackingCapture.calls, [{ id: TRIP_A, deleted: true }]);
+  });
+});
+
+describe('TripsService parent notifications (Task 21)', () => {
+  it('notifies parents when the trip opens boarding', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.BOARDING));
+
+    assert.deepEqual(notificationsCapture.calls, [
+      { school_id: SCHOOL_A, trip_id: TRIP_A, status: TripStatus.BOARDING },
+    ]);
+  });
+
+  it('notifies parents when the trip departs (IN_PROGRESS)', async () => {
+    const trip = makeTrip({ status: TripStatus.BOARDING });
+    const service = makeService(makeRepositories([trip]));
+
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.IN_PROGRESS));
+
+    assert.deepEqual(notificationsCapture.calls, [
+      { school_id: SCHOOL_A, trip_id: TRIP_A, status: TripStatus.IN_PROGRESS },
+    ]);
+  });
+
+  it('notifies parents when the trip completes', async () => {
+    const trip = makeTrip({ status: TripStatus.IN_PROGRESS });
+    const service = makeService(makeRepositories([trip]));
+
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.COMPLETED));
+
+    assert.deepEqual(notificationsCapture.calls, [
+      { school_id: SCHOOL_A, trip_id: TRIP_A, status: TripStatus.COMPLETED },
+    ]);
+  });
+
+  it('notifies parents when the trip is cancelled (status endpoint and cancel endpoint)', async () => {
+    const byStatus = makeService(makeRepositories([makeTrip()]));
+    await byStatus.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.CANCELLED));
+    assert.deepEqual(notificationsCapture.calls, [
+      { school_id: SCHOOL_A, trip_id: TRIP_A, status: TripStatus.CANCELLED },
+    ]);
+
+    notificationsCapture.calls.length = 0;
+    const byCancel = makeService(makeRepositories([makeTrip()]));
+    await byCancel.cancel(SCHOOL_A, TRIP_A, Object.assign(new CancelTripDto(), {}));
+    assert.deepEqual(notificationsCapture.calls, [
+      { school_id: SCHOOL_A, trip_id: TRIP_A, status: TripStatus.CANCELLED },
+    ]);
+  });
+
+  it('does not notify for an invalid transition (nothing was persisted)', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await expectBadRequest(
+      service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.COMPLETED)),
+      TRIP_INVALID_TRANSITION_MESSAGE(TripStatus.SCHEDULED, TripStatus.COMPLETED),
+    );
+
+    assert.deepEqual(notificationsCapture.calls, []);
+  });
+
+  it('does not notify when the trip is not in the caller school (generic 404)', async () => {
+    // Trip of another school: the transition is refused, so nothing is
+    // forwarded to the notifications service either.
+    const service = makeService(makeRepositories([makeTrip({ school_id: SCHOOL_B })]));
+
+    await expectNotFound(service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.BOARDING)));
+    assert.deepEqual(notificationsCapture.calls, []);
   });
 });
 

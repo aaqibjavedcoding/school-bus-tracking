@@ -49,12 +49,16 @@ import {
   ParentStudentRelationshipCreateRequest,
   ParentUpdateRequest,
   ParentStudentRelationshipUpdateRequest,
+  NotificationReadAllResponse,
   ParentChildDetailResponse,
   ParentChildListResponse,
   ParentChildTodayResponse,
   ParentDashboardResponse,
+  ParentNotificationListQuery,
+  ParentNotificationListResponse,
   ParentTrackingResponse,
   RefreshResponse,
+  NotificationResponse,
   RouteCreateRequest,
   RouteDeleteResponse,
   RouteListQuery,
@@ -629,6 +633,35 @@ export class ApiClient {
   /** One child's active trip + route stops + crew + latest verified GPS fix. */
   public async getParentChildTracking(id: string): Promise<ApiResponse<ParentTrackingResponse>> {
     return this.get<ParentTrackingResponse>(`/parent/children/${encodeURIComponent(id)}/tracking`);
+  }
+
+  /**
+   * Parent notifications (Task 21) — served under `/api/v1/parent/notifications`
+   * and reachable only by an authenticated PARENT. The API derives the tenant
+   * and the parent identity from the JWT, so none of these methods send a
+   * parent id or school id.
+   */
+
+  /** The authenticated parent's own notifications, newest first. */
+  public async listParentNotifications(
+    query: ParentNotificationListQuery = {},
+  ): Promise<ApiResponse<ParentNotificationListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.status) params.set('status', query.status);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<ParentNotificationListResponse>(`/parent/notifications${suffix}`);
+  }
+
+  /** Marks one of the authenticated parent's own notifications as read. */
+  public async markParentNotificationRead(id: string): Promise<ApiResponse<NotificationResponse>> {
+    return this.patch<NotificationResponse>(`/parent/notifications/${encodeURIComponent(id)}/read`);
+  }
+
+  /** Marks all of the authenticated parent's unread notifications as read. */
+  public async markAllParentNotificationsRead(): Promise<ApiResponse<NotificationReadAllResponse>> {
+    return this.patch<NotificationReadAllResponse>('/parent/notifications/read-all');
   }
 
   /**

@@ -17,6 +17,7 @@ import {
   TripStudentAttendance,
 } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
 import { TripAttendanceService } from './trip-attendance.service';
 import {
@@ -518,9 +519,12 @@ function makeRepositories(
     },
   } as unknown as typeof RouteAssignment;
 
+  const notifications = makeNotificationsStub();
+
   return {
     rows,
     capture,
+    notifications,
     service: new TripAttendanceService(
       attendanceRepo,
       tripRepo,
@@ -528,8 +532,41 @@ function makeRepositories(
       studentRepo,
       guardianRepo,
       assignmentRepo,
+      notifications.stub as unknown as NotificationsService,
     ),
   };
+}
+
+/**
+ * Notifications stub capturing every parent notification request. The real
+ * service is exercised in its own spec; here we verify that boarding/drop
+ * notifications are requested only for committed attendance events.
+ */
+function makeNotificationsStub() {
+  const calls: Array<{
+    school_id: string;
+    trip_id: string;
+    student_id: string;
+    action: 'boarded' | 'dropped';
+  }> = [];
+  const stub = {
+    // The real service never throws (it is best-effort); this stub mirrors
+    // that contract so the attendance flow is tested as it runs in prod.
+    notifyStudentAttendance: async (input: {
+      school_id: string;
+      trip_id: string;
+      student: { id: string };
+      action: 'boarded' | 'dropped';
+    }) => {
+      calls.push({
+        school_id: input.school_id,
+        trip_id: input.trip_id,
+        student_id: input.student.id,
+        action: input.action,
+      });
+    },
+  };
+  return { calls, stub };
 }
 
 function query(overrides: Partial<ListTripStudentsQueryDto> = {}): ListTripStudentsQueryDto {
@@ -1056,5 +1093,99 @@ describe('TripAttendanceService drop off', () => {
       assert.equal(where.student_id, STUDENT_EARLY);
       assert.ok(options.transaction, 'the locked read must run inside the transaction');
     }
+  });
+});
+
+describe('TripAttendanceService parent notifications (Task 21)', () => {
+  it('requests a parent notification for a successful boarding', async () => {
+    const { service, notifications } = makeRepositories();
+
+    await service.board(DRIVER, TRIP_A, STUDENT_EARLY);
+
+    assert.deepEqual(notifications.calls, [
+      {
+        school_id: SCHOOL_A,
+        trip_id: TRIP_A,
+        student_id: STUDENT_EARLY,
+        action: 'boarded',
+      },
+    ]);
+  });
+
+  it('requests a parent notification for a successful drop', async () => {
+    const { service, notifications } = makeRepositories([
+      makeAttendanceRow({ status: TripAttendanceStatus.BOARDED }),
+    ]);
+
+    await service.drop(DRIVER, TRIP_A, STUDENT_EARLY);
+
+    assert.deepEqual(notifications.calls, [
+      {
+        school_id: SCHOOL_A,
+        trip_id: TRIP_A,
+        student_id: STUDENT_EARLY,
+        action: 'dropped',
+      },
+    ]);
+  });
+
+  it('does not notify when the boarding is rejected (already boarded)', async () => {
+    const { service, notifications } = makeRepositories([
+      makeAttendanceRow({ status: TripAttendanceStatus.BOARDED }),
+    ]);
+
+    await rejectsWith(
+      service.board(DRIVER, TRIP_A, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_ALREADY_BOARDED_MESSAGE,
+    );
+
+    assert.deepEqual(notifications.calls, []);
+  });
+
+  it('does not notify when the drop is rejected (not boarded)', async () => {
+    const { service, notifications } = makeRepositories();
+
+    await rejectsWith(
+      service.drop(DRIVER, TRIP_A, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_NOT_BOARDED_MESSAGE,
+    );
+
+    assert.deepEqual(notifications.calls, []);
+  });
+
+  it('does not notify when the attendance write itself fails', async () => {
+    const { service, notifications } = makeRepositories([], emptyCapture(), {
+      createError: new Error('database unavailable'),
+    });
+
+    await assert.rejects(service.board(DRIVER, TRIP_A, STUDENT_EARLY), Error);
+
+    assert.deepEqual(notifications.calls, []);
+  });
+
+  it('does not notify for a student that is not on the trip (validation failed)', async () => {
+    const { service, notifications } = makeRepositories();
+
+    await rejectsWith(
+      service.board(DRIVER, TRIP_A, STUDENT_OTHER_ROUTE),
+      NotFoundException,
+      TRIP_ATTENDANCE_STUDENT_NOT_ON_TRIP_MESSAGE,
+    );
+
+    assert.deepEqual(notifications.calls, []);
+  });
+
+  it('does not notify for a trip that is already closed (completed)', async () => {
+    const { service, notifications } = makeRepositories();
+
+    await rejectsWith(
+      service.board(DRIVER, TRIP_COMPLETED, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_TRIP_CLOSED_MESSAGE,
+    );
+
+    assert.deepEqual(notifications.calls, []);
   });
 });

@@ -15,6 +15,7 @@ import { TripsModule } from './modules/trips/trips.module';
 import { TripAttendanceModule } from './modules/trip-attendance/trip-attendance.module';
 import { LiveTrackingModule } from './modules/live-tracking/live-tracking.module';
 import { ParentPortalModule } from './modules/parent-portal/parent-portal.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AccessModule } from './common/access';
 import { DatabaseModule } from './database/database.module';
@@ -47,6 +48,10 @@ import { appConfig, databaseConfig, jwtConfig, liveTrackingConfig } from './conf
     LiveTrackingModule,
     // Parent portal (`/api/v1/parent/*`) — read-only parent self-service.
     ParentPortalModule,
+    // Parent notifications (`/api/v1/parent/notifications` + the
+    // `/notifications` socket namespace), created by the attendance and trip
+    // flows after their own operations succeed.
+    NotificationsModule,
     // Platform Super Admin console (`/api/v1/admin/*`).
     AdminModule,
   ],

@@ -7,6 +7,7 @@ import {
   Trip,
   TripStudentAttendance,
 } from '../../database/models';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TripAttendanceController } from './trip-attendance.controller';
 import { TripAttendanceService } from './trip-attendance.service';
 import {
@@ -26,8 +27,13 @@ import {
  * `DB_AUTO_CONNECT=false`. No model or guard is redeclared here — the trip,
  * route assignment, stop, student and guardian tables are the ones created by
  * the earlier phases.
+ *
+ * `NotificationsModule` is imported (its service is best-effort and never
+ * throws) so a committed boarding/drop can notify the linked parents — the
+ * notification is created strictly after the attendance transaction succeeds.
  */
 @Module({
+  imports: [NotificationsModule],
   controllers: [TripAttendanceController],
   providers: [
     TripAttendanceService,
