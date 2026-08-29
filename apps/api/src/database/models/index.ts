@@ -11,6 +11,7 @@ import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
 import { TripStudentAttendance } from './trip-student-attendance.model';
 import { TripLocation } from './trip-location.model';
+import { Notification } from './notification.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -61,6 +62,8 @@ export type {
 } from './trip-student-attendance.model';
 export { TripLocation } from './trip-location.model';
 export type { TripLocationAttributes, TripLocationCreationAttributes } from './trip-location.model';
+export { Notification } from './notification.model';
+export type { NotificationAttributes, NotificationCreationAttributes } from './notification.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -89,4 +92,5 @@ export const models: ModelCtor<Model>[] = [
   StudentGuardian,
   TripStudentAttendance,
   TripLocation,
+  Notification,
 ];

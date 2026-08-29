@@ -19,6 +19,7 @@ import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   TRIP_ACTUAL_RANGE_MESSAGE,
   TRIP_ASSIGNMENT_BUS_MISSING_MESSAGE,
@@ -76,7 +77,11 @@ interface DispatchTarget {
  * Every successful transition (and the soft delete that cancels still-open
  * runs) is forwarded to `LiveTrackingService.onTripStatusChanged`, which is
  * what stops a terminal trip from accepting GPS fixes and notifies the
- * connected sockets. The transition rules themselves are untouched.
+ * connected sockets. Successful transitions additionally notify the linked
+ * parents through `NotificationsService` (boarding, departure, completion,
+ * cancellation) — always after the update has been persisted, so an invalid
+ * or failed transition can never produce a notification. The transition rules
+ * themselves are untouched.
  */
 @Injectable()
 export class TripsService {
@@ -92,6 +97,7 @@ export class TripsService {
     @Inject(TRIPS_USERS_REPOSITORY)
     private readonly users: typeof User,
     private readonly liveTracking: LiveTrackingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Dispatches a new `SCHEDULED` trip from an active roster row. */
@@ -354,6 +360,14 @@ export class TripsService {
 
     await trip.update(values);
     await this.liveTracking.onTripStatusChanged(trip);
+    // Only a persisted transition notifies the parents; the notifications
+    // service is best-effort and never fails the trip lifecycle itself.
+    await this.notifications.notifyTripStatusChange({
+      school_id: trip.school_id,
+      trip_id: trip.id,
+      status: trip.status,
+      cancellation_reason: trip.cancellation_reason ?? null,
+    });
     return this.toResponse(trip);
   }
 

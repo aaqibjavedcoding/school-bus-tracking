@@ -40,6 +40,10 @@ import {
   TRIP_ATTENDANCE_TRIPS_REPOSITORY,
 } from './trip-attendance.constants';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
+import {
+  NotificationsService,
+  type StudentAttendanceNotificationInput,
+} from '../notifications/notifications.service';
 
 /** A student together with the route stop that puts them on the manifest. */
 interface ManifestSeat {
@@ -83,6 +87,7 @@ export class TripAttendanceService {
     private readonly guardians: typeof StudentGuardian,
     @Inject(TRIP_ATTENDANCE_ROUTE_ASSIGNMENTS_REPOSITORY)
     private readonly assignments: typeof RouteAssignment,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -165,7 +170,7 @@ export class TripAttendanceService {
     assertTripOpen(trip);
     const seat = await this.resolveSeat(actor, trip, studentId);
 
-    return this.inTransaction(async (transaction) => {
+    const response = await this.inTransaction(async (transaction) => {
       const existing = await this.findRowForUpdate(actor.school_id, trip.id, seat, transaction);
 
       if (existing !== null && existing.status === TripAttendanceStatus.BOARDED) {
@@ -207,6 +212,18 @@ export class TripAttendanceService {
         throw error;
       }
     });
+
+    // Only a committed boarding notifies the parents — and a notification
+    // failure never rolls the attendance back (the service is best-effort).
+    await this.notifyParents(
+      actor,
+      trip,
+      seat,
+      response,
+      'boarded',
+      response.boarded_at ? new Date(response.boarded_at) : new Date(),
+    );
+    return response;
   }
 
   /**
@@ -225,7 +242,7 @@ export class TripAttendanceService {
     assertTripOpen(trip);
     const seat = await this.resolveSeat(actor, trip, studentId);
 
-    return this.inTransaction(async (transaction) => {
+    const response = await this.inTransaction(async (transaction) => {
       const existing = await this.findRowForUpdate(actor.school_id, trip.id, seat, transaction);
 
       if (existing === null || existing.status === TripAttendanceStatus.PENDING) {
@@ -245,6 +262,47 @@ export class TripAttendanceService {
       );
 
       return this.toResponse(trip, seat, existing);
+    });
+
+    // Only a committed drop notifies the parents; failures never undo the
+    // attendance record itself.
+    await this.notifyParents(
+      actor,
+      trip,
+      seat,
+      response,
+      'dropped',
+      response.dropped_at ? new Date(response.dropped_at) : new Date(),
+    );
+    return response;
+  }
+
+  /**
+   * Fires the parent notification for a **successful** attendance event.
+   *
+   * Called strictly after the attendance transaction has committed, so a
+   * rejected or failed board/drop can never produce a notification. The
+   * notifications service is best-effort: it logs and swallows its own
+   * failures, so a notification outage can never break attendance recording.
+   */
+  private async notifyParents(
+    actor: AuthenticatedRequestUser,
+    trip: Trip,
+    seat: ManifestSeat,
+    response: TripStudentAttendanceResponse,
+    action: StudentAttendanceNotificationInput['action'],
+    occurredAt: Date,
+  ): Promise<void> {
+    await this.notifications.notifyStudentAttendance({
+      school_id: actor.school_id,
+      trip_id: trip.id,
+      student: {
+        id: seat.student.id,
+        first_name: response.first_name,
+        last_name: response.last_name,
+      },
+      action,
+      occurred_at: occurredAt,
     });
   }
 

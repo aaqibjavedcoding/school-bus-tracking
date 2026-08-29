@@ -5,6 +5,7 @@ import type { AuthenticatedUser, LoginRequest } from '@school-bus-tracking/share
 import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
+import { disconnectNotificationsSocket } from '../../services/notifications-socket';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -23,6 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearSession = useCallback(() => {
     disconnectLiveTrackingSocket();
+    disconnectNotificationsSocket();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');
@@ -31,6 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     setUnauthorizedHandler(() => {
       disconnectLiveTrackingSocket();
+      disconnectNotificationsSocket();
       clearAccessToken();
       setUser(null);
       setStatus('anonymous');

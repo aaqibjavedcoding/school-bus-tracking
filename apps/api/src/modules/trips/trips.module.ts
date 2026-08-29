@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import { LiveTrackingModule } from '../live-tracking/live-tracking.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TripsController } from './trips.controller';
 import { TripsService } from './trips.service';
 import {
@@ -23,9 +24,14 @@ import {
  * runs — can notify the tracking pipeline: observers get a
  * `trip:tracking:started` / `trip:tracking:stopped` event and the server
  * stops accepting new fixes the moment a trip becomes terminal.
+ *
+ * `NotificationsModule` is imported so every *successful* status transition
+ * additionally notifies the linked parents (boarding / departure / completion
+ * / cancellation). The notifications service is best-effort; it can never
+ * fail or alter the lifecycle itself.
  */
 @Module({
-  imports: [LiveTrackingModule],
+  imports: [LiveTrackingModule, NotificationsModule],
   controllers: [TripsController],
   providers: [
     TripsService,

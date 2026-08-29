@@ -6,6 +6,7 @@ import React, { useMemo, useState } from 'react';
 import { fullName, initials, roleLabel } from '../../lib/format';
 import { navItemsForRole } from '../../lib/roles';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { NotificationBell } from '../../features/notifications/NotificationBell';
 import { Button } from '../ui';
 import { NavIcon } from './icons';
 
@@ -87,8 +88,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                   : pathname === item.href || pathname.startsWith(`${item.href}/`),
               )?.label ?? 'Workspace'}
           </div>
-          <div className="muted" style={{ fontSize: '0.8rem' }}>
-            {fullName(user)}
+          <div className="topbar-end">
+            <NotificationBell />
+            <div className="muted" style={{ fontSize: '0.8rem' }}>
+              {fullName(user)}
+            </div>
           </div>
         </header>
         {children}

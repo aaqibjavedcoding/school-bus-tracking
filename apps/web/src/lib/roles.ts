@@ -14,6 +14,7 @@ export interface NavItem {
     | 'map'
     | 'check'
     | 'child'
+    | 'bell'
     | 'school';
 }
 
@@ -67,6 +68,7 @@ export function navItemsForRole(role: UserRole): NavItem[] {
         { href: '/parent', label: 'Dashboard', icon: 'home' },
         { href: '/parent/children', label: 'My children', icon: 'child' },
         { href: '/parent/tracking', label: 'Track bus', icon: 'map' },
+        { href: '/parent/notifications', label: 'Notifications', icon: 'bell' },
       ];
     default:
       return [];

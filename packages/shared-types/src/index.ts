@@ -785,6 +785,133 @@ export interface ParentDashboardResponse {
 }
 
 /**
+ * Task 21 — Parent real-time notifications & trip alerts.
+ *
+ * A notification is a tenant-scoped, user-scoped record: it always belongs to
+ * exactly one `(school_id, user_id)` pair, and both values are derived from
+ * the verified JWT — never from client input. Parents read their own
+ * notifications through `/api/v1/parent/notifications`; the realtime surface
+ * (see {@link NOTIFICATIONS_NAMESPACE}) pushes newly created ones to the
+ * connected parent's private room.
+ *
+ * ETA / geofence / push-channel (FCM, APNs, SMS, email) notifications are
+ * intentionally out of scope for this phase.
+ */
+
+/** Kinds of notification the system can create (strict enum, persisted). */
+export enum NotificationType {
+  /** A linked child was confirmed onto the bus by the crew. */
+  STUDENT_BOARDED = 'STUDENT_BOARDED',
+  /** A linked child was dropped off safely. */
+  STUDENT_DROPPED = 'STUDENT_DROPPED',
+  /** The child's trip opened boarding (SCHEDULED → BOARDING). */
+  TRIP_BOARDING = 'TRIP_BOARDING',
+  /** The child's bus departed (BOARDING → IN_PROGRESS). */
+  TRIP_IN_PROGRESS = 'TRIP_IN_PROGRESS',
+  /** The child's trip finished (IN_PROGRESS → COMPLETED). */
+  TRIP_COMPLETED = 'TRIP_COMPLETED',
+  /** The child's trip was cancelled. */
+  TRIP_CANCELLED = 'TRIP_CANCELLED',
+}
+
+export const NOTIFICATION_TYPE_VALUES: NotificationType[] = Object.values(NotificationType);
+
+/** Parent-facing read-state filter of `GET /api/v1/parent/notifications`. */
+export enum NotificationReadFilter {
+  READ = 'read',
+  UNREAD = 'unread',
+}
+
+export const NOTIFICATION_READ_FILTER_VALUES: NotificationReadFilter[] =
+  Object.values(NotificationReadFilter);
+
+/** Parent-facing projection of one stored notification. */
+export interface NotificationResponse {
+  id: string;
+  school_id: string;
+  /** The recipient parent's User.id — always the authenticated caller's own. */
+  user_id: string;
+  type: NotificationType;
+  /** Trip the event happened on, when the event is trip-scoped. */
+  trip_id: string | null;
+  /** Child the event is about, when the event is student-scoped. */
+  student_id: string | null;
+  title: string;
+  message: string;
+  /** Additional event-specific data (student name, trip status, …). */
+  payload: Record<string, unknown> | null;
+  is_read: boolean;
+  created_at: string;
+  read_at: string | null;
+}
+
+/** Query string of `GET /api/v1/parent/notifications`. */
+export interface ParentNotificationListQuery {
+  page?: number;
+  limit?: number;
+  /** `read` / `unread`. Omit for all notifications. */
+  status?: NotificationReadFilter;
+}
+
+/** Successful payload of `GET /api/v1/parent/notifications`. */
+export interface ParentNotificationListResponse {
+  items: NotificationResponse[];
+  /** Total notifications matching the query (across all pages). */
+  total: number;
+  /** Total unread notifications of the parent, independent of the filter. */
+  unread_count: number;
+}
+
+/** Successful payload of `PATCH /api/v1/parent/notifications/read-all`. */
+export interface NotificationReadAllResponse {
+  /** Number of notifications that moved from unread to read. */
+  updated_count: number;
+}
+
+/**
+ * Socket.IO contract for parent notifications.
+ *
+ * The gateway lives in its own namespace (`/notifications`) and reuses the
+ * exact handshake authentication of `/live-tracking`: the same JWT bearer
+ * token in `handshake.auth.access_token`, verified with the same centrally
+ * configured `JwtService` and the same payload rule as `JwtAuthGuard`.
+ *
+ * There is deliberately no client-driven subscribe event: after a successful
+ * handshake the server itself places an authenticated `PARENT` socket into
+ * the private room {@link notificationRoomName} of *its own* JWT subject. A
+ * client can therefore never subscribe to another parent's room — there is
+ * simply no way to express it.
+ */
+export const NOTIFICATIONS_NAMESPACE = '/notifications';
+
+/** Socket.IO event names of the notifications namespace. */
+export const NOTIFICATION_EVENTS = {
+  /** Server → parent room: a new notification was created for this parent. */
+  new: 'notification:new',
+} as const;
+
+export type NotificationEvent = (typeof NOTIFICATION_EVENTS)[keyof typeof NOTIFICATION_EVENTS];
+
+/**
+ * Private room of one parent. Centralised so server and clients can never
+ * drift on the naming scheme; the parent id always comes from the verified
+ * JWT subject, never from a client payload.
+ */
+export const notificationRoomName = (userId: string): string => `notification:user:${userId}`;
+
+/** Server → parent room payload of `notification:new`. */
+export interface NotificationRealtimeEvent {
+  notification_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  student_id: string | null;
+  trip_id: string | null;
+  /** ISO-8601 server time at which the notification was created. */
+  created_at: string;
+}
+
+/**
  * Phase 3 — Driver & conductor staff management.
  *
  * Staff accounts reuse the existing `User` model with the fixed roles

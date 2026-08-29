@@ -90,6 +90,13 @@ export const NavIcon: React.FC<{ name: NavItem['icon'] }> = ({ name }) => {
           <path d="M12 22V12" />
         </svg>
       );
+    case 'bell':
+      return (
+        <svg {...common}>
+          <path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9" />
+          <path d="M10 20a2 2 0 0 0 4 0" />
+        </svg>
+      );
     default:
       return null;
   }
