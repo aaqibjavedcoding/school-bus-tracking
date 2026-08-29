@@ -129,12 +129,14 @@ The backend is built with **NestJS** and **TypeScript**, providing an enterprise
 
 ## 5. Mobile Application (`apps/mobile`)
 
-The mobile client is a unified **React Native** application powered by **Expo** and **expo-router**:
+The mobile client is a unified **React Native** application powered by **Expo (SDK 51)** and **expo-router**. It reuses the existing NestJS API, the shared `api-client`, `shared-types` and `validation` packages, and both Socket.IO namespaces (`/live-tracking`, `/notifications`) — it contains no backend logic of its own.
 
-- **Role-Based Persona Modules**:
-  - `driver`: Foreground and background geolocation tracking, route checklist, and SOS alarm trigger.
-  - `conductor`: QR/RFID student scanner, manual boarding override, and student manifest headcount.
-  - `parent`: Interactive map tracking, ETA display, push notification history, and student status timeline.
+- **Role-based navigation** (`src/lib/roles.ts` + `RoleGate`): every route group is guarded client-side exactly like the API guards it server-side.
+  - `(crew)` — **one shared Driver + Conductor experience**: today's trip (`BOARDING → IN_PROGRESS → COMPLETED` via `PATCH /trips/:id/status`), student manifest with body-less board/drop endpoints, stops & live ETA (`/trips/:id/eta`, `/progress`), and native GPS sharing. `src/features/driver` and `src/features/conductor` are thin re-exports of the same `src/features/crew` slice.
+  - `(parent)` — dashboard/children (`/parent/dashboard`, `/parent/children*`), live bus tracking on a native map with the same trip rooms the web tracker joins, ETA/next-stop views, and the notification centre with an unread badge fed by the `/notifications` socket.
+  - `(admin)` — a mobile-first slice for `SCHOOL_ADMIN` (today's operations board, trip cockpit with dispatch lifecycle + live map + manifest, pocket student directory, dispatch-from-assignment operations). Full CRUD intentionally stays on the web console; `SUPER_ADMIN` gets a "use the web console" notice screen.
+- **Driver/Conductor GPS (real device data only)**: `expo-location` foreground `watchPositionAsync` plus an opt-in background task (`startLocationUpdatesAsync` + `expo-task-manager`) with the location plugin permissions configured in `app.json`. Every fix is mapped to the shared `trip:location:update` Zod contract (km/h speed, normalized heading, device `recorded_at`), validated client-side with the same schema, and emitted over the existing socket — malformed or offline fixes are dropped, never queued or fabricated. Sharing auto-stops on terminal trip states and sign-out.
+- **Auth**: the same `/auth/login|refresh|logout` endpoints. The access token lives in JS memory only; the refresh cookie persists in the platform cookie jar so sessions survive app restarts.
 - **Metro Monorepo Resolution**: Configured via `metro.config.js` to seamlessly resolve shared packages (`@school-bus-tracking/*`) directly from the workspace root.
 
 ---
