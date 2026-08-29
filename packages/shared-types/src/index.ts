@@ -668,6 +668,123 @@ export interface ParentListQuery {
 }
 
 /**
+ * Phase 6 (Task 20) — Parent Portal.
+ *
+ * Everything below is served under `/api/v1/parent/*` and is reachable only
+ * by an authenticated `PARENT` (JwtAuthGuard + RolesGuard). Every handler
+ * derives both the tenant (`school_id`) and the parent identity (`id`) from
+ * the verified JWT claims — a client-supplied `parent_id` or `school_id` is
+ * never trusted. A child is only returned when the authenticated parent holds
+ * an **active** `StudentGuardian` link to it inside the same school; anything
+ * else collapses to a generic 404 so another family's children and another
+ * school's students are indistinguishable from "does not exist".
+ *
+ * These projections are read-only. Attendance, trips, buses, routes and staff
+ * remain managed through their existing school-admin / crew surfaces; the
+ * parent portal never exposes write endpoints and never returns credentials
+ * or boarding/drop mutation controls.
+ */
+
+/** Vehicle summary shown to a parent (no fleet internals beyond the facts). */
+export interface ParentBusSummary {
+  id: string;
+  registration_number: string;
+  bus_number: string | null;
+}
+
+/** Crew member summary shown to a parent (name only — no account internals). */
+export interface ParentCrewSummary {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+/** Home stop of a child with the route it belongs to. */
+export interface ParentHomeStopSummary {
+  id: string | null;
+  name: string | null;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  sequence_number: number | null;
+  /** Route the stop belongs to; `null` when the child has no home stop. */
+  route_id: string | null;
+  route_code: string | null;
+  route_name: string | null;
+}
+
+/** A parent's read-only view of one of their children, including today's run. */
+export interface ParentChildSummary {
+  id: string;
+  school_id: string;
+  admission_number: string;
+  first_name: string;
+  last_name: string;
+  grade_level: string | null;
+  is_active: boolean;
+  /** Human-readable relationship from the guardian link, e.g. "Mother". */
+  relationship: string;
+  can_pick_up: boolean;
+  is_primary: boolean;
+  home_stop: ParentHomeStopSummary;
+  today: ParentChildToday;
+}
+
+/** Today's trip + attendance + bus for one child. `trip` is null on rest days. */
+export interface ParentChildToday {
+  /** The child's trip today (on their home-stop route) or `null`. */
+  trip: TripResponse | null;
+  /** The child's attendance on that trip, or `null` while PENDING. */
+  attendance: TripStudentAttendanceResponse | null;
+  bus: ParentBusSummary | null;
+}
+
+/** Successful payload of `GET /api/v1/parent/children`. */
+export interface ParentChildListResponse {
+  items: ParentChildSummary[];
+  count: number;
+}
+
+/** Single-child detail: summary plus the crew of today's trip. */
+export interface ParentChildDetailResponse extends ParentChildSummary {
+  driver: ParentCrewSummary | null;
+  conductor: ParentCrewSummary | null;
+}
+
+/** Successful payload of `GET /api/v1/parent/children/:id/today`. */
+export interface ParentChildTodayResponse {
+  child: ParentChildSummary;
+  driver: ParentCrewSummary | null;
+  conductor: ParentCrewSummary | null;
+  /** Ordered stops of the child's route (used to draw the map). */
+  stops: StopResponse[];
+}
+
+/**
+ * Successful payload of `GET /api/v1/parent/children/:id/tracking`.
+ *
+ * `trip` is the child's active (or most relevant) trip today; `latest` is the
+ * latest GPS fix of that trip, or `null` while no fix exists yet (never a
+ * fabricated location).
+ */
+export interface ParentTrackingResponse {
+  child: ParentChildSummary;
+  trip: TripResponse | null;
+  driver: ParentCrewSummary | null;
+  conductor: ParentCrewSummary | null;
+  stops: StopResponse[];
+  latest: TripLocationLatestResponse | null;
+}
+
+/** Successful payload of `GET /api/v1/parent/dashboard`. */
+export interface ParentDashboardResponse {
+  parent: AuthenticatedUser;
+  school: { id: string; name: string; code: string; is_active: boolean } | null;
+  children: ParentChildSummary[];
+  count: number;
+}
+
+/**
  * Phase 3 — Driver & conductor staff management.
  *
  * Staff accounts reuse the existing `User` model with the fixed roles
