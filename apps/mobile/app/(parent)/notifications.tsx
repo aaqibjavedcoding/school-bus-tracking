@@ -1,9 +1,16 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { useParentNotifications } from '../../src/features/parent/NotificationsProvider';
 import { notificationTypeLabel } from '../../src/features/parent/notifications-state';
-import { Button, EmptyState, LoadingView, Screen } from '../../src/components';
+import {
+  Button,
+  EmptyState,
+  FilterChips,
+  LoadingView,
+  Screen,
+  SearchBar,
+} from '../../src/components';
 import { formatDateTime } from '../../src/lib/format';
 
 /**
@@ -14,6 +21,31 @@ import { formatDateTime } from '../../src/lib/format';
  */
 export default function ParentNotificationsScreen() {
   const { state, loading, connected, markRead, markAllRead, refresh } = useParentNotifications();
+  const [search, setSearch] = useState('');
+  const [readFilter, setReadFilter] = useState<'ALL' | 'UNREAD' | 'READ'>('ALL');
+
+  const term = search.trim().toLowerCase();
+  const visible = useMemo(() => {
+    let rows = state.recent;
+    if (readFilter !== 'ALL') {
+      const wantRead = readFilter === 'READ';
+      rows = rows.filter((item) => item.is_read === wantRead);
+    }
+    if (term) {
+      rows = rows.filter((item) =>
+        [item.title, item.message, notificationTypeLabel(item.type)].some((value) =>
+          value.toLowerCase().includes(term),
+        ),
+      );
+    }
+    return rows;
+  }, [state.recent, readFilter, term]);
+
+  const filtersActive = readFilter !== 'ALL' || term.length > 0;
+  const resetFilters = () => {
+    setReadFilter('ALL');
+    setSearch('');
+  };
 
   return (
     <Screen refresh={() => void refresh()} refreshing={loading}>
@@ -29,15 +61,47 @@ export default function ParentNotificationsScreen() {
         ) : null}
       </View>
 
+      {state.recent.length > 0 ? (
+        <>
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            onClear={() => setSearch('')}
+            placeholder="Search notifications…"
+          />
+          <FilterChips<'ALL' | 'UNREAD' | 'READ'>
+            options={[
+              { value: 'ALL', label: `All · ${state.recent.length}` },
+              { value: 'UNREAD', label: `Unread · ${state.unreadCount}` },
+              {
+                value: 'READ',
+                label: `Read · ${state.recent.length - state.unreadCount}`,
+              },
+            ]}
+            value={readFilter}
+            onChange={setReadFilter}
+          />
+        </>
+      ) : null}
+
       {loading && state.recent.length === 0 ? (
         <LoadingView label="Loading notifications…" />
-      ) : state.recent.length === 0 ? (
+      ) : visible.length === 0 ? (
         <EmptyState
-          title="No notifications yet"
-          description="Boarding, drop-off, trip and stop-arrival alerts for your children arrive here in realtime."
+          title={filtersActive ? 'No matching notifications' : 'No notifications yet'}
+          description={
+            filtersActive
+              ? 'No notifications match the current search or filter.'
+              : 'Boarding, drop-off, trip and stop-arrival alerts for your children arrive here in realtime.'
+          }
+          action={
+            filtersActive ? (
+              <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+            ) : null
+          }
         />
       ) : (
-        state.recent.map((item) => (
+        visible.map((item) => (
           <Pressable
             key={item.id}
             onPress={() => {

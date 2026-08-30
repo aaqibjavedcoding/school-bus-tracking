@@ -80,11 +80,44 @@ export default function AdminDashboardScreen() {
   const busLabel = (trip: TripResponse): string =>
     trip.registration_number ?? trip.bus_number ?? 'No bus';
 
+  /**
+   * Every card is a shortcut into the existing list screen for that entity —
+   * no duplicated list UI. "Live trips" opens the Trips tab pre-filtered to
+   * the in-progress runs via the same `status` query the list already honours.
+   */
   const stats = [
-    { label: 'Students', value: data.studentCount, icon: 'school' as const, tone: colors.primary[600] },
-    { label: 'Buses', value: data.busCount, icon: 'bus' as const, tone: colors.secondary[600] },
-    { label: 'Routes', value: data.routeCount, icon: 'git-branch' as const, tone: colors.status.info },
-    { label: 'Live trips', value: liveCount, icon: 'radio' as const, tone: colors.status.danger },
+    {
+      label: 'Students',
+      value: data.studentCount,
+      icon: 'school' as const,
+      tone: colors.primary[600],
+      href: '/manage/students',
+      hint: 'View student list',
+    },
+    {
+      label: 'Buses',
+      value: data.busCount,
+      icon: 'bus' as const,
+      tone: colors.secondary[600],
+      href: '/manage/buses',
+      hint: 'View bus list',
+    },
+    {
+      label: 'Routes',
+      value: data.routeCount,
+      icon: 'git-branch' as const,
+      tone: colors.status.info,
+      href: '/manage/routes',
+      hint: 'View route list',
+    },
+    {
+      label: 'Live trips',
+      value: liveCount,
+      icon: 'radio' as const,
+      tone: colors.status.danger,
+      href: '/trips?status=LIVE',
+      hint: 'View live trips',
+    },
   ];
 
   return (
@@ -98,13 +131,22 @@ export default function AdminDashboardScreen() {
 
       <View style={styles.statGrid}>
         {stats.map((stat) => (
-          <View key={stat.label} style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: `${stat.tone}1a` }]}>
-              <Ionicons name={stat.icon} size={18} color={stat.tone} />
+          <Pressable
+            key={stat.label}
+            onPress={() => router.push(stat.href as never)}
+            accessibilityRole="button"
+            accessibilityLabel={`${stat.label}: ${stat.value}. ${stat.hint}`}
+            style={({ pressed }) => [styles.statCard, pressed ? styles.statCardPressed : null]}
+          >
+            <View style={styles.statCardTop}>
+              <View style={[styles.statIcon, { backgroundColor: `${stat.tone}1a` }]}>
+                <Ionicons name={stat.icon} size={18} color={stat.tone} />
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.neutral[300]} />
             </View>
             <Text style={styles.statValue}>{stat.value}</Text>
             <Text style={styles.statLabel}>{stat.label}</Text>
-          </View>
+          </Pressable>
         ))}
       </View>
 
@@ -178,6 +220,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   statCard: {
+    minHeight: 112,
     flexBasis: '47.5%',
     flexGrow: 1,
     backgroundColor: '#ffffff',
@@ -186,6 +229,14 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
     padding: spacing.md,
     gap: 6,
+  },
+  statCardPressed: {
+    opacity: 0.7,
+  },
+  statCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   statIcon: {
     width: 36,

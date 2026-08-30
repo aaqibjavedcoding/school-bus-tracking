@@ -12,6 +12,8 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import type { Tone } from '../lib/format';
 
@@ -128,45 +130,147 @@ export const Field: React.FC<FieldProps> = ({ label, error, hint, ...inputProps 
   </View>
 );
 
+/**
+ * Search input with a leading icon, an inline "searching" spinner while the
+ * debounce is pending and a clear (✕) button that resets the query in one tap.
+ */
 export const SearchBar: React.FC<{
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
-}> = ({ value, onChangeText, placeholder = 'Search…' }) => (
+  /** True while a debounced request is pending — renders an inline spinner. */
+  searching?: boolean;
+  /** Optional explicit reset handler; defaults to `onChangeText('')`. */
+  onClear?: () => void;
+  autoFocus?: boolean;
+}> = ({ value, onChangeText, placeholder = 'Search…', searching = false, onClear, autoFocus }) => (
   <View style={styles.searchBar}>
-    <TextInput
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={colors.neutral[400]}
-      style={styles.searchInput}
-      autoCapitalize="none"
-    />
+    <View style={styles.searchInputWrap}>
+      <Ionicons name="search" size={18} color={colors.neutral[400]} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.neutral[400]}
+        style={styles.searchInput}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="search"
+        clearButtonMode="never"
+        autoFocus={autoFocus}
+        accessibilityLabel={placeholder}
+      />
+      {searching && value.length > 0 ? (
+        <ActivityIndicator size="small" color={colors.neutral[400]} />
+      ) : null}
+      {value.length > 0 ? (
+        <Pressable
+          onPress={() => (onClear ? onClear() : onChangeText(''))}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+        >
+          <Ionicons name="close-circle" size={18} color={colors.neutral[400]} />
+        </Pressable>
+      ) : null}
+    </View>
   </View>
 );
 
+/** Horizontally scrollable row of filter chips with an optional reset button. */
+export const FilterChips = <T,>({
+  options,
+  value,
+  onChange,
+  style,
+}: {
+  options: ReadonlyArray<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+  style?: StyleProp<ViewStyle>;
+}) => (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    keyboardShouldPersistTaps="handled"
+    contentContainerStyle={[styles.chipRow, style]}
+  >
+    {options.map((option) => {
+      const active = option.value === value;
+      return (
+        <Pressable
+          key={String(option.value)}
+          onPress={() => onChange(option.value)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: active }}
+          style={[styles.chip, active ? styles.chipActive : null]}
+        >
+          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+            {option.label}
+          </Text>
+        </Pressable>
+      );
+    })}
+  </ScrollView>
+);
+
+/** "3 filters active · Clear" strip shown above a filtered list. */
+export const FilterSummary: React.FC<{
+  label: string;
+  onClear: () => void;
+  clearLabel?: string;
+}> = ({ label, onClear, clearLabel = 'Clear filters' }) => (
+  <View style={styles.filterSummary}>
+    <Text style={styles.filterSummaryText} numberOfLines={1}>
+      {label}
+    </Text>
+    <Pressable onPress={onClear} hitSlop={8} accessibilityRole="button">
+      <Text style={styles.filterSummaryAction}>{clearLabel}</Text>
+    </Pressable>
+  </View>
+);
+
+/**
+ * Scrollable screen body.
+ *
+ * The bottom padding always includes the device safe-area inset (Android
+ * navigation bar / gesture pill, iOS home indicator) plus the tab-bar height,
+ * so the last row of any list can be scrolled clear of the native navigation
+ * area and stays tappable.
+ */
 export const Screen: React.FC<{
   children: React.ReactNode;
   refresh?: (() => void) | null;
   refreshing?: boolean;
   padded?: boolean;
-}> = ({ children, refresh, refreshing = false, padded = true }) => (
-  <ScrollView
-    style={styles.screen}
-    contentContainerStyle={[styles.screenContent, padded ? { padding: spacing.md } : null]}
-    refreshControl={
-      refresh ? (
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refresh}
-          tintColor={colors.primary[600]}
-        />
-      ) : undefined
-    }
-  >
-    {children}
-  </ScrollView>
-);
+  /** Extra bottom space, e.g. to clear a floating action button. */
+  extraBottomSpace?: number;
+}> = ({ children, refresh, refreshing = false, padded = true, extraBottomSpace = 0 }) => {
+  const insets = useSafeAreaInsets();
+  const bottomPadding = spacing.xl + insets.bottom + extraBottomSpace;
+  return (
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[
+        padded ? { padding: spacing.md } : null,
+        { paddingBottom: bottomPadding },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      refreshControl={
+        refresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={colors.primary[600]}
+          />
+        ) : undefined
+      }
+    >
+      {children}
+    </ScrollView>
+  );
+};
 
 export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (
   <View style={styles.centered}>
@@ -175,13 +279,16 @@ export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading…'
   </View>
 );
 
-export const EmptyState: React.FC<{ title: string; description?: string }> = ({
-  title,
-  description,
-}) => (
+export const EmptyState: React.FC<{
+  title: string;
+  description?: string;
+  /** Optional call to action, e.g. a "Clear search" button (matches web). */
+  action?: React.ReactNode;
+}> = ({ title, description, action }) => (
   <View style={styles.stateCard}>
     <Text style={styles.stateTitle}>{title}</Text>
     {description ? <Text style={styles.stateDescription}>{description}</Text> : null}
+    {action ? <View style={{ marginTop: spacing.md }}>{action}</View> : null}
   </View>
 );
 
@@ -351,22 +458,71 @@ const styles = StyleSheet.create({
   searchBar: {
     marginBottom: spacing.md,
   },
-  searchInput: {
+  searchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.neutral[200],
     borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
+    minHeight: 46,
+  },
+  searchInput: {
+    flex: 1,
     paddingVertical: spacing.sm + 2,
     fontSize: typography.fontSizes.base,
     color: colors.neutral[900],
   },
+  chipRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  chip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 3,
+    borderRadius: borderRadius.full,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    minHeight: 34,
+    justifyContent: 'center',
+  },
+  chipActive: {
+    backgroundColor: colors.primary[600],
+    borderColor: colors.primary[600],
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  chipTextActive: {
+    color: '#ffffff',
+  },
+  filterSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  filterSummaryText: {
+    flex: 1,
+    fontSize: typography.fontSizes.xs,
+    color: colors.neutral[500],
+    fontWeight: '600',
+  },
+  filterSummaryAction: {
+    fontSize: typography.fontSizes.xs,
+    color: colors.primary[700],
+    fontWeight: '700',
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.neutral[50],
-  },
-  screenContent: {
-    paddingBottom: spacing['3xl'],
   },
   centered: {
     flex: 1,

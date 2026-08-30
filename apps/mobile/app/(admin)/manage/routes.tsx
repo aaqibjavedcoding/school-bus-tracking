@@ -18,11 +18,18 @@ import {
 } from '../../../src/lib/errors';
 import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
+  ACTIVE_FILTER_OPTIONS,
+  useActiveFilter,
+  type ActiveFilter,
+} from '../../../src/hooks/useActiveFilter';
+import {
   Badge,
   Button,
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  FilterChips,
+  FilterSummary,
   Fab,
   Field,
   FormSheet,
@@ -45,6 +52,16 @@ export default function ManageRoutesScreen() {
     async (page, search) => unwrapEnvelope(await apiClient.listRoutes({ page, limit: 20, search })),
     [],
   );
+
+  // Client-side active/inactive narrowing over the loaded page (the list
+  // endpoints expose page/limit/search only — no `is_active` query param).
+  const activeFilter = useActiveFilter(list.items);
+  const visible = activeFilter.visible;
+  const filtersActive = Boolean(list.activeSearch) || activeFilter.isFiltered;
+  const resetFilters = () => {
+    list.clearSearch();
+    activeFilter.reset();
+  };
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RouteResponse | null>(null);
@@ -122,26 +139,59 @@ export default function ManageRoutesScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading}>
-        <SearchBar value={list.search} onChangeText={list.setSearch} placeholder="Search routes…" />
+      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
+        <SearchBar
+          value={list.search}
+          onChangeText={list.setSearch}
+          onClear={list.clearSearch}
+          searching={list.searching}
+          placeholder="Search routes…"
+        />
+
+        <FilterChips<ActiveFilter>
+          options={ACTIVE_FILTER_OPTIONS}
+          value={activeFilter.filter}
+          onChange={activeFilter.setFilter}
+        />
+
+        {filtersActive ? (
+          <FilterSummary
+            label={[
+              list.activeSearch ? `“${list.activeSearch}”` : null,
+              activeFilter.isFiltered ? activeFilter.label : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            onClear={resetFilters}
+          />
+        ) : null}
 
         {list.loading && list.items.length === 0 ? (
           <LoadingView label="Loading routes…" />
         ) : list.error ? (
           <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : list.items.length === 0 ? (
+        ) : visible.length === 0 ? (
           <EmptyState
-            title={list.search ? 'No routes match' : 'No routes yet'}
+            title={filtersActive ? 'No routes match' : 'No routes yet'}
             description={
-              list.search
-                ? `Nothing matched “${list.search}”.`
+              filtersActive
+                ? 'No routes match the current search or filters.'
                 : 'Create a route, then add stops in sequence.'
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
             }
           />
         ) : (
           <>
-            <Text style={styles.count}>{list.meta.total} routes</Text>
-            {list.items.map((route) => (
+            <Text style={styles.count}>
+              {filtersActive
+                ? `${visible.length} of ${list.meta.total} routes`
+                : `${list.meta.total} routes`}
+            </Text>
+            {visible.map((route) => (
               <ListCard
                 key={route.id}
                 title={`${route.code} · ${route.name}`}

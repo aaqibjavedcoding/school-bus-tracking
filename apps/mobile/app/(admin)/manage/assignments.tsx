@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -36,16 +36,24 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  FilterChips,
+  FilterSummary,
   Fab,
   Field,
   FormSheet,
   ListCard,
   LoadingView,
   Screen,
+  SearchBar,
   Select,
   SwitchRow,
   useToast,
 } from '../../../src/components';
+import {
+  ACTIVE_FILTER_OPTIONS,
+  filterByActive,
+  type ActiveFilter,
+} from '../../../src/hooks/useActiveFilter';
 
 const EMPTY = {
   route_id: '',
@@ -87,6 +95,43 @@ export default function ManageAssignmentsScreen() {
       conductors: unwrapEnvelope<ConductorListResponse>(conductors).items,
     };
   }, []);
+
+  // Search + role + active filters, applied over the loaded assignment page
+  // (the endpoint takes page/limit/search/role/is_active; search is applied
+  // client-side here so the crew name and bus text are also matchable).
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RouteAssignmentRole | 'ALL'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('ALL');
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    let rows = data?.assignments ?? [];
+    if (roleFilter !== 'ALL') rows = rows.filter((row) => row.role === roleFilter);
+    rows = filterByActive(rows, activeFilter);
+    if (term) {
+      rows = rows.filter((row) =>
+        [
+          row.route_code,
+          row.route_name,
+          row.user_name,
+          row.user_email,
+          row.bus_number,
+          row.bus_registration_number,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.toLowerCase().includes(term)),
+      );
+    }
+    return rows;
+  }, [data, search, roleFilter, activeFilter]);
+
+  const filtersActive =
+    search.trim().length > 0 || roleFilter !== 'ALL' || activeFilter !== 'ALL';
+  const resetFilters = () => {
+    setSearch('');
+    setRoleFilter('ALL');
+    setActiveFilter('ALL');
+  };
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RouteAssignmentResponse | null>(null);
@@ -220,14 +265,53 @@ export default function ManageAssignmentsScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading}>
-        {data.assignments.length === 0 ? (
+      <Screen refresh={() => void reload()} refreshing={loading} extraBottomSpace={72}>
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          onClear={() => setSearch('')}
+          placeholder="Search route, crew or bus…"
+        />
+
+        <FilterChips<RouteAssignmentRole | 'ALL'>
+          options={[
+            { value: 'ALL', label: 'All roles' },
+            { value: RouteAssignmentRole.DRIVER, label: 'Drivers' },
+            { value: RouteAssignmentRole.CONDUCTOR, label: 'Conductors' },
+          ]}
+          value={roleFilter}
+          onChange={setRoleFilter}
+        />
+
+        <FilterChips<ActiveFilter>
+          options={ACTIVE_FILTER_OPTIONS}
+          value={activeFilter}
+          onChange={setActiveFilter}
+        />
+
+        {filtersActive ? (
+          <FilterSummary
+            label={`${visible.length} of ${data.assignments.length} assignments`}
+            onClear={resetFilters}
+          />
+        ) : null}
+
+        {visible.length === 0 ? (
           <EmptyState
-            title="No assignments"
-            description="Create a roster row before dispatching trips."
+            title={filtersActive ? 'No matching assignments' : 'No assignments'}
+            description={
+              filtersActive
+                ? 'No assignments match the current search or filters.'
+                : 'Create a roster row before dispatching trips.'
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
+            }
           />
         ) : (
-          data.assignments.map((row) => (
+          visible.map((row) => (
             <ListCard
               key={row.id}
               title={row.route_code ? `${row.route_code} · ${row.route_name ?? ''}`.trim() : 'Route'}

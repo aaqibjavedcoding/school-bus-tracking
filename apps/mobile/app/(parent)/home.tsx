@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { ParentDashboardResponse } from '@school-bus-tracking/shared-types';
@@ -8,10 +8,12 @@ import { unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import {
   BoardingBadge,
+  Button,
   EmptyState,
   ErrorState,
   LoadingView,
   Screen,
+  SearchBar,
   SectionTitle,
   TripStatusBadge,
 } from '../../src/components';
@@ -27,6 +29,24 @@ export default function ParentHomeScreen() {
   const { data, loading, error, reload } = useLoad<ParentDashboardResponse>(async () => {
     return unwrapEnvelope(await apiClient.getParentDashboard());
   }, []);
+  const [search, setSearch] = useState('');
+  const term = search.trim().toLowerCase();
+
+  const visibleChildren = useMemo(() => {
+    const children = data?.children ?? [];
+    if (!term) return children;
+    return children.filter((child) =>
+      [
+        fullName(child),
+        child.admission_number,
+        child.grade_level,
+        child.home_stop?.name,
+        child.home_stop?.route_code,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(term)),
+    );
+  }, [data, term]);
 
   if (loading && !data) {
     return <LoadingView label="Loading your children…" />;
@@ -50,13 +70,30 @@ export default function ParentHomeScreen() {
         follow today.
       </Text>
 
+      {data.children.length > 2 ? (
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          onClear={() => setSearch('')}
+          placeholder="Search your children…"
+        />
+      ) : null}
+
       {data.children.length === 0 ? (
         <EmptyState
           title="No children linked yet"
           description="No children are linked to your account yet. Please contact your school."
         />
+      ) : visibleChildren.length === 0 ? (
+        <EmptyState
+          title="No matching children"
+          description={`Nothing matched “${search.trim()}”.`}
+          action={
+            <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />
+          }
+        />
       ) : (
-        data.children.map((child) => {
+        visibleChildren.map((child) => {
           const trip = child.today?.trip ?? null;
           return (
             <Pressable

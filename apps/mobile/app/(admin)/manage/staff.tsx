@@ -14,11 +14,18 @@ import {
 import { fullName } from '../../../src/lib/format';
 import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
+  ACTIVE_FILTER_OPTIONS,
+  useActiveFilter,
+  type ActiveFilter,
+} from '../../../src/hooks/useActiveFilter';
+import {
   Badge,
   Button,
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  FilterChips,
+  FilterSummary,
   Fab,
   Field,
   FormSheet,
@@ -63,6 +70,16 @@ export default function ManageStaffScreen() {
     },
     [segment],
   );
+
+  // Client-side active/inactive narrowing over the loaded page (the staff
+  // endpoints expose page/limit/search only — no `is_active` query param).
+  const activeFilter = useActiveFilter(list.items);
+  const visible = activeFilter.visible;
+  const filtersActive = Boolean(list.activeSearch) || activeFilter.isFiltered;
+  const resetFilters = () => {
+    list.clearSearch();
+    activeFilter.reset();
+  };
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<StaffResponse | null>(null);
@@ -180,7 +197,7 @@ export default function ManageStaffScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading}>
+      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
         <SegmentedControl<Segment>
           value={segment}
           onChange={setSegment}
@@ -189,25 +206,58 @@ export default function ManageStaffScreen() {
             { value: 'conductors', label: 'Conductors' },
           ]}
         />
-        <SearchBar value={list.search} onChangeText={list.setSearch} placeholder="Search name or email…" />
+        <SearchBar
+          value={list.search}
+          onChangeText={list.setSearch}
+          onClear={list.clearSearch}
+          searching={list.searching}
+          placeholder="Search name or email…"
+        />
+
+        <FilterChips<ActiveFilter>
+          options={ACTIVE_FILTER_OPTIONS}
+          value={activeFilter.filter}
+          onChange={activeFilter.setFilter}
+        />
+
+        {filtersActive ? (
+          <FilterSummary
+            label={[
+              list.activeSearch ? `“${list.activeSearch}”` : null,
+              activeFilter.isFiltered ? activeFilter.label : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            onClear={resetFilters}
+          />
+        ) : null}
 
         {list.loading && list.items.length === 0 ? (
           <LoadingView label={`Loading ${segment}…`} />
         ) : list.error ? (
           <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : list.items.length === 0 ? (
+        ) : visible.length === 0 ? (
           <EmptyState
-            title={list.search ? 'No matches' : `No ${segment} yet`}
+            title={filtersActive ? 'No matches' : `No ${segment} yet`}
             description={
-              list.search
-                ? `Nothing matched “${list.search}”.`
+              filtersActive
+                ? `No ${segment} match the current search or filters.`
                 : `Create a ${noun} account, then assign them to a route.`
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
             }
           />
         ) : (
           <>
-            <Text style={styles.count}>{list.meta.total} {segment}</Text>
-            {list.items.map((person) => (
+            <Text style={styles.count}>
+              {filtersActive
+                ? `${visible.length} of ${list.meta.total} ${segment}`
+                : `${list.meta.total} ${segment}`}
+            </Text>
+            {visible.map((person) => (
               <ListCard
                 key={person.id}
                 title={fullName(person)}

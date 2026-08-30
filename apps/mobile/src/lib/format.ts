@@ -38,6 +38,15 @@ export function utcDateOnly(date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * ISO-8601 UTC instant from a `YYYY-MM-DDTHH:mm` local value — the exact
+ * mirror of the web `fromDateTimeLocalValue`, so both clients send the API
+ * identical payloads.
+ */
+export function fromDateTimeLocalValue(value: string): string {
+  return new Date(value).toISOString();
+}
+
 /** Device-local time, e.g. "4:05 PM" (deterministic 12-hour clock). */
 export function formatTime(value: string | number | Date | null | undefined): string {
   if (value === null || value === undefined) return '—';

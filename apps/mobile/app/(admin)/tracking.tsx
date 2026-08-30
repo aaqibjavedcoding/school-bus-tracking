@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
+  TripStatus,
   type RouteStopsListResponse,
   type StopResponse,
   type TripListResponse,
@@ -18,6 +19,7 @@ import { BusMap } from '../../src/features/map/BusMap';
 import {
   EmptyState,
   ErrorState,
+  FilterChips,
   LoadingView,
   Screen,
   Select,
@@ -32,6 +34,7 @@ import {
  */
 export default function AdminTrackingScreen() {
   const [selectedId, setSelectedId] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
 
   const { data, loading, error, reload } = useLoad(async (): Promise<{
     trips: TripResponse[];
@@ -41,9 +44,12 @@ export default function AdminTrackingScreen() {
   }, []);
 
   const activeId = useMemo(() => {
-    if (selectedId) return selectedId;
-    return data?.trips[0]?.id ?? '';
-  }, [selectedId, data]);
+    const trips = data?.trips ?? [];
+    const eligible =
+      statusFilter === 'ALL' ? trips : trips.filter((trip) => trip.status === statusFilter);
+    if (selectedId && eligible.some((trip) => trip.id === selectedId)) return selectedId;
+    return eligible[0]?.id ?? '';
+  }, [selectedId, data, statusFilter]);
 
   const stopsLoad = useLoad(async (): Promise<StopResponse[]> => {
     const trip = data?.trips.find((entry) => entry.id === activeId);
@@ -77,19 +83,36 @@ export default function AdminTrackingScreen() {
     );
   }
 
-  const options = data.trips.map((trip) => ({
+  const filteredTrips =
+    statusFilter === 'ALL'
+      ? data.trips
+      : data.trips.filter((trip) => trip.status === statusFilter);
+
+  const options = filteredTrips.map((trip) => ({
     value: trip.id,
     label: `${trip.route_code ?? 'Route'} · ${formatTime(trip.scheduled_start_at)} · ${tripStatusLabel(trip.status)}`,
   }));
 
   return (
     <Screen refresh={() => void reload()} refreshing={loading}>
+      <FilterChips<TripStatus | 'ALL'>
+        options={[
+          { value: 'ALL', label: `All · ${data.trips.length}` },
+          ...Object.values(TripStatus).map((status) => ({
+            value: status as TripStatus | 'ALL',
+            label: `${tripStatusLabel(status)} · ${data.trips.filter((trip) => trip.status === status).length}`,
+          })),
+        ]}
+        value={statusFilter}
+        onChange={setStatusFilter}
+      />
+
       <Select
         label="Trip"
         value={activeId}
         onChange={setSelectedId}
         options={options}
-        placeholder="Select a trip"
+        placeholder={options.length === 0 ? 'No trips match this filter' : 'Select a trip'}
       />
 
       <View style={styles.badgeRow}>

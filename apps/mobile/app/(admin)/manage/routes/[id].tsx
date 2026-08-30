@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +33,7 @@ import {
   FormSheet,
   LoadingView,
   Screen,
+  SearchBar,
   SwitchRow,
   useToast,
 } from '../../../../src/components';
@@ -73,6 +74,18 @@ export default function ManageRouteStopsScreen() {
       stops: unwrapEnvelope<RouteStopsListResponse>(stopsEnvelope).items,
     };
   }, [routeId, usableId]);
+
+  // Stop search. Reordering stays disabled while a search is active because
+  // the up/down arrows operate on the full boarding sequence.
+  const [search, setSearch] = useState('');
+  const term = search.trim().toLowerCase();
+  const visibleStops = useMemo(() => {
+    const stops = data?.stops ?? [];
+    if (!term) return stops;
+    return stops.filter((stop) =>
+      [stop.name, stop.address].some((value) => value?.toLowerCase().includes(term)),
+    );
+  }, [data, term]);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<StopResponse | null>(null);
@@ -187,7 +200,7 @@ export default function ManageRouteStopsScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading}>
+      <Screen refresh={() => void reload()} refreshing={loading} extraBottomSpace={72}>
         <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button">
           <Text style={styles.backText}>‹ All routes</Text>
         </Pressable>
@@ -200,13 +213,33 @@ export default function ManageRouteStopsScreen() {
         ) : null}
         <Text style={styles.hint}>Order is the boarding sequence used for trip manifests.</Text>
 
-        {data.stops.length === 0 ? (
+        {data.stops.length > 0 ? (
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            onClear={() => setSearch('')}
+            placeholder="Search stops…"
+          />
+        ) : null}
+
+        {visibleStops.length === 0 ? (
           <EmptyState
-            title="No stops yet"
-            description="Add the first boarding point with the button below."
+            title={term ? 'No matching stops' : 'No stops yet'}
+            description={
+              term
+                ? `Nothing matched “${search.trim()}”.`
+                : 'Add the first boarding point with the button below.'
+            }
+            action={
+              term ? (
+                <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />
+              ) : null
+            }
           />
         ) : (
-          data.stops.map((stop, index) => (
+          visibleStops.map((stop) => {
+            const index = data.stops.findIndex((entry) => entry.id === stop.id);
+            return (
             <View key={stop.id} style={styles.stopCard}>
               <View style={styles.stopTop}>
                 <View style={styles.seqBadge}>
@@ -231,18 +264,23 @@ export default function ManageRouteStopsScreen() {
               <View style={styles.stopActions}>
                 <Pressable
                   onPress={() => void move(index, -1)}
-                  disabled={index === 0}
-                  style={[styles.iconBtn, index === 0 ? styles.iconBtnDisabled : null]}
+                  disabled={index <= 0 || Boolean(term)}
+                  style={[
+                    styles.iconBtn,
+                    index <= 0 || term ? styles.iconBtnDisabled : null,
+                  ]}
+                  accessibilityLabel="Move stop up"
                 >
                   <Ionicons name="arrow-up" size={16} color={colors.neutral[700]} />
                 </Pressable>
                 <Pressable
                   onPress={() => void move(index, 1)}
-                  disabled={index === data.stops.length - 1}
+                  disabled={index === data.stops.length - 1 || Boolean(term)}
                   style={[
                     styles.iconBtn,
-                    index === data.stops.length - 1 ? styles.iconBtnDisabled : null,
+                    index === data.stops.length - 1 || term ? styles.iconBtnDisabled : null,
                   ]}
+                  accessibilityLabel="Move stop down"
                 >
                   <Ionicons name="arrow-down" size={16} color={colors.neutral[700]} />
                 </Pressable>
@@ -257,7 +295,8 @@ export default function ManageRouteStopsScreen() {
                 </Pressable>
               </View>
             </View>
-          ))
+            );
+          })
         )}
       </Screen>
 
