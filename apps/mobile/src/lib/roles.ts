@@ -25,7 +25,7 @@ export function homeRoute(role: UserRole): string {
     case UserRole.PARENT:
       return '/home';
     case UserRole.SCHOOL_ADMIN:
-      return '/today';
+      return '/dashboard';
     case UserRole.SUPER_ADMIN:
       return '/platform';
     default:

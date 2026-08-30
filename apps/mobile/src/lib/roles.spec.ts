@@ -12,7 +12,7 @@ describe('homeRoute', () => {
     assert.equal(homeRoute(UserRole.DRIVER), '/trip');
     assert.equal(homeRoute(UserRole.CONDUCTOR), '/trip');
     assert.equal(homeRoute(UserRole.PARENT), '/home');
-    assert.equal(homeRoute(UserRole.SCHOOL_ADMIN), '/today');
+    assert.equal(homeRoute(UserRole.SCHOOL_ADMIN), '/dashboard');
     assert.equal(homeRoute(UserRole.SUPER_ADMIN), '/platform');
   });
 });

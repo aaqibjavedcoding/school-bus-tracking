@@ -100,6 +100,11 @@ export function fullName(person: { first_name: string; last_name: string }): str
   return `${person.first_name} ${person.last_name}`.trim();
 }
 
+/** Stable user-facing stop identifier; UUIDs remain the persisted/API identity. */
+export function stopCode(routeCode: string, sequenceNumber: number): string {
+  return `${routeCode}-${String(sequenceNumber).padStart(3, '0')}`;
+}
+
 export function initials(person: { first_name: string; last_name: string }): string {
   return `${person.first_name.charAt(0)}${person.last_name.charAt(0)}`.toUpperCase();
 }
