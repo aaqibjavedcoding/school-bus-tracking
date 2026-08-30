@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type {
   ParentChildDetailResponse,
@@ -8,6 +8,7 @@ import type {
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../../src/services/api';
 import { unwrapEnvelope } from '../../../src/lib/errors';
+import { invalidIdMessage, isUuid } from '../../../src/lib/ids';
 import { useLoad } from '../../../src/hooks/useLoad';
 import {
   BoardingBadge,
@@ -31,18 +32,24 @@ export default function ParentChildDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const childId = typeof id === 'string' ? id : '';
+  // Never call the API without a real UUID: an empty `:id` resolves to the
+  // children *list* endpoint, whose payload would crash this screen below.
+  const usableId = isUuid(childId);
 
   const { data, loading, error, reload } = useLoad(async (): Promise<{
     detail: ParentChildDetailResponse;
     today: ParentChildTodayResponse | null;
   }> => {
+    if (!usableId) {
+      throw new Error(invalidIdMessage('child'));
+    }
     const detail = unwrapEnvelope(await apiClient.getParentChild(childId));
     const today = await apiClient
       .getParentChildToday(childId)
       .then((envelope) => unwrapEnvelope(envelope))
       .catch(() => null);
     return { detail, today };
-  }, [childId]);
+  }, [childId, usableId]);
 
   if (loading && !data) {
     return <LoadingView label="Loading child…" />;
@@ -56,13 +63,35 @@ export default function ParentChildDetailScreen() {
   }
 
   const { detail: child, today } = data;
-  const trip = child.today.trip;
+  // Defensive: `today`/`home_stop` are optional in practice (rest days, older
+  // API builds) — read them with fallbacks instead of crashing the app.
+  const childToday = child.today ?? { trip: null, attendance: null, bus: null };
+  const trip = childToday.trip ?? null;
+  const attendance = childToday.attendance ?? null;
+  const homeStop = child.home_stop ?? {
+    name: null,
+    address: null,
+    route_code: null,
+    route_name: null,
+    sequence_number: null,
+  };
 
   return (
     <Screen refresh={() => void reload()} refreshing={loading}>
+      {/* Detail routes hidden from the tab bar get no automatic back button
+          (the group is a tab navigator, not a stack) — offer one explicitly. */}
+      <Pressable
+        onPress={() => router.back()}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        style={styles.backRow}
+      >
+        <Text style={styles.backText}>‹ Back</Text>
+      </Pressable>
+
       <Card title={fullName(child)}>
         <View style={styles.badgeRow}>
-          <BoardingBadge status={child.today.attendance?.status} />
+          <BoardingBadge status={attendance?.status} />
           {!child.is_active ? <Text style={styles.inactive}>Inactive</Text> : null}
         </View>
         <View style={styles.kvRow}>
@@ -74,15 +103,13 @@ export default function ParentChildDetailScreen() {
       </Card>
 
       <Card title="Home stop">
-        {child.home_stop.name ? (
+        {homeStop.name ? (
           <>
-            <Text style={styles.stopName}>{child.home_stop.name}</Text>
-            {child.home_stop.address ? (
-              <Text style={styles.muted}>{child.home_stop.address}</Text>
-            ) : null}
+            <Text style={styles.stopName}>{homeStop.name}</Text>
+            {homeStop.address ? <Text style={styles.muted}>{homeStop.address}</Text> : null}
             <Text style={styles.muted}>
-              {child.home_stop.route_code
-                ? `Route ${child.home_stop.route_code}${child.home_stop.route_name ? ` · ${child.home_stop.route_name}` : ''} · Stop ${child.home_stop.sequence_number ?? '—'}`
+              {homeStop.route_code
+                ? `Route ${homeStop.route_code}${homeStop.route_name ? ` · ${homeStop.route_name}` : ''} · Stop ${homeStop.sequence_number ?? '—'}`
                 : 'Route details unavailable'}
             </Text>
           </>
@@ -93,16 +120,16 @@ export default function ParentChildDetailScreen() {
 
       <SectionTitle>Today&apos;s trip</SectionTitle>
       {trip ? (
-        <Card title={child.home_stop.route_name ?? 'Bus trip'}>
+        <Card title={homeStop.route_name ?? 'Bus trip'}>
           <View style={styles.badgeRow}>
             <TripStatusBadge status={trip.status} />
-            <BoardingBadge status={child.today.attendance?.status} />
+            <BoardingBadge status={attendance?.status} />
           </View>
           <View style={styles.kvRow}>
             <KeyValue label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
             <KeyValue
               label="Bus"
-              value={child.today.bus ? child.today.bus.registration_number : '—'}
+              value={childToday.bus ? childToday.bus.registration_number : '—'}
             />
             <KeyValue
               label="Driver"
@@ -125,15 +152,11 @@ export default function ParentChildDetailScreen() {
               }
             />
           </View>
-          {child.today.attendance?.boarded_at ? (
-            <Text style={styles.muted}>
-              Boarded at {formatTime(child.today.attendance.boarded_at)}
-            </Text>
+          {attendance?.boarded_at ? (
+            <Text style={styles.muted}>Boarded at {formatTime(attendance.boarded_at)}</Text>
           ) : null}
-          {child.today.attendance?.dropped_at ? (
-            <Text style={styles.muted}>
-              Dropped at {formatTime(child.today.attendance.dropped_at)}
-            </Text>
+          {attendance?.dropped_at ? (
+            <Text style={styles.muted}>Dropped at {formatTime(attendance.dropped_at)}</Text>
           ) : null}
           <Button
             label="Track this bus"
@@ -149,6 +172,16 @@ export default function ParentChildDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  backRow: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.sm,
+    paddingVertical: 2,
+  },
+  backText: {
+    color: colors.primary[700],
+    fontSize: 15,
+    fontWeight: '600',
+  },
   badgeRow: {
     flexDirection: 'row',
     gap: spacing.sm,

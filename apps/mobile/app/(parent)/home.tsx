@@ -57,7 +57,7 @@ export default function ParentHomeScreen() {
         />
       ) : (
         data.children.map((child) => {
-          const trip = child.today.trip;
+          const trip = child.today?.trip ?? null;
           return (
             <Pressable
               key={child.id}
@@ -81,11 +81,11 @@ export default function ParentHomeScreen() {
                 ) : (
                   <Text style={styles.noTrip}>No trip today</Text>
                 )}
-                <BoardingBadge status={child.today.attendance?.status} />
+                <BoardingBadge status={child.today?.attendance?.status} />
               </View>
 
               <Text style={styles.stopLine} numberOfLines={1}>
-                {child.home_stop.name
+                {child.home_stop?.name
                   ? `Stop: ${child.home_stop.name}${child.home_stop.route_code ? ` · Route ${child.home_stop.route_code}` : ''}`
                   : 'No home stop assigned'}
               </Text>
