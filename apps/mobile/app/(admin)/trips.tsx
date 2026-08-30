@@ -24,6 +24,13 @@ import {
   tripStatusLabel,
   utcDateOnly,
 } from '../../src/lib/format';
+import {
+  LIVE_FILTER,
+  LIVE_STATUSES,
+  uniqueTripsById,
+  visibleTrips,
+  type TripStatusFilter,
+} from '../../src/lib/trips-list';
 import { useLoad } from '../../src/hooks/useLoad';
 import { usePagedResource } from '../../src/hooks/usePagedResource';
 import {
@@ -50,20 +57,25 @@ import {
  * School-admin trip schedule — the mobile view of the web Trips page.
  *
  * Filters mirror the web toolbar exactly (free-text search + day + status)
- * and run against the same `GET /trips` query parameters. The "Schedule trip"
- * sheet mirrors the web modal field-for-field — assignment, scheduled start
- * and optional scheduled end — validated with the shared `tripCreateSchema`.
+ * and run against the same `GET /trips` query parameters. On top of the
+ * server-side narrowing, the rendered rows are shaped client-side
+ * (`src/lib/trips-list.ts`): unique by trip id — the "Live" chip merges two
+ * parallel responses and a trip that changes status between them must render
+ * once — inside the selected status chip, and matched against the active
+ * search over route, bus and crew. The "Schedule trip" sheet mirrors the web
+ * modal field-for-field — assignment, scheduled start and optional scheduled
+ * end — validated with the shared `tripCreateSchema`.
  */
 
 /**
  * `LIVE` is a mobile-only convenience filter (boarding + in progress) used by
  * the dashboard's "Live trips" card. It is resolved client-side over the same
- * `GET /trips` responses — no new API surface.
+ * `GET /trips` responses — no new API surface. The merged pages are
+ * de-duplicated by trip id (see `trips-list.ts`): a trip that changes status
+ * between the two parallel requests, or any response overlap, must never
+ * render — and key — twice.
  */
-const LIVE_FILTER = 'LIVE';
-const LIVE_STATUSES: TripStatus[] = [TripStatus.BOARDING, TripStatus.IN_PROGRESS];
-
-type StatusFilter = TripStatus | typeof LIVE_FILTER | '';
+type StatusFilter = TripStatusFilter;
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: '', label: 'All statuses' },
@@ -131,40 +143,44 @@ export default function AdminTripsScreen() {
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<TripResponse | null>(null);
 
-  const list = usePagedResource<TripResponse>(async (page, search) => {
-    const query = {
-      page,
-      limit: 20,
-      search: search || undefined,
-      date: day || undefined,
-    };
-    if (status !== LIVE_FILTER) {
-      return unwrapEnvelope(
-        await apiClient.listTrips({ ...query, status: status || undefined }),
+  const list = usePagedResource<TripResponse>(
+    async (page, search) => {
+      const query = {
+        page,
+        limit: 20,
+        search: search || undefined,
+        date: day || undefined,
+      };
+      if (status !== LIVE_FILTER) {
+        return unwrapEnvelope(await apiClient.listTrips({ ...query, status: status || undefined }));
+      }
+      // "Live" = boarding + in progress: two scoped queries merged in order.
+      // The merge is de-duplicated by id — a trip transitioning between the two
+      // statuses while both queries are in flight arrives in both pages and must
+      // render (and key) exactly once.
+      const pages = await Promise.all(
+        LIVE_STATUSES.map(async (liveStatus) =>
+          unwrapEnvelope(await apiClient.listTrips({ ...query, status: liveStatus })),
+        ),
       );
-    }
-    // "Live" = boarding + in progress: two scoped queries merged in order.
-    const pages = await Promise.all(
-      LIVE_STATUSES.map(async (liveStatus) =>
-        unwrapEnvelope(await apiClient.listTrips({ ...query, status: liveStatus })),
-      ),
-    );
-    const items = pages
-      .flatMap((entry) => entry.items)
-      .sort((a, b) => a.scheduled_start_at.localeCompare(b.scheduled_start_at));
-    const total = pages.reduce((sum, entry) => sum + entry.meta.total, 0);
-    return {
-      items,
-      meta: {
-        page: 1,
-        limit: items.length,
-        total,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPreviousPage: false,
-      },
-    };
-  }, [status, day]);
+      const items = uniqueTripsById(pages.flatMap((entry) => entry.items)).sort((a, b) =>
+        a.scheduled_start_at.localeCompare(b.scheduled_start_at),
+      );
+      const total = pages.reduce((sum, entry) => sum + entry.meta.total, 0);
+      return {
+        items,
+        meta: {
+          page: 1,
+          limit: items.length,
+          total,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+    },
+    [status, day],
+  );
 
   // Active assignments feed the schedule form — same lookup the web page uses.
   const lookups = useLoad(async (): Promise<{ assignments: RouteAssignmentResponse[] }> => {
@@ -179,9 +195,23 @@ export default function AdminTripsScreen() {
   const isToday = day === today;
   const filtersActive = Boolean(list.activeSearch) || Boolean(status) || !isToday;
 
+  // Rows actually rendered: unique by id, inside the selected status chip and
+  // matching the active search (case-insensitive over route, bus and crew —
+  // including full crew names, which the server predicate cannot match). This
+  // narrows the page that was actually loaded, the same approach as the
+  // active/inactive chips on the other admin lists.
+  const rows = useMemo(
+    () => visibleTrips(list.items, status, list.activeSearch),
+    [list.items, status, list.activeSearch],
+  );
+
+  // While filtering, the visible rows are the source of truth; the unfiltered
+  // list keeps the server total (which spans all pages).
+  const shownCount = filtersActive ? rows.length : list.meta.total;
+
   const summary = useMemo(() => {
     const byStatus = new Map<TripStatus, number>();
-    for (const trip of list.items) {
+    for (const trip of uniqueTripsById(list.items)) {
       byStatus.set(trip.status, (byStatus.get(trip.status) ?? 0) + 1);
     }
     return byStatus;
@@ -308,11 +338,7 @@ export default function AdminTripsScreen() {
           </Pressable>
         </View>
 
-        <FilterChips<StatusFilter>
-          options={statusOptions}
-          value={status}
-          onChange={setStatus}
-        />
+        <FilterChips<StatusFilter> options={statusOptions} value={status} onChange={setStatus} />
 
         {filtersActive ? (
           <FilterSummary
@@ -327,11 +353,11 @@ export default function AdminTripsScreen() {
           />
         ) : null}
 
-        {list.loading && list.items.length === 0 ? (
+        {list.loading && rows.length === 0 ? (
           <LoadingView label="Loading the schedule…" />
         ) : list.error ? (
           <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : list.items.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
             title={filtersActive ? 'No matching trips' : 'No trips for this day'}
             description={
@@ -350,9 +376,9 @@ export default function AdminTripsScreen() {
         ) : (
           <>
             <Text style={styles.count}>
-              {list.meta.total} {list.meta.total === 1 ? 'trip' : 'trips'}
+              {shownCount} {shownCount === 1 ? 'trip' : 'trips'}
             </Text>
-            {list.items.map((trip) => (
+            {rows.map((trip) => (
               <Pressable
                 key={trip.id}
                 onPress={() => router.push(`/trips/${trip.id}`)}
@@ -379,8 +405,7 @@ export default function AdminTripsScreen() {
                 </View>
                 <View style={styles.badgeRow}>
                   <TripStatusBadge status={trip.status} />
-                  {trip.status === TripStatus.BOARDING ||
-                  trip.status === TripStatus.IN_PROGRESS ? (
+                  {trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS ? (
                     <Badge label="● Live" tone="success" />
                   ) : null}
                 </View>
