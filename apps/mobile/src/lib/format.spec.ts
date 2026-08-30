@@ -63,7 +63,7 @@ describe('status labels', () => {
   it('labels every trip lifecycle state', () => {
     assert.equal(tripStatusLabel(TripStatus.SCHEDULED), 'Scheduled');
     assert.equal(tripStatusLabel(TripStatus.BOARDING), 'Boarding');
-    assert.equal(tripStatusLabel(TripStatus.IN_PROGRESS), 'In progress');
+    assert.equal(tripStatusLabel(TripStatus.IN_PROGRESS), 'In Progress');
     assert.equal(tripStatusLabel(TripStatus.COMPLETED), 'Completed');
     assert.equal(tripStatusLabel(TripStatus.CANCELLED), 'Cancelled');
   });

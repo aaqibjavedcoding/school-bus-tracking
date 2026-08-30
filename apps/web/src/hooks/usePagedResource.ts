@@ -24,11 +24,16 @@ export function usePagedResource<T>(
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
 
   useEffect(() => {
-    const handle = window.setTimeout(() => setDebouncedSearch(search.trim()), 280);
+    setSearching(true);
+    const handle = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setSearching(false);
+    }, 280);
     return () => window.clearTimeout(handle);
   }, [search]);
 
@@ -62,6 +67,7 @@ export function usePagedResource<T>(
     search,
     setSearch,
     loading,
+    searching,
     error,
     reload,
     setItems,

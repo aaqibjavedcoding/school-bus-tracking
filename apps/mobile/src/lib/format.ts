@@ -111,7 +111,7 @@ export function tripStatusLabel(status: TripStatus): string {
     case TripStatus.BOARDING:
       return 'Boarding';
     case TripStatus.IN_PROGRESS:
-      return 'In progress';
+      return 'In Progress';
     case TripStatus.COMPLETED:
       return 'Completed';
     case TripStatus.CANCELLED:
