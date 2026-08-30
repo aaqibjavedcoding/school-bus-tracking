@@ -6,9 +6,10 @@ import { RoleGate } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
 
 /**
- * School-admin mobile experience — deliberately mobile-first, not a copy of
- * the web console: today's operations board (trips + live status), a pocket
- * student directory, and dispatch/operations (assignments, fleet, routes).
+ * School-admin mobile experience — the mobile slice of the web console's
+ * sidebar: today's operations board (live trips), the full trip schedule,
+ * the student directory, fleet (buses + routes), staff (drivers +
+ * conductors) and operations (assignments + dispatch).
  * Full CRUD management stays on the web.
  */
 function AdminTabs() {
@@ -26,9 +27,17 @@ function AdminTabs() {
       <Tabs.Screen
         name="today"
         options={{
-          title: 'Today',
+          title: "Today's operations",
           tabBarLabel: 'Today',
           tabBarIcon: ({ color, size }) => <Ionicons name="today" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: 'Trip schedule',
+          tabBarLabel: 'Trips',
+          tabBarIcon: ({ color, size }) => <Ionicons name="bus" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -40,6 +49,22 @@ function AdminTabs() {
         }}
       />
       <Tabs.Screen
+        name="fleet"
+        options={{
+          title: 'Fleet — buses & routes',
+          tabBarLabel: 'Fleet',
+          tabBarIcon: ({ color, size }) => <Ionicons name="map" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="staff"
+        options={{
+          title: 'Drivers & conductors',
+          tabBarLabel: 'Staff',
+          tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="operations"
         options={{
           title: 'Operations',
@@ -47,6 +72,13 @@ function AdminTabs() {
           tabBarIcon: ({ color, size }) => <Ionicons name="settings" size={size} color={color} />,
         }}
       />
+      {/*
+        Detail route pushed from Today/Trips (`/trips/:id`). Declared with
+        `href: null` so expo-router does NOT auto-add it to the tab bar — a
+        visible `trips/[id]` tab navigates without an id and the API answers
+        "uuid is expected". Hidden routes remain pushable programmatically.
+      */}
+      <Tabs.Screen name="trips/[id]" options={{ title: 'Trip', href: null }} />
     </Tabs>
   );
 }

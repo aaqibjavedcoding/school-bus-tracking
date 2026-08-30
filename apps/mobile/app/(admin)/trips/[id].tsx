@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import type {
   RouteListResponse,
   RouteResponse,
@@ -12,6 +12,7 @@ import type {
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../../src/services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../src/lib/errors';
+import { invalidIdMessage, isUuid } from '../../../src/lib/ids';
 import { useLoad } from '../../../src/hooks/useLoad';
 import { useLiveTripTracking } from '../../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../../src/features/tracking/ConnectionIndicator';
@@ -38,7 +39,11 @@ import { formatDate, formatTime } from '../../../src/lib/format';
  */
 export default function AdminTripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const tripId = typeof id === 'string' ? id : '';
+  // Never call the API without a real UUID — an empty `:id` can resolve to
+  // the trips *list* endpoint and returns a shape this screen cannot render.
+  const usableId = isUuid(tripId);
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useLoad(async (): Promise<{
@@ -47,6 +52,9 @@ export default function AdminTripDetailScreen() {
     stops: StopResponse[];
     manifest: TripStudentManifestResponse | null;
   }> => {
+    if (!usableId) {
+      throw new Error(invalidIdMessage('trip'));
+    }
     const trip = unwrapEnvelope<TripResponse>(await apiClient.getTrip(tripId));
     const [routeEnvelope, stopsEnvelope, manifestEnvelope] = await Promise.all([
       apiClient.listRoutes({ page: 1, limit: 100 }),
@@ -65,9 +73,9 @@ export default function AdminTripDetailScreen() {
       stops: unwrapEnvelope<RouteStopsListResponse>(stopsEnvelope).items,
       manifest: manifestEnvelope,
     };
-  }, [tripId]);
+  }, [tripId, usableId]);
 
-  const live = useLiveTripTracking(tripId || null);
+  const live = useLiveTripTracking(usableId ? tripId : null);
   const trip = data?.trip ?? null;
 
   const withAttendance = async (studentId: string, action: 'board' | 'drop') => {
@@ -103,6 +111,17 @@ export default function AdminTripDetailScreen() {
 
   return (
     <Screen refresh={() => void reload()} refreshing={loading}>
+      {/* Detail routes hidden from the tab bar get no automatic back button
+          (the group is a tab navigator, not a stack) — offer one explicitly. */}
+      <Pressable
+        onPress={() => router.back()}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        style={styles.backRow}
+      >
+        <Text style={styles.backText}>‹ Back</Text>
+      </Pressable>
+
       <Card title={data.route ? `${data.route.code} · ${data.route.name}` : 'Trip'}>
         <View style={styles.badgeRow}>
           <TripStatusBadge status={trip.status} />
@@ -153,6 +172,16 @@ export default function AdminTripDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  backRow: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.sm,
+    paddingVertical: 2,
+  },
+  backText: {
+    color: colors.primary[700],
+    fontSize: 15,
+    fontWeight: '600',
+  },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',

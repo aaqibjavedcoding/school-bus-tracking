@@ -138,7 +138,7 @@ export default function ParentTrackingScreen() {
         />
       ) : (
         <>
-          <Card title={tracking.child.home_stop.route_name ?? 'Bus trip'}>
+          <Card title={tracking.child.home_stop?.route_name ?? 'Bus trip'}>
             <View style={styles.statusRow}>
               <TripStatusBadge status={tracking.trip.status} />
               <ConnectionIndicator connection={live.connection} />

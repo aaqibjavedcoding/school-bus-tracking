@@ -14,7 +14,7 @@ import {
   type StaffResponse,
   type TripResponse,
 } from '@school-bus-tracking/shared-types';
-import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
+import { colors, spacing } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
@@ -31,13 +31,14 @@ import {
 } from '../../src/components';
 
 /**
- * School-admin operations: the mobile-critical slice of fleet management.
+ * School-admin operations: dispatch.
  *
  * - Active route assignments (driver/conductor ↔ route ↔ bus) with
  *   **dispatch now**, which creates a trip through the existing
  *   `POST /trips` (the server derives route/bus/crew from the assignment).
- * - Fleet and route overview for at-a-glance checks.
  *
+ * The supporting directories live in their own tabs: Trips (schedule),
+ * Fleet (buses + routes), Staff (drivers + conductors) and Students.
  * Editing buses, routes, stops, staff and assignments stays on the web —
  * those are deliberate desktop workflows.
  */
@@ -168,42 +169,9 @@ export default function AdminOperationsScreen() {
         })
       )}
 
-      <SectionTitle>Fleet</SectionTitle>
-      {data.buses.length === 0 ? (
-        <Text style={styles.muted}>No buses registered.</Text>
-      ) : (
-        <View style={styles.gridCard}>
-          {data.buses.map((bus) => (
-            <View key={bus.id} style={styles.gridRow}>
-              <Text style={styles.gridMain}>{bus.registration_number}</Text>
-              <Text style={styles.gridMeta}>
-                {bus.bus_number ? `${bus.bus_number} · ` : ''}
-                {bus.is_active ? 'active' : 'inactive'} · {bus.capacity ?? '—'} seats
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <SectionTitle>Routes</SectionTitle>
-      {data.routes.length === 0 ? (
-        <Text style={styles.muted}>No routes configured.</Text>
-      ) : (
-        <View style={styles.gridCard}>
-          {data.routes.map((route) => (
-            <View key={route.id} style={styles.gridRow}>
-              <Text style={styles.gridMain}>
-                {route.code} · {route.name}
-              </Text>
-              <Text style={styles.gridMeta}>{route.is_active ? 'active' : 'inactive'}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
       <Text style={styles.footnote}>
-        Full management of students, buses, routes, stops, staff and assignments is available in the
-        web console.
+        Browse the schedule, fleet, staff and students in their own tabs — full management of
+        students, buses, routes, stops, staff and assignments stays in the web console.
       </Text>
     </Screen>
   );
@@ -215,30 +183,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
-  },
-  gridCard: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[200],
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  gridRow: {
-    gap: 2,
-  },
-  gridMain: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.neutral[900],
-  },
-  gridMeta: {
-    fontSize: 12,
-    color: colors.neutral[500],
-  },
-  muted: {
-    color: colors.neutral[500],
-    fontSize: 14,
   },
   footnote: {
     color: colors.neutral[400],

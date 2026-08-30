@@ -68,6 +68,13 @@ function ParentTabs() {
             ),
           }}
         />
+        {/*
+          Detail route pushed from the home screen (`/children/:id`). It must
+          be declared with `href: null` so expo-router does NOT auto-add it to
+          the tab bar — a visible `children/[id]` tab navigates without an id,
+          hits the children *list* endpoint and crashes the detail screen.
+        */}
+        <Tabs.Screen name="children/[id]" options={{ title: 'Child', href: null }} />
       </Tabs>
     </View>
   );

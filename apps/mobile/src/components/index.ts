@@ -1,5 +1,7 @@
 export { Card } from './Card';
 export { StatusBadge } from './StatusBadge';
+export { SegmentedControl } from './SegmentedControl';
+export type { SegmentOption } from './SegmentedControl';
 export {
   Badge,
   Banner,
