@@ -26,6 +26,9 @@ export const NotificationBell: React.FC = () => {
 
   const { unreadCount, recent, loading, markRead, onNew } = useParentNotifications({
     recentLimit: 8,
+    // The bell is parents-only; non-parent roles (e.g. admin/crew) must not
+    // hit the parent-scoped notification endpoint, which would return 403.
+    enabled: isParent,
   });
 
   useEffect(() => {

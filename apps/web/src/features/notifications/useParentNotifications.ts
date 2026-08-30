@@ -13,9 +13,17 @@ import { getNotificationsSocket } from '../../services/notifications-socket';
  * the `/notifications` socket increments the unread count, prepends the item
  * and (optionally) raises a toast — no page refresh required. Offline
  * parents simply see the persisted rows on the next load.
+ *
+ * When `enabled` is `false` (e.g. a non-parent shell that renders the bell
+ * but must not issue parent-scoped requests), no fetch or socket connection
+ * is performed — the hook stays idle so non-parent roles never hit the
+ * parent-only endpoints and get a 403.
  */
-export function useParentNotifications(options: { recentLimit?: number } = {}) {
+export function useParentNotifications(
+  options: { recentLimit?: number; enabled?: boolean } = {},
+) {
   const recentLimit = options.recentLimit ?? 8;
+  const enabled = options.enabled ?? true;
   const [unreadCount, setUnreadCount] = useState(0);
   const [recent, setRecent] = useState<NotificationResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +31,7 @@ export function useParentNotifications(options: { recentLimit?: number } = {}) {
   const onNewRef = useRef<((notification: NotificationResponse) => void) | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!enabled) return;
     try {
       const envelope = await apiClient.listParentNotifications({ limit: recentLimit });
       if (envelope.data) {
@@ -32,15 +41,17 @@ export function useParentNotifications(options: { recentLimit?: number } = {}) {
     } finally {
       setLoading(false);
     }
-  }, [recentLimit]);
+  }, [recentLimit, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     void refresh();
-  }, [refresh]);
+  }, [refresh, enabled]);
 
   // Live updates over the notifications namespace. The socket is shared
   // process-wide; each hook instance manages only its own listeners.
   useEffect(() => {
+    if (!enabled) return;
     const socket = getNotificationsSocket();
 
     const onNew = (payload: unknown) => {
@@ -94,7 +105,16 @@ export function useParentNotifications(options: { recentLimit?: number } = {}) {
       socket.off('disconnect', onDisconnect);
       socket.off('notification:new', onNew);
     };
-  }, [recentLimit, refresh]);
+  }, [recentLimit, refresh, enabled]);
+
+  // When the hook is disabled (non-parent shell), make sure it never leaks a
+  // stale connected state or an orphaned fetch result.
+  useEffect(() => {
+    if (!enabled) {
+      setConnected(false);
+      setLoading(false);
+    }
+  }, [enabled]);
 
   const markRead = useCallback(async (id: string) => {
     const envelope = await apiClient.markParentNotificationRead(id);
