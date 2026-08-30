@@ -6,7 +6,7 @@ import {
   type TripStudentManifestResponse,
 } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
-import { AttendanceBadge, Badge, Button } from '../../components';
+import { AttendanceBadge, Badge, Button, EmptyState, FilterChips, SearchBar } from '../../components';
 
 /**
  * Student manifest with board/drop actions — the shared crew surface.
@@ -34,12 +34,32 @@ export const ManifestList: React.FC<{
   onDrop: (studentId: string) => void;
 }> = ({ manifest, canAct, busyStudentId, onBoard, onDrop }) => {
   const [filter, setFilter] = useState<ManifestFilter>('ALL');
+  const [search, setSearch] = useState('');
+  const term = search.trim().toLowerCase();
 
-  const visible = useMemo(
-    () =>
-      filter === 'ALL' ? manifest.items : manifest.items.filter((item) => item.status === filter),
-    [manifest.items, filter],
-  );
+  const visible = useMemo(() => {
+    let rows =
+      filter === 'ALL' ? manifest.items : manifest.items.filter((item) => item.status === filter);
+    if (term) {
+      rows = rows.filter((item) =>
+        [
+          `${item.first_name} ${item.last_name}`,
+          item.admission_number,
+          item.stop_name,
+          item.grade_level,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .some((value) => value.toLowerCase().includes(term)),
+      );
+    }
+    return rows;
+  }, [manifest.items, filter, term]);
+
+  const filtersActive = filter !== 'ALL' || term.length > 0;
+  const resetFilters = () => {
+    setFilter('ALL');
+    setSearch('');
+  };
   const groups = useMemo(() => groupByStop(visible), [visible]);
   const { summary } = manifest;
 
@@ -52,17 +72,37 @@ export const ManifestList: React.FC<{
         <Badge label={`${summary.dropped} dropped`} tone="success" />
       </View>
 
-      <View style={styles.filterRow}>
-        {FILTERS.map((entry) => (
-          <Button
-            key={entry.key}
-            label={entry.label}
-            small
-            variant={filter === entry.key ? 'primary' : 'ghost'}
-            onPress={() => setFilter(entry.key)}
-          />
-        ))}
-      </View>
+      <SearchBar
+        value={search}
+        onChangeText={setSearch}
+        onClear={() => setSearch('')}
+        placeholder="Search student, admission no. or stop…"
+      />
+
+      <FilterChips<ManifestFilter>
+        options={FILTERS.map((entry) => ({
+          value: entry.key,
+          label: `${entry.label} · ${
+            entry.key === 'ALL'
+              ? manifest.items.length
+              : manifest.items.filter((item) => item.status === entry.key).length
+          }`,
+        }))}
+        value={filter}
+        onChange={setFilter}
+      />
+
+      {visible.length === 0 ? (
+        <EmptyState
+          title="No students match"
+          description="No students match the current search or filter."
+          action={
+            filtersActive ? (
+              <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+            ) : null
+          }
+        />
+      ) : null}
 
       {groups.map((group) => (
         <View key={group.stop_id} style={styles.group}>
@@ -146,12 +186,6 @@ function groupByStop(items: TripStudentAttendanceResponse[]): StopGroup[] {
 
 const styles = StyleSheet.create({
   summaryRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,

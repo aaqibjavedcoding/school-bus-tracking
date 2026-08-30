@@ -5,6 +5,7 @@ import { colors } from '@school-bus-tracking/design-tokens';
 import { RoleGate, useAuth } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
 import { crewRoleLabel } from '../../src/lib/roles';
+import { useBottomBarMetrics } from '../../src/theme/layout';
 
 /**
  * Shared crew tab navigator (DRIVER + CONDUCTOR).
@@ -16,15 +17,27 @@ import { crewRoleLabel } from '../../src/lib/roles';
  */
 function CrewTabs() {
   const { user } = useAuth();
+  const bar = useBottomBarMetrics();
 
   return (
     <Tabs
+      safeAreaInsets={{ bottom: 0 }}
       screenOptions={{
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',
         headerTitleStyle: { fontWeight: 'bold' },
         tabBarActiveTintColor: colors.primary[600],
         tabBarInactiveTintColor: colors.neutral[400],
+        // Safe-area aware bar: never overlaps the device navigation area.
+        tabBarStyle: {
+          height: bar.tabBarHeight,
+          paddingTop: bar.tabBarPaddingTop,
+          paddingBottom: bar.tabBarPaddingBottom,
+          borderTopColor: colors.neutral[200],
+        },
+        tabBarItemStyle: { paddingVertical: 0 },
+        tabBarLabelStyle: { fontSize: bar.labelFontSize, fontWeight: '600', marginBottom: 0 },
+        tabBarHideOnKeyboard: true,
         headerRight: () => <LogoutButton />,
       }}
     >
@@ -33,7 +46,7 @@ function CrewTabs() {
         options={{
           title: user ? `${crewRoleLabel(user.role)} · Today` : "Today's trip",
           tabBarLabel: 'Trip',
-          tabBarIcon: ({ color, size }) => <Ionicons name="bus" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="bus" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -41,7 +54,7 @@ function CrewTabs() {
         options={{
           title: 'Student manifest',
           tabBarLabel: 'Manifest',
-          tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="people" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -49,7 +62,7 @@ function CrewTabs() {
         options={{
           title: 'Stops & ETA',
           tabBarLabel: 'Stops',
-          tabBarIcon: ({ color, size }) => <Ionicons name="location" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="location" size={bar.iconSize} color={color} />,
         }}
       />
     </Tabs>

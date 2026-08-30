@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal as RNModal,
@@ -7,11 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { Button } from './ui';
 
@@ -30,14 +32,16 @@ export const FormSheet: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
-}> = ({ open, title, onClose, children, footer }) => (
+}> = ({ open, title, onClose, children, footer }) => {
+  const insets = useSafeAreaInsets();
+  return (
   <RNModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
     <KeyboardAvoidingView
       style={styles.sheetRoot}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
         <View style={styles.sheetHandle} />
         <View style={styles.sheetHeader}>
           <Text style={styles.sheetTitle}>{title}</Text>
@@ -56,7 +60,8 @@ export const FormSheet: React.FC<{
       </View>
     </KeyboardAvoidingView>
   </RNModal>
-);
+  );
+};
 
 export interface SelectOption {
   value: string;
@@ -73,7 +78,21 @@ export const Select: React.FC<{
   error?: string | null;
 }> = ({ label, value, options, onChange, placeholder = 'Select…', error }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const selected = options.find((option) => option.value === value);
+
+  // Long option lists (assignments, parents, stops) get an inline filter.
+  const searchable = options.length > 8;
+  const visibleOptions = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(term));
+  }, [options, query]);
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+  };
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -88,22 +107,36 @@ export const Select: React.FC<{
       </Pressable>
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
 
-      <RNModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.pickerBackdrop} onPress={() => setOpen(false)}>
-          <View style={styles.pickerCard}>
+      <RNModal visible={open} transparent animationType="fade" onRequestClose={close}>
+        <Pressable style={styles.pickerBackdrop} onPress={close}>
+          <Pressable style={styles.pickerCard} onPress={() => undefined}>
             <Text style={styles.pickerTitle}>{label}</Text>
+            {searchable ? (
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Filter options…"
+                placeholderTextColor={colors.neutral[400]}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.pickerSearch}
+                accessibilityLabel={`Filter ${label} options`}
+              />
+            ) : null}
             <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled">
               {options.length === 0 ? (
                 <Text style={styles.pickerEmpty}>No options available.</Text>
+              ) : visibleOptions.length === 0 ? (
+                <Text style={styles.pickerEmpty}>No options match “{query.trim()}”.</Text>
               ) : (
-                options.map((option) => {
+                visibleOptions.map((option) => {
                   const active = option.value === value;
                   return (
                     <Pressable
                       key={option.value}
                       onPress={() => {
                         onChange(option.value);
-                        setOpen(false);
+                        close();
                       }}
                       style={[styles.pickerRow, active ? styles.pickerRowActive : null]}
                     >
@@ -121,7 +154,7 @@ export const Select: React.FC<{
                 })
               )}
             </ScrollView>
-          </View>
+          </Pressable>
         </Pressable>
       </RNModal>
     </View>
@@ -152,17 +185,26 @@ export const Fab: React.FC<{
   icon?: keyof typeof Ionicons.glyphMap;
   label?: string;
   style?: StyleProp<ViewStyle>;
-}> = ({ onPress, icon = 'add', label, style }) => (
+}> = ({ onPress, icon = 'add', label, style }) => {
+  const insets = useSafeAreaInsets();
+  return (
   <Pressable
     onPress={onPress}
-    style={({ pressed }) => [styles.fab, pressed ? styles.fabPressed : null, style]}
+    style={({ pressed }) => [
+      styles.fab,
+      // Keep the FAB clear of the Android nav bar / iOS home indicator.
+      { bottom: spacing.lg + insets.bottom },
+      pressed ? styles.fabPressed : null,
+      style,
+    ]}
     accessibilityRole="button"
     accessibilityLabel={label ?? 'Add'}
   >
     <Ionicons name={icon} size={22} color="#ffffff" />
     {label ? <Text style={styles.fabLabel}>{label}</Text> : null}
   </Pressable>
-);
+  );
+};
 
 /** Confirmation dialog (destructive-aware) built on the native modal. */
 export const ConfirmDialog: React.FC<{
@@ -312,6 +354,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.neutral[900],
     marginBottom: spacing.sm,
+  },
+  pickerSearch: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[900],
+    minHeight: 42,
   },
   pickerList: {
     flexGrow: 0,

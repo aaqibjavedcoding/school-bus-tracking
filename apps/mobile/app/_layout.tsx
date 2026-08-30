@@ -6,6 +6,7 @@ import '../src/features/crew/location-task';
 import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { AuthProvider, useAuth } from '../src/features/auth';
@@ -27,6 +28,7 @@ function RoleProviders({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   return (
+    <SafeAreaProvider>
     <AuthProvider>
       <ToastProvider>
         <RoleProviders>
@@ -51,5 +53,6 @@ export default function RootLayout() {
         </RoleProviders>
       </ToastProvider>
     </AuthProvider>
+    </SafeAreaProvider>
   );
 }

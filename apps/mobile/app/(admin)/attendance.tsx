@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text } from 'react-native';
 import {
+  TripStatus,
   type TripListResponse,
   type TripResponse,
   type TripStudentManifestResponse,
@@ -14,6 +15,7 @@ import { isTripOpen, ManifestList } from '../../src/features/crew';
 import {
   EmptyState,
   ErrorState,
+  FilterChips,
   LoadingView,
   Screen,
   Select,
@@ -26,6 +28,7 @@ import {
  */
 export default function AdminAttendanceScreen() {
   const [selectedId, setSelectedId] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
 
   const tripsLoad = useLoad(async (): Promise<{ trips: TripResponse[] }> => {
@@ -33,10 +36,15 @@ export default function AdminAttendanceScreen() {
     return { trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items };
   }, []);
 
+  // The selection always resolves to a trip that survives the current filter,
+  // otherwise the manifest below would show a trip the user just filtered out.
   const activeId = useMemo(() => {
-    if (selectedId) return selectedId;
-    return tripsLoad.data?.trips[0]?.id ?? '';
-  }, [selectedId, tripsLoad.data]);
+    const trips = tripsLoad.data?.trips ?? [];
+    const eligible =
+      statusFilter === 'ALL' ? trips : trips.filter((trip) => trip.status === statusFilter);
+    if (selectedId && eligible.some((trip) => trip.id === selectedId)) return selectedId;
+    return eligible[0]?.id ?? '';
+  }, [selectedId, tripsLoad.data, statusFilter]);
 
   const manifestLoad = useLoad(async (): Promise<TripStudentManifestResponse | null> => {
     if (!activeId) return null;
@@ -92,19 +100,36 @@ export default function AdminAttendanceScreen() {
     );
   }
 
-  const options = tripsLoad.data.trips.map((trip) => ({
+  const filteredTrips =
+    statusFilter === 'ALL'
+      ? tripsLoad.data.trips
+      : tripsLoad.data.trips.filter((trip) => trip.status === statusFilter);
+
+  const options = filteredTrips.map((trip) => ({
     value: trip.id,
     label: `${trip.route_code ?? 'Route'} · ${formatTime(trip.scheduled_start_at)} · ${tripStatusLabel(trip.status)}`,
   }));
 
   return (
     <Screen refresh={() => void manifestLoad.reload()} refreshing={manifestLoad.loading}>
+      <FilterChips<TripStatus | 'ALL'>
+        options={[
+          { value: 'ALL', label: `All · ${tripsLoad.data.trips.length}` },
+          ...Object.values(TripStatus).map((status) => ({
+            value: status as TripStatus | 'ALL',
+            label: `${tripStatusLabel(status)} · ${tripsLoad.data!.trips.filter((trip) => trip.status === status).length}`,
+          })),
+        ]}
+        value={statusFilter}
+        onChange={setStatusFilter}
+      />
+
       <Select
         label="Trip"
         value={activeId}
         onChange={setSelectedId}
         options={options}
-        placeholder="Select a trip"
+        placeholder={options.length === 0 ? 'No trips match this filter' : 'Select a trip'}
       />
 
       {manifestLoad.loading && !manifestLoad.data ? (

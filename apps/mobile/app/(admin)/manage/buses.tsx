@@ -17,11 +17,18 @@ import {
 } from '../../../src/lib/errors';
 import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
+  ACTIVE_FILTER_OPTIONS,
+  useActiveFilter,
+  type ActiveFilter,
+} from '../../../src/hooks/useActiveFilter';
+import {
   Badge,
   Button,
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  FilterChips,
+  FilterSummary,
   Fab,
   Field,
   FormSheet,
@@ -43,6 +50,16 @@ export default function ManageBusesScreen() {
     async (page, search) => unwrapEnvelope(await apiClient.listBuses({ page, limit: 20, search })),
     [],
   );
+
+  // Client-side active/inactive narrowing over the loaded page (the list
+  // endpoints expose page/limit/search only — no `is_active` query param).
+  const activeFilter = useActiveFilter(list.items);
+  const visible = activeFilter.visible;
+  const filtersActive = Boolean(list.activeSearch) || activeFilter.isFiltered;
+  const resetFilters = () => {
+    list.clearSearch();
+    activeFilter.reset();
+  };
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<BusResponse | null>(null);
@@ -118,30 +135,59 @@ export default function ManageBusesScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading}>
+      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
         <SearchBar
           value={list.search}
           onChangeText={list.setSearch}
+          onClear={list.clearSearch}
+          searching={list.searching}
           placeholder="Search registration or fleet number…"
         />
+
+        <FilterChips<ActiveFilter>
+          options={ACTIVE_FILTER_OPTIONS}
+          value={activeFilter.filter}
+          onChange={activeFilter.setFilter}
+        />
+
+        {filtersActive ? (
+          <FilterSummary
+            label={[
+              list.activeSearch ? `“${list.activeSearch}”` : null,
+              activeFilter.isFiltered ? activeFilter.label : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            onClear={resetFilters}
+          />
+        ) : null}
 
         {list.loading && list.items.length === 0 ? (
           <LoadingView label="Loading buses…" />
         ) : list.error ? (
           <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : list.items.length === 0 ? (
+        ) : visible.length === 0 ? (
           <EmptyState
-            title={list.search ? 'No buses match' : 'No buses yet'}
+            title={filtersActive ? 'No buses match' : 'No buses yet'}
             description={
-              list.search
-                ? `Nothing matched “${list.search}”.`
+              filtersActive
+                ? 'No buses match the current search or filters.'
                 : 'Add a vehicle before creating route assignments.'
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
             }
           />
         ) : (
           <>
-            <Text style={styles.count}>{list.meta.total} buses</Text>
-            {list.items.map((bus) => (
+            <Text style={styles.count}>
+              {filtersActive
+                ? `${visible.length} of ${list.meta.total} buses`
+                : `${list.meta.total} buses`}
+            </Text>
+            {visible.map((bus) => (
               <ListCard
                 key={bus.id}
                 title={bus.registration_number}

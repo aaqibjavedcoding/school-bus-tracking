@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { RoleGate } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
+import { useBottomBarMetrics } from '../../src/theme/layout';
 
 /**
  * School-admin mobile experience — full feature parity with the web console.
@@ -15,16 +16,33 @@ import { LogoutButton } from '../../src/components/LogoutButton';
  * from the tab bar with `href: null` and pushed programmatically.
  */
 function AdminTabs() {
+  const bar = useBottomBarMetrics();
+
   return (
     <Tabs
+      safeAreaInsets={{ bottom: 0 }}
       screenOptions={{
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',
         headerTitleStyle: { fontWeight: 'bold' },
         tabBarActiveTintColor: colors.primary[600],
         tabBarInactiveTintColor: colors.neutral[400],
-        tabBarStyle: { paddingTop: 4, height: 60, paddingBottom: 8 },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        // Height + padding derive from the live safe-area insets so the bar
+        // never sits under the Android nav bar / iOS home indicator, on any
+        // screen size or orientation.
+        tabBarStyle: {
+          height: bar.tabBarHeight,
+          paddingTop: bar.tabBarPaddingTop,
+          paddingBottom: bar.tabBarPaddingBottom,
+          borderTopColor: colors.neutral[200],
+        },
+        tabBarItemStyle: { paddingVertical: 0 },
+        tabBarLabelStyle: {
+          fontSize: bar.labelFontSize,
+          fontWeight: '600',
+          marginBottom: 0,
+        },
+        tabBarHideOnKeyboard: true,
         headerRight: () => <LogoutButton />,
       }}
     >
@@ -33,7 +51,7 @@ function AdminTabs() {
         options={{
           title: 'Dashboard',
           tabBarLabel: 'Dashboard',
-          tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="grid" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -41,7 +59,7 @@ function AdminTabs() {
         options={{
           title: 'Trips',
           tabBarLabel: 'Trips',
-          tabBarIcon: ({ color, size }) => <Ionicons name="bus" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="bus" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -49,7 +67,7 @@ function AdminTabs() {
         options={{
           title: 'Live tracking',
           tabBarLabel: 'Tracking',
-          tabBarIcon: ({ color, size }) => <Ionicons name="location" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="location" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -57,8 +75,8 @@ function AdminTabs() {
         options={{
           title: 'Attendance',
           tabBarLabel: 'Attendance',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="checkbox" size={size} color={color} />
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="checkbox" size={bar.iconSize} color={color} />
           ),
         }}
       />
@@ -67,7 +85,7 @@ function AdminTabs() {
         options={{
           title: 'Manage',
           tabBarLabel: 'Manage',
-          tabBarIcon: ({ color, size }) => <Ionicons name="settings" size={size} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="settings" size={bar.iconSize} color={color} />,
         }}
       />
 
