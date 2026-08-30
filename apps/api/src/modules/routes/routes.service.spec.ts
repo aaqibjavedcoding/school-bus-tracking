@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
-import { Route, Stop } from '../../database/models';
+import { Bus, Route, RouteAssignment, Stop, Student, Trip, User } from '../../database/models';
 import { RoutesService } from './routes.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
@@ -286,6 +286,20 @@ function makeReorderDto(stopIds: string[]): ReorderRouteStopsDto {
   return dto;
 }
 
+/** Builds the service with empty relation stubs (roster/crew/bus/trip/student). */
+function makeService(routes: typeof Route, stops: typeof Stop): RoutesService {
+  const empty = { findAll: async () => [] } as unknown as typeof Stop;
+  return new RoutesService(
+    routes,
+    stops,
+    empty as unknown as typeof RouteAssignment,
+    empty as unknown as typeof User,
+    empty as unknown as typeof Bus,
+    empty as unknown as typeof Trip,
+    empty as unknown as typeof Student,
+  );
+}
+
 async function expectNotFound(promise: Promise<unknown>): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof NotFoundException, 'expected a NotFoundException');
@@ -317,7 +331,7 @@ describe('RoutesService.create', () => {
   it('creates a route scoped to the authenticated school', async () => {
     const capture: { createPayload?: Partial<StubRouteRecord> } = {};
     const { repo } = makeRoutesRepository([], capture);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
@@ -336,7 +350,7 @@ describe('RoutesService.create', () => {
   it('normalizes an empty description to null', async () => {
     const capture: { createPayload?: Partial<StubRouteRecord> } = {};
     const { repo } = makeRoutesRepository([], capture);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await service.create(SCHOOL_A, makeCreateDto({ description: '   ' }));
 
@@ -346,7 +360,7 @@ describe('RoutesService.create', () => {
   it('rejects a code used by another route of the same school', async () => {
     const existing = makeRouteRecord({ code: 'NORTH-AM' });
     const { repo } = makeRoutesRepository([existing]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectConflict(service.create(SCHOOL_A, makeCreateDto()), ROUTE_CODE_TAKEN_MESSAGE);
   });
@@ -354,7 +368,7 @@ describe('RoutesService.create', () => {
   it('allows the same code in another school', async () => {
     const existing = makeRouteRecord({ school_id: SCHOOL_B, code: 'NORTH-AM' });
     const { repo } = makeRoutesRepository([existing]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
@@ -369,7 +383,7 @@ describe('RoutesService.create', () => {
         throw new UniqueConstraintError({ errors: [{ path: 'code' } as never] });
       },
     } as unknown as typeof Route;
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectConflict(service.create(SCHOOL_A, makeCreateDto()), ROUTE_CODE_TAKEN_MESSAGE);
   });
@@ -384,7 +398,7 @@ describe('RoutesService.findAll', () => {
       makeRouteRecord({ school_id: SCHOOL_B, code: 'OTHER-1' }),
       makeRouteRecord({ school_id: SCHOOL_A, code: 'R-4', deleted_at: new Date() }),
     ]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ page: 1, limit: 2 }));
 
@@ -401,7 +415,7 @@ describe('RoutesService.findAll', () => {
       makeRouteRecord({ name: 'North Loop', code: 'NORTH-AM' }),
       makeRouteRecord({ name: 'South Loop', code: 'SOUTH-AM' }),
     ]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ search: 'north' }));
 
@@ -414,7 +428,7 @@ describe('RoutesService.findOne', () => {
   it('returns a route only when id and school match', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_A });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.findOne(SCHOOL_A, ROUTE_A);
 
@@ -424,7 +438,7 @@ describe('RoutesService.findOne', () => {
 
   it('returns the generic 404 for a missing id', async () => {
     const { repo } = makeRoutesRepository([]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.findOne(SCHOOL_A, ROUTE_A));
   });
@@ -432,9 +446,54 @@ describe('RoutesService.findOne', () => {
   it('returns the generic 404 for another school id', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.findOne(SCHOOL_A, ROUTE_A));
+  });
+
+  it('returns the rostered driver, conductor, bus and student count', async () => {
+    const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_A });
+    const { repo } = makeRoutesRepository([route]);
+
+    const stops = {
+      findAll: async () =>
+        [
+          { id: STOP_1, school_id: SCHOOL_A, route_id: ROUTE_A, name: 'Maple & 5th', sequence_number: 1 },
+        ] as unknown as Stop[],
+    } as unknown as typeof Stop;
+    const assignments = {
+      findAll: async () =>
+        [
+          { route_id: ROUTE_A, user_id: 'driver-1', role: 'DRIVER', bus_id: 'bus-1' },
+          { route_id: ROUTE_A, user_id: 'conductor-1', role: 'CONDUCTOR', bus_id: 'bus-1' },
+        ] as unknown as RouteAssignment[],
+    } as unknown as typeof RouteAssignment;
+    const users = {
+      findAll: async () =>
+        [
+          { id: 'driver-1', first_name: 'Ada', last_name: 'Driver' },
+          { id: 'conductor-1', first_name: 'Con', last_name: 'Ductor' },
+        ] as unknown as User[],
+    } as unknown as typeof User;
+    const buses = {
+      findAll: async () => [{ id: 'bus-1', bus_number: 'B-01', registration_number: 'REG-A' }] as unknown as Bus[],
+    } as unknown as typeof Bus;
+    const trips = {
+      findAll: async () => [] as unknown as Trip[],
+    } as unknown as typeof Trip;
+    const students = {
+      findAll: async () =>
+        [{ home_stop_id: STOP_1, school_id: SCHOOL_A }] as unknown as Student[],
+    } as unknown as typeof Student;
+
+    const service = new RoutesService(repo, stops, assignments, users, buses, trips, students);
+    const response = await service.findOne(SCHOOL_A, ROUTE_A);
+
+    assert.equal(response.driver_name, 'Ada Driver');
+    assert.equal(response.conductor_name, 'Con Ductor');
+    assert.equal(response.bus_number, 'B-01');
+    assert.equal(response.bus_registration_number, 'REG-A');
+    assert.equal(response.student_count, 1);
   });
 });
 
@@ -442,7 +501,7 @@ describe('RoutesService.update', () => {
   it('partially updates a route of the authenticated school', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, name: 'Old name' });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.update(
       SCHOOL_A,
@@ -458,7 +517,7 @@ describe('RoutesService.update', () => {
   it('allows keeping the same code (self-excluded check)', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, code: 'NORTH-AM' });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.update(SCHOOL_A, ROUTE_A, makeUpdateDto({ code: 'NORTH-AM' }));
 
@@ -469,7 +528,7 @@ describe('RoutesService.update', () => {
     const route = makeRouteRecord({ id: ROUTE_A, code: 'NORTH-AM' });
     const other = makeRouteRecord({ id: ROUTE_B, code: 'SOUTH-AM' });
     const { repo } = makeRoutesRepository([route, other]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectConflict(
       service.update(SCHOOL_A, ROUTE_A, makeUpdateDto({ code: 'SOUTH-AM' })),
@@ -480,7 +539,7 @@ describe('RoutesService.update', () => {
   it('returns the generic 404 when updating another school route', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.update(SCHOOL_A, ROUTE_A, makeUpdateDto({ name: 'X' })));
   });
@@ -490,7 +549,7 @@ describe('RoutesService.remove', () => {
   it('soft deletes a route of the authenticated school', async () => {
     const route = makeRouteRecord({ id: ROUTE_A });
     const { repo, all } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     const response = await service.remove(SCHOOL_A, ROUTE_A);
 
@@ -502,7 +561,7 @@ describe('RoutesService.remove', () => {
   it('returns the generic 404 when deleting another school route', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.remove(SCHOOL_A, ROUTE_A));
   });
@@ -517,7 +576,7 @@ describe('RoutesService.findRouteStops', () => {
       makeStopRecord({ id: STOP_2, route_id: ROUTE_A, sequence_number: 1 }),
       makeStopRecord({ id: STOP_3, route_id: ROUTE_B, sequence_number: 1 }),
     ]);
-    const service = new RoutesService(repo, stopsRepo.repo);
+    const service = makeService(repo, stopsRepo.repo);
 
     const response = await service.findRouteStops(SCHOOL_A, ROUTE_A);
 
@@ -532,7 +591,7 @@ describe('RoutesService.findRouteStops', () => {
   it('returns the generic 404 for another school route', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.findRouteStops(SCHOOL_A, ROUTE_A));
   });
@@ -546,7 +605,7 @@ describe('RoutesService.reorderRouteStops', () => {
     const stop2 = makeStopRecord({ id: STOP_2, route_id: ROUTE_A, sequence_number: 2 });
     const stop3 = makeStopRecord({ id: STOP_3, route_id: ROUTE_A, sequence_number: 3 });
     const stopsRepo = makeStopsRepository([stop1, stop2, stop3]);
-    const service = new RoutesService(repo, stopsRepo.repo);
+    const service = makeService(repo, stopsRepo.repo);
     return { service, stop1, stop2, stop3, capture: stopsRepo.capture };
   }
 
@@ -617,7 +676,7 @@ describe('RoutesService.reorderRouteStops', () => {
   it('returns the generic 404 for another school route', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = new RoutesService(repo, makeStopsRepository().repo);
+    const service = makeService(repo, makeStopsRepository().repo);
 
     await expectNotFound(service.reorderRouteStops(SCHOOL_A, ROUTE_A, makeReorderDto([STOP_1])));
   });

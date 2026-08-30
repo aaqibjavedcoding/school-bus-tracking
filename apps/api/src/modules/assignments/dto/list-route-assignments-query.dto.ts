@@ -1,5 +1,15 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { RouteAssignmentListQuery, RouteAssignmentRole } from '@school-bus-tracking/shared-types';
 
 const booleanValue = ({ value }: { value: unknown }): unknown => {
@@ -25,6 +35,11 @@ export class ListRouteAssignmentsQueryDto implements RouteAssignmentListQuery {
   @Min(1, { message: 'limit must be at least 1' })
   @Max(100, { message: 'limit must be at most 100' })
   limit: number = 20;
+
+  @IsOptional()
+  @IsString({ message: 'search must be a string' })
+  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  search?: string;
 
   @IsOptional()
   @IsUUID(undefined, { message: 'route_id must be a valid UUID' })

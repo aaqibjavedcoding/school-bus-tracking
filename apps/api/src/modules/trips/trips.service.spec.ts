@@ -92,6 +92,12 @@ interface StubResource {
   school_id: string;
   is_active: boolean;
   role?: UserRole;
+  name?: string;
+  code?: string;
+  registration_number?: string;
+  bus_number?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 function makeTrip(overrides: Partial<StubTrip> = {}): StubTrip {
@@ -162,34 +168,78 @@ function defaultAssignments(): StubAssignment[] {
   ];
 }
 
-function defaultResources() {
+function defaultResources(): {
+  routes: StubResource[];
+  buses: StubResource[];
+  users: StubResource[];
+} {
   return {
-    routes: [makeResource(ROUTE_A), makeResource(ROUTE_B, SCHOOL_B)],
-    buses: [makeResource(BUS_A), makeResource(BUS_B, SCHOOL_B)],
+    routes: [
+      { ...makeResource(ROUTE_A), name: 'North Loop', code: 'N1' },
+      { ...makeResource(ROUTE_B, SCHOOL_B), name: 'South Loop', code: 'S1' },
+    ],
+    buses: [
+      { ...makeResource(BUS_A), registration_number: 'REG-A', bus_number: 'B-01' },
+      { ...makeResource(BUS_B, SCHOOL_B), registration_number: 'REG-B', bus_number: 'B-02' },
+    ],
     users: [
-      makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }),
-      makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }),
-      makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }),
+      { ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }), first_name: 'Ada', last_name: 'Driver' },
+      { ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }), first_name: 'Con', last_name: 'Ductor' },
+      { ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }), first_name: 'Bob', last_name: 'Driver' },
     ],
   };
 }
 
-/** Matches plain equality plus the `Op.gte` / `Op.lt` date-range operators. */
-function matchesWhere(record: Record<string, unknown>, where: Record<PropertyKey, unknown>) {
-  return Object.entries(where).every(([key, expected]) => {
+/**
+ * Matches plain equality, the `Op.gte` / `Op.lt` date-range operators,
+ * `Op.in` / `Op.iLike` value operators and top-level `Op.or` / `Op.and` keys.
+ * This keeps the in-memory repositories honest enough for the free-text
+ * search and relation-lookup paths exercised by the service under test.
+ */
+function matchesWhere(record: Record<string, unknown>, where: Record<PropertyKey, unknown>): boolean {
+  const stringKeys = Object.entries(where).every(([key, expected]) => {
     const actual = record[key];
     if (expected instanceof Date) {
       return actual instanceof Date && actual.getTime() === expected.getTime();
     }
     if (expected !== null && typeof expected === 'object') {
-      const operators = expected as Record<symbol, Date>;
+      const operators = expected as Record<symbol, unknown>;
       const value = actual instanceof Date ? actual.getTime() : Number.NaN;
-      if (operators[Op.gte] !== undefined && value < operators[Op.gte].getTime()) return false;
-      if (operators[Op.lt] !== undefined && value >= operators[Op.lt].getTime()) return false;
+      if (operators[Op.gte] !== undefined && value < (operators[Op.gte] as Date).getTime()) {
+        return false;
+      }
+      if (operators[Op.lt] !== undefined && value >= (operators[Op.lt] as Date).getTime()) {
+        return false;
+      }
+      if (operators[Op.in] !== undefined) {
+        return (operators[Op.in] as unknown[]).includes(actual);
+      }
+      if (operators[Op.eq] !== undefined) {
+        return actual === operators[Op.eq];
+      }
+      if (operators[Op.iLike] !== undefined) {
+        const pattern = String(operators[Op.iLike]).replace(/^%|%$/g, '').toLowerCase();
+        return String(actual ?? '').toLowerCase().includes(pattern);
+      }
       return true;
     }
     return actual === expected;
   });
+
+  const symbolGroups = Object.getOwnPropertySymbols(where)
+    .filter((symbol) => symbol === Op.or || symbol === Op.and)
+    .map((symbol) => ({ op: symbol, clauses: where[symbol] as Array<Record<PropertyKey, unknown>> }));
+  if (symbolGroups.length === 0) {
+    return stringKeys;
+  }
+  return (
+    stringKeys &&
+    symbolGroups.every(({ op, clauses }) =>
+      op === Op.or
+        ? clauses.some((clause) => matchesWhere(record, clause))
+        : clauses.every((clause) => matchesWhere(record, clause)),
+    )
+  );
 }
 
 interface Capture {
@@ -279,6 +329,11 @@ function makeRepositories(
         matchesWhere(route as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as Route;
     },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return resources.routes.filter((route) =>
+        matchesWhere(route as unknown as Record<string, unknown>, options.where),
+      ) as unknown as Route[];
+    },
   } as unknown as typeof Route;
 
   const busRepo = {
@@ -288,6 +343,11 @@ function makeRepositories(
         matchesWhere(bus as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as Bus;
     },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return resources.buses.filter((bus) =>
+        matchesWhere(bus as unknown as Record<string, unknown>, options.where),
+      ) as unknown as Bus[];
+    },
   } as unknown as typeof Bus;
 
   const userRepo = {
@@ -296,6 +356,11 @@ function makeRepositories(
       return (resources.users.find((user) =>
         matchesWhere(user as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as User;
+    },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return resources.users.filter((user) =>
+        matchesWhere(user as unknown as Record<string, unknown>, options.where),
+      ) as unknown as User[];
     },
   } as unknown as typeof User;
 
@@ -754,6 +819,55 @@ describe('TripsService.findAll', () => {
     await expectBadRequest(
       makeService(makeRepositories()).findAll(SCHOOL_A, query),
       TRIP_QUERY_DATE_RANGE_MESSAGE,
+    );
+  });
+
+  it('returns human-readable route, bus and crew names instead of ids only', async () => {
+    const service = makeService(makeRepositories([makeTrip()]));
+    const result = await service.findAll(SCHOOL_A, new ListTripsQueryDto());
+
+    assert.equal(result.items.length, 1);
+    const trip = result.items[0];
+    assert.equal(trip.route_name, 'North Loop');
+    assert.equal(trip.route_code, 'N1');
+    assert.equal(trip.bus_number, 'B-01');
+    assert.equal(trip.registration_number, 'REG-A');
+    assert.equal(trip.driver_name, 'Ada Driver');
+    assert.equal(trip.conductor_name, 'Con Ductor');
+  });
+
+  it('searches trips by route, bus and crew display names', async () => {
+    const trips = [
+      makeTrip(),
+      makeTrip({
+        id: TRIP_B,
+        route_id: ROUTE_B,
+        bus_id: BUS_B,
+        driver_id: DRIVER_B,
+        conductor_id: null,
+      }),
+    ];
+    const service = makeService(makeRepositories(trips));
+
+    const byRoute = new ListTripsQueryDto();
+    byRoute.search = 'North Loop';
+    assert.deepEqual(
+      (await service.findAll(SCHOOL_A, byRoute)).items.map((trip) => trip.id),
+      [TRIP_A],
+    );
+
+    const byBus = new ListTripsQueryDto();
+    byBus.search = 'B-01';
+    assert.deepEqual(
+      (await service.findAll(SCHOOL_A, byBus)).items.map((trip) => trip.id),
+      [TRIP_A],
+    );
+
+    const byCrew = new ListTripsQueryDto();
+    byCrew.search = 'Ada';
+    assert.deepEqual(
+      (await service.findAll(SCHOOL_A, byCrew)).items.map((trip) => trip.id),
+      [TRIP_A],
     );
   });
 });

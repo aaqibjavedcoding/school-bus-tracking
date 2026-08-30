@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { UniqueConstraintError } from 'sequelize';
+import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, UserRole } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, User } from '../../database/models';
 import { CreateRouteAssignmentDto } from './dto/create-route-assignment.dto';
@@ -55,6 +55,13 @@ interface StubResource {
   school_id: string;
   is_active: boolean;
   role?: UserRole;
+  name?: string;
+  code?: string;
+  registration_number?: string;
+  bus_number?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
 }
 
 function makeAssignment(overrides: Partial<StubAssignment> = {}): StubAssignment {
@@ -112,12 +119,17 @@ function makeRepositories(
   } = {},
 ) {
   const assignments = [...initialAssignments];
-  const routes = resources.routes ?? [makeResource(ROUTE_A)];
-  const buses = resources.buses ?? [makeResource(BUS_A), makeResource(BUS_B)];
+  const routes = resources.routes ?? [
+    { ...makeResource(ROUTE_A), name: 'North Loop', code: 'N1' },
+  ];
+  const buses = resources.buses ?? [
+    { ...makeResource(BUS_A), registration_number: 'REG-A', bus_number: 'B-01' },
+    { ...makeResource(BUS_B), registration_number: 'REG-B', bus_number: 'B-02' },
+  ];
   const users = resources.users ?? [
-    makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }),
-    makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }),
-    makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }),
+    { ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }), first_name: 'Ada', last_name: 'Driver', email: 'ada@school.org' },
+    { ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }), first_name: 'Con', last_name: 'Ductor', email: 'con@school.org' },
+    { ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }), first_name: 'Bob', last_name: 'Driver', email: 'bob@school.org' },
   ];
 
   const matches = (record: Record<string, unknown>, where: Record<string, unknown>) =>
@@ -187,6 +199,9 @@ function makeRepositories(
         matches(route as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as Route;
     },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return routes.filter((route) => route.school_id === options.where.school_id) as unknown as Route[];
+    },
   } as unknown as typeof Route;
 
   const busRepo = {
@@ -196,6 +211,9 @@ function makeRepositories(
         matches(bus as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as Bus;
     },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return buses.filter((bus) => bus.school_id === options.where.school_id) as unknown as Bus[];
+    },
   } as unknown as typeof Bus;
 
   const userRepo = {
@@ -204,6 +222,9 @@ function makeRepositories(
       return (users.find((user) =>
         matches(user as unknown as Record<string, unknown>, options.where),
       ) ?? null) as unknown as User;
+    },
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      return users.filter((user) => user.school_id === options.where.school_id) as unknown as User[];
     },
   } as unknown as typeof User;
 
@@ -440,6 +461,45 @@ describe('RouteAssignmentsService.findAll/findOne', () => {
     assert.equal(result.meta.total, 1);
     assert.equal(capture.findAndCountWhere?.['school_id'], SCHOOL_A);
     assert.equal(capture.findAndCountWhere?.['role'], RouteAssignmentRole.DRIVER);
+  });
+
+  it('returns route, bus and crew display names', async () => {
+    const repos = makeRepositories([makeAssignment({ id: ASSIGNMENT_A, school_id: SCHOOL_A })]);
+    const service = new RouteAssignmentsService(
+      repos.assignmentRepo,
+      repos.routeRepo,
+      repos.busRepo,
+      repos.userRepo,
+    );
+
+    const result = await service.findAll(SCHOOL_A, new ListRouteAssignmentsQueryDto());
+
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].route_name, 'North Loop');
+    assert.equal(result.items[0].route_code, 'N1');
+    assert.equal(result.items[0].bus_number, 'B-01');
+    assert.equal(result.items[0].bus_registration_number, 'REG-A');
+    assert.equal(result.items[0].user_name, 'Ada Driver');
+    assert.equal(result.items[0].user_email, 'ada@school.org');
+  });
+
+  it('applies free-text search as an Op.or over route, bus and crew ids', async () => {
+    const capture: { findAndCountWhere?: Record<PropertyKey, unknown> } = {};
+    const repos = makeRepositories([makeAssignment()], {}, capture);
+    const service = new RouteAssignmentsService(
+      repos.assignmentRepo,
+      repos.routeRepo,
+      repos.busRepo,
+      repos.userRepo,
+    );
+
+    const query = new ListRouteAssignmentsQueryDto();
+    query.search = 'North';
+    await service.findAll(SCHOOL_A, query);
+
+    const or = capture.findAndCountWhere?.[Op.or] as Array<Record<PropertyKey, unknown>>;
+    assert.ok(or, 'search must be applied via Op.or');
+    assert.deepEqual(or[0].route_id, { [Op.in]: [ROUTE_A] });
   });
 
   it('returns a generic 404 for another tenant', async () => {

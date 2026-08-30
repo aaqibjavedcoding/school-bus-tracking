@@ -61,6 +61,7 @@ import {
   NotificationResponse,
   RouteCreateRequest,
   RouteDeleteResponse,
+  RouteDetailResponse,
   RouteListQuery,
   RouteListResponse,
   RouteResponse,
@@ -713,6 +714,11 @@ export class ApiClient {
     return this.get<RouteResponse>(`/routes/${encodeURIComponent(id)}`);
   }
 
+  /** Full route detail: route facts, stops, students and the active trip. */
+  public async getRouteDetails(id: string): Promise<ApiResponse<RouteDetailResponse>> {
+    return this.get<RouteDetailResponse>(`/routes/${encodeURIComponent(id)}/details`);
+  }
+
   public async updateRoute(
     id: string,
     body: RouteUpdateRequest,
@@ -846,6 +852,7 @@ export class ApiClient {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
     if (query.route_id) params.set('route_id', query.route_id);
     if (query.bus_id) params.set('bus_id', query.bus_id);
     if (query.user_id) params.set('user_id', query.user_id);
@@ -890,6 +897,7 @@ export class ApiClient {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
     if (query.route_id) params.set('route_id', query.route_id);
     if (query.bus_id) params.set('bus_id', query.bus_id);
     if (query.user_id) params.set('user_id', query.user_id);
@@ -927,6 +935,7 @@ export class ApiClient {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
     if (query.status) params.set('status', query.status);
     if (query.route_id) params.set('route_id', query.route_id);
     if (query.bus_id) params.set('bus_id', query.bus_id);

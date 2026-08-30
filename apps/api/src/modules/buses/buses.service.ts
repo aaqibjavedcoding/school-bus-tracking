@@ -5,18 +5,33 @@ import {
   BusListResponse,
   BusResponse,
   PaginationMeta,
+  RouteAssignmentRole,
+  TripStatus,
 } from '@school-bus-tracking/shared-types';
-import { Bus, BusAttributes } from '../../database/models';
+import { Bus, BusAttributes, Route, RouteAssignment, Trip, User } from '../../database/models';
 import {
   BUS_DELETED_MESSAGE,
   BUS_NOT_FOUND_MESSAGE,
   BUS_NUMBER_TAKEN_MESSAGE,
   BUS_REGISTRATION_NUMBER_TAKEN_MESSAGE,
   BUSES_REPOSITORY,
+  BUSES_ROUTE_ASSIGNMENTS_REPOSITORY,
+  BUSES_ROUTES_REPOSITORY,
+  BUSES_TRIPS_REPOSITORY,
+  BUSES_USERS_REPOSITORY,
 } from './buses.constants';
 import { CreateBusDto } from './dto/create-bus.dto';
 import { ListBusesQueryDto } from './dto/list-buses-query.dto';
 import { UpdateBusDto } from './dto/update-bus.dto';
+
+/** Ranked preference for the bus's "current" trip today. */
+const TRIP_PREFERENCE: Record<TripStatus, number> = {
+  [TripStatus.IN_PROGRESS]: 0,
+  [TripStatus.BOARDING]: 1,
+  [TripStatus.SCHEDULED]: 2,
+  [TripStatus.COMPLETED]: 3,
+  [TripStatus.CANCELLED]: 4,
+};
 
 /**
  * Tenant-safe fleet (bus) management.
@@ -29,7 +44,14 @@ import { UpdateBusDto } from './dto/update-bus.dto';
  */
 @Injectable()
 export class BusesService {
-  constructor(@Inject(BUSES_REPOSITORY) private readonly buses: typeof Bus) {}
+  constructor(
+    @Inject(BUSES_REPOSITORY) private readonly buses: typeof Bus,
+    @Inject(BUSES_ROUTE_ASSIGNMENTS_REPOSITORY)
+    private readonly assignments: typeof RouteAssignment,
+    @Inject(BUSES_ROUTES_REPOSITORY) private readonly routes: typeof Route,
+    @Inject(BUSES_USERS_REPOSITORY) private readonly users: typeof User,
+    @Inject(BUSES_TRIPS_REPOSITORY) private readonly trips: typeof Trip,
+  ) {}
 
   /**
    * Creates a bus inside the authenticated school.
@@ -105,7 +127,7 @@ export class BusesService {
     };
 
     return {
-      items: rows.map((bus) => this.toBusResponse(bus)),
+      items: await this.toBusResponses(rows),
       meta,
     };
   }
@@ -225,19 +247,104 @@ export class BusesService {
     return path === 'bus_number' ? BUS_NUMBER_TAKEN_MESSAGE : BUS_REGISTRATION_NUMBER_TAKEN_MESSAGE;
   }
 
-  /** Explicit field-by-field projection — no internal or sensitive field leaks. */
-  private toBusResponse(bus: Bus): BusResponse {
-    return {
-      id: bus.id,
-      school_id: bus.school_id,
-      registration_number: bus.registration_number,
-      bus_number: bus.bus_number,
-      capacity: bus.capacity,
-      is_active: bus.is_active,
-      created_at: bus.created_at.toISOString(),
-      updated_at: bus.updated_at.toISOString(),
-    };
+  /**
+   * Explicit field-by-field projection — no internal or sensitive field leaks.
+   * The active route / driver / conductor and today's trip status are resolved
+   * with batched lookups so callers get names, never bare ids.
+   */
+  private async toBusResponse(bus: Bus): Promise<BusResponse> {
+    const [response] = await this.toBusResponses([bus]);
+    return response;
   }
+
+  /** Batched projection of buses with their roster, crew and current trip. */
+  private async toBusResponses(buses: Bus[]): Promise<BusResponse[]> {
+    if (buses.length === 0) {
+      return [];
+    }
+    const schoolId = buses[0].school_id;
+    const busIds = buses.map((bus) => bus.id);
+
+    const [assignments, todayTrips] = await Promise.all([
+      this.assignments.findAll({
+        where: { school_id: schoolId, bus_id: { [Op.in]: busIds }, is_active: true },
+        order: [['effective_from', 'ASC']],
+      }),
+      this.trips.findAll({
+        where: { school_id: schoolId, bus_id: { [Op.in]: busIds }, scheduled_start_at: todayRange() },
+        order: [['scheduled_start_at', 'ASC']],
+      }),
+    ]);
+
+    const routeIds = [...new Set(assignments.map((assignment) => assignment.route_id))];
+    const userIds = [...new Set(assignments.map((assignment) => assignment.user_id))];
+    const [routes, users] = await Promise.all([
+      routeIds.length
+        ? this.routes.findAll({ where: { school_id: schoolId, id: { [Op.in]: routeIds } } })
+        : Promise.resolve([] as Route[]),
+      userIds.length
+        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        : Promise.resolve([] as User[]),
+    ]);
+
+    const routeById = new Map(routes.map((route) => [route.id, route]));
+    const userById = new Map(users.map((user) => [user.id, user]));
+
+    const assignmentsByBus = new Map<string, RouteAssignment[]>();
+    for (const assignment of assignments) {
+      if (!assignment.bus_id) continue;
+      const list = assignmentsByBus.get(assignment.bus_id) ?? [];
+      list.push(assignment);
+      assignmentsByBus.set(assignment.bus_id, list);
+    }
+    const tripsByBus = new Map<string, Trip[]>();
+    for (const trip of todayTrips) {
+      const list = tripsByBus.get(trip.bus_id ?? '') ?? [];
+      list.push(trip);
+      if (trip.bus_id) tripsByBus.set(trip.bus_id, list);
+    }
+
+    return buses.map((bus) => {
+      const roster = assignmentsByBus.get(bus.id) ?? [];
+      const route = roster.length ? routeById.get(roster[0].route_id) : undefined;
+      const driverRow = roster.find((assignment) => assignment.role === RouteAssignmentRole.DRIVER);
+      const conductorRow = roster.find(
+        (assignment) => assignment.role === RouteAssignmentRole.CONDUCTOR,
+      );
+      const driver = driverRow ? userById.get(driverRow.user_id) : undefined;
+      const conductor = conductorRow ? userById.get(conductorRow.user_id) : undefined;
+      const todaysTrips = tripsByBus.get(bus.id) ?? [];
+      const currentTrip = [...todaysTrips].sort(
+        (a, b) =>
+          TRIP_PREFERENCE[a.status] - TRIP_PREFERENCE[b.status] ||
+          a.scheduled_start_at.getTime() - b.scheduled_start_at.getTime(),
+      )[0];
+
+      return {
+        id: bus.id,
+        school_id: bus.school_id,
+        registration_number: bus.registration_number,
+        bus_number: bus.bus_number,
+        capacity: bus.capacity,
+        is_active: bus.is_active,
+        created_at: bus.created_at.toISOString(),
+        updated_at: bus.updated_at.toISOString(),
+        assigned_route_name: route?.name ?? null,
+        assigned_route_code: route?.code ?? null,
+        assigned_driver_name: driver ? `${driver.first_name} ${driver.last_name}`.trim() : null,
+        assigned_conductor_name: conductor
+          ? `${conductor.first_name} ${conductor.last_name}`.trim()
+          : null,
+        current_trip_status: currentTrip?.status ?? null,
+      };
+    });
+  }
+}
+
+/** Inclusive window covering the current UTC calendar day. */
+function todayRange(): Record<symbol, Date> {
+  const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
 }
 
 function nullableTrim(value: string | null | undefined): string | null {

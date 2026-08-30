@@ -7,6 +7,10 @@
  * StudentsModule and ParentsModule.
  */
 export const BUSES_REPOSITORY = 'BUSES_REPOSITORY';
+export const BUSES_ROUTE_ASSIGNMENTS_REPOSITORY = 'BUSES_ROUTE_ASSIGNMENTS_REPOSITORY';
+export const BUSES_ROUTES_REPOSITORY = 'BUSES_ROUTES_REPOSITORY';
+export const BUSES_USERS_REPOSITORY = 'BUSES_USERS_REPOSITORY';
+export const BUSES_TRIPS_REPOSITORY = 'BUSES_TRIPS_REPOSITORY';
 
 /**
  * Generic not-found message. It deliberately does not distinguish "does not

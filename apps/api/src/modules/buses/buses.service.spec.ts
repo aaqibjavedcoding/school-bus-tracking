@@ -2,7 +2,8 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
-import { Bus } from '../../database/models';
+import { RouteAssignmentRole, TripStatus } from '@school-bus-tracking/shared-types';
+import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import { BusesService } from './buses.service';
 import {
   BUS_DELETED_MESSAGE,
@@ -182,6 +183,22 @@ function makeQuery(overrides: Partial<ListBusesQueryDto> = {}): ListBusesQueryDt
   return Object.assign(dto, overrides);
 }
 
+/**
+ * Builds the service with the bus repository plus empty stubs for the roster /
+ * route / crew / trip repositories. Tests that exercise enrichment pass their
+ * own stubs via {@link makeServiceWithRelations}.
+ */
+function makeService(repo: typeof Bus): BusesService {
+  const empty = { findAll: async () => [] } as unknown as typeof Route;
+  return new BusesService(
+    repo,
+    empty as unknown as typeof RouteAssignment,
+    empty as unknown as typeof Route,
+    empty as unknown as typeof User,
+    empty as unknown as typeof Trip,
+  );
+}
+
 async function expectNotFound(promise: Promise<unknown>): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof NotFoundException, 'expected a NotFoundException');
@@ -204,7 +221,7 @@ describe('BusesService.create', () => {
   it('creates a bus scoped to the authenticated school', async () => {
     const capture: { createPayload?: Partial<StubBusRecord> } = {};
     const { repo } = makeBusesRepository([], capture);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
@@ -225,7 +242,7 @@ describe('BusesService.create', () => {
   it('defaults is_active to true and normalizes empty bus_number to null', async () => {
     const capture: { createPayload?: Partial<StubBusRecord> } = {};
     const { repo } = makeBusesRepository([], capture);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await service.create(SCHOOL_A, makeCreateDto({ bus_number: '   ', is_active: undefined }));
 
@@ -236,7 +253,7 @@ describe('BusesService.create', () => {
   it('rejects a registration number used by another bus of the same school', async () => {
     const existing = makeBusRecord({ registration_number: 'ABC-1234' });
     const { repo } = makeBusesRepository([existing]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectConflict(
       service.create(SCHOOL_A, makeCreateDto()),
@@ -247,7 +264,7 @@ describe('BusesService.create', () => {
   it('rejects a bus number used by another bus of the same school', async () => {
     const existing = makeBusRecord({ bus_number: 'BUS-01' });
     const { repo } = makeBusesRepository([existing]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectConflict(service.create(SCHOOL_A, makeCreateDto()), BUS_NUMBER_TAKEN_MESSAGE);
   });
@@ -255,7 +272,7 @@ describe('BusesService.create', () => {
   it('allows the same registration number in another school', async () => {
     const existing = makeBusRecord({ school_id: SCHOOL_B, registration_number: 'ABC-1234' });
     const { repo } = makeBusesRepository([existing]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
@@ -272,7 +289,7 @@ describe('BusesService.create', () => {
         });
       },
     } as unknown as typeof Bus;
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectConflict(
       service.create(SCHOOL_A, makeCreateDto()),
@@ -290,7 +307,7 @@ describe('BusesService.findAll', () => {
       makeBusRecord({ school_id: SCHOOL_B, registration_number: 'OTHER-1' }),
       makeBusRecord({ school_id: SCHOOL_A, registration_number: 'REG-4', deleted_at: new Date() }),
     ]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ page: 1, limit: 2 }));
 
@@ -307,7 +324,7 @@ describe('BusesService.findAll', () => {
       makeBusRecord({ registration_number: 'XYZ-999', bus_number: 'BUS-01' }),
       makeBusRecord({ registration_number: 'ABC-123', bus_number: 'BUS-02' }),
     ]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ search: 'bus-01' }));
 
@@ -318,12 +335,63 @@ describe('BusesService.findAll', () => {
   it('escapes LIKE wildcards in the search term', async () => {
     const capture: { findAndCountWhere?: Record<PropertyKey, unknown> } = {};
     const { repo } = makeBusesRepository([], capture);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await service.findAll(SCHOOL_A, makeQuery({ search: '100%' }));
 
     const or = capture.findAndCountWhere?.[Op.or] as Array<Record<string, Record<symbol, unknown>>>;
     assert.equal(or?.[0]?.['registration_number']?.[Op.iLike], '%100\\%%');
+  });
+  it('returns assigned route, driver and conductor names plus current trip status', async () => {
+    const bus = makeBusRecord({ id: 'bus-1' });
+    const { repo } = makeBusesRepository([bus]);
+
+    const assignments = {
+      findAll: async () =>
+        [
+          {
+            bus_id: 'bus-1',
+            route_id: 'route-1',
+            user_id: 'driver-1',
+            role: RouteAssignmentRole.DRIVER,
+            effective_from: '2026-01-01',
+          },
+          {
+            bus_id: 'bus-1',
+            route_id: 'route-1',
+            user_id: 'conductor-1',
+            role: RouteAssignmentRole.CONDUCTOR,
+            effective_from: '2026-01-01',
+          },
+        ] as unknown as RouteAssignment[],
+    } as unknown as typeof RouteAssignment;
+    const routes = {
+      findAll: async () => [{ id: 'route-1', name: 'North Loop', code: 'N1' }] as unknown as Route[],
+    } as unknown as typeof Route;
+    const users = {
+      findAll: async () =>
+        [
+          { id: 'driver-1', first_name: 'Ada', last_name: 'Driver' },
+          { id: 'conductor-1', first_name: 'Con', last_name: 'Ductor' },
+        ] as unknown as User[],
+    } as unknown as typeof User;
+    const trips = {
+      findAll: async () =>
+        [
+          { bus_id: 'bus-1', status: TripStatus.IN_PROGRESS, scheduled_start_at: new Date() },
+        ] as unknown as Trip[],
+    } as unknown as typeof Trip;
+
+    const service = new BusesService(repo, assignments, routes, users, trips);
+
+    const response = await service.findAll(SCHOOL_A, makeQuery());
+
+    assert.equal(response.items.length, 1);
+    assert.equal(response.items[0].assigned_route_name, 'North Loop');
+    assert.equal(response.items[0].assigned_route_code, 'N1');
+    assert.equal(response.items[0].assigned_driver_name, 'Ada Driver');
+    assert.equal(response.items[0].assigned_conductor_name, 'Con Ductor');
+    assert.equal(response.items[0].current_trip_status, TripStatus.IN_PROGRESS);
   });
 });
 
@@ -331,7 +399,7 @@ describe('BusesService.findOne', () => {
   it('returns a bus only when id and school match', async () => {
     const bus = makeBusRecord({ id: 'bus-1', school_id: SCHOOL_A });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.findOne(SCHOOL_A, 'bus-1');
 
@@ -341,7 +409,7 @@ describe('BusesService.findOne', () => {
 
   it('returns the generic 404 for a missing id', async () => {
     const { repo } = makeBusesRepository([]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectNotFound(service.findOne(SCHOOL_A, 'bus-missing'));
   });
@@ -349,7 +417,7 @@ describe('BusesService.findOne', () => {
   it('returns the generic 404 for another school id', async () => {
     const bus = makeBusRecord({ id: 'bus-1', school_id: SCHOOL_B });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectNotFound(service.findOne(SCHOOL_A, 'bus-1'));
   });
@@ -359,7 +427,7 @@ describe('BusesService.update', () => {
   it('partially updates a bus of the authenticated school', async () => {
     const bus = makeBusRecord({ id: 'bus-1', capacity: 48 });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.update(
       SCHOOL_A,
@@ -375,7 +443,7 @@ describe('BusesService.update', () => {
   it('clears bus_number when null is sent', async () => {
     const bus = makeBusRecord({ id: 'bus-1', bus_number: 'BUS-01' });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.update(SCHOOL_A, 'bus-1', makeUpdateDto({ bus_number: null }));
 
@@ -385,7 +453,7 @@ describe('BusesService.update', () => {
   it('allows keeping the same registration number (self-excluded check)', async () => {
     const bus = makeBusRecord({ id: 'bus-1', registration_number: 'ABC-1234' });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.update(
       SCHOOL_A,
@@ -400,7 +468,7 @@ describe('BusesService.update', () => {
     const bus = makeBusRecord({ id: 'bus-1', registration_number: 'ABC-1234' });
     const other = makeBusRecord({ id: 'bus-2', registration_number: 'XYZ-999' });
     const { repo } = makeBusesRepository([bus, other]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectConflict(
       service.update(SCHOOL_A, 'bus-1', makeUpdateDto({ registration_number: 'XYZ-999' })),
@@ -411,7 +479,7 @@ describe('BusesService.update', () => {
   it('returns the generic 404 when updating another school bus', async () => {
     const bus = makeBusRecord({ id: 'bus-1', school_id: SCHOOL_B });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectNotFound(service.update(SCHOOL_A, 'bus-1', makeUpdateDto({ capacity: 60 })));
   });
@@ -421,7 +489,7 @@ describe('BusesService.remove', () => {
   it('soft deletes a bus of the authenticated school', async () => {
     const bus = makeBusRecord({ id: 'bus-1' });
     const { repo, all } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     const response = await service.remove(SCHOOL_A, 'bus-1');
 
@@ -433,7 +501,7 @@ describe('BusesService.remove', () => {
   it('returns the generic 404 when deleting another school bus', async () => {
     const bus = makeBusRecord({ id: 'bus-1', school_id: SCHOOL_B });
     const { repo } = makeBusesRepository([bus]);
-    const service = new BusesService(repo);
+    const service = makeService(repo);
 
     await expectNotFound(service.remove(SCHOOL_A, 'bus-1'));
   });

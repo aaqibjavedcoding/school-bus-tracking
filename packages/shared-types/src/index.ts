@@ -527,6 +527,15 @@ export interface StudentResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  /** Resolved home stop label, e.g. \"Maple St & 5th Ave\". */
+  home_stop_name?: string | null;
+  /** Route the student's home stop belongs to. */
+  route_id?: string | null;
+  route_name?: string | null;
+  route_code?: string | null;
+  /** Fleet number of the bus currently rostered to the student's route. */
+  bus_number?: string | null;
 }
 
 export interface PaginationMeta {
@@ -970,6 +979,14 @@ export interface StaffResponse<R extends StaffRole = StaffRole> {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  /** Fleet number of the bus the crew member is currently rostered to. */
+  assigned_bus_number?: string | null;
+  assigned_bus_registration?: string | null;
+  assigned_route_name?: string | null;
+  assigned_route_code?: string | null;
+  /** Status of the crew member's active trip today, when one exists. */
+  current_trip_status?: TripStatus | null;
 }
 
 /** Public projection of a driver account. Credential columns are never exposed. */
@@ -1070,6 +1087,13 @@ export interface RouteAssignmentResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  route_name?: string | null;
+  route_code?: string | null;
+  bus_number?: string | null;
+  bus_registration_number?: string | null;
+  user_name?: string | null;
+  user_email?: string | null;
 }
 
 /** Successful payload of `GET /api/v1/route-assignments`. */
@@ -1088,6 +1112,8 @@ export interface RouteAssignmentDeleteResponse {
 export interface RouteAssignmentListQuery {
   page?: number;
   limit?: number;
+  /** Free-text filter over route, bus and crew-member names. */
+  search?: string;
   route_id?: string;
   bus_id?: string;
   user_id?: string;
@@ -1169,6 +1195,13 @@ export interface TripResponse {
   cancellation_reason: string | null;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  route_name?: string | null;
+  route_code?: string | null;
+  bus_number?: string | null;
+  registration_number?: string | null;
+  driver_name?: string | null;
+  conductor_name?: string | null;
 }
 
 /** Successful payload of `GET /api/v1/trips`. */
@@ -1193,6 +1226,8 @@ export interface TripDeleteResponse {
 export interface TripListQuery {
   page?: number;
   limit?: number;
+  /** Free-text filter over route code/name, bus number/registration and crew names. */
+  search?: string;
   status?: TripStatus;
   route_id?: string;
   bus_id?: string;
@@ -1690,6 +1725,14 @@ export interface BusResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  /** Route the bus is currently rostered to (via an active assignment). */
+  assigned_route_name?: string | null;
+  assigned_route_code?: string | null;
+  assigned_driver_name?: string | null;
+  assigned_conductor_name?: string | null;
+  /** Status of the bus's active trip today, when one exists. */
+  current_trip_status?: TripStatus | null;
 }
 
 /** Successful payload of `GET /api/v1/buses`. */
@@ -1738,6 +1781,40 @@ export interface RouteResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  /** Crew and vehicle currently rostered to the route (active assignments). */
+  driver_name?: string | null;
+  conductor_name?: string | null;
+  bus_number?: string | null;
+  bus_registration_number?: string | null;
+  /** Number of active students whose home stop sits on this route. */
+  student_count?: number | null;
+  /** Status of the route's active trip today, when one exists. */
+  current_trip_status?: TripStatus | null;
+}
+
+/** A student shown on a route detail screen (derived from home stops). */
+export interface RouteStudentSummary {
+  id: string;
+  admission_number: string;
+  first_name: string;
+  last_name: string;
+  grade_level: string | null;
+  stop_id: string | null;
+  stop_name: string | null;
+  stop_sequence_number: number | null;
+}
+
+/**
+ * Full route detail payload of `GET /api/v1/routes/:id/details`: the route
+ * facts plus the crew/vehicle roster, the ordered stops, the students whose
+ * home stop belongs to the route and the route's active trip today (if any).
+ */
+export interface RouteDetailResponse {
+  route: RouteResponse;
+  stops: StopResponse[];
+  students: RouteStudentSummary[];
+  active_trip: TripResponse | null;
 }
 
 /** Successful payload of `GET /api/v1/routes`. */

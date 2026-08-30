@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { StudentGender } from '@school-bus-tracking/shared-types';
-import { Student, StudentGuardian, Stop } from '../../database/models';
+import { Bus, Route, RouteAssignment, Student, StudentGuardian, Stop } from '../../database/models';
 import { StudentsService } from './students.service';
 import {
   STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE,
@@ -123,12 +123,16 @@ function makeStudentsRepository(
         const or = options.where?.[Op.or] as
           Array<Record<string, Record<PropertyKey, string>>> | undefined;
         if (or) {
-          const pattern = String(or[0]?.['first_name']?.[Op.iLike] ?? '');
-          const needle = pattern.replace(/^%/, '').replace(/%$/, '').toLowerCase();
-          rows = rows.filter(
-            (record) =>
-              record.first_name.toLowerCase().includes(needle) ||
-              record.last_name.toLowerCase().includes(needle),
+          const fields = ['first_name', 'last_name', 'admission_number', 'grade_level'] as const;
+          rows = rows.filter((record) =>
+            or.some((clause) =>
+              fields.some((field) => {
+                const pattern = clause[field]?.[Op.iLike];
+                if (!pattern) return false;
+                const needle = pattern.replace(/^%/, '').replace(/%$/, '').toLowerCase();
+                return String(record[field] ?? '').toLowerCase().includes(needle);
+              }),
+            ),
           );
         }
 
@@ -143,7 +147,9 @@ function makeStudentsRepository(
   };
 }
 
-function makeStopsRepository(records: Array<{ id: string; school_id: string }> = []) {
+function makeStopsRepository(
+  records: Array<{ id: string; school_id: string; route_id?: string; name?: string }> = [],
+) {
   return {
     repo: {
       findOne: async (options: { where: Record<string, unknown> }) =>
@@ -151,6 +157,8 @@ function makeStopsRepository(records: Array<{ id: string; school_id: string }> =
           (record) =>
             record.id === options.where.id && record.school_id === options.where.school_id,
         ) ?? null,
+      findAll: async (options: { where: Record<string, unknown> }) =>
+        records.filter((record) => record.school_id === options.where.school_id),
     } as unknown as typeof Stop,
   };
 }
@@ -159,6 +167,23 @@ function emptyGuardians(): typeof StudentGuardian {
   return {
     findOne: async () => null,
   } as unknown as typeof StudentGuardian;
+}
+
+/** Builds the service with empty route / assignment / bus relation stubs. */
+function makeService(
+  students: typeof Student,
+  stops: typeof Stop,
+  guardians: typeof StudentGuardian,
+): StudentsService {
+  const empty = { findAll: async () => [] } as unknown as typeof Route;
+  return new StudentsService(
+    students,
+    stops,
+    guardians,
+    empty as unknown as typeof Route,
+    empty as unknown as typeof RouteAssignment,
+    empty as unknown as typeof Bus,
+  );
 }
 
 function makeCreateDto(overrides: Partial<CreateStudentDto> = {}): CreateStudentDto {
@@ -204,7 +229,7 @@ describe('StudentsService.create', () => {
   it('creates a student scoped to the authenticated school', async () => {
     const capture: { createPayload?: Partial<StubStudentRecord> } = {};
     const { repo: students } = makeStudentsRepository([], capture);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
@@ -226,7 +251,7 @@ describe('StudentsService.create', () => {
   it('accepts a home stop that belongs to the same school', async () => {
     const capture: { createPayload?: Partial<StubStudentRecord> } = {};
     const { repo: students } = makeStudentsRepository([], capture);
-    const service = new StudentsService(
+    const service = makeService(
       students,
       makeStopsRepository([{ id: STOP_A, school_id: SCHOOL_A }]).repo,
       emptyGuardians(),
@@ -239,7 +264,7 @@ describe('StudentsService.create', () => {
 
   it('rejects a home stop that belongs to another school', async () => {
     const { repo: students } = makeStudentsRepository();
-    const service = new StudentsService(
+    const service = makeService(
       students,
       makeStopsRepository([{ id: STOP_B, school_id: SCHOOL_B }]).repo,
       emptyGuardians(),
@@ -253,7 +278,7 @@ describe('StudentsService.create', () => {
 
   it('rejects an invalid calendar date even when it matches the shape', async () => {
     const { repo: students } = makeStudentsRepository();
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await expectBadRequest(
       service.create(SCHOOL_A, makeCreateDto({ date_of_birth: '2024-99-99' })),
@@ -270,7 +295,7 @@ describe('StudentsService.create', () => {
           fields: { admission_number: 'STU-101' },
         }),
       );
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await assert.rejects(service.create(SCHOOL_A, makeCreateDto()), (error: unknown) => {
       assert.ok(error instanceof ConflictException);
@@ -286,7 +311,7 @@ describe('StudentsService.findAll', () => {
     const ownTwo = makeStudentRecord({ id: 'own-2', school_id: SCHOOL_A, first_name: 'Bob' });
     const other = makeStudentRecord({ id: 'other-1', school_id: SCHOOL_B, first_name: 'Mallory' });
     const { repo: students } = makeStudentsRepository([ownOne, ownTwo, other]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.findAll(SCHOOL_A, makeQuery());
 
@@ -306,7 +331,7 @@ describe('StudentsService.findAll', () => {
       }),
     );
     const { repo: students } = makeStudentsRepository(records);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ page: 2, limit: 10 }));
 
@@ -341,7 +366,7 @@ describe('StudentsService.findAll', () => {
       ],
       capture,
     );
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ search: 'aliCE' }));
 
@@ -350,13 +375,73 @@ describe('StudentsService.findAll', () => {
     assert.equal(response.meta.total, 1);
     assert.ok(capture.findAndCountWhere?.[Op.or], 'search must be applied via Op.or');
   });
+
+  it('filters by admission number and grade level', async () => {
+    const { repo: students } = makeStudentsRepository([
+      makeStudentRecord({
+        id: 's1',
+        school_id: SCHOOL_A,
+        first_name: 'Alice',
+        admission_number: 'P-2041',
+        grade_level: 'Grade 5',
+      }),
+      makeStudentRecord({
+        id: 's2',
+        school_id: SCHOOL_A,
+        first_name: 'Bob',
+        admission_number: 'P-9988',
+        grade_level: 'Grade 9',
+      }),
+    ]);
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
+
+    const byAdmission = await service.findAll(SCHOOL_A, makeQuery({ search: 'P-2041' }));
+    assert.deepEqual(byAdmission.items.map((item) => item.id), ['s1']);
+
+    const byGrade = await service.findAll(SCHOOL_A, makeQuery({ search: 'grade 9' }));
+    assert.deepEqual(byGrade.items.map((item) => item.id), ['s2']);
+  });
+
+  it('returns the home stop, route and bus display fields', async () => {
+    const { repo: students } = makeStudentsRepository([
+      makeStudentRecord({ id: 's1', school_id: SCHOOL_A, home_stop_id: STOP_A }),
+    ]);
+    const stops = makeStopsRepository([{ id: STOP_A, school_id: SCHOOL_A, route_id: 'route-1', name: 'Maple & 5th' }]);
+    const routes = {
+      findAll: async () => [{ id: 'route-1', name: 'North Loop', code: 'N1' }] as unknown as Route[],
+    } as unknown as typeof Route;
+    const assignments = {
+      findAll: async () =>
+        [{ route_id: 'route-1', bus_id: 'bus-1', effective_from: '2026-01-01' }] as unknown as RouteAssignment[],
+    } as unknown as typeof RouteAssignment;
+    const buses = {
+      findAll: async () => [{ id: 'bus-1', bus_number: 'B-01' }] as unknown as Bus[],
+    } as unknown as typeof Bus;
+
+    const service = new StudentsService(
+      students,
+      stops.repo,
+      emptyGuardians(),
+      routes,
+      assignments,
+      buses,
+    );
+
+    const response = await service.findAll(SCHOOL_A, makeQuery());
+
+    assert.equal(response.items.length, 1);
+    assert.equal(response.items[0].home_stop_name, 'Maple & 5th');
+    assert.equal(response.items[0].route_name, 'North Loop');
+    assert.equal(response.items[0].route_code, 'N1');
+    assert.equal(response.items[0].bus_number, 'B-01');
+  });
 });
 
 describe('StudentsService.findOne', () => {
   it('returns a student of the authenticated school', async () => {
     const record = makeStudentRecord({ id: 'own-student', school_id: SCHOOL_A });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.findOne(SCHOOL_A, 'own-student');
 
@@ -367,14 +452,14 @@ describe('StudentsService.findOne', () => {
   it('returns a generic 404 for a student of another school (no existence leak)', async () => {
     const record = makeStudentRecord({ id: 'cross-tenant', school_id: SCHOOL_B });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await expectNotFound(service.findOne(SCHOOL_A, 'cross-tenant'));
   });
 
   it('returns a generic 404 for an unknown id', async () => {
     const { repo: students } = makeStudentsRepository();
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await expectNotFound(service.findOne(SCHOOL_A, 'does-not-exist'));
   });
@@ -384,7 +469,7 @@ describe('StudentsService.update', () => {
   it('updates a student of the authenticated school without touching ownership', async () => {
     const record = makeStudentRecord({ id: 'own-student', school_id: SCHOOL_A });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.update(
       SCHOOL_A,
@@ -405,7 +490,7 @@ describe('StudentsService.update', () => {
       home_stop_id: STOP_A,
     });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(
+    const service = makeService(
       students,
       makeStopsRepository([{ id: STOP_A, school_id: SCHOOL_A }]).repo,
       emptyGuardians(),
@@ -424,7 +509,7 @@ describe('StudentsService.update', () => {
   it('rejects updating a student of another school with a generic 404', async () => {
     const record = makeStudentRecord({ id: 'cross-tenant', school_id: SCHOOL_B });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await expectNotFound(
       service.update(SCHOOL_A, 'cross-tenant', makeUpdateDto({ first_name: 'Hacked' })),
@@ -434,7 +519,7 @@ describe('StudentsService.update', () => {
   it('rejects reassigning a home stop to another school', async () => {
     const record = makeStudentRecord({ id: 'own-student', school_id: SCHOOL_A });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(
+    const service = makeService(
       students,
       makeStopsRepository([{ id: STOP_B, school_id: SCHOOL_B }]).repo,
       emptyGuardians(),
@@ -455,7 +540,7 @@ describe('StudentsService.update', () => {
       });
     };
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await assert.rejects(
       service.update(SCHOOL_A, 'own-student', makeUpdateDto({ admission_number: 'STU-101' })),
@@ -472,7 +557,7 @@ describe('StudentsService.remove', () => {
   it('soft deletes a student of the authenticated school only', async () => {
     const record = makeStudentRecord({ id: 'own-student', school_id: SCHOOL_A });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     const response = await service.remove(SCHOOL_A, 'own-student');
 
@@ -487,7 +572,7 @@ describe('StudentsService.remove', () => {
   it('rejects deleting a student of another school with a generic 404', async () => {
     const record = makeStudentRecord({ id: 'cross-tenant', school_id: SCHOOL_B });
     const { repo: students } = makeStudentsRepository([record]);
-    const service = new StudentsService(students, makeStopsRepository().repo, emptyGuardians());
+    const service = makeService(students, makeStopsRepository().repo, emptyGuardians());
 
     await expectNotFound(service.remove(SCHOOL_A, 'cross-tenant'));
     assert.equal(record.deleted_at, null, 'other tenant rows must never be touched');

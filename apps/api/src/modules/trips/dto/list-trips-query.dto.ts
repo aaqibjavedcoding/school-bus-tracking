@@ -4,9 +4,11 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { TripListQuery, TripStatus } from '@school-bus-tracking/shared-types';
@@ -33,6 +35,11 @@ export class ListTripsQueryDto implements TripListQuery {
   @Min(1, { message: 'limit must be at least 1' })
   @Max(100, { message: 'limit must be at most 100' })
   limit: number = 20;
+
+  @IsOptional()
+  @IsString({ message: 'search must be a string' })
+  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  search?: string;
 
   @IsOptional()
   @IsEnum(TripStatus, {
