@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UniqueConstraintError, type WhereOptions } from 'sequelize';
+import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
   RouteAssignmentDeleteResponse,
@@ -99,6 +99,11 @@ export class RouteAssignmentsService {
     if (query.role !== undefined) where.role = query.role;
     if (query.is_active !== undefined) where.is_active = query.is_active;
 
+    const search = query.search?.trim();
+    if (search) {
+      where[Op.or] = await this.buildSearchWhere(schoolId, search);
+    }
+
     const { rows, count } = await this.assignments.findAndCountAll({
       where: where as WhereOptions,
       limit,
@@ -121,7 +126,7 @@ export class RouteAssignmentsService {
     };
 
     return {
-      items: rows.map((assignment) => this.toResponse(assignment)),
+      items: await this.toResponses(rows),
       meta,
     };
   }
@@ -351,22 +356,125 @@ export class RouteAssignmentsService {
     };
   }
 
-  /** Explicit projection — ORM internals and associations never leak. */
-  private toResponse(assignment: RouteAssignment): RouteAssignmentResponse {
-    return {
-      id: assignment.id,
-      school_id: assignment.school_id,
-      route_id: assignment.route_id,
-      bus_id: assignment.bus_id,
-      user_id: assignment.user_id,
-      role: assignment.role,
-      effective_from: normalizeDateOnly(assignment.effective_from),
-      effective_to: normalizeNullableDateOnly(assignment.effective_to),
-      is_active: assignment.is_active,
-      created_at: toIsoString(assignment.created_at),
-      updated_at: toIsoString(assignment.updated_at),
-    };
+  /**
+   * Explicit projection — ORM internals and associations never leak. Route,
+   * bus and crew-member names are resolved with batched lookups so callers get
+   * human-readable values, never bare ids.
+   */
+  private async toResponse(assignment: RouteAssignment): Promise<RouteAssignmentResponse> {
+    const [response] = await this.toResponses([assignment]);
+    return response;
   }
+
+  /** Batched projection of assignments with their route / bus / crew names. */
+  private async toResponses(assignments: RouteAssignment[]): Promise<RouteAssignmentResponse[]> {
+    if (assignments.length === 0) {
+      return [];
+    }
+    const schoolId = assignments[0].school_id;
+    const routeIds = [...new Set(assignments.map((assignment) => assignment.route_id))];
+    const busIds = [
+      ...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId)),
+    ];
+    const userIds = [...new Set(assignments.map((assignment) => assignment.user_id))];
+
+    const [routes, buses, users] = await Promise.all([
+      routeIds.length
+        ? this.routes.findAll({ where: { school_id: schoolId, id: { [Op.in]: routeIds } } })
+        : Promise.resolve([] as Route[]),
+      busIds.length
+        ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+        : Promise.resolve([] as Bus[]),
+      userIds.length
+        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        : Promise.resolve([] as User[]),
+    ]);
+
+    const routeById = new Map(routes.map((route) => [route.id, route]));
+    const busById = new Map(buses.map((bus) => [bus.id, bus]));
+    const userById = new Map(users.map((user) => [user.id, user]));
+
+    return assignments.map((assignment) => {
+      const route = routeById.get(assignment.route_id);
+      const bus = assignment.bus_id ? busById.get(assignment.bus_id) : undefined;
+      const user = userById.get(assignment.user_id);
+      return {
+        id: assignment.id,
+        school_id: assignment.school_id,
+        route_id: assignment.route_id,
+        bus_id: assignment.bus_id,
+        user_id: assignment.user_id,
+        role: assignment.role,
+        effective_from: normalizeDateOnly(assignment.effective_from),
+        effective_to: normalizeNullableDateOnly(assignment.effective_to),
+        is_active: assignment.is_active,
+        created_at: toIsoString(assignment.created_at),
+        updated_at: toIsoString(assignment.updated_at),
+        route_name: route?.name ?? null,
+        route_code: route?.code ?? null,
+        bus_number: bus?.bus_number ?? null,
+        bus_registration_number: bus?.registration_number ?? null,
+        user_name: user ? `${user.first_name} ${user.last_name}`.trim() : null,
+        user_email: user?.email ?? null,
+      };
+    });
+  }
+
+  /**
+   * Builds the search predicate. The roster table carries no names, so the
+   * free-text filter first resolves the matching routes, buses and crew members
+   * inside the tenant, then pins the assignment query to those ids.
+   */
+  private async buildSearchWhere(
+    schoolId: string,
+    search: string,
+  ): Promise<Array<Record<PropertyKey, unknown>>> {
+    const pattern = `%${escapeLikePattern(search)}%`;
+    const [routes, buses, users] = await Promise.all([
+      this.routes.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [{ name: { [Op.iLike]: pattern } }, { code: { [Op.iLike]: pattern } }],
+        },
+        attributes: ['id'],
+      }),
+      this.buses.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [
+            { registration_number: { [Op.iLike]: pattern } },
+            { bus_number: { [Op.iLike]: pattern } },
+          ],
+        },
+        attributes: ['id'],
+      }),
+      this.users.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [{ first_name: { [Op.iLike]: pattern } }, { last_name: { [Op.iLike]: pattern } }],
+        },
+        attributes: ['id'],
+      }),
+    ]);
+
+    const or: Array<Record<PropertyKey, unknown>> = [];
+    const routeIds = routes.map((route) => route.id);
+    const busIds = buses.map((bus) => bus.id);
+    const userIds = users.map((user) => user.id);
+    if (routeIds.length) or.push({ route_id: { [Op.in]: routeIds } });
+    if (busIds.length) or.push({ bus_id: { [Op.in]: busIds } });
+    if (userIds.length) or.push({ user_id: { [Op.in]: userIds } });
+    return or.length ? or : [{ id: { [Op.eq]: null } }];
+  }
+}
+
+function isId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/** Escapes LIKE wildcards so user input is matched literally. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 interface AssignmentValues {

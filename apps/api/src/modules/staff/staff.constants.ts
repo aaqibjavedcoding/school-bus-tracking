@@ -12,6 +12,10 @@ import type { StaffRole } from '@school-bus-tracking/shared-types';
  * BusesModule.
  */
 export const STAFF_REPOSITORY = 'STAFF_REPOSITORY';
+export const STAFF_ROUTE_ASSIGNMENTS_REPOSITORY = 'STAFF_ROUTE_ASSIGNMENTS_REPOSITORY';
+export const STAFF_ROUTES_REPOSITORY = 'STAFF_ROUTES_REPOSITORY';
+export const STAFF_BUSES_REPOSITORY = 'STAFF_BUSES_REPOSITORY';
+export const STAFF_TRIPS_REPOSITORY = 'STAFF_TRIPS_REPOSITORY';
 
 /** The two roles this module manages; never accepted from a client. */
 export const STAFF_ROLES: readonly StaffRole[] = [UserRole.DRIVER, UserRole.CONDUCTOR] as const;

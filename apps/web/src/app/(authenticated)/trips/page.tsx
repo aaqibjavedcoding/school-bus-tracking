@@ -15,6 +15,7 @@ import {
   Modal,
   PageHeader,
   Pagination,
+  SearchInput,
   Select,
   Skeleton,
   useToast,
@@ -42,23 +43,16 @@ export default function TripsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(utcDateOnly());
   const lookups = useLoad(async () => {
-    const [assignments, routes, buses] = await Promise.all([
-      apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
-      apiClient.listBuses({ page: 1, limit: 100 }),
-    ]);
-    return {
-      assignments: unwrapEnvelope(assignments).items,
-      routes: unwrapEnvelope(routes).items,
-      buses: unwrapEnvelope(buses).items,
-    };
+    const assignments = await apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true });
+    return { assignments: unwrapEnvelope(assignments).items };
   }, []);
   const list = usePagedResource(
-    async (page) =>
+    async (page, search) =>
       unwrapEnvelope(
         await apiClient.listTrips({
           page,
           limit: 20,
+          search,
           status: statusFilter ? (statusFilter as TripStatus) : undefined,
           date: dateFilter || undefined,
         }),
@@ -123,13 +117,14 @@ export default function TripsPage() {
     }
   };
 
-  const routeName = (id: string) => {
-    const route = lookups.data?.routes.find((item) => item.id === id);
-    return route ? `${route.code} — ${route.name}` : 'Route unavailable';
+  const routeName = (trip: TripResponse) =>
+    trip.route_name ? `${trip.route_code ?? ''} — ${trip.route_name}`.replace(/^ — /, '') : 'Route unavailable';
+  const busLabel = (trip: TripResponse) =>
+    trip.bus_number ?? trip.registration_number ?? 'No bus';
+  const crewLabel = (driver: string | null | undefined, conductor: string | null | undefined) => {
+    if (driver && conductor) return `${driver} · ${conductor}`;
+    return driver ?? conductor ?? '—';
   };
-  const busNumber = (id: string | null) =>
-    lookups.data?.buses.find((bus) => bus.id === id)?.registration_number ??
-    (id ? 'Bus unavailable' : 'No bus');
 
   return (
     <div className="page">
@@ -139,6 +134,12 @@ export default function TripsPage() {
         actions={<Button onClick={() => setOpen(true)}>Schedule trip</Button>}
       />
       <div className="toolbar">
+        <SearchInput
+          value={list.search}
+          searching={list.searching}
+          onChange={list.setSearch}
+          placeholder="Search route, bus or crew"
+        />
         <Input
           type="date"
           value={dateFilter}
@@ -160,9 +161,21 @@ export default function TripsPage() {
         <ErrorState message={list.error} onRetry={() => void list.reload()} />
       ) : list.items.length === 0 ? (
         <EmptyState
-          title="No trips"
-          description="Schedule a trip from an active driver or conductor assignment."
-          action={<Button onClick={() => setOpen(true)}>Schedule trip</Button>}
+          title={list.search ? 'No matching trips' : 'No trips'}
+          description={
+            list.search
+              ? 'No trips match your search. Try a different term or clear it.'
+              : 'Schedule a trip from an active driver or conductor assignment.'
+          }
+          action={
+            list.search ? (
+              <Button variant="secondary" onClick={() => list.setSearch('')}>
+                Clear search
+              </Button>
+            ) : (
+              <Button onClick={() => setOpen(true)}>Schedule trip</Button>
+            )
+          }
         />
       ) : (
         <>
@@ -173,6 +186,8 @@ export default function TripsPage() {
                   <th>Status</th>
                   <th>Start</th>
                   <th>Route</th>
+                  <th>Bus</th>
+                  <th>Driver · Conductor</th>
                   <th></th>
                 </tr>
               </thead>
@@ -185,7 +200,9 @@ export default function TripsPage() {
                       </Badge>
                     </td>
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
-                    <td>{routeName(trip.route_id)}</td>
+                    <td>{routeName(trip)}</td>
+                    <td>{busLabel(trip)}</td>
+                    <td>{crewLabel(trip.driver_name, trip.conductor_name)}</td>
                     <td>
                       <div className="table-actions">
                         <Link className="btn btn-secondary" href={`/trips/${trip.id}`}>
@@ -224,7 +241,7 @@ export default function TripsPage() {
               onChange={(event) => setForm({ ...form, route_assignment_id: event.target.value })}
               options={(lookups.data?.assignments ?? []).map((assignment) => ({
                 value: assignment.id,
-                label: `${routeName(assignment.route_id)} · ${busNumber(assignment.bus_id)} · ${assignment.role.toLowerCase()}`,
+                label: `${assignment.route_code ?? 'Route'} — ${assignment.route_name ?? ''} · ${assignment.bus_number ?? assignment.bus_registration_number ?? 'No bus'} · ${assignment.role.toLowerCase()}`,
               }))}
             />
           </Field>

@@ -13,7 +13,15 @@ import {
   StudentResponse,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { Student, StudentAttributes, StudentGuardian, Stop } from '../../database/models';
+import {
+  Bus,
+  Route,
+  RouteAssignment,
+  Student,
+  StudentAttributes,
+  StudentGuardian,
+  Stop,
+} from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import {
   STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE,
@@ -21,8 +29,11 @@ import {
   STUDENT_DELETED_MESSAGE,
   STUDENT_HOME_STOP_INVALID_MESSAGE,
   STUDENT_NOT_FOUND_MESSAGE,
+  STUDENTS_BUSES_REPOSITORY,
   STUDENTS_GUARDIANS_REPOSITORY,
   STUDENTS_REPOSITORY,
+  STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY,
+  STUDENTS_ROUTES_REPOSITORY,
   STUDENTS_STOPS_REPOSITORY,
 } from './students.constants';
 import { CreateStudentDto } from './dto/create-student.dto';
@@ -49,6 +60,10 @@ export class StudentsService {
     @Inject(STUDENTS_REPOSITORY) private readonly students: typeof Student,
     @Inject(STUDENTS_STOPS_REPOSITORY) private readonly stops: typeof Stop,
     @Inject(STUDENTS_GUARDIANS_REPOSITORY) private readonly guardians: typeof StudentGuardian,
+    @Inject(STUDENTS_ROUTES_REPOSITORY) private readonly routes: typeof Route,
+    @Inject(STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY)
+    private readonly assignments: typeof RouteAssignment,
+    @Inject(STUDENTS_BUSES_REPOSITORY) private readonly buses: typeof Bus,
   ) {}
 
   /**
@@ -104,6 +119,8 @@ export class StudentsService {
       where[Op.or] = [
         { first_name: { [Op.iLike]: pattern } },
         { last_name: { [Op.iLike]: pattern } },
+        { admission_number: { [Op.iLike]: pattern } },
+        { grade_level: { [Op.iLike]: pattern } },
       ];
     }
 
@@ -128,7 +145,7 @@ export class StudentsService {
     };
 
     return {
-      items: rows.map((student) => this.toStudentResponse(student)),
+      items: await this.toStudentResponses(rows),
       meta,
     };
   }
@@ -271,26 +288,88 @@ export class StudentsService {
     return date;
   }
 
-  /** Explicit field-by-field projection — no internal or sensitive field leaks. */
-  private toStudentResponse(student: Student): StudentResponse {
-    return {
-      id: student.id,
-      school_id: student.school_id,
-      admission_number: student.admission_number,
-      first_name: student.first_name,
-      last_name: student.last_name,
-      date_of_birth: formatDateOnly(student.date_of_birth),
-      gender: student.gender,
-      grade_level: student.grade_level,
-      home_stop_id: student.home_stop_id,
-      emergency_contact_name: student.emergency_contact_name,
-      emergency_contact_phone: student.emergency_contact_phone,
-      medical_notes: student.medical_notes,
-      is_active: student.is_active,
-      created_at: student.created_at.toISOString(),
-      updated_at: student.updated_at.toISOString(),
-    };
+  /**
+   * Explicit field-by-field projection — no internal or sensitive field leaks.
+   * The home stop label, route and rostered bus are resolved with batched
+   * lookups so callers get names, never bare ids.
+   */
+  private async toStudentResponse(student: Student): Promise<StudentResponse> {
+    const [response] = await this.toStudentResponses([student]);
+    return response;
   }
+
+  /** Batched projection of students with their home stop / route / bus. */
+  private async toStudentResponses(students: Student[]): Promise<StudentResponse[]> {
+    if (students.length === 0) {
+      return [];
+    }
+    const schoolId = students[0].school_id;
+    const stopIds = [...new Set(students.map((s) => s.home_stop_id).filter(isId))];
+
+    const stops = stopIds.length
+      ? await this.stops.findAll({ where: { school_id: schoolId, id: { [Op.in]: stopIds } } })
+      : [];
+    const stopById = new Map(stops.map((stop) => [stop.id, stop]));
+
+    const routeIds = [...new Set(stops.map((stop) => stop.route_id))];
+    const [routes, assignments] = await Promise.all([
+      routeIds.length
+        ? this.routes.findAll({ where: { school_id: schoolId, id: { [Op.in]: routeIds } } })
+        : Promise.resolve([] as Route[]),
+      routeIds.length
+        ? this.assignments.findAll({
+            where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, is_active: true },
+            order: [['effective_from', 'ASC']],
+          })
+        : Promise.resolve([] as RouteAssignment[]),
+    ]);
+    const routeById = new Map(routes.map((route) => [route.id, route]));
+
+    const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
+    const buses = busIds.length
+      ? await this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+      : [];
+    const busById = new Map(buses.map((bus) => [bus.id, bus]));
+    const busByRoute = new Map<string, Bus>();
+    for (const assignment of assignments) {
+      if (assignment.bus_id && !busByRoute.has(assignment.route_id)) {
+        const bus = busById.get(assignment.bus_id);
+        if (bus) busByRoute.set(assignment.route_id, bus);
+      }
+    }
+
+    return students.map((student) => {
+      const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
+      const route = stop ? routeById.get(stop.route_id) : undefined;
+      const bus = route ? busByRoute.get(route.id) : undefined;
+      return {
+        id: student.id,
+        school_id: student.school_id,
+        admission_number: student.admission_number,
+        first_name: student.first_name,
+        last_name: student.last_name,
+        date_of_birth: formatDateOnly(student.date_of_birth),
+        gender: student.gender,
+        grade_level: student.grade_level,
+        home_stop_id: student.home_stop_id,
+        emergency_contact_name: student.emergency_contact_name,
+        emergency_contact_phone: student.emergency_contact_phone,
+        medical_notes: student.medical_notes,
+        is_active: student.is_active,
+        created_at: student.created_at.toISOString(),
+        updated_at: student.updated_at.toISOString(),
+        home_stop_name: stop?.name ?? null,
+        route_id: route?.id ?? null,
+        route_name: route?.name ?? null,
+        route_code: route?.code ?? null,
+        bus_number: bus?.bus_number ?? null,
+      };
+    });
+  }
+}
+
+function isId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function nullableTrim(value: string | null | undefined): string | null {

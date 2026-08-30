@@ -8,13 +8,27 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  RouteAssignmentRole,
   RouteDeleteResponse,
+  RouteDetailResponse,
   RouteListResponse,
   RouteResponse,
   RouteStopsListResponse,
+  RouteStudentSummary,
   StopResponse,
+  TripResponse,
+  TripStatus,
 } from '@school-bus-tracking/shared-types';
-import { Route, RouteAttributes, Stop } from '../../database/models';
+import {
+  Bus,
+  Route,
+  RouteAssignment,
+  RouteAttributes,
+  Stop,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
   ROUTE_DELETED_MESSAGE,
@@ -22,8 +36,13 @@ import {
   ROUTE_STOPS_ORDER_DUPLICATE_MESSAGE,
   ROUTE_STOPS_ORDER_INCOMPLETE_MESSAGE,
   ROUTE_STOPS_ORDER_UNKNOWN_STOP_MESSAGE,
+  ROUTES_BUSES_REPOSITORY,
   ROUTES_REPOSITORY,
+  ROUTES_ROUTE_ASSIGNMENTS_REPOSITORY,
   ROUTES_STOPS_REPOSITORY,
+  ROUTES_STUDENTS_REPOSITORY,
+  ROUTES_TRIPS_REPOSITORY,
+  ROUTES_USERS_REPOSITORY,
 } from './routes.constants';
 import { CreateRouteDto } from './dto/create-route.dto';
 import { ListRoutesQueryDto } from './dto/list-routes-query.dto';
@@ -44,11 +63,26 @@ import { ReorderRouteStopsDto } from './dto/reorder-route-stops.dto';
  * them from the supplied permutation. Both are pinned to the authenticated
  * school through the route lookup.
  */
+/** Ranked preference for the route's "current" trip today. */
+const TRIP_PREFERENCE: Record<TripStatus, number> = {
+  [TripStatus.IN_PROGRESS]: 0,
+  [TripStatus.BOARDING]: 1,
+  [TripStatus.SCHEDULED]: 2,
+  [TripStatus.COMPLETED]: 3,
+  [TripStatus.CANCELLED]: 4,
+};
+
 @Injectable()
 export class RoutesService {
   constructor(
     @Inject(ROUTES_REPOSITORY) private readonly routes: typeof Route,
     @Inject(ROUTES_STOPS_REPOSITORY) private readonly stops: typeof Stop,
+    @Inject(ROUTES_ROUTE_ASSIGNMENTS_REPOSITORY)
+    private readonly assignments: typeof RouteAssignment,
+    @Inject(ROUTES_USERS_REPOSITORY) private readonly users: typeof User,
+    @Inject(ROUTES_BUSES_REPOSITORY) private readonly buses: typeof Bus,
+    @Inject(ROUTES_TRIPS_REPOSITORY) private readonly trips: typeof Trip,
+    @Inject(ROUTES_STUDENTS_REPOSITORY) private readonly students: typeof Student,
   ) {}
 
   /**
@@ -70,7 +104,8 @@ export class RoutesService {
         description: nullableTrim(dto.description),
         is_active: dto.is_active ?? true,
       });
-      return this.toRouteResponse(route);
+      const [response] = await this.toRouteResponses([route]);
+      return response;
     } catch (error) {
       if (error instanceof UniqueConstraintError) {
         throw new ConflictException(ROUTE_CODE_TAKEN_MESSAGE);
@@ -116,7 +151,7 @@ export class RoutesService {
     };
 
     return {
-      items: rows.map((route) => this.toRouteResponse(route)),
+      items: await this.toRouteResponses(rows),
       meta,
     };
   }
@@ -124,7 +159,86 @@ export class RoutesService {
   /** Returns one route only when both the id and the authenticated school_id match. */
   async findOne(schoolId: string, id: string): Promise<RouteResponse> {
     const route = await this.findRouteOrThrow(schoolId, id);
-    return this.toRouteResponse(route);
+    const [response] = await this.toRouteResponses([route]);
+    return response;
+  }
+
+  /**
+   * `GET /api/v1/routes/:id/details`
+   *
+   * Full route-detail payload: enriched route facts plus the ordered stops,
+   * the students whose home stop belongs to the route and the route's active
+   * trip today (if any).
+   */
+  async getDetails(schoolId: string, id: string): Promise<RouteDetailResponse> {
+    const route = await this.findOne(schoolId, id);
+
+    const [stops, assignments, todayTrips] = await Promise.all([
+      this.stops.findAll({
+        where: { route_id: id, school_id: schoolId },
+        order: [['sequence_number', 'ASC']],
+      }),
+      this.assignments.findAll({
+        where: { route_id: id, school_id: schoolId, is_active: true },
+        order: [['effective_from', 'ASC']],
+      }),
+      this.trips.findAll({
+        where: { route_id: id, school_id: schoolId, scheduled_start_at: todayRange() },
+        order: [['scheduled_start_at', 'ASC']],
+      }),
+    ]);
+
+    const stopById = new Map(stops.map((stop) => [stop.id, stop]));
+    const students = stops.length
+      ? await this.students.findAll({
+          where: {
+            school_id: schoolId,
+            home_stop_id: { [Op.in]: stops.map((stop) => stop.id) },
+            is_active: true,
+          },
+          order: [
+            ['last_name', 'ASC'],
+            ['first_name', 'ASC'],
+          ],
+        })
+      : [];
+
+    const activeTrip = pickTodayTrip(todayTrips);
+    let activeTripResponse: TripResponse | null = null;
+    if (activeTrip) {
+      const crewIds = [activeTrip.driver_id, activeTrip.conductor_id].filter(isId);
+      const busIds = [activeTrip.bus_id].filter(isId);
+      const [crew, buses] = await Promise.all([
+        crewIds.length
+          ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: crewIds } } })
+          : Promise.resolve([] as User[]),
+        busIds.length
+          ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+          : Promise.resolve([] as Bus[]),
+      ]);
+      activeTripResponse = toTripResponse(activeTrip, crew, buses, route);
+    }
+
+    return {
+      route,
+      stops: stops.map((stop) => this.toStopResponse(stop)),
+      students: students.map(
+        (student): RouteStudentSummary => {
+          const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
+          return {
+            id: student.id,
+            admission_number: student.admission_number,
+            first_name: student.first_name,
+            last_name: student.last_name,
+            grade_level: student.grade_level,
+            stop_id: student.home_stop_id,
+            stop_name: stop?.name ?? null,
+            stop_sequence_number: stop?.sequence_number ?? null,
+          };
+        },
+      ),
+      active_trip: activeTripResponse,
+    };
   }
 
   /**
@@ -161,7 +275,8 @@ export class RoutesService {
       throw error;
     }
 
-    return this.toRouteResponse(route);
+    const [response] = await this.toRouteResponses([route]);
+    return response;
   }
 
   /**
@@ -277,18 +392,103 @@ export class RoutesService {
     }
   }
 
-  /** Explicit field-by-field projection — no internal or sensitive field leaks. */
-  private toRouteResponse(route: Route): RouteResponse {
-    return {
-      id: route.id,
-      school_id: route.school_id,
-      name: route.name,
-      code: route.code,
-      description: route.description,
-      is_active: route.is_active,
-      created_at: route.created_at.toISOString(),
-      updated_at: route.updated_at.toISOString(),
-    };
+  /**
+   * Explicit field-by-field projection — no internal or sensitive field leaks.
+   * The rostered crew, bus, student count and today's trip status are resolved
+   * with batched lookups so callers get names, never bare ids.
+   */
+  private async toRouteResponses(routes: Route[]): Promise<RouteResponse[]> {
+    if (routes.length === 0) {
+      return [];
+    }
+    const schoolId = routes[0].school_id;
+    const routeIds = routes.map((route) => route.id);
+
+    const [assignments, stops, todayTrips] = await Promise.all([
+      this.assignments.findAll({
+        where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, is_active: true },
+        order: [['effective_from', 'ASC']],
+      }),
+      this.stops.findAll({
+        where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, is_active: true },
+      }),
+      this.trips.findAll({
+        where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, scheduled_start_at: todayRange() },
+        order: [['scheduled_start_at', 'ASC']],
+      }),
+    ]);
+
+    const userIds = [...new Set(assignments.map((assignment) => assignment.user_id))];
+    const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
+    const [users, buses] = await Promise.all([
+      userIds.length
+        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        : Promise.resolve([] as User[]),
+      busIds.length
+        ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+        : Promise.resolve([] as Bus[]),
+    ]);
+    const userById = new Map(users.map((user) => [user.id, user]));
+    const busById = new Map(buses.map((bus) => [bus.id, bus]));
+
+    const stopIds = [...new Set(stops.map((stop) => stop.id))];
+    const students = stopIds.length
+      ? await this.students.findAll({
+          where: { school_id: schoolId, home_stop_id: { [Op.in]: stopIds }, is_active: true },
+        })
+      : [];
+    const stopRoute = new Map(stops.map((stop) => [stop.id, stop.route_id]));
+    const countByRoute = new Map<string, number>();
+    for (const student of students) {
+      if (!student.home_stop_id) continue;
+      const routeId = stopRoute.get(student.home_stop_id);
+      if (!routeId) continue;
+      countByRoute.set(routeId, (countByRoute.get(routeId) ?? 0) + 1);
+    }
+
+    const assignmentByRoute = new Map<string, RouteAssignment[]>();
+    for (const assignment of assignments) {
+      const list = assignmentByRoute.get(assignment.route_id) ?? [];
+      list.push(assignment);
+      assignmentByRoute.set(assignment.route_id, list);
+    }
+    const tripByRoute = new Map<string, Trip>();
+    for (const trip of todayTrips) {
+      const current = tripByRoute.get(trip.route_id);
+      const better =
+        !current ||
+        TRIP_PREFERENCE[trip.status] < TRIP_PREFERENCE[current.status] ||
+        (TRIP_PREFERENCE[trip.status] === TRIP_PREFERENCE[current.status] &&
+          trip.scheduled_start_at.getTime() < current.scheduled_start_at.getTime());
+      if (better) tripByRoute.set(trip.route_id, trip);
+    }
+
+    return routes.map((route) => {
+      const roster = assignmentByRoute.get(route.id) ?? [];
+      const driverRow = roster.find((assignment) => assignment.role === RouteAssignmentRole.DRIVER);
+      const conductorRow = roster.find(
+        (assignment) => assignment.role === RouteAssignmentRole.CONDUCTOR,
+      );
+      const driver = driverRow ? userById.get(driverRow.user_id) : undefined;
+      const conductor = conductorRow ? userById.get(conductorRow.user_id) : undefined;
+      const bus = roster[0]?.bus_id ? busById.get(roster[0].bus_id) : undefined;
+      return {
+        id: route.id,
+        school_id: route.school_id,
+        name: route.name,
+        code: route.code,
+        description: route.description,
+        is_active: route.is_active,
+        created_at: route.created_at.toISOString(),
+        updated_at: route.updated_at.toISOString(),
+        driver_name: driver ? `${driver.first_name} ${driver.last_name}`.trim() : null,
+        conductor_name: conductor ? `${conductor.first_name} ${conductor.last_name}`.trim() : null,
+        bus_number: bus?.bus_number ?? null,
+        bus_registration_number: bus?.registration_number ?? null,
+        student_count: countByRoute.get(route.id) ?? 0,
+        current_trip_status: tripByRoute.get(route.id)?.status ?? null,
+      };
+    });
   }
 
   /** Explicit field-by-field projection of a stop (route manifest responses). */
@@ -322,4 +522,61 @@ function nullableTrim(value: string | null | undefined): string | null {
 /** Escapes LIKE wildcards so user input is matched literally. */
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function isId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/** Inclusive window covering the current UTC calendar day. */
+function todayRange(): Record<symbol, Date> {
+  const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
+}
+
+/** Picks the single \"current\" trip for a route (active runs win, then earliest). */
+function pickTodayTrip(trips: Trip[]): Trip | null {
+  if (trips.length === 0) return null;
+  return [...trips].sort((a, b) => {
+    const rank = TRIP_PREFERENCE[a.status] - TRIP_PREFERENCE[b.status];
+    if (rank !== 0) return rank;
+    return a.scheduled_start_at.getTime() - b.scheduled_start_at.getTime();
+  })[0];
+}
+
+/** Minimal trip projection with display names resolved from the loaded maps. */
+function toTripResponse(
+  trip: Trip,
+  users: User[],
+  buses: Bus[],
+  route: { name: string; code: string },
+): TripResponse {
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const bus = buses.find((candidate) => candidate.id === trip.bus_id);
+  const driver = trip.driver_id ? userById.get(trip.driver_id) : undefined;
+  const conductor = trip.conductor_id ? userById.get(trip.conductor_id) : undefined;
+  const iso = (value: Date | null | undefined): string | null => (value ? value.toISOString() : null);
+  return {
+    id: trip.id,
+    school_id: trip.school_id,
+    route_id: trip.route_id,
+    bus_id: trip.bus_id ?? null,
+    driver_id: trip.driver_id ?? null,
+    conductor_id: trip.conductor_id ?? null,
+    status: trip.status,
+    scheduled_start_at: trip.scheduled_start_at.toISOString(),
+    scheduled_end_at: iso(trip.scheduled_end_at),
+    actual_start_at: iso(trip.actual_start_at),
+    actual_end_at: iso(trip.actual_end_at),
+    cancelled_at: iso(trip.cancelled_at),
+    cancellation_reason: trip.cancellation_reason ?? null,
+    created_at: trip.created_at.toISOString(),
+    updated_at: trip.updated_at.toISOString(),
+    route_name: route.name,
+    route_code: route.code,
+    bus_number: bus?.bus_number ?? null,
+    registration_number: bus?.registration_number ?? null,
+    driver_name: driver ? `${driver.first_name} ${driver.last_name}`.trim() : null,
+    conductor_name: conductor ? `${conductor.first_name} ${conductor.last_name}`.trim() : null,
+  };
 }

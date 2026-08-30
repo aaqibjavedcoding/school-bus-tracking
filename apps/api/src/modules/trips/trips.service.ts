@@ -204,6 +204,11 @@ export class TripsService {
     const scheduledRange = buildScheduledRange(query);
     if (scheduledRange) where.scheduled_start_at = scheduledRange;
 
+    const search = query.search?.trim();
+    if (search) {
+      where[Op.or] = await this.buildSearchWhere(schoolId, search);
+    }
+
     const { rows, count } = await this.trips.findAndCountAll({
       where: where as WhereOptions,
       limit,
@@ -224,7 +229,7 @@ export class TripsService {
       hasPreviousPage: page > 1,
     };
 
-    return { items: rows.map((trip) => this.toResponse(trip)), meta };
+    return { items: await this.toResponses(rows), meta };
   }
 
   /** Returns a trip only when its id and school both match. */
@@ -575,25 +580,131 @@ export class TripsService {
     }
   }
 
-  /** Explicit projection — ORM internals and associations never leak. */
-  private toResponse(trip: Trip): TripResponse {
-    return {
-      id: trip.id,
-      school_id: trip.school_id,
-      route_id: trip.route_id,
-      bus_id: trip.bus_id ?? null,
-      driver_id: trip.driver_id ?? null,
-      conductor_id: trip.conductor_id ?? null,
-      status: trip.status,
-      scheduled_start_at: toIsoString(trip.scheduled_start_at),
-      scheduled_end_at: toNullableIsoString(trip.scheduled_end_at),
-      actual_start_at: toNullableIsoString(trip.actual_start_at),
-      actual_end_at: toNullableIsoString(trip.actual_end_at),
-      cancelled_at: toNullableIsoString(trip.cancelled_at),
-      cancellation_reason: trip.cancellation_reason ?? null,
-      created_at: toIsoString(trip.created_at),
-      updated_at: toIsoString(trip.updated_at),
-    };
+  /**
+   * Explicit projection — ORM internals and associations never leak. Related
+   * route / bus / crew records are resolved with batched lookups so callers
+   * always get human-readable names instead of internal ids.
+   */
+  private async toResponse(trip: Trip): Promise<TripResponse> {
+    const [response] = await this.toResponses([trip]);
+    return response;
+  }
+
+  /** Batched projection with route / bus / crew names resolved in one pass. */
+  private async toResponses(trips: Trip[]): Promise<TripResponse[]> {
+    if (trips.length === 0) {
+      return [];
+    }
+    const schoolId = trips[0].school_id;
+    const routeIds = [...new Set(trips.map((trip) => trip.route_id))];
+    const busIds = [...new Set(trips.map((trip) => trip.bus_id).filter(isNonEmptyString))];
+    const userIds = [
+      ...new Set(
+        [...trips.map((trip) => trip.driver_id), ...trips.map((trip) => trip.conductor_id)].filter(
+          isNonEmptyString,
+        ),
+      ),
+    ];
+
+    const [routes, buses, users] = await Promise.all([
+      routeIds.length
+        ? this.routes.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: routeIds } },
+          })
+        : Promise.resolve([] as Route[]),
+      busIds.length
+        ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+        : Promise.resolve([] as Bus[]),
+      userIds.length
+        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        : Promise.resolve([] as User[]),
+    ]);
+
+    const routeById = new Map(routes.map((route) => [route.id, route]));
+    const busById = new Map(buses.map((bus) => [bus.id, bus]));
+    const userById = new Map(users.map((user) => [user.id, user]));
+
+    return trips.map((trip) => {
+      const route = routeById.get(trip.route_id);
+      const bus = trip.bus_id ? busById.get(trip.bus_id) : undefined;
+      const driver = trip.driver_id ? userById.get(trip.driver_id) : undefined;
+      const conductor = trip.conductor_id ? userById.get(trip.conductor_id) : undefined;
+      return {
+        id: trip.id,
+        school_id: trip.school_id,
+        route_id: trip.route_id,
+        bus_id: trip.bus_id ?? null,
+        driver_id: trip.driver_id ?? null,
+        conductor_id: trip.conductor_id ?? null,
+        status: trip.status,
+        scheduled_start_at: toIsoString(trip.scheduled_start_at),
+        scheduled_end_at: toNullableIsoString(trip.scheduled_end_at),
+        actual_start_at: toNullableIsoString(trip.actual_start_at),
+        actual_end_at: toNullableIsoString(trip.actual_end_at),
+        cancelled_at: toNullableIsoString(trip.cancelled_at),
+        cancellation_reason: trip.cancellation_reason ?? null,
+        created_at: toIsoString(trip.created_at),
+        updated_at: toIsoString(trip.updated_at),
+        route_name: route?.name ?? null,
+        route_code: route?.code ?? null,
+        bus_number: bus?.bus_number ?? null,
+        registration_number: bus?.registration_number ?? null,
+        driver_name: driver ? `${driver.first_name} ${driver.last_name}`.trim() : null,
+        conductor_name: conductor ? `${conductor.first_name} ${conductor.last_name}`.trim() : null,
+      };
+    });
+  }
+
+  /**
+   * Builds the search predicate for `findAll`. The trips table carries no
+   * names, so the free-text filter first resolves the matching routes, buses
+   * and crew members inside the tenant, then pins the trip query to those ids.
+   */
+  private async buildSearchWhere(
+    schoolId: string,
+    search: string,
+  ): Promise<Array<Record<PropertyKey, unknown>>> {
+    const pattern = `%${escapeLikePattern(search)}%`;
+    const [routes, buses, users] = await Promise.all([
+      this.routes.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [{ name: { [Op.iLike]: pattern } }, { code: { [Op.iLike]: pattern } }],
+        },
+        attributes: ['id'],
+      }),
+      this.buses.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [
+            { registration_number: { [Op.iLike]: pattern } },
+            { bus_number: { [Op.iLike]: pattern } },
+          ],
+        },
+        attributes: ['id'],
+      }),
+      this.users.findAll({
+        where: {
+          school_id: schoolId,
+          [Op.or]: [{ first_name: { [Op.iLike]: pattern } }, { last_name: { [Op.iLike]: pattern } }],
+        },
+        attributes: ['id'],
+      }),
+    ]);
+
+    const routeIds = routes.map((route) => route.id);
+    const busIds = buses.map((bus) => bus.id);
+    const userIds = users.map((user) => user.id);
+
+    const or: Array<Record<PropertyKey, unknown>> = [];
+    if (routeIds.length) or.push({ route_id: { [Op.in]: routeIds } });
+    if (busIds.length) or.push({ bus_id: { [Op.in]: busIds } });
+    if (userIds.length) {
+      or.push({ driver_id: { [Op.in]: userIds } });
+      or.push({ conductor_id: { [Op.in]: userIds } });
+    }
+    // A search that matches nothing must not match everything.
+    return or.length ? or : [{ id: { [Op.eq]: null } }];
   }
 }
 
@@ -704,10 +815,20 @@ function toNullableIsoString(value: Date | string | null | undefined): string | 
   return value == null ? null : toIsoString(value);
 }
 
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/** Escapes LIKE wildcards so user input is matched literally. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 function cloneTripListQuery(query: ListTripsQueryDto): ListTripsQueryDto {
   const clone = new ListTripsQueryDto();
   clone.page = query.page;
   clone.limit = query.limit;
+  clone.search = query.search;
   clone.status = query.status;
   clone.route_id = query.route_id;
   clone.bus_id = query.bus_id;

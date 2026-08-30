@@ -78,6 +78,21 @@ export class RoutesController {
   }
 
   /**
+   * `GET /api/v1/routes/:id/details`
+   *
+   * Full route-detail payload for the admin console: enriched route facts,
+   * ordered stops, assigned students and the route's active trip today.
+   */
+  @Get(':id/details')
+  async getDetails(
+    @CurrentUser('school_id') schoolId: string,
+    @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))
+    id: string,
+  ) {
+    return this.routesService.getDetails(schoolId, id);
+  }
+
+  /**
    * `PATCH /api/v1/routes/:id`
    *
    * Partial update; ownership cannot be changed through the API.

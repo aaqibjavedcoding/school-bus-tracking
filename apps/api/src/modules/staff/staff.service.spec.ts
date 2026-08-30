@@ -2,9 +2,9 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { UniqueConstraintError } from 'sequelize';
-import { StaffResponse, UserRole } from '@school-bus-tracking/shared-types';
+import { StaffResponse, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { comparePassword } from '../../auth';
-import { User } from '../../database/models';
+import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { ListStaffQueryDto } from './dto/list-staff-query.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
@@ -132,6 +132,18 @@ function makeStaffRepository(
   };
 }
 
+/** Builds the service with the staff repository plus empty relation stubs. */
+function makeService(users: typeof User): StaffService {
+  const empty = { findAll: async () => [] } as unknown as typeof Route;
+  return new StaffService(
+    users,
+    empty as unknown as typeof RouteAssignment,
+    empty as unknown as typeof Route,
+    empty as unknown as typeof Bus,
+    empty as unknown as typeof Trip,
+  );
+}
+
 function staffDto(overrides: Partial<CreateStaffDto> = {}): CreateStaffDto {
   const dto = new CreateStaffDto();
   dto.first_name = 'Dana';
@@ -163,7 +175,7 @@ describe('StaffService driver management', () => {
   it('creates a DRIVER in the JWT tenant with the pinned role and bcrypt hash', async () => {
     const capture: { createPayload?: Record<string, unknown> } = {};
     const { repo: users } = makeStaffRepository([], capture);
-    const service = new StaffService(users);
+    const service = makeService(users);
 
     const result = await service.create(SCHOOL_A, UserRole.DRIVER, staffDto());
 
@@ -182,7 +194,7 @@ describe('StaffService driver management', () => {
   it('creates a CONDUCTOR when the conductor controller role is pinned', async () => {
     const capture: { createPayload?: Record<string, unknown> } = {};
     const { repo: users } = makeStaffRepository([], capture);
-    const service = new StaffService(users);
+    const service = makeService(users);
 
     const result = await service.create(
       SCHOOL_A,
@@ -202,7 +214,7 @@ describe('StaffService driver management', () => {
       email: 'driver@example.org',
     });
     const { repo: users } = makeStaffRepository([existing]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     await expectConflict(
       service.create(SCHOOL_A, UserRole.DRIVER, staffDto()),
       STAFF_EMAIL_TAKEN_MESSAGE,
@@ -213,7 +225,7 @@ describe('StaffService driver management', () => {
     const existing = makeStaff({ id: DRIVER_B, school_id: SCHOOL_B });
     const capture: { createPayload?: Record<string, unknown> } = {};
     const { repo: users } = makeStaffRepository([existing], capture);
-    const service = new StaffService(users);
+    const service = makeService(users);
     await service.create(SCHOOL_A, UserRole.DRIVER, staffDto());
     assert.equal(capture.createPayload?.school_id, SCHOOL_A);
   });
@@ -227,7 +239,7 @@ describe('StaffService driver management', () => {
           fields: { email: 'driver@example.org' },
         }),
       );
-    const service = new StaffService(users);
+    const service = makeService(users);
     await expectConflict(
       service.create(SCHOOL_A, UserRole.DRIVER, staffDto()),
       STAFF_EMAIL_TAKEN_MESSAGE,
@@ -241,7 +253,7 @@ describe('StaffService driver management', () => {
       makeStaff({ id: CONDUCTOR_A, school_id: SCHOOL_A, role: UserRole.CONDUCTOR }),
       makeStaff({ id: 'parent', school_id: SCHOOL_A, role: UserRole.PARENT }),
     ]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     const result = await service.findAll(SCHOOL_A, UserRole.DRIVER, new ListStaffQueryDto());
     assert.deepEqual(
       result.items.map((item) => item.id),
@@ -251,12 +263,46 @@ describe('StaffService driver management', () => {
     assert.equal(result.meta.total, 1);
   });
 
+  it('returns the assigned bus, route and current trip status', async () => {
+    const { repo: users } = makeStaffRepository([
+      makeStaff({ id: DRIVER_A, school_id: SCHOOL_A, role: UserRole.DRIVER }),
+    ]);
+
+    const assignments = {
+      findAll: async () =>
+        [
+          { user_id: DRIVER_A, route_id: 'route-1', bus_id: 'bus-1', effective_from: '2026-01-01' },
+        ] as unknown as RouteAssignment[],
+    } as unknown as typeof RouteAssignment;
+    const routes = {
+      findAll: async () => [{ id: 'route-1', name: 'North Loop', code: 'N1' }] as unknown as Route[],
+    } as unknown as typeof Route;
+    const buses = {
+      findAll: async () =>
+        [{ id: 'bus-1', bus_number: 'B-01', registration_number: 'REG-A' }] as unknown as Bus[],
+    } as unknown as typeof Bus;
+    const trips = {
+      findAll: async () =>
+        [{ driver_id: DRIVER_A, status: TripStatus.BOARDING, scheduled_start_at: new Date() }] as unknown as Trip[],
+    } as unknown as typeof Trip;
+
+    const service = new StaffService(users, assignments, routes, buses, trips);
+    const result = await service.findAll(SCHOOL_A, UserRole.DRIVER, new ListStaffQueryDto());
+
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].assigned_route_name, 'North Loop');
+    assert.equal(result.items[0].assigned_route_code, 'N1');
+    assert.equal(result.items[0].assigned_bus_number, 'B-01');
+    assert.equal(result.items[0].assigned_bus_registration, 'REG-A');
+    assert.equal(result.items[0].current_trip_status, TripStatus.BOARDING);
+  });
+
   it('returns a generic role-specific 404 for other tenant, other role and missing account', async () => {
     const { repo: users } = makeStaffRepository([
       makeStaff({ id: DRIVER_B, school_id: SCHOOL_B, role: UserRole.DRIVER }),
       makeStaff({ id: CONDUCTOR_A, school_id: SCHOOL_A, role: UserRole.CONDUCTOR }),
     ]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     await expectNotFound(
       service.findOne(SCHOOL_A, UserRole.DRIVER, DRIVER_B),
       staffNotFoundMessage(UserRole.DRIVER),
@@ -275,7 +321,7 @@ describe('StaffService driver management', () => {
   it('updates profile fields and bcrypt-hashes a changed password without changing ownership', async () => {
     const driver = makeStaff({ id: DRIVER_A, school_id: SCHOOL_A, role: UserRole.DRIVER });
     const { repo: users } = makeStaffRepository([driver]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     const dto = new UpdateStaffDto();
     dto.first_name = 'Dana-Marie';
     dto.password = 'new-correct-password';
@@ -298,7 +344,7 @@ describe('StaffService driver management', () => {
       email: 'two@example.org',
     });
     const { repo: users } = makeStaffRepository([driver, conductor]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     const dto = new UpdateStaffDto();
     dto.email = 'two@example.org';
     await expectConflict(
@@ -310,7 +356,7 @@ describe('StaffService driver management', () => {
   it('soft-deletes only an in-tenant, in-role staff account with a role-specific message', async () => {
     const driver = makeStaff({ id: DRIVER_A, school_id: SCHOOL_A, role: UserRole.DRIVER });
     const { repo: users } = makeStaffRepository([driver]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     const result = await service.remove(SCHOOL_A, UserRole.DRIVER, DRIVER_A);
     assert.equal(driver.deleted_at?.toISOString(), '2026-03-01T00:00:00.000Z');
     assert.deepEqual(result, {
@@ -323,7 +369,7 @@ describe('StaffService driver management', () => {
   it('cannot soft-delete a conductor through the driver resource', async () => {
     const conductor = makeStaff({ id: CONDUCTOR_A, role: UserRole.CONDUCTOR });
     const { repo: users } = makeStaffRepository([conductor]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     await expectNotFound(
       service.remove(SCHOOL_A, UserRole.DRIVER, CONDUCTOR_A),
       staffNotFoundMessage(UserRole.DRIVER),
@@ -334,7 +380,7 @@ describe('StaffService driver management', () => {
   it('never leaks the password hash in a serialized response', async () => {
     const driver = makeStaff({ id: DRIVER_A, password_hash: 'secret-hash' });
     const { repo: users } = makeStaffRepository([driver]);
-    const service = new StaffService(users);
+    const service = makeService(users);
     const response: StaffResponse = await service.findOne(SCHOOL_A, UserRole.DRIVER, DRIVER_A);
     assert.equal(JSON.stringify(response).includes('password_hash'), false);
     assert.equal('password_hash' in response, false);

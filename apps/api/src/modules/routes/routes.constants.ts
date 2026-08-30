@@ -11,6 +11,13 @@ export const ROUTES_REPOSITORY = 'ROUTES_REPOSITORY';
 /** Token for the stop repository used by the route stop manifest endpoints. */
 export const ROUTES_STOPS_REPOSITORY = 'ROUTES_STOPS_REPOSITORY';
 
+/** Tokens for the repositories backing the route roster / detail enrichment. */
+export const ROUTES_ROUTE_ASSIGNMENTS_REPOSITORY = 'ROUTES_ROUTE_ASSIGNMENTS_REPOSITORY';
+export const ROUTES_USERS_REPOSITORY = 'ROUTES_USERS_REPOSITORY';
+export const ROUTES_BUSES_REPOSITORY = 'ROUTES_BUSES_REPOSITORY';
+export const ROUTES_TRIPS_REPOSITORY = 'ROUTES_TRIPS_REPOSITORY';
+export const ROUTES_STUDENTS_REPOSITORY = 'ROUTES_STUDENTS_REPOSITORY';
+
 /**
  * Generic not-found message. It deliberately does not distinguish "does not
  * exist" from "exists in another tenant" so cross-tenant probes cannot learn
