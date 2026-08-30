@@ -6,11 +6,13 @@ import { RoleGate } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
 
 /**
- * School-admin mobile experience — the mobile slice of the web console's
- * sidebar: today's operations board (live trips), the full trip schedule,
- * the student directory, fleet (buses + routes), staff (drivers +
- * conductors) and operations (assignments + dispatch).
- * Full CRUD management stays on the web.
+ * School-admin mobile experience — full feature parity with the web console.
+ *
+ * Five primary tabs cover the daily workflow: the operations dashboard, the
+ * trip schedule, live tracking, attendance, and a "Manage" hub that opens
+ * the complete CRUD surfaces (students, buses, routes & stops, drivers &
+ * conductors, guardians and assignments). Detail/management routes are hidden
+ * from the tab bar with `href: null` and pushed programmatically.
  */
 function AdminTabs() {
   return (
@@ -21,64 +23,64 @@ function AdminTabs() {
         headerTitleStyle: { fontWeight: 'bold' },
         tabBarActiveTintColor: colors.primary[600],
         tabBarInactiveTintColor: colors.neutral[400],
+        tabBarStyle: { paddingTop: 4, height: 60, paddingBottom: 8 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         headerRight: () => <LogoutButton />,
       }}
     >
       <Tabs.Screen
-        name="today"
+        name="dashboard"
         options={{
-          title: "Today's operations",
-          tabBarLabel: 'Today',
-          tabBarIcon: ({ color, size }) => <Ionicons name="today" size={size} color={color} />,
+          title: 'Dashboard',
+          tabBarLabel: 'Dashboard',
+          tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="schedule"
+        name="trips"
         options={{
-          title: 'Trip schedule',
+          title: 'Trips',
           tabBarLabel: 'Trips',
           tabBarIcon: ({ color, size }) => <Ionicons name="bus" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="students"
+        name="tracking"
         options={{
-          title: 'Students',
-          tabBarLabel: 'Students',
-          tabBarIcon: ({ color, size }) => <Ionicons name="school" size={size} color={color} />,
+          title: 'Live tracking',
+          tabBarLabel: 'Tracking',
+          tabBarIcon: ({ color, size }) => <Ionicons name="location" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="fleet"
+        name="attendance"
         options={{
-          title: 'Fleet — buses & routes',
-          tabBarLabel: 'Fleet',
-          tabBarIcon: ({ color, size }) => <Ionicons name="map" size={size} color={color} />,
+          title: 'Attendance',
+          tabBarLabel: 'Attendance',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="checkbox" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="staff"
+        name="manage"
         options={{
-          title: 'Drivers & conductors',
-          tabBarLabel: 'Staff',
-          tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="operations"
-        options={{
-          title: 'Operations',
-          tabBarLabel: 'Operations',
+          title: 'Manage',
+          tabBarLabel: 'Manage',
           tabBarIcon: ({ color, size }) => <Ionicons name="settings" size={size} color={color} />,
         }}
       />
-      {/*
-        Detail route pushed from Today/Trips (`/trips/:id`). Declared with
-        `href: null` so expo-router does NOT auto-add it to the tab bar — a
-        visible `trips/[id]` tab navigates without an id and the API answers
-        "uuid is expected". Hidden routes remain pushable programmatically.
-      */}
+
+      {/* Hidden, programmatically-pushed routes (kept out of the tab bar). */}
       <Tabs.Screen name="trips/[id]" options={{ title: 'Trip', href: null }} />
+      <Tabs.Screen name="manage/students" options={{ title: 'Students', href: null }} />
+      <Tabs.Screen name="manage/students/[id]" options={{ title: 'Student', href: null }} />
+      <Tabs.Screen name="manage/buses" options={{ title: 'Buses', href: null }} />
+      <Tabs.Screen name="manage/routes" options={{ title: 'Routes', href: null }} />
+      <Tabs.Screen name="manage/routes/[id]" options={{ title: 'Route stops', href: null }} />
+      <Tabs.Screen name="manage/staff" options={{ title: 'Drivers & conductors', href: null }} />
+      <Tabs.Screen name="manage/assignments" options={{ title: 'Assignments', href: null }} />
+      <Tabs.Screen name="manage/guardians" options={{ title: 'Guardians', href: null }} />
     </Tabs>
   );
 }

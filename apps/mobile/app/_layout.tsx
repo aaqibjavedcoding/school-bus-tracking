@@ -10,6 +10,7 @@ import { colors } from '@school-bus-tracking/design-tokens';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { AuthProvider, useAuth } from '../src/features/auth';
 import { NotificationsProvider } from '../src/features/parent/NotificationsProvider';
+import { ToastProvider } from '../src/components';
 
 /**
  * Root layout: authentication for everyone, plus the realtime notification
@@ -27,7 +28,8 @@ function RoleProviders({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RoleProviders>
+      <ToastProvider>
+        <RoleProviders>
         <>
           <StatusBar style="light" />
           <Stack
@@ -46,7 +48,8 @@ export default function RootLayout() {
             <Stack.Screen name="(admin)" options={{ headerShown: false }} />
           </Stack>
         </>
-      </RoleProviders>
+        </RoleProviders>
+      </ToastProvider>
     </AuthProvider>
   );
 }

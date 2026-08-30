@@ -131,8 +131,14 @@ export default function AdminTripDetailScreen() {
         <View style={styles.kvRow}>
           <KeyValue label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
           <KeyValue label="Date" value={formatDate(trip.scheduled_start_at)} />
-          <KeyValue label="Driver" value={trip.driver_id ? trip.driver_id : '—'} />
-          <KeyValue label="Conductor" value={trip.conductor_id ? trip.conductor_id : '—'} />
+          <KeyValue label="Driver" value={trip.driver_name ?? '—'} />
+          <KeyValue label="Conductor" value={trip.conductor_name ?? '—'} />
+        </View>
+        <View style={styles.kvRow}>
+          <KeyValue
+            label="Bus"
+            value={trip.registration_number ?? trip.bus_number ?? '—'}
+          />
         </View>
       </Card>
 

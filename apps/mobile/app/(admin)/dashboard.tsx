@@ -1,0 +1,248 @@
+import React, { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  TripStatus,
+  type BusListResponse,
+  type RouteListResponse,
+  type StudentListResponse,
+  type TripListResponse,
+  type TripResponse,
+} from '@school-bus-tracking/shared-types';
+import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import { apiClient } from '../../src/services/api';
+import { unwrapEnvelope } from '../../src/lib/errors';
+import { useAuth } from '../../src/features/auth';
+import { utcDateOnly, formatDate, formatTime } from '../../src/lib/format';
+import { useLoad } from '../../src/hooks/useLoad';
+import {
+  Badge,
+  EmptyState,
+  ErrorState,
+  LoadingView,
+  Screen,
+  SectionTitle,
+  TripStatusBadge,
+} from '../../src/components';
+
+/**
+ * School-admin operations dashboard — the mobile view of the web Dashboard:
+ * headline counts (students, buses, routes, live trips) and today's trips,
+ * each one tap from the full trip cockpit.
+ */
+export default function AdminDashboardScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const { data, loading, error, reload } = useLoad(async (): Promise<{
+    trips: TripResponse[];
+    studentCount: number;
+    busCount: number;
+    routeCount: number;
+  }> => {
+    const [tripsEnvelope, studentsEnvelope, busesEnvelope, routesEnvelope] = await Promise.all([
+      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+      apiClient.listStudents({ page: 1, limit: 1 }),
+      apiClient.listBuses({ page: 1, limit: 1 }),
+      apiClient.listRoutes({ page: 1, limit: 1 }),
+    ]);
+    return {
+      trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items,
+      studentCount: unwrapEnvelope<StudentListResponse>(studentsEnvelope).meta.total,
+      busCount: unwrapEnvelope<BusListResponse>(busesEnvelope).meta.total,
+      routeCount: unwrapEnvelope<RouteListResponse>(routesEnvelope).meta.total,
+    };
+  }, []);
+
+  const liveCount = useMemo(
+    () =>
+      (data?.trips ?? []).filter(
+        (trip) =>
+          trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS,
+      ).length,
+    [data],
+  );
+
+  if (loading && !data) {
+    return <LoadingView label="Loading dashboard…" />;
+  }
+  if (error || !data) {
+    return (
+      <Screen>
+        <ErrorState message={error ?? 'Could not load the dashboard'} onRetry={() => void reload()} />
+      </Screen>
+    );
+  }
+
+  const routeLabel = (trip: TripResponse): string =>
+    trip.route_code ? `${trip.route_code} · ${trip.route_name ?? ''}`.trim() : trip.route_name ?? 'Route';
+  const busLabel = (trip: TripResponse): string =>
+    trip.registration_number ?? trip.bus_number ?? 'No bus';
+
+  const stats = [
+    { label: 'Students', value: data.studentCount, icon: 'school' as const, tone: colors.primary[600] },
+    { label: 'Buses', value: data.busCount, icon: 'bus' as const, tone: colors.secondary[600] },
+    { label: 'Routes', value: data.routeCount, icon: 'git-branch' as const, tone: colors.status.info },
+    { label: 'Live trips', value: liveCount, icon: 'radio' as const, tone: colors.status.danger },
+  ];
+
+  return (
+    <Screen refresh={() => void reload()} refreshing={loading}>
+      <View style={styles.hero}>
+        <Text style={styles.heroGreeting}>
+          {user ? `Welcome, ${user.first_name}` : 'Welcome'}
+        </Text>
+        <Text style={styles.heroDate}>{formatDate(new Date())}</Text>
+      </View>
+
+      <View style={styles.statGrid}>
+        {stats.map((stat) => (
+          <View key={stat.label} style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: `${stat.tone}1a` }]}>
+              <Ionicons name={stat.icon} size={18} color={stat.tone} />
+            </View>
+            <Text style={styles.statValue}>{stat.value}</Text>
+            <Text style={styles.statLabel}>{stat.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <SectionTitle>Today&apos;s trips</SectionTitle>
+        <Pressable onPress={() => router.push('/trips')} hitSlop={8}>
+          <Text style={styles.link}>View all</Text>
+        </Pressable>
+      </View>
+
+      {data.trips.length === 0 ? (
+        <EmptyState
+          title="No trips today"
+          description="Dispatch a trip from an assignment on the Manage tab."
+        />
+      ) : (
+        data.trips.map((trip) => (
+          <Pressable
+            key={trip.id}
+            onPress={() => router.push(`/trips/${trip.id}`)}
+            style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+          >
+            <View style={styles.cardTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {routeLabel(trip)}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {formatTime(trip.scheduled_start_at)} · Bus {busLabel(trip)}
+                </Text>
+                {trip.driver_name ? (
+                  <Text style={styles.cardMeta} numberOfLines={1}>
+                    Driver {trip.driver_name}
+                    {trip.conductor_name ? ` · Conductor ${trip.conductor_name}` : ''}
+                  </Text>
+                ) : null}
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.neutral[300]} />
+            </View>
+            <View style={styles.badgeRow}>
+              <TripStatusBadge status={trip.status} />
+              {trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS ? (
+                <Badge label="● Live" tone="success" />
+              ) : null}
+            </View>
+          </Pressable>
+        ))
+      )}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  hero: {
+    marginBottom: spacing.md,
+  },
+  heroGreeting: {
+    fontSize: typography.fontSizes.xl,
+    fontWeight: '800',
+    color: colors.neutral[900],
+  },
+  heroDate: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[500],
+    marginTop: 2,
+  },
+  statGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  statCard: {
+    flexBasis: '47.5%',
+    flexGrow: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    gap: 6,
+  },
+  statIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: {
+    fontSize: typography.fontSizes['2xl'],
+    fontWeight: '800',
+    color: colors.neutral[900],
+  },
+  statLabel: {
+    fontSize: typography.fontSizes.xs,
+    color: colors.neutral[500],
+    fontWeight: '600',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  link: {
+    color: colors.primary[700],
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '700',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  cardPressed: {
+    opacity: 0.7,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardTitle: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.neutral[900],
+  },
+  cardMeta: {
+    fontSize: typography.fontSizes.xs,
+    color: colors.neutral[500],
+    marginTop: 2,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+});

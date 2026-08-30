@@ -99,3 +99,29 @@ export function emptyToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
 }
+
+/**
+ * Maps server-side field validation errors (the `error.details` map returned
+ * by the API on a 422) to the `field -> message` shape the mobile forms
+ * render — mirrors the web `fieldErrorsFromUnknown` helper.
+ */
+export function fieldErrorsFromUnknown(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiClientError) || !error.details || typeof error.details !== 'object') {
+    return {};
+  }
+  const details = error.details as Record<string, unknown>;
+  const nested =
+    details.error && typeof details.error === 'object'
+      ? (details.error as Record<string, unknown>)
+      : details;
+  const raw = nested.details;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const message = readMessage(value);
+    if (message) result[key] = message;
+  }
+  return result;
+}
