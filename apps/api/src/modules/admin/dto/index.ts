@@ -11,3 +11,8 @@ export {
   ResetSchoolAdminPasswordDto,
   ListSchoolAdminsQueryDto,
 } from './school-admin.dto';
+export {
+  CreateAdminPlanDto,
+  UpdateAdminPlanDto,
+  ListAdminPlansQueryDto,
+} from './admin-plans.dto';

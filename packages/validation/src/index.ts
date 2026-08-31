@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import {
+  PlanBillingPeriod,
+  PlanFeature,
+  PlanLimitResource,
   RouteAssignmentRole,
   StudentGender,
   TripAttendanceStatus,
@@ -1127,3 +1130,162 @@ export const adminSchoolAdminResetPasswordSchema = z
 export type AdminSchoolAdminResetPasswordInput = z.infer<
   typeof adminSchoolAdminResetPasswordSchema
 >;
+
+/**
+ * Task 41 — Commercial SaaS: Subscription Plan validation.
+ *
+ * Plans are platform-level catalog entries managed exclusively by SUPER_ADMIN.
+ * Features and limits are JSON objects keyed by documented enums; unknown keys
+ * are rejected by `.strict()` on each object so we never silently persist a
+ * typo'd feature flag. The `unlimited` flag on limits is the canonical
+ * representation of an uncapped resource (no magic large integer).
+ */
+
+/** Plan code follows the same kebab-case convention as school codes. */
+export const PLAN_CODE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const planCodeSchema = z
+  .string()
+  .trim()
+  .min(2, 'Plan code must be at least 2 characters')
+  .max(32, 'Plan code must be at most 32 characters')
+  .regex(
+    PLAN_CODE_PATTERN,
+    'Plan code must be lowercase alphanumeric segments separated by hyphens',
+  );
+
+export const planNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Plan name is required')
+  .max(100, 'Plan name must be at most 100 characters');
+
+export const planDescriptionSchema = z
+  .string()
+  .trim()
+  .max(2000, 'Plan description must be at most 2000 characters')
+  .nullish()
+  .transform((value) => (value === undefined ? undefined : value === '' ? null : value));
+
+/** ISO 4217 currency code (3 letters; accepts lowercase and uppercases). */
+export const planCurrencySchema = z
+  .string()
+  .trim()
+  .length(3, 'Currency must be a 3-letter ISO 4217 code')
+  .transform((value) => value.toUpperCase())
+  .refine((value) => /^[A-Z]{3}$/.test(value), 'Currency must be a 3-letter ISO 4217 code');
+
+/** Monetary price stored as integer cents in the DB; accept decimal from clients. */
+export const planPriceSchema = z
+  .number({ required_error: 'price is required' })
+  .finite('price must be a finite number')
+  .min(0, 'price must be zero or positive')
+  .multipleOf(0.01, 'price must have at most two decimal places');
+
+/** Feature map — keys must be known `PlanFeature` values, values booleans. */
+export const planFeaturesSchema = z
+  .record(
+    z
+      .string()
+      .refine(
+        (value) => Object.values(PlanFeature).includes(value as PlanFeature),
+        'Unknown feature key',
+      ),
+    z.boolean(),
+  )
+  .optional();
+
+/** One limit entry — either `unlimited: true` or a non-negative integer `value`. */
+export const planLimitValueSchema = z
+  .object({
+    unlimited: z.boolean(),
+    value: z
+      .number()
+      .int('limit value must be an integer')
+      .min(0, 'limit value must be zero or positive')
+      .nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.unlimited) {
+      if (value.value !== null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['value'],
+          message: 'value must be null when unlimited is true',
+        });
+      }
+    } else if (value.value === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['value'],
+        message: 'value is required when unlimited is false',
+      });
+    }
+  });
+
+/** Limits map — keys must be known `PlanLimitResource` values. */
+export const planLimitsSchema = z
+  .record(
+    z
+      .string()
+      .refine(
+        (value) => Object.values(PlanLimitResource).includes(value as PlanLimitResource),
+        'Unknown limit resource key',
+      ),
+    planLimitValueSchema,
+  )
+  .optional();
+
+/** Body of `POST /api/v1/admin/plans`. */
+export const adminPlanCreateSchema = z
+  .object({
+    code: planCodeSchema,
+    name: planNameSchema,
+    description: planDescriptionSchema,
+    price: planPriceSchema,
+    currency: planCurrencySchema,
+    billing_period: z.nativeEnum(PlanBillingPeriod),
+    is_active: z.boolean().optional(),
+    features: planFeaturesSchema,
+    limits: planLimitsSchema,
+  })
+  .strict();
+
+export type AdminPlanCreateInput = z.infer<typeof adminPlanCreateSchema>;
+
+/** Body of `PATCH /api/v1/admin/plans/:id`. `code` is intentionally absent. */
+export const adminPlanUpdateSchema = z
+  .object({
+    name: planNameSchema.optional(),
+    description: planDescriptionSchema,
+    price: planPriceSchema.optional(),
+    currency: planCurrencySchema.optional(),
+    billing_period: z.nativeEnum(PlanBillingPeriod).optional(),
+    is_active: z.boolean().optional(),
+    features: planFeaturesSchema,
+    limits: planLimitsSchema,
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one plan field must be provided',
+  });
+
+export type AdminPlanUpdateInput = z.infer<typeof adminPlanUpdateSchema>;
+
+/** Lifecycle filter for plan lists. */
+export const adminPlanStatusSchema = z.enum(['active', 'inactive']);
+
+export type AdminPlanStatusInput = z.infer<typeof adminPlanStatusSchema>;
+
+/** Query string of `GET /api/v1/admin/plans`. */
+export const adminPlanListQuerySchema = paginationSchema
+  .extend({
+    search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+    status: adminPlanStatusSchema.optional(),
+    sort: z.enum(['created_at', 'name', 'code', 'price']).optional(),
+    order: z.enum(['asc', 'desc']).optional(),
+  })
+  .strict();
+
+export type AdminPlanListQueryInput = z.infer<typeof adminPlanListQuerySchema>;

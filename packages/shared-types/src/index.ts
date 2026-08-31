@@ -1933,3 +1933,176 @@ export interface BaseEntity {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * Task 41 — Commercial SaaS: Subscription Plan foundation.
+ *
+ * Plans are platform-level catalog entries managed exclusively by the
+ * SUPER_ADMIN. They describe a commercial tier that future school
+ * subscriptions will reference. No billing/subscription lifecycle is
+ * implemented in this phase — the plan catalog is the foundation on which
+ * School Subscriptions → Feature Access → Usage Limits will be built.
+ */
+
+/** Billing cadence of a plan. */
+export enum PlanBillingPeriod {
+  MONTHLY = 'monthly',
+  YEARLY = 'yearly',
+}
+
+export const PLAN_BILLING_PERIOD_VALUES: PlanBillingPeriod[] = Object.values(PlanBillingPeriod);
+
+/**
+ * Known feature flags a plan may expose.
+ *
+ * The catalog is stored as a plain JSON object (`{ featureKey: boolean }`)
+ * rather than a dozen boolean columns, so new capabilities can be added
+ * without schema changes. This enum is the documented set of known keys the
+ * UI and authorization layer understand; unknown keys are preserved by the
+ * API so gradual rollout is safe.
+ */
+export enum PlanFeature {
+  LIVE_TRACKING = 'live_tracking',
+  ETA = 'eta',
+  GEOFENCE_STOP_ARRIVAL = 'geofence_stop_arrival',
+  ATTENDANCE = 'attendance',
+  NOTIFICATIONS = 'notifications',
+  PARENT_PORTAL = 'parent_portal',
+  ADVANCED_REPORTS = 'advanced_reports',
+  ANALYTICS = 'analytics',
+}
+
+export const PLAN_FEATURE_VALUES: PlanFeature[] = Object.values(PlanFeature);
+
+/** Human-readable labels for plan features (used by UI forms/displays). */
+export const PLAN_FEATURE_LABELS: Record<PlanFeature, string> = {
+  [PlanFeature.LIVE_TRACKING]: 'Live GPS Tracking',
+  [PlanFeature.ETA]: 'Estimated Time of Arrival (ETA)',
+  [PlanFeature.GEOFENCE_STOP_ARRIVAL]: 'Geofence / Stop Arrival Alerts',
+  [PlanFeature.ATTENDANCE]: 'Trip Attendance',
+  [PlanFeature.NOTIFICATIONS]: 'Parent Notifications',
+  [PlanFeature.PARENT_PORTAL]: 'Parent Portal',
+  [PlanFeature.ADVANCED_REPORTS]: 'Advanced Reports',
+  [PlanFeature.ANALYTICS]: 'Analytics Dashboard',
+};
+
+export type PlanFeaturesConfig = Partial<Record<PlanFeature, boolean>> & {
+  [key: string]: boolean | undefined;
+};
+
+/**
+ * Known resource categories constrained by plan usage limits.
+ *
+ * Like features, limits are persisted as JSON (`{ resourceKey: limit }`) so
+ * new resources can be added without schema migrations.
+ */
+export enum PlanLimitResource {
+  STUDENTS = 'students',
+  BUSES = 'buses',
+  ROUTES = 'routes',
+  DRIVERS = 'drivers',
+  CONDUCTORS = 'conductors',
+  STAFF = 'staff',
+  TRIPS = 'trips',
+}
+
+export const PLAN_LIMIT_RESOURCE_VALUES: PlanLimitResource[] = Object.values(PlanLimitResource);
+
+/** Human-readable labels for plan resources (used by UI forms/displays). */
+export const PLAN_LIMIT_RESOURCE_LABELS: Record<PlanLimitResource, string> = {
+  [PlanLimitResource.STUDENTS]: 'Students',
+  [PlanLimitResource.BUSES]: 'Buses',
+  [PlanLimitResource.ROUTES]: 'Routes',
+  [PlanLimitResource.DRIVERS]: 'Drivers',
+  [PlanLimitResource.CONDUCTORS]: 'Conductors',
+  [PlanLimitResource.STAFF]: 'Staff',
+  [PlanLimitResource.TRIPS]: 'Trips',
+};
+
+/** A single numeric limit; `unlimited: true` overrides `value`. */
+export interface PlanLimitValue {
+  unlimited: boolean;
+  /** Hard cap; ignored when `unlimited` is true. Must be >= 0 when set. */
+  value: number | null;
+}
+
+export type PlanLimitsConfig = Partial<Record<PlanLimitResource, PlanLimitValue>> & {
+  [key: string]: PlanLimitValue | undefined;
+};
+
+/** Lifecycle state of a plan as shown in the platform console. */
+export type AdminPlanStatus = 'active' | 'inactive';
+
+/** Public projection of a plan. Never contains internal ORM state. */
+export interface AdminPlanResponse {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  price: string;
+  currency: string;
+  billing_period: PlanBillingPeriod;
+  is_active: boolean;
+  status: AdminPlanStatus;
+  features: PlanFeaturesConfig;
+  limits: PlanLimitsConfig;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One row of the plan list with a small feature/limit summary. */
+export interface AdminPlanSummary extends AdminPlanResponse {
+  /** Short summary of enabled features for the list view. */
+  feature_summary: string[];
+  /** Short summary of key limits for the list view. */
+  limit_summary: Array<{ resource: PlanLimitResource; label: string; display: string }>;
+}
+
+/** Query string of `GET /api/v1/admin/plans`. */
+export interface AdminPlanListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: AdminPlanStatus;
+  sort?: 'created_at' | 'name' | 'code' | 'price';
+  order?: 'asc' | 'desc';
+}
+
+/** Successful payload of `GET /api/v1/admin/plans`. */
+export interface AdminPlanListResponse {
+  items: AdminPlanSummary[];
+  meta: PaginationMeta;
+}
+
+/** Body of `POST /api/v1/admin/plans`. */
+export interface AdminPlanCreateRequest {
+  code: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  currency: string;
+  billing_period: PlanBillingPeriod;
+  is_active?: boolean;
+  features?: PlanFeaturesConfig;
+  limits?: PlanLimitsConfig;
+}
+
+/** Body of `PATCH /api/v1/admin/plans/:id`. */
+export interface AdminPlanUpdateRequest {
+  name?: string;
+  description?: string | null;
+  price?: number;
+  currency?: string;
+  billing_period?: PlanBillingPeriod;
+  is_active?: boolean;
+  features?: PlanFeaturesConfig;
+  limits?: PlanLimitsConfig;
+}
+
+/** Body/response of the activate/deactivate lifecycle endpoints. */
+export interface AdminPlanLifecycleResponse {
+  id: string;
+  status: AdminPlanStatus;
+  is_active: boolean;
+  message: string;
+}

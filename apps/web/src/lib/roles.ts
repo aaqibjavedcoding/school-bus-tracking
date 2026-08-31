@@ -15,7 +15,8 @@ export interface NavItem {
     | 'check'
     | 'child'
     | 'bell'
-    | 'school';
+    | 'school'
+    | 'tag';
 }
 
 /**
@@ -44,6 +45,7 @@ export function navItemsForRole(role: UserRole): NavItem[] {
       return [
         { href: '/admin', label: 'Overview', icon: 'home' },
         { href: '/admin/schools', label: 'Schools', icon: 'school' },
+        { href: '/admin/plans', label: 'Plans', icon: 'tag' },
       ];
     case UserRole.SCHOOL_ADMIN:
       return [

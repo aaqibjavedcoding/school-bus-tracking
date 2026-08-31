@@ -128,6 +128,71 @@ export const Card: React.FC<{
   </section>
 );
 
+export const CheckboxRow: React.FC<{
+  id: string;
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}> = ({ id, label, hint, checked, onChange }) => (
+  <label htmlFor={id} className="checkbox-row">
+    <input
+      id={id}
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    <span>
+      <strong>{label}</strong>
+      {hint ? <span className="muted" style={{ fontSize: '0.8rem', display: 'block' }}>{hint}</span> : null}
+    </span>
+  </label>
+);
+
+export const LimitRow: React.FC<{
+  id: string;
+  label: string;
+  unlimited: boolean;
+  value: string;
+  error?: string;
+  onUnlimitedChange: (checked: boolean) => void;
+  onValueChange: (value: string) => void;
+}> = ({ id, label, unlimited, value, error, onUnlimitedChange, onValueChange }) => (
+  <div className="limit-row">
+    <label htmlFor={`${id}-unlimited`} className="checkbox-row" style={{ flex: '0 0 auto' }}>
+      <input
+        id={`${id}-unlimited`}
+        type="checkbox"
+        checked={unlimited}
+        onChange={(event) => onUnlimitedChange(event.target.checked)}
+      />
+      <strong>{label}</strong>
+    </label>
+    <div style={{ flex: 1 }}>
+      {unlimited ? (
+        <span className="muted">Unlimited</span>
+      ) : (
+        <Input
+          id={`${id}-value`}
+          type="number"
+          min="0"
+          step="1"
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          error={Boolean(error)}
+          placeholder="e.g. 300"
+          style={{ maxWidth: 200 }}
+        />
+      )}
+      {error ? (
+        <span className="field-error" role="alert" style={{ fontSize: '0.8rem' }}>
+          {error}
+        </span>
+      ) : null}
+    </div>
+  </div>
+);
+
 export const PageHeader: React.FC<{
   title: string;
   description?: string;

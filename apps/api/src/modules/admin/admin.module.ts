@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { Bus, RefreshToken, Route, School, Student, Trip, User } from '../../database/models';
+import { Bus, Plan, RefreshToken, Route, School, Student, Trip, User } from '../../database/models';
 import { SchoolsModule } from '../schools/schools.module';
 import { AdminDashboardController } from './admin-dashboard.controller';
 import { AdminDashboardService } from './admin-dashboard.service';
@@ -7,8 +7,11 @@ import { AdminSchoolAdminsController } from './admin-school-admins.controller';
 import { AdminSchoolAdminsService } from './admin-school-admins.service';
 import { AdminSchoolsController } from './admin-schools.controller';
 import { AdminSchoolsService } from './admin-schools.service';
+import { AdminPlansController } from './admin-plans.controller';
+import { AdminPlansService } from './admin-plans.service';
 import {
   ADMIN_BUSES_REPOSITORY,
+  ADMIN_PLANS_REPOSITORY,
   ADMIN_REFRESH_TOKENS_REPOSITORY,
   ADMIN_ROUTES_REPOSITORY,
   ADMIN_SCHOOLS_REPOSITORY,
@@ -25,14 +28,24 @@ import {
  * every other feature module) so the app boots with `DB_AUTO_CONNECT=false`
  * and unit tests can inject stubs. The provisioning flow reuses the existing
  * `SchoolsService` onboarding transaction instead of duplicating it.
+ *
+ * The plan catalog lives here as well: plans are platform-level (no tenant)
+ * and are managed exclusively by a SUPER_ADMIN, which matches the access
+ * model of the rest of the `/admin/*` surface.
  */
 @Module({
   imports: [SchoolsModule],
-  controllers: [AdminDashboardController, AdminSchoolsController, AdminSchoolAdminsController],
+  controllers: [
+    AdminDashboardController,
+    AdminSchoolsController,
+    AdminSchoolAdminsController,
+    AdminPlansController,
+  ],
   providers: [
     AdminDashboardService,
     AdminSchoolsService,
     AdminSchoolAdminsService,
+    AdminPlansService,
     { provide: ADMIN_SCHOOLS_REPOSITORY, useValue: School },
     { provide: ADMIN_USERS_REPOSITORY, useValue: User },
     { provide: ADMIN_STUDENTS_REPOSITORY, useValue: Student },
@@ -40,6 +53,7 @@ import {
     { provide: ADMIN_ROUTES_REPOSITORY, useValue: Route },
     { provide: ADMIN_TRIPS_REPOSITORY, useValue: Trip },
     { provide: ADMIN_REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
+    { provide: ADMIN_PLANS_REPOSITORY, useValue: Plan },
   ],
 })
 export class AdminModule {}

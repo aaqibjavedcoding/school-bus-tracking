@@ -49,6 +49,22 @@ export function stopCode(routeCode: string, sequenceNumber: number): string {
   return `${routeCode}-${String(sequenceNumber).padStart(3, '0')}`;
 }
 
+/** Formats a price (in major units, e.g. USD) using the browser's locale. Falls back to simple code+number. */
+export function formatCurrency(value: number | string, currency: string): string {
+  const num = typeof value === 'string' ? Number(value) : value;
+  if (!Number.isFinite(num)) return `${currency} 0`;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(num);
+  } catch {
+    return `${currency} ${num.toFixed(2)}`;
+  }
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);

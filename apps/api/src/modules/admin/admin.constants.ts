@@ -39,3 +39,14 @@ export const SCHOOL_DEACTIVATED_MESSAGE = 'School deactivated';
 export const SCHOOL_ADMIN_ACTIVATED_MESSAGE = 'School admin activated';
 export const SCHOOL_ADMIN_DEACTIVATED_MESSAGE = 'School admin deactivated';
 export const SCHOOL_ADMIN_PASSWORD_RESET_MESSAGE = 'Password updated successfully';
+
+// Re-export plan-management constants from a single barrel so module wiring
+// stays consistent.
+export {
+  ADMIN_PLANS_REPOSITORY,
+  PLAN_NOT_FOUND_MESSAGE,
+  PLAN_CODE_TAKEN_MESSAGE,
+  PLAN_ACTIVATED_MESSAGE,
+  PLAN_DEACTIVATED_MESSAGE,
+  CENTS_PER_UNIT,
+} from './admin-plans.constants';

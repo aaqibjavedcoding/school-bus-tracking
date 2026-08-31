@@ -1,5 +1,11 @@
 import {
   AdminDashboardResponse,
+  AdminPlanCreateRequest,
+  AdminPlanLifecycleResponse,
+  AdminPlanListQuery,
+  AdminPlanListResponse,
+  AdminPlanResponse,
+  AdminPlanUpdateRequest,
   AdminSchoolAdminCreateRequest,
   AdminSchoolAdminListResponse,
   AdminSchoolAdminResetPasswordRequest,
@@ -461,6 +467,58 @@ export class ApiClient {
     return this.post<{ id: string; message: string }>(
       `/admin/schools/${encodeURIComponent(schoolId)}/admins/${encodeURIComponent(adminId)}/reset-password`,
       body,
+    );
+  }
+
+  /**
+   * Super Admin plan catalog (`/admin/plans`).
+   *
+   * Plans are platform-level (tenant-less) commercial tiers. These endpoints
+   * require a SUPER_ADMIN access token. No payment or subscription lifecycle
+   * is exposed yet — this is the catalog CRUD surface the billing phase will
+   * reference when attaching plans to schools.
+   */
+
+  public async createAdminPlan(
+    body: AdminPlanCreateRequest,
+  ): Promise<ApiResponse<AdminPlanResponse>> {
+    return this.post<AdminPlanResponse>('/admin/plans', body);
+  }
+
+  public async listAdminPlans(
+    query: AdminPlanListQuery = {},
+  ): Promise<ApiResponse<AdminPlanListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    if (query.sort) params.set('sort', query.sort);
+    if (query.order) params.set('order', query.order);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<AdminPlanListResponse>(`/admin/plans${suffix}`);
+  }
+
+  public async getAdminPlan(id: string): Promise<ApiResponse<AdminPlanResponse>> {
+    return this.get<AdminPlanResponse>(`/admin/plans/${encodeURIComponent(id)}`);
+  }
+
+  public async updateAdminPlan(
+    id: string,
+    body: AdminPlanUpdateRequest,
+  ): Promise<ApiResponse<AdminPlanResponse>> {
+    return this.patch<AdminPlanResponse>(`/admin/plans/${encodeURIComponent(id)}`, body);
+  }
+
+  public async activateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
+    return this.post<AdminPlanLifecycleResponse>(
+      `/admin/plans/${encodeURIComponent(id)}/activate`,
+    );
+  }
+
+  public async deactivateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
+    return this.post<AdminPlanLifecycleResponse>(
+      `/admin/plans/${encodeURIComponent(id)}/deactivate`,
     );
   }
 
