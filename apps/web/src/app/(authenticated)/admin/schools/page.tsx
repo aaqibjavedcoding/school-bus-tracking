@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useCallback, useState } from 'react';
-import { AdminSchoolStatus } from '@school-bus-tracking/shared-types';
+import { AdminSchoolStatus, SUBSCRIPTION_STATUS_LABELS } from '@school-bus-tracking/shared-types';
 import {
   Badge,
   Button,
@@ -21,6 +21,7 @@ import { useLoad } from '../../../../hooks/useLoad';
 import { fullName, formatDateTime } from '../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../lib/errors';
 import { apiClient } from '../../../../services/api';
+import { subscriptionStatusTone } from '../../../../features/admin/subscriptions/helpers';
 
 interface ListState {
   page: number;
@@ -156,6 +157,7 @@ export default function AdminSchoolsPage() {
                   <th>School</th>
                   <th>Code</th>
                   <th>Status</th>
+                  <th>Plan</th>
                   <th>Admin</th>
                   <th>Students</th>
                   <th>Staff</th>
@@ -184,6 +186,21 @@ export default function AdminSchoolsPage() {
                       <Badge tone={school.is_active ? 'success' : 'warning'}>
                         {school.status === 'active' ? 'Active' : 'Inactive'}
                       </Badge>
+                    </td>
+                    <td>
+                      {/* Bulk-enriched by the list endpoint — never fetched per row. */}
+                      {school.subscription.plan ? (
+                        <>
+                          {school.subscription.plan.name}
+                          <div style={{ marginTop: '0.2rem' }}>
+                            <Badge tone={subscriptionStatusTone(school.subscription.status)}>
+                              {SUBSCRIPTION_STATUS_LABELS[school.subscription.status]}
+                            </Badge>
+                          </div>
+                        </>
+                      ) : (
+                        <span className="muted">No plan</span>
+                      )}
                     </td>
                     <td>
                       {school.primary_admin ? fullName(school.primary_admin) : '—'}

@@ -2280,3 +2280,43 @@ export interface AdminSchoolSubscriptionCancelRequest {
   /** Defaults to "now". Cannot precede the subscription start. */
   cancelled_at?: string | null;
 }
+
+/**
+ * One record of `GET /api/v1/admin/schools/:schoolId/subscription/history`
+ * (Task 42, step 2 — Super Admin subscription console).
+ *
+ * Every subscription row a school has ever had, newest first — the change
+ * and cancel flows preserve rows instead of deleting them, and this
+ * projection simply exposes that history. The plan is embedded as the
+ * compact {@link AdminSchoolSubscriptionPlanRef} (resolved at read time via
+ * `plan_id`, never copied onto the subscription), so the payload stays small
+ * and one bulk plan lookup serves the whole list.
+ */
+export interface AdminSchoolSubscriptionHistoryItem {
+  id: string;
+  school_id: string;
+  /** Persisted rows only — the projection-only `none` never appears here. */
+  status: PersistedSubscriptionStatus;
+  plan_id: string;
+  plan: AdminSchoolSubscriptionPlanRef | null;
+  trial_start: string | null;
+  trial_end: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancelled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** True when this row is the school's live (trialing/active/past_due) subscription. */
+  is_current: boolean;
+}
+
+/**
+ * Successful payload of `GET /api/v1/admin/schools/:schoolId/subscription/history`.
+ *
+ * Not paginated: a school accumulates a handful of subscription rows over
+ * its lifetime (one per plan change/resubscribe), so the full list is
+ * returned in one response — no per-row follow-up requests are ever needed.
+ */
+export interface AdminSchoolSubscriptionHistoryResponse {
+  items: AdminSchoolSubscriptionHistoryItem[];
+}

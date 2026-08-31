@@ -13,6 +13,7 @@ import {
 import {
   AdminSchoolSubscriptionCancelRequest,
   AdminSchoolSubscriptionCreateRequest,
+  AdminSchoolSubscriptionHistoryResponse,
   AdminSchoolSubscriptionResponse,
   AdminSchoolSubscriptionUpdateRequest,
   UserRole,
@@ -61,6 +62,20 @@ export class AdminSubscriptionsController {
     @Param('schoolId', uuidParam()) schoolId: string,
   ): Promise<AdminSchoolSubscriptionResponse> {
     return this.subscriptions.getSubscription(schoolId);
+  }
+
+  /**
+   * `GET /admin/schools/:schoolId/subscription/history` — every subscription
+   * row the school has ever had, newest first. Read-only: plan changes and
+   * cancellations keep their rows, and this endpoint simply exposes them so
+   * the console can render the full commercial history in one request.
+   */
+  @Get('history')
+  @Roles(UserRole.SUPER_ADMIN)
+  async history(
+    @Param('schoolId', uuidParam()) schoolId: string,
+  ): Promise<AdminSchoolSubscriptionHistoryResponse> {
+    return this.subscriptions.getSubscriptionHistory(schoolId);
   }
 
   /** `POST /admin/schools/:schoolId/subscription` — assign an active plan. */

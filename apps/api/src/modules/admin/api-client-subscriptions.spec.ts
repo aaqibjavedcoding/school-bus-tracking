@@ -26,6 +26,7 @@ describe('ApiClient school subscription methods', () => {
       const client = new ApiClient({ baseUrl: 'https://api.example.test/api/v1' });
 
       await client.getSchoolSubscription(SCHOOL_ID);
+      await client.getSchoolSubscriptionHistory(SCHOOL_ID);
       await client.createSchoolSubscription(SCHOOL_ID, {
         plan_id: PLAN_ID,
         status: SubscriptionStatus.TRIALING,
@@ -36,11 +37,15 @@ describe('ApiClient school subscription methods', () => {
         cancelled_at: '2026-07-01T00:00:00.000Z',
       });
 
-      const [get, create, update, cancel] = requests;
+      const [get, history, create, update, cancel] = requests;
       const base = `https://api.example.test/api/v1/admin/schools/${SCHOOL_ID}/subscription`;
 
       assert.equal(get.method, 'GET');
       assert.equal(get.url, base);
+
+      assert.equal(history.method, 'GET');
+      assert.equal(history.url, `${base}/history`);
+      assert.equal(history.body, undefined);
 
       assert.equal(create.method, 'POST');
       assert.equal(create.url, base);
