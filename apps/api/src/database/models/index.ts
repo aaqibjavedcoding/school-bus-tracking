@@ -14,6 +14,7 @@ import { TripLocation } from './trip-location.model';
 import { TripStopArrival } from './trip-stop-arrival.model';
 import { Notification } from './notification.model';
 import { Plan } from './plan.model';
+import { SchoolSubscription } from './school-subscription.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -73,6 +74,11 @@ export { Notification } from './notification.model';
 export type { NotificationAttributes, NotificationCreationAttributes } from './notification.model';
 export { Plan } from './plan.model';
 export type { PlanAttributes, PlanCreationAttributes } from './plan.model';
+export { SchoolSubscription } from './school-subscription.model';
+export type {
+  SchoolSubscriptionAttributes,
+  SchoolSubscriptionCreationAttributes,
+} from './school-subscription.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -104,4 +110,5 @@ export const models: ModelCtor<Model>[] = [
   TripStopArrival,
   Notification,
   Plan,
+  SchoolSubscription,
 ];

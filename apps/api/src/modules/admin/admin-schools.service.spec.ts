@@ -1,13 +1,40 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@school-bus-tracking/shared-types';
+import {
+  PlanBillingPeriod,
+  SubscriptionStatus,
+  UserRole,
+} from '@school-bus-tracking/shared-types';
+import type { AdminSchoolSubscriptionInfo } from '@school-bus-tracking/shared-types';
 import { AdminSchoolsService } from './admin-schools.service';
 import { SchoolsService } from '../schools/schools.service';
 import { SCHOOL_NOT_FOUND_MESSAGE } from './admin.constants';
+import { NO_SUBSCRIPTION_INFO } from './admin-subscriptions.constants';
 import type { ListAdminSchoolsQueryDto } from './dto';
 
 /** Minimal shared stub helpers — the service only touches these surfaces. */
+
+/**
+ * Subscription-domain stub (Task 42). By default it reports the historical
+ * `none` state, which is what a school without a subscription must keep
+ * returning. Tests that care about a real subscription pass their own map.
+ */
+function makeSubscriptionsStub(infoBySchool: Record<string, AdminSchoolSubscriptionInfo> = {}) {
+  return {
+    getSubscriptionInfo: async (schoolId: string): Promise<AdminSchoolSubscriptionInfo> =>
+      infoBySchool[schoolId] ?? { ...NO_SUBSCRIPTION_INFO },
+    getSubscriptionInfoForSchools: async (
+      schoolIds: string[],
+    ): Promise<Map<string, AdminSchoolSubscriptionInfo>> => {
+      const map = new Map<string, AdminSchoolSubscriptionInfo>();
+      for (const id of schoolIds) {
+        if (infoBySchool[id]) map.set(id, infoBySchool[id]);
+      }
+      return map;
+    },
+  };
+}
 
 interface StubTransaction {
   state: 'active' | 'committed' | 'rolled-back';
@@ -90,6 +117,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       refreshRepo as never,
       onboarding,
+      makeSubscriptionsStub() as never,
     );
 
     const deactivated = await service.deactivate(schoolId);
@@ -116,6 +144,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
     await assert.rejects(
       service.deactivate('99999999-9999-4999-9999-999999999999'),
@@ -146,6 +175,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       { findAll: async () => [] } as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
 
     const query = { page: 1, limit: 10, status: 'inactive' } as unknown as ListAdminSchoolsQueryDto;
@@ -175,6 +205,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
     await assert.rejects(
       service.update(schoolId, {}),
@@ -236,6 +267,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       groupedModel as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
 
     const details = await service.findOneOrThrow(schoolId);
@@ -258,6 +290,7 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
     await assert.rejects(service.findOneOrThrow('missing'), (error: unknown) => {
       assert.ok(error instanceof NotFoundException);
@@ -279,10 +312,114 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       {} as never,
+      makeSubscriptionsStub() as never,
     );
     await assert.rejects(
       service.update('b', { email: 'shared@x.test' }),
       (error: unknown) => error instanceof ConflictException,
     );
+  });
+
+  it('surfaces a real subscription in the school details projection (Task 42)', async () => {
+    const schoolId = '33333333-3333-4333-8333-333333333333';
+    const schoolsRepo = makeSchoolsRepo([
+      {
+        id: schoolId,
+        name: 'Riverside',
+        code: 'riverside',
+        subdomain: null,
+        email: null,
+        phone: null,
+        address_line1: null,
+        address_line2: null,
+        city: null,
+        state: null,
+        postal_code: null,
+        country: null,
+        timezone: 'UTC',
+        is_active: true,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+        updated_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ] as unknown as Record<string, unknown>[]);
+    const sequelize = { fn: (name: string, col: unknown) => ({ fn: name, col }), col: (n: string) => n };
+    const groupedModel = { sequelize, findAll: async () => [] as never[] };
+    const subscription: AdminSchoolSubscriptionInfo = {
+      status: SubscriptionStatus.ACTIVE,
+      plan: {
+        id: '44444444-4444-4444-8444-444444444444',
+        code: 'pro',
+        name: 'Pro',
+        price: '49.00',
+        currency: 'USD',
+        billing_period: PlanBillingPeriod.MONTHLY,
+        is_active: true,
+      },
+      current_period_end: '2026-12-31T00:00:00.000Z',
+    };
+    const service = new AdminSchoolsService(
+      schoolsRepo.repo as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      {} as never,
+      {} as never,
+      makeSubscriptionsStub({ [schoolId]: subscription }) as never,
+    );
+
+    const details = await service.findOneOrThrow(schoolId);
+    assert.equal(details.subscription.status, SubscriptionStatus.ACTIVE);
+    assert.equal(details.subscription.plan?.code, 'pro');
+    assert.equal(details.subscription.current_period_end, '2026-12-31T00:00:00.000Z');
+
+    const list = await service.findAll({ page: 1, limit: 10 } as unknown as ListAdminSchoolsQueryDto);
+    assert.equal(list.items[0].subscription.status, SubscriptionStatus.ACTIVE);
+    assert.equal(list.items[0].subscription.plan?.name, 'Pro');
+  });
+
+  it('falls back to the `none` subscription block for schools without one', async () => {
+    const schoolId = '55555555-5555-4555-8555-555555555555';
+    const schoolsRepo = makeSchoolsRepo([
+      {
+        id: schoolId,
+        name: 'Hilltop',
+        code: 'hilltop',
+        subdomain: null,
+        email: null,
+        phone: null,
+        address_line1: null,
+        address_line2: null,
+        city: null,
+        state: null,
+        postal_code: null,
+        country: null,
+        timezone: 'UTC',
+        is_active: true,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+        updated_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ] as unknown as Record<string, unknown>[]);
+    const sequelize = { fn: (name: string, col: unknown) => ({ fn: name, col }), col: (n: string) => n };
+    const groupedModel = { sequelize, findAll: async () => [] as never[] };
+    const service = new AdminSchoolsService(
+      schoolsRepo.repo as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      groupedModel as never,
+      {} as never,
+      {} as never,
+      makeSubscriptionsStub() as never,
+    );
+
+    const list = await service.findAll({ page: 1, limit: 10 } as unknown as ListAdminSchoolsQueryDto);
+    assert.deepEqual(list.items[0].subscription, {
+      status: 'none',
+      plan: null,
+      current_period_end: null,
+    });
   });
 });

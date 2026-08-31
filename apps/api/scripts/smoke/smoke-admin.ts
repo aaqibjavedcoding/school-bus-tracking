@@ -28,6 +28,7 @@ import { School, User } from '../../src/database/models';
 import { AdminSchoolsService } from '../../src/modules/admin/admin-schools.service';
 import { AdminDashboardService } from '../../src/modules/admin/admin-dashboard.service';
 import { AdminSchoolAdminsService } from '../../src/modules/admin/admin-school-admins.service';
+import { AdminSubscriptionsService } from '../../src/modules/admin/admin-subscriptions.service';
 import { SchoolsService } from '../../src/modules/schools/schools.service';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { SchoolAccessService } from '../../src/common/access/school-access.service';
@@ -59,6 +60,9 @@ async function main(): Promise<void> {
   // ---- In-memory data -------------------------------------------------
   const schools: Row[] = [];
   const users: Row[] = [];
+  // Task 42 — plan catalog + school subscriptions (in-memory).
+  const plans: Row[] = [];
+  const subscriptions: Row[] = [];
   const schoolActive = new Map<string, boolean>();
   let revokedSessions = 0;
 
@@ -272,6 +276,76 @@ async function main(): Promise<void> {
     } as unknown;
   }
 
+  /** Read-only plan catalog stub (Task 41 plans are the subscription source). */
+  function planStub() {
+    return {
+      findOne: async (options: { where: Row }) =>
+        plans.find((p) => p.id === options.where.id) ?? null,
+      findAll: async (options: { where?: Row } = {}) => {
+        const idWhere = options.where?.id as Record<symbol, string[]> | undefined;
+        const ids = idWhere ? idWhere[Op.in] : undefined;
+        return ids ? plans.filter((p) => ids.includes(p.id as string)) : plans;
+      },
+    } as unknown;
+  }
+
+  /** In-memory `school_subscriptions` table honouring the live-status filter. */
+  function subscriptionStub() {
+    const matches = (row: Row, where: Row): boolean =>
+      Object.entries(where).every(([key, value]) => {
+        if (value && typeof value === 'object') {
+          const list = (value as Record<symbol, unknown[]>)[Op.in];
+          if (Array.isArray(list)) return list.includes(row[key]);
+        }
+        return row[key] === value;
+      });
+    const sorted = (rows: Row[], order?: Array<[string, string]>) =>
+      [...rows].sort((a, b) => {
+        for (const [column, direction] of order ?? [['created_at', 'DESC']]) {
+          const av = a[column] as never;
+          const bv = b[column] as never;
+          if (av === bv) continue;
+          return (av < bv ? -1 : 1) * (direction === 'ASC' ? 1 : -1);
+        }
+        return 0;
+      });
+    let seq = 0;
+    return {
+      sequelize: {
+        transaction: async (cb: (t: unknown) => Promise<unknown>) => cb({}),
+      },
+      findOne: async (options: { where: Row; order?: Array<[string, string]> }) =>
+        sorted(subscriptions.filter((r) => matches(r, options.where)), options.order)[0] ?? null,
+      findAll: async (options: { where?: Row; order?: Array<[string, string]> } = {}) =>
+        sorted(
+          options.where ? subscriptions.filter((r) => matches(r, options.where!)) : subscriptions,
+          options.order,
+        ),
+      create: async (data: Row) => {
+        seq += 1;
+        const row: Row = {
+          id: `sub-${seq}`,
+          status: 'active',
+          trial_start: null,
+          trial_end: null,
+          current_period_start: now(),
+          current_period_end: null,
+          cancelled_at: null,
+          created_at: new Date(Date.now() + seq),
+          updated_at: new Date(Date.now() + seq),
+          deleted_at: null,
+          ...data,
+        };
+        row.update = async (patch: Row) => {
+          Object.assign(row, patch, { updated_at: now() });
+          return row;
+        };
+        subscriptions.push(row);
+        return row;
+      },
+    } as unknown;
+  }
+
   function refreshTokenStub() {
     return {
       unscoped() {
@@ -337,6 +411,12 @@ async function main(): Promise<void> {
     trips: simpleCountStub(7, 5),
   });
   patchService(adminsService, { schools: schoolsRepo, users: usersRepo });
+  const subscriptionsService = app.get(AdminSubscriptionsService);
+  patchService(subscriptionsService, {
+    subscriptions: subscriptionStub(),
+    schools: schoolsRepo,
+    plans: planStub(),
+  });
   patchService(onboardingService, { schools: schoolsRepo, users: usersRepo });
   // Auth service repos are indexed by their token names; patch directly.
   patchService(authService, { users: usersRepo, refreshTokens: refreshRepo });
@@ -674,6 +754,223 @@ async function main(): Promise<void> {
       },
     });
     if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  });
+
+  // ---- Task 42: school subscriptions -----------------------------------
+  const ACTIVE_PLAN_ID = '00000000-0000-4000-9000-000000000001';
+  const RETIRED_PLAN_ID = '00000000-0000-4000-9000-000000000002';
+  const UPGRADE_PLAN_ID = '00000000-0000-4000-9000-000000000003';
+  const UNKNOWN_ID = '00000000-0000-4000-9000-0000000000ff';
+  plans.push(
+    {
+      id: ACTIVE_PLAN_ID,
+      code: 'basic',
+      name: 'Basic',
+      description: 'Starter tier',
+      price_cents: 1999,
+      currency: 'USD',
+      billing_period: 'monthly',
+      is_active: true,
+      features: { live_tracking: true },
+      limits: { students: { unlimited: false, value: 300 } },
+      created_at: now(),
+      updated_at: now(),
+    },
+    {
+      id: RETIRED_PLAN_ID,
+      code: 'legacy',
+      name: 'Legacy',
+      description: null,
+      price_cents: 900,
+      currency: 'USD',
+      billing_period: 'monthly',
+      is_active: false,
+      features: {},
+      limits: {},
+      created_at: now(),
+      updated_at: now(),
+    },
+    {
+      id: UPGRADE_PLAN_ID,
+      code: 'pro',
+      name: 'Pro',
+      description: 'Growth tier',
+      price_cents: 4900,
+      currency: 'USD',
+      billing_period: 'monthly',
+      is_active: true,
+      features: { live_tracking: true, analytics: true },
+      limits: { students: { unlimited: true, value: null } },
+      created_at: now(),
+      updated_at: now(),
+    },
+  );
+
+  const subscriptionPath = `/admin/schools/${createdSchoolId}/subscription`;
+
+  await check('subscription: unauthenticated read is rejected with 401', async () => {
+    const res = await call('GET', subscriptionPath);
+    if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
+  });
+
+  await check('subscription: school admin is rejected with 403 on every route', async () => {
+    const attempts = [
+      await call('GET', subscriptionPath, { token: schoolAdminToken }),
+      await call('POST', subscriptionPath, {
+        token: schoolAdminToken,
+        body: { plan_id: ACTIVE_PLAN_ID },
+      }),
+      await call('PATCH', subscriptionPath, {
+        token: schoolAdminToken,
+        body: { plan_id: ACTIVE_PLAN_ID },
+      }),
+      await call('POST', `${subscriptionPath}/cancel`, { token: schoolAdminToken, body: {} }),
+    ];
+    for (const res of attempts) {
+      if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
+    }
+  });
+
+  await check('subscription: school without one reads back as a clean `none` state', async () => {
+    const res = await call('GET', subscriptionPath, { token: superToken });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const body = res.json as { data: { status: string; plan: unknown; id: string | null } };
+    if (body.data.status !== 'none') throw new Error(`expected none, got ${body.data.status}`);
+    if (body.data.plan !== null || body.data.id !== null)
+      throw new Error('none state must be empty');
+  });
+
+  await check('subscription: unknown school returns 404 (never a subscription orphan)', async () => {
+    const res = await call('GET', `/admin/schools/${UNKNOWN_ID}/subscription`, {
+      token: superToken,
+    });
+    if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
+  });
+
+  await check('subscription: an inactive plan cannot be assigned (409)', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: RETIRED_PLAN_ID },
+    });
+    if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  });
+
+  await check('subscription: an unknown plan is rejected with 404', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: UNKNOWN_ID },
+    });
+    if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
+  });
+
+  await check('subscription: invalid dates are rejected with 400', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: {
+        plan_id: ACTIVE_PLAN_ID,
+        trial_start: '2026-03-10T00:00:00.000Z',
+        trial_end: '2026-03-01T00:00:00.000Z',
+      },
+    });
+    if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  });
+
+  await check('subscription: super admin assigns an active plan (201 + plan terms)', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: ACTIVE_PLAN_ID, current_period_end: '2026-12-31T00:00:00.000Z' },
+    });
+    if (res.status !== 201)
+      throw new Error(`expected 201, got ${res.status} ${JSON.stringify(res.json)}`);
+    const body = res.json as {
+      data: {
+        status: string;
+        plan: { code: string } | null;
+        price: string;
+        billing_period: string;
+        current_period_end: string;
+      };
+    };
+    if (body.data.status !== 'active') throw new Error(`wrong status ${body.data.status}`);
+    if (body.data.plan?.code !== 'basic') throw new Error('plan relationship missing');
+    if (body.data.price !== '19.99') throw new Error(`wrong price ${body.data.price}`);
+    if (body.data.billing_period !== 'monthly') throw new Error('missing billing period');
+    if (!body.data.current_period_end) throw new Error('missing current period end');
+  });
+
+  await check('subscription: a duplicate active subscription is rejected with 409', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: ACTIVE_PLAN_ID },
+    });
+    if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  });
+
+  await check('subscription: school details now reports the real subscription', async () => {
+    const res = await call('GET', `/admin/schools/${createdSchoolId}`, { token: superToken });
+    const body = res.json as {
+      data: { subscription: { status: string; plan: { code: string } | null } };
+    };
+    if (body.data.subscription.status !== 'active')
+      throw new Error(`expected active, got ${body.data.subscription.status}`);
+    if (body.data.subscription.plan?.code !== 'basic')
+      throw new Error('school details must expose the plan reference');
+  });
+
+  await check('subscription: plan change keeps the previous record as history', async () => {
+    const before = subscriptions.length;
+    const res = await call('PATCH', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: UPGRADE_PLAN_ID },
+    });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const body = res.json as { data: { plan: { code: string } | null; status: string } };
+    if (body.data.plan?.code !== 'pro') throw new Error('plan was not changed');
+    if (subscriptions.length !== before + 1)
+      throw new Error('plan change must append a new subscription row');
+    const expired = subscriptions.filter((r) => r.status === 'expired');
+    if (expired.length !== 1) throw new Error('previous subscription must be closed, not deleted');
+  });
+
+  await check('subscription: status can be updated in place (past_due)', async () => {
+    const res = await call('PATCH', subscriptionPath, {
+      token: superToken,
+      body: { status: 'past_due' },
+    });
+    if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
+    const body = res.json as { data: { status: string } };
+    if (body.data.status !== 'past_due') throw new Error(`wrong status ${body.data.status}`);
+  });
+
+  await check('subscription: cancel keeps the record and records the date', async () => {
+    const before = subscriptions.length;
+    const res = await call('POST', `${subscriptionPath}/cancel`, { token: superToken, body: {} });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const body = res.json as { data: { status: string; cancelled_at: string | null } };
+    if (body.data.status !== 'cancelled') throw new Error(`wrong status ${body.data.status}`);
+    if (!body.data.cancelled_at) throw new Error('cancellation date missing');
+    if (subscriptions.length !== before) throw new Error('cancellation must not delete history');
+  });
+
+  await check('subscription: cancelling twice is rejected with 409', async () => {
+    const res = await call('POST', `${subscriptionPath}/cancel`, { token: superToken, body: {} });
+    if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  });
+
+  await check('subscription: a cancelled school can be resubscribed', async () => {
+    const res = await call('POST', subscriptionPath, {
+      token: superToken,
+      body: { plan_id: UPGRADE_PLAN_ID },
+    });
+    if (res.status !== 201)
+      throw new Error(`expected 201, got ${res.status} ${JSON.stringify(res.json)}`);
+    const read = await call('GET', subscriptionPath, { token: superToken });
+    const body = read.json as { data: { status: string; plan: { code: string } | null } };
+    if (body.data.status !== 'active' || body.data.plan?.code !== 'pro')
+      throw new Error('resubscription did not become the current subscription');
   });
 
   await app.close();

@@ -11,11 +11,9 @@ import {
   AdminPlanLifecycleResponse,
   AdminPlanListResponse,
   AdminPlanResponse,
-  AdminPlanStatus,
   AdminPlanSummary,
   AdminPlanUpdateRequest,
   PaginationMeta,
-  PlanBillingPeriod,
   PlanFeature,
   PlanFeaturesConfig,
   PlanLimitResource,
@@ -32,6 +30,7 @@ import {
 } from '@school-bus-tracking/validation';
 import { ZodError } from 'zod';
 import { Plan } from '../../database/models';
+import { toAdminPlanResponse } from './admin-plans.mapper';
 import {
   ADMIN_PLANS_REPOSITORY,
   CENTS_PER_UNIT,
@@ -250,21 +249,9 @@ export class AdminPlansService {
 
   /** Public full projection — no internal ORM state. */
   private toResponse(plan: Plan): AdminPlanResponse {
-    return {
-      id: plan.id,
-      code: plan.code,
-      name: plan.name,
-      description: plan.description,
-      price: (plan.price_cents / CENTS_PER_UNIT).toFixed(2),
-      currency: plan.currency,
-      billing_period: plan.billing_period as PlanBillingPeriod,
-      is_active: plan.is_active,
-      status: (plan.is_active ? 'active' : 'inactive') as AdminPlanStatus,
-      features: { ...plan.features },
-      limits: { ...plan.limits } as PlanLimitsConfig,
-      created_at: plan.created_at.toISOString(),
-      updated_at: plan.updated_at.toISOString(),
-    };
+    // Shared with the school-subscription endpoints so plan data has exactly
+    // one projection across the platform (never copied into subscriptions).
+    return toAdminPlanResponse(plan);
   }
 
   /** Public list projection — includes a short feature/limit summary. */

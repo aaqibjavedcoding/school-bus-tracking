@@ -1,4 +1,4 @@
-import { Column, DataType, Table } from 'sequelize-typescript';
+import { Column, DataType, HasMany, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
 import {
   PlanBillingPeriod,
@@ -6,6 +6,7 @@ import {
   PlanLimitsConfig,
 } from '@school-bus-tracking/shared-types';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
+import { SchoolSubscription } from './school-subscription.model';
 
 export interface PlanAttributes extends BaseModelAttributes {
   /** Stable machine-readable code (kebab-case), unique platform-wide. */
@@ -100,4 +101,12 @@ export class Plan extends BaseModel<PlanAttributes, PlanCreationAttributes> {
 
   @Column({ type: DataType.JSONB, allowNull: false, defaultValue: {} })
   declare limits: PlanLimitsConfig;
+
+  /**
+   * School subscriptions referencing this plan (Task 42). Plans are never
+   * hard-deleted while subscriptions point at them — they are retired with
+   * `is_active = false`, which hides them from new assignments only.
+   */
+  @HasMany(() => SchoolSubscription, { foreignKey: 'plan_id', as: 'subscriptions' })
+  declare subscriptions?: SchoolSubscription[];
 }

@@ -300,15 +300,24 @@ export interface AdminSchoolUpdateRequest {
 }
 
 /**
- * Subscription placeholder. No billing is implemented in this phase; the
- * object always reports `status: 'none'` so the web console can render a
- * ready-for-billing section and the next phase can fill in plan/period
- * details without a contract change.
+ * Compact subscription block embedded in the school list/details payloads.
+ *
+ * Originally a pure placeholder that always reported `status: 'none'`. Since
+ * Task 42 it is filled in from the real `school_subscriptions` record when one
+ * exists, and **still reports the exact same `status: 'none'`, `plan: null`,
+ * `current_period_end: null` shape for a school without a subscription**, so
+ * existing consumers keep working unchanged.
+ *
+ * `SubscriptionStatus` / `AdminSchoolSubscriptionPlanRef` are declared in the
+ * Task 42 section at the bottom of this file (enum declarations are hoisted at
+ * runtime, and types are resolution-order independent).
  */
 export interface AdminSchoolSubscriptionInfo {
-  status: 'none';
-  plan: null;
-  current_period_end: null;
+  status: SubscriptionStatus;
+  /** Minimal plan reference resolved from the Plans domain; never stored. */
+  plan: AdminSchoolSubscriptionPlanRef | null;
+  /** ISO-8601 end of the current billing period; `null` when open-ended. */
+  current_period_end: string | null;
 }
 
 /** Platform-level school profile projection (no credentials, ever). */
@@ -348,7 +357,10 @@ export interface AdminSchoolSummary extends AdminSchoolResponse {
     active_staff_count: number;
     bus_count: number;
   };
-  /** Subscription placeholder — always present, ready for the billing phase. */
+  /**
+   * Subscription block — always present. Reports `status: 'none'` for a
+   * school that has no subscription record yet.
+   */
   subscription: AdminSchoolSubscriptionInfo;
 }
 
@@ -2105,4 +2117,166 @@ export interface AdminPlanLifecycleResponse {
   status: AdminPlanStatus;
   is_active: boolean;
   message: string;
+}
+
+/**
+ * Task 42 — School Subscriptions (Step 1: backend foundation).
+ *
+ * A `school_subscriptions` record maps one School to one Plan of the Task 41
+ * catalog together with the lifecycle state (status, trial window, current
+ * period, cancellation). The subscription row **never copies** plan name,
+ * code, price, features or limits — those are always resolved through
+ * `plan_id` from the Plans domain, so a plan edit is immediately reflected
+ * everywhere.
+ *
+ * No payment/billing functionality is implemented in this phase: the shapes
+ * below are deliberately payment-compatible (status values, period window,
+ * cancellation timestamp) but nothing here charges, invoices or renews.
+ */
+
+/** Lifecycle state of a school subscription. */
+export enum SubscriptionStatus {
+  /**
+   * Projection-only state: the school has **no** subscription record at all.
+   * It is never persisted in `school_subscriptions` (a database CHECK
+   * constraint rejects it) — it exists so the API can report a clean,
+   * non-error "no subscription" state, exactly as before Task 42.
+   */
+  NONE = 'none',
+  /** Inside a trial window; access is granted, nothing is charged. */
+  TRIALING = 'trialing',
+  /** Paid/among granted access for the current period. */
+  ACTIVE = 'active',
+  /** Payment overdue (future billing phase); access decisions deferred. */
+  PAST_DUE = 'past_due',
+  /** Cancelled by an operator; kept for history. */
+  CANCELLED = 'cancelled',
+  /** The current period ended and was not renewed. */
+  EXPIRED = 'expired',
+}
+
+export const SUBSCRIPTION_STATUS_VALUES: SubscriptionStatus[] =
+  Object.values(SubscriptionStatus);
+
+/** Statuses a persisted `school_subscriptions` row may hold (`none` excluded). */
+export type PersistedSubscriptionStatus = Exclude<SubscriptionStatus, SubscriptionStatus.NONE>;
+
+export const PERSISTED_SUBSCRIPTION_STATUS_VALUES: PersistedSubscriptionStatus[] = [
+  SubscriptionStatus.TRIALING,
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.PAST_DUE,
+  SubscriptionStatus.CANCELLED,
+  SubscriptionStatus.EXPIRED,
+];
+
+/**
+ * Statuses that make a subscription the school's *current* one. Exactly one
+ * subscription per school may hold one of these at any time — enforced by a
+ * partial unique index and by the service layer.
+ */
+export const LIVE_SUBSCRIPTION_STATUS_VALUES: PersistedSubscriptionStatus[] = [
+  SubscriptionStatus.TRIALING,
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.PAST_DUE,
+];
+
+/** Statuses a Super Admin may assign when creating a subscription. */
+export const ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES: PersistedSubscriptionStatus[] = [
+  ...LIVE_SUBSCRIPTION_STATUS_VALUES,
+];
+
+/** Terminal statuses — historical rows that no longer grant access. */
+export const TERMINAL_SUBSCRIPTION_STATUS_VALUES: PersistedSubscriptionStatus[] = [
+  SubscriptionStatus.CANCELLED,
+  SubscriptionStatus.EXPIRED,
+];
+
+/** Human-readable labels for subscription statuses (UI displays). */
+export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
+  [SubscriptionStatus.NONE]: 'No subscription',
+  [SubscriptionStatus.TRIALING]: 'Trialing',
+  [SubscriptionStatus.ACTIVE]: 'Active',
+  [SubscriptionStatus.PAST_DUE]: 'Past due',
+  [SubscriptionStatus.CANCELLED]: 'Cancelled',
+  [SubscriptionStatus.EXPIRED]: 'Expired',
+};
+
+/**
+ * Minimal plan reference embedded in compact subscription projections.
+ *
+ * Always derived at read time from the referenced plan — never persisted on
+ * the subscription row.
+ */
+export interface AdminSchoolSubscriptionPlanRef {
+  id: string;
+  code: string;
+  name: string;
+  /** Decimal string with two fraction digits, e.g. `"19.99"`. */
+  price: string;
+  currency: string;
+  billing_period: PlanBillingPeriod;
+  is_active: boolean;
+}
+
+/**
+ * Full subscription projection of
+ * `GET|POST|PATCH /api/v1/admin/schools/:schoolId/subscription`.
+ *
+ * For a school without a subscription every field except `school_id` and
+ * `status` (`'none'`) is `null` — a clean state, never an error.
+ */
+export interface AdminSchoolSubscriptionResponse {
+  /** `null` in the `none` state. */
+  id: string | null;
+  school_id: string;
+  status: SubscriptionStatus;
+  plan_id: string | null;
+  /** Full plan definition resolved from the Plans domain. */
+  plan: AdminPlanResponse | null;
+  /** Convenience mirrors of the plan's commercial terms (read-time only). */
+  price: string | null;
+  currency: string | null;
+  billing_period: PlanBillingPeriod | null;
+  trial_start: string | null;
+  trial_end: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancelled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Body of `POST /api/v1/admin/schools/:schoolId/subscription`. */
+export interface AdminSchoolSubscriptionCreateRequest {
+  /** Must reference an existing **active** plan. */
+  plan_id: string;
+  /** Defaults to `trialing` when trial dates are supplied, else `active`. */
+  status?: SubscriptionStatus;
+  trial_start?: string | null;
+  trial_end?: string | null;
+  /** Defaults to "now" when omitted. */
+  current_period_start?: string | null;
+  /** `null` means open-ended (no renewal date is computed in this phase). */
+  current_period_end?: string | null;
+}
+
+/**
+ * Body of `PATCH /api/v1/admin/schools/:schoolId/subscription`.
+ *
+ * Changing `plan_id` supersedes the current subscription: the existing row is
+ * closed (kept as history) and a new row is created on the new plan.
+ */
+export interface AdminSchoolSubscriptionUpdateRequest {
+  plan_id?: string;
+  status?: SubscriptionStatus;
+  trial_start?: string | null;
+  trial_end?: string | null;
+  current_period_start?: string | null;
+  current_period_end?: string | null;
+}
+
+/** Body of `POST /api/v1/admin/schools/:schoolId/subscription/cancel`. */
+export interface AdminSchoolSubscriptionCancelRequest {
+  /** Defaults to "now". Cannot precede the subscription start. */
+  cancelled_at?: string | null;
 }

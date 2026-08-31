@@ -10,6 +10,7 @@ import { Trip } from './trip.model';
 import { User } from './user.model';
 import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
+import { SchoolSubscription } from './school-subscription.model';
 
 export interface SchoolAttributes extends BaseModelAttributes {
   /** Display name of the institution. */
@@ -163,4 +164,12 @@ export class School extends BaseModel<SchoolAttributes, SchoolCreationAttributes
 
   @HasMany(() => StudentGuardian, { foreignKey: 'school_id', as: 'studentGuardians' })
   declare studentGuardians?: StudentGuardian[];
+
+  /**
+   * Commercial subscription history of the tenant (Task 42). At most one row
+   * is *live* (trialing/active/past_due) at a time; older rows are kept as
+   * history when the school changes plan or cancels.
+   */
+  @HasMany(() => SchoolSubscription, { foreignKey: 'school_id', as: 'subscriptions' })
+  declare subscriptions?: SchoolSubscription[];
 }

@@ -1,5 +1,15 @@
 import { Module } from '@nestjs/common';
-import { Bus, Plan, RefreshToken, Route, School, Student, Trip, User } from '../../database/models';
+import {
+  Bus,
+  Plan,
+  RefreshToken,
+  Route,
+  School,
+  SchoolSubscription,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 import { SchoolsModule } from '../schools/schools.module';
 import { AdminDashboardController } from './admin-dashboard.controller';
 import { AdminDashboardService } from './admin-dashboard.service';
@@ -9,6 +19,8 @@ import { AdminSchoolsController } from './admin-schools.controller';
 import { AdminSchoolsService } from './admin-schools.service';
 import { AdminPlansController } from './admin-plans.controller';
 import { AdminPlansService } from './admin-plans.service';
+import { AdminSubscriptionsController } from './admin-subscriptions.controller';
+import { AdminSubscriptionsService } from './admin-subscriptions.service';
 import {
   ADMIN_BUSES_REPOSITORY,
   ADMIN_PLANS_REPOSITORY,
@@ -16,6 +28,7 @@ import {
   ADMIN_ROUTES_REPOSITORY,
   ADMIN_SCHOOLS_REPOSITORY,
   ADMIN_STUDENTS_REPOSITORY,
+  ADMIN_SUBSCRIPTIONS_REPOSITORY,
   ADMIN_TRIPS_REPOSITORY,
   ADMIN_USERS_REPOSITORY,
 } from './admin.constants';
@@ -31,7 +44,9 @@ import {
  *
  * The plan catalog lives here as well: plans are platform-level (no tenant)
  * and are managed exclusively by a SUPER_ADMIN, which matches the access
- * model of the rest of the `/admin/*` surface.
+ * model of the rest of the `/admin/*` surface. School subscriptions (Task 42)
+ * join the two: they are owned by a school but only a SUPER_ADMIN may assign,
+ * change or cancel them.
  */
 @Module({
   imports: [SchoolsModule],
@@ -40,12 +55,14 @@ import {
     AdminSchoolsController,
     AdminSchoolAdminsController,
     AdminPlansController,
+    AdminSubscriptionsController,
   ],
   providers: [
     AdminDashboardService,
     AdminSchoolsService,
     AdminSchoolAdminsService,
     AdminPlansService,
+    AdminSubscriptionsService,
     { provide: ADMIN_SCHOOLS_REPOSITORY, useValue: School },
     { provide: ADMIN_USERS_REPOSITORY, useValue: User },
     { provide: ADMIN_STUDENTS_REPOSITORY, useValue: Student },
@@ -54,6 +71,7 @@ import {
     { provide: ADMIN_TRIPS_REPOSITORY, useValue: Trip },
     { provide: ADMIN_REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
     { provide: ADMIN_PLANS_REPOSITORY, useValue: Plan },
+    { provide: ADMIN_SUBSCRIPTIONS_REPOSITORY, useValue: SchoolSubscription },
   ],
 })
 export class AdminModule {}
