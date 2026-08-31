@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useState } from 'react';
 import type {
   BusCreateRequest,
@@ -170,6 +171,9 @@ export default function BusesPage() {
                     </td>
                     <td>
                       <div className="table-actions">
+                        <Link href={`/buses/${bus.id}/documents`}>
+                          <Button variant="secondary">Documents</Button>
+                        </Link>
                         <Button variant="secondary" onClick={() => startEdit(bus)}>
                           Edit
                         </Button>

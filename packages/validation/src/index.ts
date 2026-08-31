@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import {
   ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES,
+  BusDocumentType,
+  DEFAULT_DOCUMENT_EXPIRY_WARNING_DAYS,
+  DOCUMENT_OWNER_TYPE_VALUES,
+  DocumentOwnerType,
+  DocumentStatus,
+  DriverDocumentType,
+  EmergencyStatus,
+  EmergencyType,
   PlanBillingPeriod,
   PlanFeature,
   PlanLimitResource,
@@ -1431,3 +1439,373 @@ export const adminSchoolSubscriptionCancelSchema = z
 export type AdminSchoolSubscriptionCancelInput = z.infer<
   typeof adminSchoolSubscriptionCancelSchema
 >;
+
+/**
+ * Task 44 — Bus & driver compliance documents.
+ *
+ * The same strict, tenant-free style as every other schema in this package:
+ * `.strict()` so an unknown field (a `school_id`, a forged `status`) is
+ * rejected instead of silently stripped.
+ *
+ * Validity is *derived*, never accepted: no schema here exposes a `status`
+ * field, so a client cannot mark an expired certificate as valid. The single
+ * source of truth for the derivation is {@link deriveDocumentStatus}, which
+ * the API service, the web console and the mobile app all call.
+ */
+
+/** Upper bound of a document reference number (RC no, policy no, licence no). */
+export const DOCUMENT_NUMBER_MAX_LENGTH = 64;
+
+/** Upper bound of the free-text notes of a document. */
+export const DOCUMENT_NOTES_MAX_LENGTH = 1000;
+
+/** Upper bound of the attached-file display name. */
+export const DOCUMENT_FILE_NAME_MAX_LENGTH = 255;
+
+/** Upper bound of the attached-file reference URL. */
+export const DOCUMENT_FILE_URL_MAX_LENGTH = 512;
+
+const optionalTextField = (max: number, message: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, message)
+    .transform((value) => (value.length === 0 ? null : value))
+    .nullish()
+    .transform((value) => value ?? null);
+
+const documentNumberSchema = optionalTextField(
+  DOCUMENT_NUMBER_MAX_LENGTH,
+  `document_number must be at most ${DOCUMENT_NUMBER_MAX_LENGTH} characters`,
+);
+
+const documentNotesSchema = optionalTextField(
+  DOCUMENT_NOTES_MAX_LENGTH,
+  `notes must be at most ${DOCUMENT_NOTES_MAX_LENGTH} characters`,
+);
+
+const documentFileNameSchema = optionalTextField(
+  DOCUMENT_FILE_NAME_MAX_LENGTH,
+  `file_name must be at most ${DOCUMENT_FILE_NAME_MAX_LENGTH} characters`,
+);
+
+const documentFileUrlSchema = z
+  .string()
+  .trim()
+  .max(DOCUMENT_FILE_URL_MAX_LENGTH, `file_url must be at most ${DOCUMENT_FILE_URL_MAX_LENGTH} characters`)
+  // `z.string().url()` accepts any scheme (`javascript:`, `data:`, …), and a
+  // client renders this value as a link — so the scheme is pinned here.
+  .url('file_url must be a valid http(s) URL')
+  .refine((value) => /^https?:\/\//i.test(value), 'file_url must be a valid http(s) URL')
+  .nullish()
+  .transform((value) => value ?? null);
+
+/**
+ * A calendar date (`YYYY-MM-DD`) or an ISO-8601 date-time.
+ *
+ * Certificates are issued with a plain date while an uploaded scan may carry
+ * a full timestamp, so both are accepted — and both must describe a moment
+ * that actually exists (`2026-02-31` is rejected even though it parses).
+ */
+const DOCUMENT_DATE_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+export const documentDateSchema = z
+  .string()
+  .trim()
+  .min(1, 'date cannot be empty')
+  .superRefine((value, context) => {
+    const match = DOCUMENT_DATE_PATTERN.exec(value);
+    if (!match) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'must be a valid ISO-8601 date (YYYY-MM-DD) or date-time',
+      });
+      return;
+    }
+    const [, year, month, day, hour, minute, second] = match;
+    const utc = Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      hour ? Number(hour) : 0,
+      minute ? Number(minute) : 0,
+      second ? Number(second) : 0,
+    );
+    const parsed = new Date(utc);
+    if (
+      parsed.getUTCFullYear() !== Number(year) ||
+      parsed.getUTCMonth() !== Number(month) - 1 ||
+      parsed.getUTCDate() !== Number(day)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'must be a real calendar date',
+      });
+    }
+  });
+
+const optionalDocumentDateSchema = documentDateSchema.nullish().transform((value) => value ?? null);
+
+/** Shared field set of a bus/driver document, before the owner-specific type. */
+const documentFieldsSchema = {
+  document_number: documentNumberSchema,
+  issue_date: optionalDocumentDateSchema,
+  expiry_date: optionalDocumentDateSchema,
+  notes: documentNotesSchema,
+  file_name: documentFileNameSchema,
+  file_url: documentFileUrlSchema,
+};
+
+/** Refinement shared by create and update: a document cannot expire before it
+ * was issued. */
+const checkDateRange = (
+  value: { issue_date?: string | null; expiry_date?: string | null },
+  context: z.RefinementCtx,
+): void => {
+  if (!value.issue_date || !value.expiry_date) {
+    return;
+  }
+  const issue = new Date(value.issue_date).getTime();
+  const expiry = new Date(value.expiry_date).getTime();
+  if (Number.isFinite(issue) && Number.isFinite(expiry) && expiry < issue) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['expiry_date'],
+      message: 'expiry_date must be on or after issue_date',
+    });
+  }
+};
+
+export const busDocumentCreateSchema = z
+  .object({
+    document_type: z.nativeEnum(BusDocumentType),
+    ...documentFieldsSchema,
+  })
+  .strict();
+
+export type BusDocumentCreateInput = z.infer<typeof busDocumentCreateSchema>;
+
+export const busDocumentUpdateSchema = z
+  .object({
+    document_type: z.nativeEnum(BusDocumentType).optional(),
+    ...documentFieldsSchema,
+  })
+  .strict()
+  .superRefine((value, context) => checkDateRange(value, context));
+
+export type BusDocumentUpdateInput = z.infer<typeof busDocumentUpdateSchema>;
+
+export const driverDocumentCreateSchema = z
+  .object({
+    document_type: z.nativeEnum(DriverDocumentType),
+    ...documentFieldsSchema,
+  })
+  .strict();
+
+export type DriverDocumentCreateInput = z.infer<typeof driverDocumentCreateSchema>;
+
+export const driverDocumentUpdateSchema = z
+  .object({
+    document_type: z.nativeEnum(DriverDocumentType).optional(),
+    ...documentFieldsSchema,
+  })
+  .strict()
+  .superRefine((value, context) => checkDateRange(value, context));
+
+export type DriverDocumentUpdateInput = z.infer<typeof driverDocumentUpdateSchema>;
+
+export const documentListQuerySchema = paginationSchema.extend({
+  document_type: z.string().trim().min(1).max(64).optional(),
+  status: z.nativeEnum(DocumentStatus).optional(),
+});
+
+export type DocumentListQueryInput = z.infer<typeof documentListQuerySchema>;
+
+/** Bounds of the configurable "expiring soon" lead time, in days. */
+export const MIN_DOCUMENT_WARNING_DAYS = 1;
+export const MAX_DOCUMENT_WARNING_DAYS = 365;
+
+export const documentRequirementInputSchema = z
+  .object({
+    document_type: z.string().trim().min(1, 'document_type is required').max(64),
+    is_required: z.boolean(),
+    expiry_warning_days: z
+      .number()
+      .int('expiry_warning_days must be an integer')
+      .min(MIN_DOCUMENT_WARNING_DAYS, `expiry_warning_days must be at least ${MIN_DOCUMENT_WARNING_DAYS}`)
+      .max(MAX_DOCUMENT_WARNING_DAYS, `expiry_warning_days must be at most ${MAX_DOCUMENT_WARNING_DAYS}`)
+      .nullish()
+      .transform((value) => value ?? null),
+  })
+  .strict();
+
+export type DocumentRequirementInputParsed = z.infer<typeof documentRequirementInputSchema>;
+
+export const documentRequirementsUpdateSchema = z
+  .object({
+    owner_type: z.enum(DOCUMENT_OWNER_TYPE_VALUES as [DocumentOwnerType, ...DocumentOwnerType[]]),
+    items: z
+      .array(documentRequirementInputSchema)
+      .min(1, 'items must contain at least one requirement')
+      .max(64, 'items must contain at most 64 requirements'),
+  })
+  .strict();
+
+export type DocumentRequirementsUpdateInput = z.infer<typeof documentRequirementsUpdateSchema>;
+
+export const documentRequirementsListQuerySchema = z.object({
+  owner_type: z.enum(DOCUMENT_OWNER_TYPE_VALUES as [DocumentOwnerType, ...DocumentOwnerType[]]),
+});
+
+export type DocumentRequirementsListQueryInput = z.infer<
+  typeof documentRequirementsListQuerySchema
+>;
+
+export const documentOverviewQuerySchema = paginationSchema.extend({
+  owner_type: z
+    .enum(DOCUMENT_OWNER_TYPE_VALUES as [DocumentOwnerType, ...DocumentOwnerType[]])
+    .optional(),
+  compliance: z.enum(['compliant', 'attention']).optional(),
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+});
+
+export type DocumentOverviewQueryInput = z.infer<typeof documentOverviewQuerySchema>;
+
+/**
+ * Document validity — the single derivation used by API, web and mobile.
+ *
+ * There is deliberately no way to pass a status in: it is computed from the
+ * stored `expiry_date`, so an expired certificate can never be presented as
+ * valid and an undated document (nothing to expire against) is `VALID`.
+ *
+ * The comparison is calendar-day based (both sides normalized to midnight
+ * UTC) because certificates expire on a date, not at a time of day.
+ */
+export function deriveDocumentStatus(
+  expiryDate: Date | string | null | undefined,
+  options: { now?: Date; warningDays?: number } = {},
+): DocumentStatus {
+  const days = documentDaysRemaining(expiryDate, options);
+  if (days === null) {
+    return DocumentStatus.VALID;
+  }
+  const warningDays = options.warningDays ?? DEFAULT_DOCUMENT_EXPIRY_WARNING_DAYS;
+  if (days < 0) {
+    return DocumentStatus.EXPIRED;
+  }
+  return days <= warningDays ? DocumentStatus.EXPIRING_SOON : DocumentStatus.VALID;
+}
+
+/**
+ * Whole calendar days from today until the document expires.
+ *
+ * `0` → expires today, negative → already expired, `null` → no expiry date
+ * (or an unparsable one, which is treated as "no date" rather than guessed).
+ */
+export function documentDaysRemaining(
+  expiryDate: Date | string | null | undefined,
+  options: { now?: Date } = {},
+): number | null {
+  if (expiryDate === null || expiryDate === undefined || expiryDate === '') {
+    return null;
+  }
+  const expiry = expiryDate instanceof Date ? expiryDate : new Date(expiryDate);
+  const expiryMs = expiry.getTime();
+  if (!Number.isFinite(expiryMs)) {
+    return null;
+  }
+  const now = options.now ?? new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const expiryUtc = Date.UTC(
+    expiry.getUTCFullYear(),
+    expiry.getUTCMonth(),
+    expiry.getUTCDate(),
+  );
+  return Math.round((expiryUtc - todayUtc) / 86_400_000);
+}
+
+/**
+ * Task 44 — Emergency / SOS.
+ *
+ * The crew payload is deliberately tiny and strict: the school, the bus, the
+ * route and the event time are all resolved server-side, so nothing here can
+ * forge them. Coordinates are optional — an SOS must always be possible even
+ * without a GPS fix — but they are never invented: either the device supplies
+ * a real fix or the event is stored without one.
+ */
+export const EMERGENCY_MESSAGE_MAX_LENGTH = 500;
+
+export const emergencySosSchema = z
+  .object({
+    trip_id: z.string().uuid('trip_id must be a valid UUID').nullish().transform((v) => v ?? null),
+    type: z.nativeEnum(EmergencyType),
+    message: z
+      .string()
+      .trim()
+      .max(EMERGENCY_MESSAGE_MAX_LENGTH, `message must be at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters`)
+      .transform((value) => (value.length === 0 ? null : value))
+      .nullish()
+      .transform((value) => value ?? null),
+    latitude: z
+      .number({ invalid_type_error: 'latitude must be a number' })
+      .finite('latitude must be a finite number')
+      .min(-90, 'latitude must be between -90 and 90')
+      .max(90, 'latitude must be between -90 and 90')
+      .nullish()
+      .transform((value) => value ?? null),
+    longitude: z
+      .number({ invalid_type_error: 'longitude must be a number' })
+      .finite('longitude must be a finite number')
+      .min(-180, 'longitude must be between -180 and 180')
+      .max(180, 'longitude must be between -180 and 180')
+      .nullish()
+      .transform((value) => value ?? null),
+    accuracy: z
+      .number({ invalid_type_error: 'accuracy must be a number' })
+      .finite('accuracy must be a finite number')
+      .min(0, 'accuracy must be at least 0')
+      .max(GPS_ACCURACY_MAX_METERS, `accuracy must be at most ${GPS_ACCURACY_MAX_METERS} metres`)
+      .nullish()
+      .transform((value) => value ?? null),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    // A half coordinate pair carries no position at all — reject it instead
+    // of storing a point that would render at 0,0.
+    if ((value.latitude === null) !== (value.longitude === null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['latitude'],
+        message: 'latitude and longitude must be supplied together',
+      });
+    }
+  });
+
+export type EmergencySosInput = z.infer<typeof emergencySosSchema>;
+
+export const emergencyStatusUpdateSchema = z
+  .object({
+    status: z.nativeEnum(EmergencyStatus),
+    note: z
+      .string()
+      .trim()
+      .max(EMERGENCY_MESSAGE_MAX_LENGTH, `note must be at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters`)
+      .transform((value) => (value.length === 0 ? null : value))
+      .nullish()
+      .transform((value) => value ?? null),
+  })
+  .strict();
+
+export type EmergencyStatusUpdateInput = z.infer<typeof emergencyStatusUpdateSchema>;
+
+export const emergencyListQuerySchema = paginationSchema.extend({
+  status: z.nativeEnum(EmergencyStatus).optional(),
+  type: z.nativeEnum(EmergencyType).optional(),
+  trip_id: z.string().uuid('trip_id must be a valid UUID').optional(),
+  bus_id: z.string().uuid('bus_id must be a valid UUID').optional(),
+  date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_from must be in YYYY-MM-DD format').optional(),
+  date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date_to must be in YYYY-MM-DD format').optional(),
+});
+
+export type EmergencyListQueryInput = z.infer<typeof emergencyListQuerySchema>;

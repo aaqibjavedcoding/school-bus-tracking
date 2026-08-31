@@ -16,7 +16,9 @@ export interface NavItem {
     | 'child'
     | 'bell'
     | 'school'
-    | 'tag';
+    | 'tag'
+    | 'doc'
+    | 'alert';
 }
 
 /**
@@ -55,6 +57,8 @@ export function navItemsForRole(role: UserRole): NavItem[] {
         { href: '/routes', label: 'Routes', icon: 'route' },
         { href: '/staff', label: 'Drivers & conductors', icon: 'staff' },
         { href: '/assignments', label: 'Assignments', icon: 'assign' },
+        { href: '/documents', label: 'Documents', icon: 'doc' },
+        { href: '/emergencies', label: 'Emergencies', icon: 'alert' },
         { href: '/trips', label: 'Trips', icon: 'trip' },
         { href: '/tracking', label: 'Live tracking', icon: 'map' },
         { href: '/attendance', label: 'Attendance', icon: 'check' },

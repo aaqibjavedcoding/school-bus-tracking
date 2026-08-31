@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Alert } from 'react-native';
-import type { TripStudentManifestResponse } from '@school-bus-tracking/shared-types';
+import { Alert, StyleSheet, Text } from 'react-native';
+import { UserRole, type TripStudentManifestResponse } from '@school-bus-tracking/shared-types';
+import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
-import { isTripOpen, ManifestList, useCrewToday } from '../../src/features/crew';
+import { isTripOpen, ManifestList, manifestCounts, useCrewToday } from '../../src/features/crew';
+import { useAuth } from '../../src/features/auth';
+import { crewRoleLabel } from '../../src/lib/roles';
 import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '../../src/components';
 
 /**
@@ -13,8 +16,15 @@ import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '..
  * The manifest itself is derived server-side from the trip's route and
  * stops; the board/drop calls are body-less — the API records who (JWT
  * subject) and when (server clock). Allowed only while the trip is open.
+ *
+ * Task 44 keeps one manifest for both crew roles — the conductor's daily
+ * tool, the driver's window onto who is on board — and only the framing
+ * changes: the conductor is told to record attendance, the driver is shown
+ * the head-count they are carrying.
  */
 export default function CrewManifestScreen() {
+  const { user } = useAuth();
+  const isDriver = user?.role === UserRole.DRIVER;
   const {
     data: today,
     loading: todayLoading,
@@ -74,6 +84,7 @@ export default function CrewManifestScreen() {
   }
 
   const manifest = manifestLoad.data;
+  const counts = manifest ? manifestCounts(manifest.items) : null;
 
   return (
     <Screen
@@ -85,7 +96,21 @@ export default function CrewManifestScreen() {
     >
       {manifest ? (
         <>
+          <Text style={styles.role}>
+            {user ? `${crewRoleLabel(user.role)} · ` : ''}
+            {isDriver ? 'Students on board' : 'Boarding & drop'}
+          </Text>
+          <Text style={styles.hint}>
+            {isDriver
+              ? 'The head-count you are carrying. Ask the conductor before moving off.'
+              : 'Tap board when a student gets on and drop when they get off — the time is recorded automatically.'}
+          </Text>
           <TripStatusBadge status={manifest.trip_status} />
+          {counts ? (
+            <Text style={styles.counts}>
+              {counts.boarded} boarded · {counts.pending} waiting · {counts.dropped} dropped
+            </Text>
+          ) : null}
           {manifestLoad.error ? (
             <ErrorState message={manifestLoad.error} onRetry={() => void manifestLoad.reload()} />
           ) : (
@@ -114,3 +139,22 @@ export default function CrewManifestScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  role: {
+    fontSize: typography.fontSizes.lg,
+    fontWeight: '800',
+    color: colors.neutral[900],
+  },
+  hint: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[500],
+    marginTop: 2,
+    marginBottom: spacing.sm,
+  },
+  counts: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
+    marginTop: spacing.xs,
+  },
+});

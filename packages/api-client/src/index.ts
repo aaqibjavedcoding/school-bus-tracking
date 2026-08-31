@@ -114,6 +114,29 @@ import {
   TripStudentManifestResponse,
   TripUpdateRequest,
   TripEtaResponse,
+  BusDocumentCreateRequest,
+  BusDocumentListResponse,
+  BusDocumentResponse,
+  BusDocumentUpdateRequest,
+  DocumentComplianceResponse,
+  DocumentDeleteResponse,
+  DocumentListQuery,
+  DocumentOverviewQuery,
+  DocumentOverviewResponse,
+  DocumentRequirementsListQuery,
+  DocumentRequirementsResponse,
+  DocumentRequirementsUpdateRequest,
+  DriverDocumentCreateRequest,
+  DriverDocumentListResponse,
+  DriverDocumentResponse,
+  DriverDocumentUpdateRequest,
+  EmergencyActiveListResponse,
+  EmergencyEventListResponse,
+  EmergencyEventResponse,
+  EmergencyListQuery,
+  EmergencySosRequest,
+  EmergencyStatus,
+  EmergencyStatusUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
@@ -1205,8 +1228,240 @@ export class ApiClient {
       `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}/drop`,
     );
   }
+
+  /**
+   * Task 44 — Bus & driver compliance documents.
+   *
+   * Every call is tenant-free: the API derives `school_id` from the bearer
+   * token and pins the owner (bus / driver) from the route, so a client can
+   * neither select a tenant nor spoof a document status — validity is always
+   * derived server-side from the real expiry date.
+   */
+  public async listBusDocuments(
+    busId: string,
+    query: DocumentListQuery = {},
+  ): Promise<ApiResponse<BusDocumentListResponse>> {
+    return this.get<BusDocumentListResponse>(
+      `/buses/${encodeURIComponent(busId)}/documents${documentQuerySuffix(query)}`,
+    );
+  }
+
+  public async createBusDocument(
+    busId: string,
+    body: BusDocumentCreateRequest,
+  ): Promise<ApiResponse<BusDocumentResponse>> {
+    return this.post<BusDocumentResponse>(`/buses/${encodeURIComponent(busId)}/documents`, body);
+  }
+
+  public async getBusDocument(
+    busId: string,
+    id: string,
+  ): Promise<ApiResponse<BusDocumentResponse>> {
+    return this.get<BusDocumentResponse>(
+      `/buses/${encodeURIComponent(busId)}/documents/${encodeURIComponent(id)}`,
+    );
+  }
+
+  public async updateBusDocument(
+    busId: string,
+    id: string,
+    body: BusDocumentUpdateRequest,
+  ): Promise<ApiResponse<BusDocumentResponse>> {
+    return this.patch<BusDocumentResponse>(
+      `/buses/${encodeURIComponent(busId)}/documents/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  public async deleteBusDocument(
+    busId: string,
+    id: string,
+  ): Promise<ApiResponse<DocumentDeleteResponse>> {
+    return this.delete<DocumentDeleteResponse>(
+      `/buses/${encodeURIComponent(busId)}/documents/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Missing / valid / expiring / expired requirements of one bus. */
+  public async getBusDocumentCompliance(
+    busId: string,
+  ): Promise<ApiResponse<DocumentComplianceResponse>> {
+    return this.get<DocumentComplianceResponse>(
+      `/buses/${encodeURIComponent(busId)}/documents/compliance`,
+    );
+  }
+
+  public async listDriverDocuments(
+    driverId: string,
+    query: DocumentListQuery = {},
+  ): Promise<ApiResponse<DriverDocumentListResponse>> {
+    return this.get<DriverDocumentListResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents${documentQuerySuffix(query)}`,
+    );
+  }
+
+  public async createDriverDocument(
+    driverId: string,
+    body: DriverDocumentCreateRequest,
+  ): Promise<ApiResponse<DriverDocumentResponse>> {
+    return this.post<DriverDocumentResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents`,
+      body,
+    );
+  }
+
+  public async getDriverDocument(
+    driverId: string,
+    id: string,
+  ): Promise<ApiResponse<DriverDocumentResponse>> {
+    return this.get<DriverDocumentResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents/${encodeURIComponent(id)}`,
+    );
+  }
+
+  public async updateDriverDocument(
+    driverId: string,
+    id: string,
+    body: DriverDocumentUpdateRequest,
+  ): Promise<ApiResponse<DriverDocumentResponse>> {
+    return this.patch<DriverDocumentResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  public async deleteDriverDocument(
+    driverId: string,
+    id: string,
+  ): Promise<ApiResponse<DocumentDeleteResponse>> {
+    return this.delete<DocumentDeleteResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Missing / valid / expiring / expired requirements of one driver. */
+  public async getDriverDocumentCompliance(
+    driverId: string,
+  ): Promise<ApiResponse<DocumentComplianceResponse>> {
+    return this.get<DocumentComplianceResponse>(
+      `/drivers/${encodeURIComponent(driverId)}/documents/compliance`,
+    );
+  }
+
+  /** School-wide compliance overview (every bus and driver, newest issues). */
+  public async getDocumentOverview(
+    query: DocumentOverviewQuery = {},
+  ): Promise<ApiResponse<DocumentOverviewResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.owner_type) params.set('owner_type', query.owner_type);
+    if (query.compliance) params.set('compliance', query.compliance);
+    if (query.search) params.set('search', query.search);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<DocumentOverviewResponse>(`/documents/overview${suffix}`);
+  }
+
+  /** Effective required / optional configuration of one catalogue. */
+  public async getDocumentRequirements(
+    query: DocumentRequirementsListQuery,
+  ): Promise<ApiResponse<DocumentRequirementsResponse>> {
+    const params = new URLSearchParams();
+    params.set('owner_type', query.owner_type);
+    return this.get<DocumentRequirementsResponse>(
+      `/document-requirements?${params.toString()}`,
+    );
+  }
+
+  /** Overrides the school's own required / optional configuration. */
+  public async updateDocumentRequirements(
+    body: DocumentRequirementsUpdateRequest,
+  ): Promise<ApiResponse<DocumentRequirementsResponse>> {
+    return this.put<DocumentRequirementsResponse>('/document-requirements', body);
+  }
+
+  /**
+   * Task 44 — Emergency / SOS.
+   *
+   * `raiseSos` is crew-only on the server; the rest are the school-admin
+   * console and the crew member's own history. No paid SMS / push provider is
+   * involved — delivery is the self-hosted Socket.IO feed.
+   */
+  public async raiseSos(body: EmergencySosRequest): Promise<ApiResponse<EmergencyEventResponse>> {
+    return this.post<EmergencyEventResponse>('/emergencies/sos', body);
+  }
+
+  /** The signed-in crew member's own SOS history. */
+  public async listMyEmergencies(
+    query: EmergencyListQuery = {},
+  ): Promise<ApiResponse<EmergencyEventListResponse>> {
+    return this.get<EmergencyEventListResponse>(
+      `/emergencies/mine${emergencyQuerySuffix(query)}`,
+    );
+  }
+
+  /** Retracts an alarm the signed-in crew member raised by mistake. */
+  public async cancelMyEmergency(
+    id: string,
+    body: EmergencyStatusUpdateRequest = { status: EmergencyStatus.CANCELLED },
+  ): Promise<ApiResponse<EmergencyEventResponse>> {
+    return this.patch<EmergencyEventResponse>(
+      `/emergencies/${encodeURIComponent(id)}/cancel`,
+      body,
+    );
+  }
+
+  /** Everything still needing the school's attention. */
+  public async listActiveEmergencies(): Promise<ApiResponse<EmergencyActiveListResponse>> {
+    return this.get<EmergencyActiveListResponse>('/emergencies/active');
+  }
+
+  public async listEmergencies(
+    query: EmergencyListQuery = {},
+  ): Promise<ApiResponse<EmergencyEventListResponse>> {
+    return this.get<EmergencyEventListResponse>(`/emergencies${emergencyQuerySuffix(query)}`);
+  }
+
+  public async getEmergency(id: string): Promise<ApiResponse<EmergencyEventResponse>> {
+    return this.get<EmergencyEventResponse>(`/emergencies/${encodeURIComponent(id)}`);
+  }
+
+  /** Acknowledges, resolves or cancels an incident (school admin). */
+  public async updateEmergencyStatus(
+    id: string,
+    body: EmergencyStatusUpdateRequest,
+  ): Promise<ApiResponse<EmergencyEventResponse>> {
+    return this.patch<EmergencyEventResponse>(
+      `/emergencies/${encodeURIComponent(id)}/status`,
+      body,
+    );
+  }
 }
 
 export const createApiClient = (config: ApiClientConfig): ApiClient => {
   return new ApiClient(config);
 };
+
+/** Query string of the bus/driver document list endpoints. */
+function documentQuerySuffix(query: DocumentListQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.document_type) params.set('document_type', query.document_type);
+  if (query.status) params.set('status', query.status);
+  return params.size > 0 ? `?${params.toString()}` : '';
+}
+
+/** Query string of the emergency list endpoints. */
+function emergencyQuerySuffix(query: EmergencyListQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.status) params.set('status', query.status);
+  if (query.type) params.set('type', query.type);
+  if (query.trip_id) params.set('trip_id', query.trip_id);
+  if (query.bus_id) params.set('bus_id', query.bus_id);
+  if (query.date_from) params.set('date_from', query.date_from);
+  if (query.date_to) params.set('date_to', query.date_to);
+  return params.size > 0 ? `?${params.toString()}` : '';
+}

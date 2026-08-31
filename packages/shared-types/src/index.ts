@@ -2320,3 +2320,533 @@ export interface AdminSchoolSubscriptionHistoryItem {
 export interface AdminSchoolSubscriptionHistoryResponse {
   items: AdminSchoolSubscriptionHistoryItem[];
 }
+
+/**
+ * Task 44 — Bus & driver document management (compliance documents).
+ *
+ * A *document* is a compliance record attached to a school-owned resource:
+ * a bus (RC, insurance, fitness, permit, PUC, …) or a driver (driving
+ * licence, medical certificate, police verification, …).
+ *
+ * Design rules, shared by both owners:
+ *
+ * - **Validity is never stored.** Only the real `issue_date` / `expiry_date`
+ *   are persisted; `status` is *derived* from those dates on every read (see
+ *   `deriveDocumentStatus` in `@school-bus-tracking/validation`). A document
+ *   cannot be marked "valid" by hand, so no fake validity is possible.
+ * - **A document without an expiry date is `VALID`** — there is nothing for it
+ *   to expire against (e.g. a registration certificate issued for life).
+ * - **Requirements are configurable per school.** `document_requirements`
+ *   stores the school's own required/optional configuration per document
+ *   type; types without an explicit row fall back to the built-in catalogue
+ *   default (`DEFAULT_BUS_/DRIVER_DOCUMENT_REQUIREMENTS`).
+ * - **Everything is tenant-scoped.** Requests never carry a `school_id`; the
+ *   API derives it from the verified JWT claims.
+ *
+ * File handling follows the existing application architecture: there is no
+ * binary upload pipeline in the self-hosted stack, so a document stores a
+ * *reference* (`file_name` + `file_url`) to a file kept in the school's own
+ * document store rather than a blob.
+ */
+
+/** Compliance documents a school bus must carry. */
+export enum BusDocumentType {
+  /** RC — Registration Certificate (vehicle registration book). */
+  REGISTRATION_CERTIFICATE = 'REGISTRATION_CERTIFICATE',
+  INSURANCE = 'INSURANCE',
+  FITNESS_CERTIFICATE = 'FITNESS_CERTIFICATE',
+  PERMIT = 'PERMIT',
+  /** PUC — Pollution Under Control certificate. */
+  POLLUTION_CERTIFICATE = 'POLLUTION_CERTIFICATE',
+  OTHER = 'OTHER',
+}
+
+export const BUS_DOCUMENT_TYPE_VALUES: BusDocumentType[] = Object.values(BusDocumentType);
+
+export const BUS_DOCUMENT_TYPE_LABELS: Record<BusDocumentType, string> = {
+  [BusDocumentType.REGISTRATION_CERTIFICATE]: 'RC / Registration certificate',
+  [BusDocumentType.INSURANCE]: 'Insurance',
+  [BusDocumentType.FITNESS_CERTIFICATE]: 'Fitness certificate',
+  [BusDocumentType.PERMIT]: 'Permit',
+  [BusDocumentType.POLLUTION_CERTIFICATE]: 'PUC / Pollution certificate',
+  [BusDocumentType.OTHER]: 'Other',
+};
+
+/** Compliance documents a driver (or conductor) must carry. */
+export enum DriverDocumentType {
+  DRIVING_LICENSE = 'DRIVING_LICENSE',
+  MEDICAL_CERTIFICATE = 'MEDICAL_CERTIFICATE',
+  POLICE_VERIFICATION = 'POLICE_VERIFICATION',
+  TRAINING_CERTIFICATE = 'TRAINING_CERTIFICATE',
+  ID_PROOF = 'ID_PROOF',
+  OTHER = 'OTHER',
+}
+
+export const DRIVER_DOCUMENT_TYPE_VALUES: DriverDocumentType[] =
+  Object.values(DriverDocumentType);
+
+export const DRIVER_DOCUMENT_TYPE_LABELS: Record<DriverDocumentType, string> = {
+  [DriverDocumentType.DRIVING_LICENSE]: 'Driving licence',
+  [DriverDocumentType.MEDICAL_CERTIFICATE]: 'Medical certificate',
+  [DriverDocumentType.POLICE_VERIFICATION]: 'Police verification',
+  [DriverDocumentType.TRAINING_CERTIFICATE]: 'Training certificate',
+  [DriverDocumentType.ID_PROOF]: 'ID proof',
+  [DriverDocumentType.OTHER]: 'Other',
+};
+
+/**
+ * Validity of a document, always derived from its expiry date.
+ *
+ * VALID         → no expiry date, or more than `expiry_warning_days` left
+ * EXPIRING_SOON → between today and `expiry_warning_days` left (inclusive)
+ * EXPIRED       → the expiry date is before today
+ */
+export enum DocumentStatus {
+  VALID = 'VALID',
+  EXPIRING_SOON = 'EXPIRING_SOON',
+  EXPIRED = 'EXPIRED',
+}
+
+export const DOCUMENT_STATUS_VALUES: DocumentStatus[] = Object.values(DocumentStatus);
+
+export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
+  [DocumentStatus.VALID]: 'Valid',
+  [DocumentStatus.EXPIRING_SOON]: 'Expiring soon',
+  [DocumentStatus.EXPIRED]: 'Expired',
+};
+
+/** The two resource kinds a compliance document can be attached to. */
+export type DocumentOwnerType = 'BUS' | 'DRIVER';
+
+export const DOCUMENT_OWNER_TYPE_VALUES: DocumentOwnerType[] = ['BUS', 'DRIVER'];
+
+export const DOCUMENT_OWNER_TYPE_LABELS: Record<DocumentOwnerType, string> = {
+  BUS: 'Bus',
+  DRIVER: 'Driver',
+};
+
+/**
+ * State of one *requirement* of a resource, i.e. the combination of "is this
+ * document type required?" and "what does the newest stored document say?".
+ *
+ * MISSING → required by the school but no document of that type is on file
+ * (an optional type never reports MISSING — it reports nothing at all)
+ */
+export type DocumentComplianceState = 'MISSING' | 'VALID' | 'EXPIRING_SOON' | 'EXPIRED';
+
+export const DOCUMENT_COMPLIANCE_STATE_VALUES: DocumentComplianceState[] = [
+  'MISSING',
+  'VALID',
+  'EXPIRING_SOON',
+  'EXPIRED',
+];
+
+export const DOCUMENT_COMPLIANCE_STATE_LABELS: Record<DocumentComplianceState, string> = {
+  MISSING: 'Missing',
+  VALID: 'Valid',
+  EXPIRING_SOON: 'Expiring soon',
+  EXPIRED: 'Expired',
+};
+
+/** Default lead time (days) used to flag a document as "expiring soon". */
+export const DEFAULT_DOCUMENT_EXPIRY_WARNING_DAYS = 30;
+
+/** Built-in required/optional catalogue for bus documents. */
+export const DEFAULT_BUS_DOCUMENT_REQUIREMENTS: Record<BusDocumentType, boolean> = {
+  [BusDocumentType.REGISTRATION_CERTIFICATE]: true,
+  [BusDocumentType.INSURANCE]: true,
+  [BusDocumentType.FITNESS_CERTIFICATE]: true,
+  [BusDocumentType.PERMIT]: true,
+  [BusDocumentType.POLLUTION_CERTIFICATE]: true,
+  [BusDocumentType.OTHER]: false,
+};
+
+/** Built-in required/optional catalogue for driver documents. */
+export const DEFAULT_DRIVER_DOCUMENT_REQUIREMENTS: Record<DriverDocumentType, boolean> = {
+  [DriverDocumentType.DRIVING_LICENSE]: true,
+  [DriverDocumentType.MEDICAL_CERTIFICATE]: false,
+  [DriverDocumentType.POLICE_VERIFICATION]: false,
+  [DriverDocumentType.TRAINING_CERTIFICATE]: false,
+  [DriverDocumentType.ID_PROOF]: false,
+  [DriverDocumentType.OTHER]: false,
+};
+
+/** Shared shape of a stored compliance document. */
+export interface DocumentFields {
+  /** Official number of the document (RC number, policy number, licence no…). */
+  document_number: string | null;
+  issue_date: string | null;
+  expiry_date: string | null;
+  notes: string | null;
+  /** Display name of the attached file (never the file itself). */
+  file_name: string | null;
+  /** Reference (URL) to the attached file in the school's own store. */
+  file_url: string | null;
+}
+
+/** Body of `POST /api/v1/buses/:busId/documents`. */
+export interface BusDocumentCreateRequest extends Partial<DocumentFields> {
+  document_type: BusDocumentType;
+}
+
+/** Body of `PATCH /api/v1/buses/:busId/documents/:id`. */
+export interface BusDocumentUpdateRequest extends Partial<DocumentFields> {
+  document_type?: BusDocumentType;
+}
+
+/** Public projection of one bus compliance document. */
+export interface BusDocumentResponse extends DocumentFields {
+  id: string;
+  school_id: string;
+  bus_id: string;
+  document_type: BusDocumentType;
+  document_type_label: string;
+  /** Derived from `expiry_date` on every read — never stored. */
+  status: DocumentStatus;
+  /** Whole days until expiry (0 = expires today); `null` when undated. */
+  days_remaining: number | null;
+  /** True when this document type is required for buses in this school. */
+  is_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/buses/:busId/documents`. */
+export interface BusDocumentListResponse {
+  items: BusDocumentResponse[];
+  meta: PaginationMeta;
+}
+
+/** Body of `POST /api/v1/drivers/:driverId/documents`. */
+export interface DriverDocumentCreateRequest extends Partial<DocumentFields> {
+  document_type: DriverDocumentType;
+}
+
+/** Body of `PATCH /api/v1/drivers/:driverId/documents/:id`. */
+export interface DriverDocumentUpdateRequest extends Partial<DocumentFields> {
+  document_type?: DriverDocumentType;
+}
+
+/** Public projection of one driver compliance document. */
+export interface DriverDocumentResponse extends DocumentFields {
+  id: string;
+  school_id: string;
+  driver_id: string;
+  document_type: DriverDocumentType;
+  document_type_label: string;
+  status: DocumentStatus;
+  days_remaining: number | null;
+  is_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/drivers/:driverId/documents`. */
+export interface DriverDocumentListResponse {
+  items: DriverDocumentResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of any document `DELETE`. */
+export interface DocumentDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of the bus/driver document lists. */
+export interface DocumentListQuery {
+  page?: number;
+  limit?: number;
+  /** Only documents of this type. */
+  document_type?: string;
+  /** `valid` | `expiring_soon` | `expired` | `missing` — server-side derived. */
+  status?: DocumentStatus;
+}
+
+/** One configured requirement of a document type in one school. */
+export interface DocumentRequirement {
+  owner_type: DocumentOwnerType;
+  document_type: string;
+  document_type_label: string;
+  is_required: boolean;
+  /** Lead time in days used for the "expiring soon" flag. */
+  expiry_warning_days: number;
+  /** True when the school has overridden the built-in catalogue default. */
+  is_customized: boolean;
+}
+
+/** Successful payload of `GET /api/v1/document-requirements`. */
+export interface DocumentRequirementsResponse {
+  owner_type: DocumentOwnerType;
+  items: DocumentRequirement[];
+}
+
+/** Query string of `GET /api/v1/document-requirements`. */
+export interface DocumentRequirementsListQuery {
+  owner_type: DocumentOwnerType;
+}
+
+/** One requirement a school may override. */
+export interface DocumentRequirementInput {
+  document_type: string;
+  is_required: boolean;
+  /** Defaults to the built-in warning window when omitted. */
+  expiry_warning_days?: number | null;
+}
+
+/** Body of `PUT /api/v1/document-requirements`. */
+export interface DocumentRequirementsUpdateRequest {
+  owner_type: DocumentOwnerType;
+  items: DocumentRequirementInput[];
+}
+
+/** Status of one requirement against the documents actually on file. */
+export interface DocumentRequirementStatus {
+  owner_type: DocumentOwnerType;
+  document_type: string;
+  document_type_label: string;
+  is_required: boolean;
+  state: DocumentComplianceState;
+  /** Newest document of this type on file; `null` when MISSING. */
+  document_id: string | null;
+  expiry_date: string | null;
+  days_remaining: number | null;
+}
+
+/** Counts behind a compliance check. */
+export interface DocumentComplianceSummary {
+  /** Number of document types the school requires for this resource. */
+  required_total: number;
+  valid: number;
+  expiring_soon: number;
+  expired: number;
+  missing: number;
+  /** True when nothing required is missing, expired or expiring soon. */
+  is_compliant: boolean;
+}
+
+/** Compliance of one bus or one driver. */
+export interface DocumentComplianceResponse {
+  owner_type: DocumentOwnerType;
+  owner_id: string;
+  /** Human label of the owner (registration number / crew member name). */
+  owner_label: string;
+  summary: DocumentComplianceSummary;
+  /** Every requirement — required and optional-with-a-document — in catalogue order. */
+  requirements: DocumentRequirementStatus[];
+}
+
+/** One row of the school-wide compliance overview. */
+export interface DocumentOverviewItem {
+  owner_type: DocumentOwnerType;
+  owner_id: string;
+  owner_label: string;
+  summary: DocumentComplianceSummary;
+  /** Only the entries that need attention (missing / expiring / expired). */
+  issues: DocumentRequirementStatus[];
+}
+
+/** Successful payload of `GET /api/v1/documents/overview`. */
+export interface DocumentOverviewResponse {
+  /** Aggregate over every bus and driver of the school. */
+  summary: DocumentComplianceSummary;
+  items: DocumentOverviewItem[];
+  meta: PaginationMeta;
+}
+
+/** Query string of `GET /api/v1/documents/overview`. */
+export interface DocumentOverviewQuery {
+  page?: number;
+  limit?: number;
+  owner_type?: DocumentOwnerType;
+  /** `compliant` | `attention` — attention = anything missing/expiring/expired. */
+  compliance?: 'compliant' | 'attention';
+  search?: string;
+}
+
+/**
+ * Task 44 — Emergency / SOS.
+ *
+ * Crew (DRIVER / CONDUCTOR) raise an SOS from the mobile app; the backend
+ * records it with its own server clock and broadcasts it over the self-hosted
+ * Socket.IO gateway so the school admin sees it immediately. No paid third
+ * party is involved anywhere in the flow: delivery is first-party
+ * (database + Socket.IO + in-app), never SMS / WhatsApp / push vendor.
+ */
+
+/** Reason a crew member raises an emergency. */
+export enum EmergencyType {
+  ACCIDENT = 'ACCIDENT',
+  BREAKDOWN = 'BREAKDOWN',
+  MEDICAL = 'MEDICAL',
+  STUDENT_INCIDENT = 'STUDENT_INCIDENT',
+  SECURITY = 'SECURITY',
+  OTHER = 'OTHER',
+}
+
+export const EMERGENCY_TYPE_VALUES: EmergencyType[] = Object.values(EmergencyType);
+
+export const EMERGENCY_TYPE_LABELS: Record<EmergencyType, string> = {
+  [EmergencyType.ACCIDENT]: 'Accident',
+  [EmergencyType.BREAKDOWN]: 'Breakdown',
+  [EmergencyType.MEDICAL]: 'Medical emergency',
+  [EmergencyType.STUDENT_INCIDENT]: 'Student incident',
+  [EmergencyType.SECURITY]: 'Security incident',
+  [EmergencyType.OTHER]: 'Other',
+};
+
+/**
+ * Lifecycle of an emergency event.
+ *
+ * OPEN        → raised by the crew, nobody at school has reacted yet
+ * ACKNOWLEDGED→ the school admin has seen it and is handling it
+ * RESOLVED    → handled and closed (terminal)
+ * CANCELLED   → raised by mistake / false alarm (terminal)
+ */
+export enum EmergencyStatus {
+  OPEN = 'OPEN',
+  ACKNOWLEDGED = 'ACKNOWLEDGED',
+  RESOLVED = 'RESOLVED',
+  CANCELLED = 'CANCELLED',
+}
+
+export const EMERGENCY_STATUS_VALUES: EmergencyStatus[] = Object.values(EmergencyStatus);
+
+export const EMERGENCY_STATUS_LABELS: Record<EmergencyStatus, string> = {
+  [EmergencyStatus.OPEN]: 'Open',
+  [EmergencyStatus.ACKNOWLEDGED]: 'Acknowledged',
+  [EmergencyStatus.RESOLVED]: 'Resolved',
+  [EmergencyStatus.CANCELLED]: 'Cancelled',
+};
+
+/** Statuses that still need the school's attention. */
+export const OPEN_EMERGENCY_STATUS_VALUES: EmergencyStatus[] = [
+  EmergencyStatus.OPEN,
+  EmergencyStatus.ACKNOWLEDGED,
+];
+
+/** Terminal statuses — history only. */
+export const TERMINAL_EMERGENCY_STATUS_VALUES: EmergencyStatus[] = [
+  EmergencyStatus.RESOLVED,
+  EmergencyStatus.CANCELLED,
+];
+
+/** Legal lifecycle transitions, mirrored by the service layer. */
+export const EMERGENCY_STATUS_TRANSITIONS: Readonly<
+  Record<EmergencyStatus, readonly EmergencyStatus[]>
+> = Object.freeze({
+  [EmergencyStatus.OPEN]: [EmergencyStatus.ACKNOWLEDGED, EmergencyStatus.RESOLVED, EmergencyStatus.CANCELLED],
+  [EmergencyStatus.ACKNOWLEDGED]: [EmergencyStatus.RESOLVED, EmergencyStatus.CANCELLED],
+  [EmergencyStatus.RESOLVED]: [],
+  [EmergencyStatus.CANCELLED]: [],
+});
+
+/** True when `to` is a legal next state for an event currently in `from`. */
+export const isEmergencyStatusTransitionAllowed = (
+  from: EmergencyStatus,
+  to: EmergencyStatus,
+): boolean => EMERGENCY_STATUS_TRANSITIONS[from].includes(to);
+
+/**
+ * Body of `POST /api/v1/emergencies/sos` (crew only).
+ *
+ * Coordinates are optional: an SOS must always be possible, even without a
+ * GPS fix, and they are never invented — the server stores exactly what the
+ * device reported or `null`. The event time is the *server* clock.
+ */
+export interface EmergencySosRequest {
+  /** Trip the emergency belongs to; defaults to the crew's active trip. */
+  trip_id?: string | null;
+  type: EmergencyType;
+  message?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Device-reported horizontal accuracy in metres. */
+  accuracy?: number | null;
+}
+
+/** Body of `PATCH /api/v1/emergencies/:id/status` (school admin / owner). */
+export interface EmergencyStatusUpdateRequest {
+  status: EmergencyStatus;
+  /** Optional audit note recorded with the transition. */
+  note?: string | null;
+}
+
+/** Public projection of one emergency event. */
+export interface EmergencyEventResponse {
+  id: string;
+  school_id: string;
+  trip_id: string | null;
+  bus_id: string | null;
+  route_id: string | null;
+  raised_by_user_id: string;
+  raised_by_name: string | null;
+  raised_by_role: 'DRIVER' | 'CONDUCTOR' | null;
+  type: EmergencyType;
+  type_label: string;
+  status: EmergencyStatus;
+  status_label: string;
+  message: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  accuracy: number | null;
+  /** Server time the SOS was received. */
+  triggered_at: string;
+  acknowledged_at: string | null;
+  acknowledged_by_name: string | null;
+  resolved_at: string | null;
+  resolved_by_name: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  bus_registration_number?: string | null;
+  route_name?: string | null;
+}
+
+/** Successful payload of `GET /api/v1/emergencies`. */
+export interface EmergencyEventListResponse {
+  items: EmergencyEventResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of the active-emergencies endpoints. */
+export interface EmergencyActiveListResponse {
+  items: EmergencyEventResponse[];
+}
+
+/** Query string of `GET /api/v1/emergencies`. */
+export interface EmergencyListQuery {
+  page?: number;
+  limit?: number;
+  status?: EmergencyStatus;
+  type?: EmergencyType;
+  trip_id?: string;
+  bus_id?: string;
+  /** Inclusive range on `triggered_at`, `YYYY-MM-DD`. */
+  date_from?: string;
+  date_to?: string;
+}
+
+/** Socket.IO namespace carrying emergency broadcasts. */
+export const EMERGENCIES_NAMESPACE = '/emergencies';
+
+/** Socket.IO event names of the emergencies namespace. */
+export const EMERGENCY_EVENTS = {
+  /** Server → school room: a crew member raised a new SOS. */
+  new: 'emergency:new',
+  /** Server → school room: an existing event changed status. */
+  updated: 'emergency:updated',
+} as const;
+
+export type EmergencySocketEvent =
+  (typeof EMERGENCY_EVENTS)[keyof typeof EMERGENCY_EVENTS];
+
+/**
+ * Server-owned room name of one tenant's emergency feed.
+ *
+ * Sockets are placed in it by the gateway from the verified JWT tenant —
+ * a client can never name or join another school's room.
+ */
+export const emergencyRoomName = (schoolId: string): string =>
+  `emergency:school:${schoolId}`;
