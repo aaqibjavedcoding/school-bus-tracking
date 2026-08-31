@@ -8,8 +8,8 @@ import { Screen, SectionTitle } from '../../src/components';
 /**
  * School-admin "Manage" hub — one tap to every management surface the web
  * console exposes: students, buses, routes & stops, drivers & conductors,
- * guardians and route assignments (dispatch). Each item opens a full
- * create / edit / delete screen.
+ * guardians, route assignments (dispatch), compliance documents and the
+ * emergency feed. Each item opens a full create / edit / delete screen.
  */
 
 interface ManageItem {
@@ -62,6 +62,20 @@ const ITEMS: ManageItem[] = [
     description: 'Parent accounts',
     icon: 'person-circle',
     tone: colors.secondary[700],
+  },
+  {
+    href: '/manage/documents',
+    title: 'Documents',
+    description: 'RC, insurance, licences & expiry',
+    icon: 'document-text',
+    tone: colors.status.info,
+  },
+  {
+    href: '/emergencies',
+    title: 'Emergencies',
+    description: 'Live crew SOS & history',
+    icon: 'warning',
+    tone: colors.status.danger,
   },
 ];
 

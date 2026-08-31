@@ -3,8 +3,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  EMERGENCY_TYPE_LABELS,
   TripStatus,
   type BusListResponse,
+  type EmergencyActiveListResponse,
+  type EmergencyEventResponse,
   type RouteListResponse,
   type StudentListResponse,
   type TripListResponse,
@@ -14,7 +17,7 @@ import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
 import { useAuth } from '../../src/features/auth';
-import { utcDateOnly, formatDate, formatTime } from '../../src/lib/format';
+import { utcDateOnly, formatDate, formatRelative, formatTime } from '../../src/lib/format';
 import { useLoad } from '../../src/hooks/useLoad';
 import {
   Badge,
@@ -40,18 +43,30 @@ export default function AdminDashboardScreen() {
     studentCount: number;
     busCount: number;
     routeCount: number;
+    /**
+     * Task 44 — open/acknowledged SOS events. Failure is swallowed on
+     * purpose: the dashboard must keep working even if the emergency feed is
+     * briefly unavailable, and an unreachable count is better reported as
+     * `null` than as a fabricated zero.
+     */
+    activeEmergencies: EmergencyEventResponse[] | null;
   }> => {
-    const [tripsEnvelope, studentsEnvelope, busesEnvelope, routesEnvelope] = await Promise.all([
-      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
-      apiClient.listStudents({ page: 1, limit: 1 }),
-      apiClient.listBuses({ page: 1, limit: 1 }),
-      apiClient.listRoutes({ page: 1, limit: 1 }),
-    ]);
+    const [tripsEnvelope, studentsEnvelope, busesEnvelope, routesEnvelope, emergenciesEnvelope] =
+      await Promise.all([
+        apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+        apiClient.listStudents({ page: 1, limit: 1 }),
+        apiClient.listBuses({ page: 1, limit: 1 }),
+        apiClient.listRoutes({ page: 1, limit: 1 }),
+        apiClient.listActiveEmergencies().catch(() => null),
+      ]);
     return {
       trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items,
       studentCount: unwrapEnvelope<StudentListResponse>(studentsEnvelope).meta.total,
       busCount: unwrapEnvelope<BusListResponse>(busesEnvelope).meta.total,
       routeCount: unwrapEnvelope<RouteListResponse>(routesEnvelope).meta.total,
+      activeEmergencies: emergenciesEnvelope
+        ? unwrapEnvelope<EmergencyActiveListResponse>(emergenciesEnvelope).items
+        : null,
     };
   }, []);
 
@@ -150,6 +165,35 @@ export default function AdminDashboardScreen() {
         ))}
       </View>
 
+      {/**
+       * Task 44 — crew SOS. Only rendered when something is actually open or
+       * being handled; a quiet school sees no alarm furniture. Tap opens the
+       * emergency console, where the alert can be acknowledged or resolved.
+       */}
+      {data.activeEmergencies && data.activeEmergencies.length > 0 ? (
+        <Pressable
+          onPress={() => router.push('/emergencies')}
+          accessibilityRole="button"
+          accessibilityLabel={`${data.activeEmergencies.length} active emergencies. Open the emergency console.`}
+          style={({ pressed }) => [styles.alertCard, pressed ? styles.cardPressed : null]}
+        >
+          <View style={styles.alertTop}>
+            <Ionicons name="warning" size={20} color={colors.status.danger} />
+            <Text style={styles.alertTitle}>
+              {data.activeEmergencies.length} active emergency
+              {data.activeEmergencies.length === 1 ? '' : 'ies'}
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.neutral[300]} />
+          </View>
+          {data.activeEmergencies.slice(0, 3).map((event) => (
+            <Text key={event.id} style={styles.alertMeta} numberOfLines={1}>
+              {EMERGENCY_TYPE_LABELS[event.type]} · {event.raised_by_name ?? 'Crew'} ·{' '}
+              {formatRelative(event.triggered_at)}
+            </Text>
+          ))}
+        </Pressable>
+      ) : null}
+
       <View style={styles.sectionHeader}>
         <SectionTitle>Today&apos;s trips</SectionTitle>
         <Pressable onPress={() => router.push('/trips')} hitSlop={8}>
@@ -202,6 +246,30 @@ export default function AdminDashboardScreen() {
 const styles = StyleSheet.create({
   hero: {
     marginBottom: spacing.md,
+  },
+  alertCard: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  alertTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  alertTitle: {
+    flex: 1,
+    fontSize: typography.fontSizes.base,
+    fontWeight: '800',
+    color: '#991b1b',
+  },
+  alertMeta: {
+    fontSize: typography.fontSizes.sm,
+    color: '#b91c1c',
+    marginTop: 2,
   },
   heroGreeting: {
     fontSize: typography.fontSizes.xl,

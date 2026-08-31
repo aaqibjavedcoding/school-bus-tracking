@@ -99,6 +99,25 @@ function AdminTabs() {
       <Tabs.Screen name="manage/staff" options={{ title: 'Drivers & conductors', href: null }} />
       <Tabs.Screen name="manage/assignments" options={{ title: 'Assignments', href: null }} />
       <Tabs.Screen name="manage/guardians" options={{ title: 'Guardians', href: null }} />
+
+      {/* Task 44 — compliance documents: overview, per-owner records and the
+          required/optional configuration, all pushed from the Manage hub. */}
+      <Tabs.Screen name="manage/documents" options={{ title: 'Documents', href: null }} />
+      <Tabs.Screen
+        name="manage/documents/requirements"
+        options={{ title: 'Document requirements', href: null }}
+      />
+      <Tabs.Screen
+        name="manage/documents/bus/[id]"
+        options={{ title: 'Bus documents', href: null }}
+      />
+      <Tabs.Screen
+        name="manage/documents/driver/[id]"
+        options={{ title: 'Driver documents', href: null }}
+      />
+
+      {/* Task 44 — the school's end of the crew SOS feed. */}
+      <Tabs.Screen name="emergencies" options={{ title: 'Emergencies', href: null }} />
     </Tabs>
   );
 }

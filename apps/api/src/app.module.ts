@@ -18,6 +18,8 @@ import { ParentPortalModule } from './modules/parent-portal/parent-portal.module
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { EtaModule } from './modules/eta/eta.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { EmergenciesModule } from './modules/emergencies/emergencies.module';
 import { AccessModule } from './common/access';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } from './config';
@@ -58,6 +60,12 @@ import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } f
     NotificationsModule,
     // Platform Super Admin console (`/api/v1/admin/*`).
     AdminModule,
+    // Task 44: bus & driver compliance documents, requirement configuration
+    // and the derived expiry/validity engine.
+    DocumentsModule,
+    // Task 44: crew SOS / emergency events over the self-hosted Socket.IO
+    // gateway (no paid SMS / push provider anywhere in the flow).
+    EmergenciesModule,
   ],
 })
 export class AppModule {}

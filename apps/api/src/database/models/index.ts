@@ -15,22 +15,36 @@ import { TripStopArrival } from './trip-stop-arrival.model';
 import { Notification } from './notification.model';
 import { Plan } from './plan.model';
 import { SchoolSubscription } from './school-subscription.model';
+import { BusDocument } from './bus-document.model';
+import { DriverDocument } from './driver-document.model';
+import { DocumentRequirement } from './document-requirement.model';
+import { EmergencyEvent } from './emergency-event.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
 
 export {
+  BUS_DOCUMENT_TYPE_VALUES,
+  DOCUMENT_OWNER_TYPE_VALUES,
+  DRIVER_DOCUMENT_TYPE_VALUES,
+  EMERGENCY_STATUS_VALUES,
+  EMERGENCY_TYPE_VALUES,
   ROUTE_ASSIGNMENT_ROLE_VALUES,
   STUDENT_GENDER_VALUES,
   TRIP_ATTENDANCE_STATUS_VALUES,
   TRIP_STATUS_VALUES,
   USER_ROLE_VALUES,
+  BusDocumentType,
+  DriverDocumentType,
+  EmergencyStatus,
+  EmergencyType,
   RouteAssignmentRole,
   StudentGender,
   TripAttendanceStatus,
   TripStatus,
   UserRole,
 } from './enums';
+export type { DocumentOwnerType } from './enums';
 
 export { School } from './school.model';
 export type { SchoolAttributes, SchoolCreationAttributes } from './school.model';
@@ -79,6 +93,23 @@ export type {
   SchoolSubscriptionAttributes,
   SchoolSubscriptionCreationAttributes,
 } from './school-subscription.model';
+export { BusDocument } from './bus-document.model';
+export type { BusDocumentAttributes, BusDocumentCreationAttributes } from './bus-document.model';
+export { DriverDocument } from './driver-document.model';
+export type {
+  DriverDocumentAttributes,
+  DriverDocumentCreationAttributes,
+} from './driver-document.model';
+export { DocumentRequirement } from './document-requirement.model';
+export type {
+  DocumentRequirementAttributes,
+  DocumentRequirementCreationAttributes,
+} from './document-requirement.model';
+export { EmergencyEvent } from './emergency-event.model';
+export type {
+  EmergencyEventAttributes,
+  EmergencyEventCreationAttributes,
+} from './emergency-event.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -111,4 +142,8 @@ export const models: ModelCtor<Model>[] = [
   Notification,
   Plan,
   SchoolSubscription,
+  BusDocument,
+  DriverDocument,
+  DocumentRequirement,
+  EmergencyEvent,
 ];

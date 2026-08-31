@@ -1,6 +1,7 @@
 import { describe, it, afterEach } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  EMERGENCIES_NAMESPACE,
   LIVE_TRACKING_NAMESPACE,
   NOTIFICATIONS_NAMESPACE,
 } from '@school-bus-tracking/shared-types';
@@ -13,6 +14,7 @@ import {
   isLiveTrackingSocketConnected,
 } from './live-tracking-socket.ts';
 import { disconnectNotificationsSocket, getNotificationsSocket } from './notifications-socket.ts';
+import { disconnectEmergenciesSocket, getEmergenciesSocket } from './emergencies-socket.ts';
 
 /**
  * Integration wiring guards for the two Socket.IO namespaces the mobile app
@@ -64,6 +66,7 @@ describe('socket singletons', () => {
   afterEach(() => {
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
+    disconnectEmergenciesSocket();
   });
 
   it('shares one live-tracking socket process-wide and never auto-connects it', () => {
@@ -77,5 +80,13 @@ describe('socket singletons', () => {
     const socket = getNotificationsSocket();
     assert.equal(getNotificationsSocket(), socket);
     assert.equal(socket.connected, false);
+  });
+
+  it('shares one emergencies socket process-wide and targets the namespace', () => {
+    const socket = getEmergenciesSocket();
+    assert.equal(getEmergenciesSocket(), socket);
+    assert.equal(socket.connected, false);
+    const { url } = buildNamespaceSocketConfig(EMERGENCIES_NAMESPACE);
+    assert.equal(url, `http://localhost:3001${EMERGENCIES_NAMESPACE}`);
   });
 });

@@ -5,6 +5,7 @@ import { TripStatus } from '@school-bus-tracking/shared-types';
 import { isTripTrackingActive } from '@school-bus-tracking/validation';
 import { Badge, Card, ErrorState, PageHeader, Skeleton } from '../../../components/ui';
 import { ManifestList } from '../../../features/attendance/ManifestList';
+import { SosPanel } from '../../../features/crew/SosPanel';
 import { TripTracker } from '../../../features/tracking/TripTracker';
 import { useCrewLocationShare } from '../../../features/tracking/useLiveTripTracking';
 import { TripStatusActions } from '../../../features/trips/TripStatusActions';
@@ -107,6 +108,7 @@ export default function CrewPage() {
         )}
         {gpsError ? <p className="field-error">{gpsError}</p> : null}
       </Card>
+      <SosPanel tripId={data.trip.id} />
       <Card title="Live map">
         <TripTracker tripId={data.trip.id} stops={data.stops} />
       </Card>

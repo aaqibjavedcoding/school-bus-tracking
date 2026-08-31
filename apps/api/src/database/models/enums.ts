@@ -1,4 +1,9 @@
 import {
+  BusDocumentType,
+  DocumentOwnerType,
+  DriverDocumentType,
+  EmergencyStatus,
+  EmergencyType,
   RouteAssignmentRole,
   StudentGender,
   TripAttendanceStatus,
@@ -76,3 +81,47 @@ export { TripAttendanceStatus };
 
 export const TRIP_ATTENDANCE_STATUS_VALUES: TripAttendanceStatus[] =
   Object.values(TripAttendanceStatus);
+
+/**
+ * Task 44 — Compliance documents.
+ *
+ * The catalogue of document types is owned by
+ * `@school-bus-tracking/shared-types` (like every other enum in this file) so
+ * the database, the API and both clients can never drift; it is only
+ * re-exported here. The `*_VALUES` arrays are the single source of truth for
+ * the PostgreSQL enum types created by the migrations — migrations repeat the
+ * literals on purpose because a migration is an immutable record of a released
+ * schema.
+ */
+export { BusDocumentType, DriverDocumentType };
+
+export const BUS_DOCUMENT_TYPE_VALUES: BusDocumentType[] = Object.values(BusDocumentType);
+
+export const DRIVER_DOCUMENT_TYPE_VALUES: DriverDocumentType[] =
+  Object.values(DriverDocumentType);
+
+/**
+ * The two resource kinds a compliance document can hang off
+ * (`document_requirements.owner_type`).
+ *
+ * It is a plain string union rather than an enum because it is a *discriminator*
+ * between two tables (`bus_documents` / `driver_documents`), not a domain value
+ * of either of them.
+ */
+export type { DocumentOwnerType };
+
+export const DOCUMENT_OWNER_TYPE_VALUES: readonly DocumentOwnerType[] = ['BUS', 'DRIVER'];
+
+/**
+ * Task 44 — Emergency / SOS.
+ *
+ * `type` answers *why* the crew raised the alarm, `status` tracks how the
+ * school has handled it. The legal transitions live in the shared
+ * `EMERGENCY_STATUS_TRANSITIONS` map and are enforced by the service layer,
+ * not by the database — the database only guarantees the value set.
+ */
+export { EmergencyStatus, EmergencyType };
+
+export const EMERGENCY_TYPE_VALUES: EmergencyType[] = Object.values(EmergencyType);
+
+export const EMERGENCY_STATUS_VALUES: EmergencyStatus[] = Object.values(EmergencyStatus);

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useState } from 'react';
 import type { StaffCreateRequest, StaffResponse } from '@school-bus-tracking/shared-types';
 import { staffCreateSchema, staffUpdateSchema } from '@school-bus-tracking/validation';
@@ -234,6 +235,11 @@ export default function StaffPage() {
                     </td>
                     <td>
                       <div className="table-actions">
+                        {tab === 'drivers' ? (
+                          <Link href={`/drivers/${person.id}/documents`}>
+                            <Button variant="secondary">Documents</Button>
+                          </Link>
+                        ) : null}
                         <Button variant="secondary" onClick={() => startEdit(person)}>
                           Edit
                         </Button>
