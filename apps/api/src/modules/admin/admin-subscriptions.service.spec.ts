@@ -687,3 +687,88 @@ describe('AdminSubscriptionsService — console projections', () => {
     assert.equal(bulk.get(SCHOOL_ID)?.plan?.code, 'enterprise');
   });
 });
+
+describe('AdminSubscriptionsService — history (Task 42, step 2)', () => {
+  it('returns an empty list for a school without any subscription record', async () => {
+    const { service } = makeService();
+
+    const result = await service.getSubscriptionHistory(SCHOOL_ID);
+
+    assert.deepEqual(result.items, []);
+  });
+
+  it('rejects history reads for a school that does not exist', async () => {
+    const { service } = makeService();
+    await assert.rejects(
+      service.getSubscriptionHistory(MISSING_ID),
+      (error: unknown) =>
+        error instanceof NotFoundException && /school/i.test((error as Error).message),
+    );
+  });
+
+  it('returns every preserved record newest-first after change and cancel', async () => {
+    const plans = makePlansRepo([
+      planRow(),
+      planRow({ id: PLAN_B_ID, code: 'enterprise', name: 'Enterprise', price_cents: 99900 }),
+    ]);
+    const { service } = makeService(makeSubscriptionsRepo(), plans);
+    await service.createSubscription(SCHOOL_ID, { plan_id: PLAN_ID });
+    await service.updateSubscription(SCHOOL_ID, { plan_id: PLAN_B_ID });
+    await service.cancelSubscription(SCHOOL_ID);
+    await service.createSubscription(SCHOOL_ID, { plan_id: PLAN_ID });
+
+    const result = await service.getSubscriptionHistory(SCHOOL_ID);
+
+    assert.equal(result.items.length, 3);
+    // Newest first: live resubscription, cancelled enterprise, expired pro.
+    assert.equal(result.items[0].status, SubscriptionStatus.ACTIVE);
+    assert.equal(result.items[0].is_current, true);
+    assert.equal(result.items[0].plan?.code, 'pro');
+    assert.equal(result.items[1].status, SubscriptionStatus.CANCELLED);
+    assert.equal(result.items[1].is_current, false);
+    assert.ok(result.items[1].cancelled_at, 'cancellation timestamp preserved');
+    assert.equal(result.items[1].plan?.code, 'enterprise');
+    assert.equal(result.items[2].status, SubscriptionStatus.EXPIRED);
+    assert.equal(result.items[2].is_current, false);
+  });
+
+  it('embeds only the compact plan reference — plan terms are never duplicated', async () => {
+    const { service } = makeService();
+    await service.createSubscription(SCHOOL_ID, { plan_id: PLAN_ID });
+
+    const result = await service.getSubscriptionHistory(SCHOOL_ID);
+
+    const plan = result.items[0].plan;
+    assert.ok(plan);
+    assert.equal(plan?.price, '49.00');
+    assert.equal(plan?.billing_period, PlanBillingPeriod.MONTHLY);
+    assert.equal('features' in (plan as object), false, 'no full plan payload per row');
+  });
+
+  it('marks a trialing subscription as current with its trial window intact', async () => {
+    const { service } = makeService();
+    await service.createSubscription(SCHOOL_ID, {
+      plan_id: PLAN_ID,
+      status: SubscriptionStatus.TRIALING,
+      trial_start: '2026-03-01T00:00:00.000Z',
+      trial_end: '2026-03-15T00:00:00.000Z',
+    });
+
+    const result = await service.getSubscriptionHistory(SCHOOL_ID);
+
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].status, SubscriptionStatus.TRIALING);
+    assert.equal(result.items[0].is_current, true);
+    assert.equal(result.items[0].trial_start, '2026-03-01T00:00:00.000Z');
+    assert.equal(result.items[0].trial_end, '2026-03-15T00:00:00.000Z');
+  });
+
+  it('does not mix the history of different schools', async () => {
+    const { service } = makeService();
+    await service.createSubscription(SCHOOL_ID, { plan_id: PLAN_ID });
+
+    const other = await service.getSubscriptionHistory(OTHER_SCHOOL_ID);
+
+    assert.deepEqual(other.items, []);
+  });
+});

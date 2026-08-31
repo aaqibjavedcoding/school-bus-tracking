@@ -9,6 +9,8 @@ import { Op, UniqueConstraintError } from 'sequelize';
 import {
   AdminSchoolSubscriptionCancelRequest,
   AdminSchoolSubscriptionCreateRequest,
+  AdminSchoolSubscriptionHistoryItem,
+  AdminSchoolSubscriptionHistoryResponse,
   AdminSchoolSubscriptionInfo,
   AdminSchoolSubscriptionResponse,
   AdminSchoolSubscriptionUpdateRequest,
@@ -227,6 +229,52 @@ export class AdminSubscriptionsService {
     await current.update({ status: SubscriptionStatus.CANCELLED, cancelled_at: cancelledAt });
     await reloadIfPossible(current);
     return this.toResponse(current);
+  }
+
+  /**
+   * `GET /admin/schools/:schoolId/subscription/history` — every subscription
+   * row the school has ever had, newest first (Task 42, step 2).
+   *
+   * The change/cancel flows preserve rows instead of deleting them; this is
+   * the read model of that history. Exactly **two queries** regardless of how
+   * many rows exist (subscriptions, then their plans in bulk) — no N+1 — and
+   * plan terms are resolved through `plan_id` at read time, never duplicated.
+   */
+  async getSubscriptionHistory(schoolId: string): Promise<AdminSchoolSubscriptionHistoryResponse> {
+    await this.requireSchool(schoolId);
+
+    const rows = await this.subscriptions.findAll({
+      where: { school_id: schoolId },
+      order: [['created_at', 'DESC']],
+    });
+    if (rows.length === 0) {
+      return { items: [] };
+    }
+
+    const planIds = [...new Set(rows.map((row) => row.plan_id))];
+    const plans =
+      planIds.length > 0 ? await this.plans.findAll({ where: { id: { [Op.in]: planIds } } }) : [];
+    const planById = new Map(plans.map((plan) => [plan.id, plan]));
+
+    const items: AdminSchoolSubscriptionHistoryItem[] = rows.map((row) => {
+      const plan = planById.get(row.plan_id) ?? null;
+      return {
+        id: row.id,
+        school_id: row.school_id,
+        status: row.status,
+        plan_id: row.plan_id,
+        plan: plan ? toAdminSchoolSubscriptionPlanRef(plan) : null,
+        trial_start: toIso(row.trial_start),
+        trial_end: toIso(row.trial_end),
+        current_period_start: toIso(row.current_period_start),
+        current_period_end: toIso(row.current_period_end),
+        cancelled_at: toIso(row.cancelled_at),
+        created_at: toIso(row.created_at),
+        updated_at: toIso(row.updated_at),
+        is_current: isLive(row.status),
+      };
+    });
+    return { items };
   }
 
   /**

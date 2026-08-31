@@ -973,6 +973,54 @@ async function main(): Promise<void> {
       throw new Error('resubscription did not become the current subscription');
   });
 
+  // ---- Task 42 step 2: subscription history (read-only) -----------------
+
+  await check('subscription history: unauthenticated read is rejected with 401', async () => {
+    const res = await call('GET', `${subscriptionPath}/history`);
+    if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
+  });
+
+  await check('subscription history: school admin is rejected with 403', async () => {
+    const res = await call('GET', `${subscriptionPath}/history`, { token: schoolAdminToken });
+    if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
+  });
+
+  await check('subscription history: unknown school returns 404', async () => {
+    const res = await call('GET', `/admin/schools/${UNKNOWN_ID}/subscription/history`, {
+      token: superToken,
+    });
+    if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
+  });
+
+  await check('subscription history: every preserved record is returned newest-first', async () => {
+    const res = await call('GET', `${subscriptionPath}/history`, { token: superToken });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const body = res.json as {
+      data: {
+        items: Array<{
+          status: string;
+          is_current: boolean;
+          plan: { code: string } | null;
+          cancelled_at: string | null;
+          created_at: string | null;
+        }>;
+      };
+    };
+    const items = body.data.items;
+    // Full flow above: basic assigned (expired on change), pro (cancelled),
+    // pro resubscription (live) — three preserved rows, nothing deleted.
+    if (items.length !== 3) throw new Error(`expected 3 history rows, got ${items.length}`);
+    if (items[0].status !== 'active' || !items[0].is_current || items[0].plan?.code !== 'pro')
+      throw new Error('newest row must be the live pro subscription');
+    if (items[1].status !== 'cancelled' || items[1].is_current || !items[1].cancelled_at)
+      throw new Error('cancelled row must be preserved with its cancellation date');
+    if (items[2].status !== 'expired' || items[2].is_current || items[2].plan?.code !== 'basic')
+      throw new Error('plan change must keep the superseded basic subscription as expired');
+    const currentCount = items.filter((item) => item.is_current).length;
+    if (currentCount !== 1) throw new Error('exactly one row may be current');
+  });
+
   await app.close();
 
   const failed = results.filter((r) => !r.ok);

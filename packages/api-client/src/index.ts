@@ -19,6 +19,7 @@ import {
   AdminSchoolResponse,
   AdminSchoolSubscriptionCancelRequest,
   AdminSchoolSubscriptionCreateRequest,
+  AdminSchoolSubscriptionHistoryResponse,
   AdminSchoolSubscriptionResponse,
   AdminSchoolSubscriptionUpdateRequest,
   AdminSchoolUpdateRequest,
@@ -541,6 +542,19 @@ export class ApiClient {
   ): Promise<ApiResponse<AdminSchoolSubscriptionResponse>> {
     return this.get<AdminSchoolSubscriptionResponse>(
       `/admin/schools/${encodeURIComponent(schoolId)}/subscription`,
+    );
+  }
+
+  /**
+   * Full subscription history of a school, newest first. Read-only — plan
+   * changes and cancellations preserve their rows and this returns them all
+   * in one response (no per-row follow-up requests).
+   */
+  public async getSchoolSubscriptionHistory(
+    schoolId: string,
+  ): Promise<ApiResponse<AdminSchoolSubscriptionHistoryResponse>> {
+    return this.get<AdminSchoolSubscriptionHistoryResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/subscription/history`,
     );
   }
 

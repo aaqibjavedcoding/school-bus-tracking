@@ -18,6 +18,7 @@ import { useLoad } from '../../../../../hooks/useLoad';
 import { fullName, formatDateTime } from '../../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../../lib/errors';
 import { apiClient } from '../../../../../services/api';
+import { SchoolSubscriptionSection } from '../../../../../features/admin/subscriptions/SchoolSubscriptionSection';
 
 interface StatCard {
   label: string;
@@ -216,12 +217,7 @@ export default function AdminSchoolDetailsPage() {
         )}
       </Card>
 
-      <Card title="Subscription">
-        <EmptyState
-          title="Billing not configured"
-          description="Plan, subscription status and renewal date will appear here in the next SaaS phase. No payment provider is connected yet."
-        />
-      </Card>
+      <SchoolSubscriptionSection schoolId={schoolId} schoolName={school.name} />
 
       <div className="row">
         <Link href="/admin/schools">
