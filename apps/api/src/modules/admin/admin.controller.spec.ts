@@ -7,6 +7,7 @@ import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-typ
 import { ROLES_KEY } from '../../common/decorators';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { AdminDashboardController } from './admin-dashboard.controller';
+import { AdminPlansController } from './admin-plans.controller';
 import { AdminSchoolAdminsController } from './admin-school-admins.controller';
 import { AdminSchoolsController } from './admin-schools.controller';
 
@@ -66,6 +67,7 @@ describe('Admin controllers authorization', () => {
   const dashboardController = {} as AdminDashboardController;
   const schoolsController = {} as AdminSchoolsController;
   const adminsController = {} as AdminSchoolAdminsController;
+  const plansController = {} as AdminPlansController;
 
   const protectedHandlers: Array<{
     method: string;
@@ -92,6 +94,14 @@ describe('Admin controllers authorization', () => {
       'deactivate',
       'resetPassword',
     ]).map((h) => ({ ...h, controller: adminsController })),
+    ...controllerFor(AdminPlansController, [
+      'create',
+      'findAll',
+      'findOne',
+      'update',
+      'activate',
+      'deactivate',
+    ]).map((h) => ({ ...h, controller: plansController })),
   ];
 
   it('restricts every admin route to the SUPER_ADMIN role', () => {
