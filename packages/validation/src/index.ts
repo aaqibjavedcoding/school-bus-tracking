@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
+  ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES,
   PlanBillingPeriod,
   PlanFeature,
   PlanLimitResource,
   RouteAssignmentRole,
   StudentGender,
+  SubscriptionStatus,
   TripAttendanceStatus,
   TripStatus,
   TripTrackingState,
@@ -1289,3 +1291,143 @@ export const adminPlanListQuerySchema = paginationSchema
   .strict();
 
 export type AdminPlanListQueryInput = z.infer<typeof adminPlanListQuerySchema>;
+
+/**
+ * Task 42 — School Subscription validation.
+ *
+ * Subscriptions attach a school (tenant) to a plan of the Task 41 catalog.
+ * Only a SUPER_ADMIN reaches these payloads. The schemas cover shape and
+ * cross-field date logic; existence checks (school/plan), plan activation and
+ * the "one live subscription per school" rule are enforced in the service
+ * layer where the database is available.
+ */
+
+/** ISO-8601 date-time accepted for every subscription date field. */
+export const subscriptionDateSchema = z
+  .string()
+  .trim()
+  .min(1, 'Date must be a valid ISO-8601 date-time')
+  .refine((value) => !Number.isNaN(Date.parse(value)), 'Date must be a valid ISO-8601 date-time');
+
+/** Nullable ISO-8601 date-time (`null` clears the field). */
+export const nullableSubscriptionDateSchema = subscriptionDateSchema.nullish();
+
+/** Any subscription status, including the projection-only `none`. */
+export const subscriptionStatusSchema = z.nativeEnum(SubscriptionStatus);
+
+/** Statuses that may actually be persisted on a subscription row. */
+export const persistedSubscriptionStatusSchema = subscriptionStatusSchema.refine(
+  (value) => value !== SubscriptionStatus.NONE,
+  'status must be one of trialing, active, past_due, cancelled, expired',
+);
+
+/** Statuses a Super Admin may assign when creating a subscription. */
+export const assignableSubscriptionStatusSchema = subscriptionStatusSchema.refine(
+  (value) => ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES.includes(value as never),
+  'status must be one of trialing, active, past_due',
+);
+
+/**
+ * Cross-field date ordering shared by create and update:
+ * - `trial_end` may not precede `trial_start`;
+ * - `current_period_end` may not precede `current_period_start`.
+ *
+ * The "a trialing subscription must declare `trial_end`" rule is only checked
+ * here for create; on PATCH the merged row is validated in the service, since
+ * the existing record may already carry a trial window.
+ */
+function refineSubscriptionDates(
+  value: {
+    trial_start?: string | null;
+    trial_end?: string | null;
+    current_period_start?: string | null;
+    current_period_end?: string | null;
+  },
+  context: z.RefinementCtx,
+): void {
+  const at = (raw?: string | null): number | null =>
+    raw === undefined || raw === null ? null : Date.parse(raw);
+
+  const trialStart = at(value.trial_start);
+  const trialEnd = at(value.trial_end);
+  if (trialStart !== null && trialEnd !== null && trialEnd < trialStart) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['trial_end'],
+      message: 'trial_end cannot be before trial_start',
+    });
+  }
+
+  const periodStart = at(value.current_period_start);
+  const periodEnd = at(value.current_period_end);
+  if (periodStart !== null && periodEnd !== null && periodEnd < periodStart) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['current_period_end'],
+      message: 'current_period_end cannot be before current_period_start',
+    });
+  }
+}
+
+/** Body of `POST /api/v1/admin/schools/:schoolId/subscription`. */
+export const adminSchoolSubscriptionCreateSchema = z
+  .object({
+    plan_id: z.string().uuid('plan_id must be a valid UUID'),
+    status: assignableSubscriptionStatusSchema.optional(),
+    trial_start: nullableSubscriptionDateSchema,
+    trial_end: nullableSubscriptionDateSchema,
+    current_period_start: nullableSubscriptionDateSchema,
+    current_period_end: nullableSubscriptionDateSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    refineSubscriptionDates(value, context);
+    if (value.status === SubscriptionStatus.TRIALING && value.trial_end == null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['trial_end'],
+        message: 'trial_end is required for a trialing subscription',
+      });
+    }
+  });
+
+export type AdminSchoolSubscriptionCreateInput = z.infer<
+  typeof adminSchoolSubscriptionCreateSchema
+>;
+
+/** Body of `PATCH /api/v1/admin/schools/:schoolId/subscription`. */
+export const adminSchoolSubscriptionUpdateSchema = z
+  .object({
+    plan_id: z.string().uuid('plan_id must be a valid UUID').optional(),
+    status: persistedSubscriptionStatusSchema.optional(),
+    trial_start: nullableSubscriptionDateSchema,
+    trial_end: nullableSubscriptionDateSchema,
+    current_period_start: nullableSubscriptionDateSchema,
+    current_period_end: nullableSubscriptionDateSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Object.keys(value).length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [],
+        message: 'At least one subscription field must be provided',
+      });
+    }
+    refineSubscriptionDates(value, context);
+  });
+
+export type AdminSchoolSubscriptionUpdateInput = z.infer<
+  typeof adminSchoolSubscriptionUpdateSchema
+>;
+
+/** Body of `POST /api/v1/admin/schools/:schoolId/subscription/cancel`. */
+export const adminSchoolSubscriptionCancelSchema = z
+  .object({
+    cancelled_at: nullableSubscriptionDateSchema,
+  })
+  .strict();
+
+export type AdminSchoolSubscriptionCancelInput = z.infer<
+  typeof adminSchoolSubscriptionCancelSchema
+>;

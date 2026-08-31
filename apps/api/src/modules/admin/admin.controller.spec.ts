@@ -10,6 +10,7 @@ import { AdminDashboardController } from './admin-dashboard.controller';
 import { AdminPlansController } from './admin-plans.controller';
 import { AdminSchoolAdminsController } from './admin-school-admins.controller';
 import { AdminSchoolsController } from './admin-schools.controller';
+import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -68,6 +69,7 @@ describe('Admin controllers authorization', () => {
   const schoolsController = {} as AdminSchoolsController;
   const adminsController = {} as AdminSchoolAdminsController;
   const plansController = {} as AdminPlansController;
+  const subscriptionsController = {} as AdminSubscriptionsController;
 
   const protectedHandlers: Array<{
     method: string;
@@ -102,6 +104,13 @@ describe('Admin controllers authorization', () => {
       'activate',
       'deactivate',
     ]).map((h) => ({ ...h, controller: plansController })),
+    // Task 42 — school subscription management is SUPER_ADMIN only as well.
+    ...controllerFor(AdminSubscriptionsController, [
+      'get',
+      'create',
+      'update',
+      'cancel',
+    ]).map((h) => ({ ...h, controller: subscriptionsController })),
   ];
 
   it('restricts every admin route to the SUPER_ADMIN role', () => {

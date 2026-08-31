@@ -25,6 +25,8 @@ import {
 import { normalizeEmail } from '../../auth';
 import { Bus, RefreshToken, Route, School, Student, Trip, User } from '../../database/models';
 import { SchoolsService } from '../schools/schools.service';
+import { AdminSubscriptionsService } from './admin-subscriptions.service';
+import { NO_SUBSCRIPTION_INFO } from './admin-subscriptions.constants';
 import {
   ADMIN_BUSES_REPOSITORY,
   ADMIN_REFRESH_TOKENS_REPOSITORY,
@@ -42,13 +44,6 @@ import { ListAdminSchoolsQueryDto } from './dto/list-admin-schools-query.dto';
 
 /** Non-terminal trip states — the operational "active" trips of a tenant. */
 const ACTIVE_TRIP_STATUSES = [TripStatus.SCHEDULED, TripStatus.BOARDING, TripStatus.IN_PROGRESS];
-
-/** Subscription placeholder until the Plans/Billing SaaS phase lands. */
-const NO_SUBSCRIPTION: AdminSchoolSubscriptionInfo = {
-  status: 'none',
-  plan: null,
-  current_period_end: null,
-};
 
 /** Result of one grouped COUNT(*) query over `table`. */
 type GroupCount = Record<string, number | string | boolean>;
@@ -74,6 +69,12 @@ export class AdminSchoolsService {
     @Inject(ADMIN_REFRESH_TOKENS_REPOSITORY)
     private readonly refreshTokens: typeof RefreshToken,
     private readonly onboarding: SchoolsService,
+    /**
+     * Subscription projections come from the subscription domain (Task 42).
+     * Schools without a subscription still report the historical
+     * `status: 'none'` block, so existing consumers are unaffected.
+     */
+    private readonly subscriptions: AdminSubscriptionsService,
   ) {}
 
   /**
@@ -143,6 +144,11 @@ export class AdminSchoolsService {
     const schoolIds = rows.map((school) => school.id);
     const stats = schoolIds.length > 0 ? await this.collectSummaryStats(schoolIds) : new Map();
     const admins = schoolIds.length > 0 ? await this.collectPrimaryAdmins(schoolIds) : new Map();
+    // Bulk subscription lookup: two queries for the whole page (no N+1).
+    const subscriptions =
+      schoolIds.length > 0
+        ? await this.subscriptions.getSubscriptionInfoForSchools(schoolIds)
+        : new Map<string, AdminSchoolSubscriptionInfo>();
 
     const items: AdminSchoolSummary[] = rows.map((school) => {
       const profile = this.toSchoolResponse(school);
@@ -156,7 +162,7 @@ export class AdminSchoolsService {
         ...profile,
         primary_admin: admins.get(school.id) ?? null,
         stats: rowStats,
-        subscription: NO_SUBSCRIPTION,
+        subscription: subscriptions.get(school.id) ?? { ...NO_SUBSCRIPTION_INFO },
       };
     });
 
@@ -180,19 +186,20 @@ export class AdminSchoolsService {
       throw new NotFoundException(SCHOOL_NOT_FOUND_MESSAGE);
     }
 
-    const [stats, adminRows] = await Promise.all([
+    const [stats, adminRows, subscription] = await Promise.all([
       this.collectSchoolStats(schoolId),
       this.users.findAll({
         where: { school_id: schoolId, role: UserRole.SCHOOL_ADMIN },
         order: [['created_at', 'ASC']],
       }),
+      this.subscriptions.getSubscriptionInfo(schoolId),
     ]);
 
     return {
       school: this.toSchoolResponse(school),
       stats,
       admins: adminRows.map((admin) => this.toAdminResponse(admin)),
-      subscription: NO_SUBSCRIPTION,
+      subscription,
     };
   }
 

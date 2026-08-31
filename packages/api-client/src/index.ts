@@ -17,6 +17,10 @@ import {
   AdminSchoolListQuery,
   AdminSchoolListResponse,
   AdminSchoolResponse,
+  AdminSchoolSubscriptionCancelRequest,
+  AdminSchoolSubscriptionCreateRequest,
+  AdminSchoolSubscriptionResponse,
+  AdminSchoolSubscriptionUpdateRequest,
   AdminSchoolUpdateRequest,
   ApiResponse,
   ConductorCreateRequest,
@@ -519,6 +523,54 @@ export class ApiClient {
   public async deactivateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
     return this.post<AdminPlanLifecycleResponse>(
       `/admin/plans/${encodeURIComponent(id)}/deactivate`,
+    );
+  }
+
+  /**
+   * Super Admin school subscriptions
+   * (`/admin/schools/:schoolId/subscription`).
+   *
+   * Attaches a school to a plan of the catalog and manages the lifecycle
+   * (trial, current period, cancellation). SUPER_ADMIN only. No payment is
+   * processed by any of these calls; a school without a subscription reads
+   * back as `status: 'none'` rather than an error.
+   */
+
+  public async getSchoolSubscription(
+    schoolId: string,
+  ): Promise<ApiResponse<AdminSchoolSubscriptionResponse>> {
+    return this.get<AdminSchoolSubscriptionResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/subscription`,
+    );
+  }
+
+  public async createSchoolSubscription(
+    schoolId: string,
+    body: AdminSchoolSubscriptionCreateRequest,
+  ): Promise<ApiResponse<AdminSchoolSubscriptionResponse>> {
+    return this.post<AdminSchoolSubscriptionResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/subscription`,
+      body,
+    );
+  }
+
+  public async updateSchoolSubscription(
+    schoolId: string,
+    body: AdminSchoolSubscriptionUpdateRequest,
+  ): Promise<ApiResponse<AdminSchoolSubscriptionResponse>> {
+    return this.patch<AdminSchoolSubscriptionResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/subscription`,
+      body,
+    );
+  }
+
+  public async cancelSchoolSubscription(
+    schoolId: string,
+    body: AdminSchoolSubscriptionCancelRequest = {},
+  ): Promise<ApiResponse<AdminSchoolSubscriptionResponse>> {
+    return this.post<AdminSchoolSubscriptionResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/subscription/cancel`,
+      body,
     );
   }
 

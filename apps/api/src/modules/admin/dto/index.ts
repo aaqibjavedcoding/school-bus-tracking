@@ -16,3 +16,8 @@ export {
   UpdateAdminPlanDto,
   ListAdminPlansQueryDto,
 } from './admin-plans.dto';
+export {
+  CreateSchoolSubscriptionDto,
+  UpdateSchoolSubscriptionDto,
+  CancelSchoolSubscriptionDto,
+} from './admin-subscriptions.dto';
