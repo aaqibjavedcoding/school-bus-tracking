@@ -23,6 +23,17 @@ export interface HealthResponse {
   environment: string;
 }
 
+export interface ReadinessResponse {
+  status: 'ready' | 'not_ready';
+  checks: {
+    database: 'ok' | 'fail';
+    sequelize: 'ok' | 'fail';
+    schema: 'ok' | 'fail';
+  };
+  reason?: string;
+  timestamp?: string;
+}
+
 export interface Coordinates {
   latitude: number;
   longitude: number;
