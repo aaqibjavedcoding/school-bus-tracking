@@ -8,6 +8,7 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  PlanLimitResource,
   RouteAssignmentRole,
   RouteDeleteResponse,
   RouteDetailResponse,
@@ -48,6 +49,7 @@ import { CreateRouteDto } from './dto/create-route.dto';
 import { ListRoutesQueryDto } from './dto/list-routes-query.dto';
 import { UpdateRouteDto } from './dto/update-route.dto';
 import { ReorderRouteStopsDto } from './dto/reorder-route-stops.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 
 /**
  * Tenant-safe route management.
@@ -83,6 +85,7 @@ export class RoutesService {
     @Inject(ROUTES_BUSES_REPOSITORY) private readonly buses: typeof Bus,
     @Inject(ROUTES_TRIPS_REPOSITORY) private readonly trips: typeof Trip,
     @Inject(ROUTES_STUDENTS_REPOSITORY) private readonly students: typeof Student,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /**
@@ -93,6 +96,7 @@ export class RoutesService {
    * their code).
    */
   async create(schoolId: string, dto: CreateRouteDto): Promise<RouteResponse> {
+    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.ROUTES);
     const code = dto.code.trim();
     await this.assertCodeFree(schoolId, code);
 

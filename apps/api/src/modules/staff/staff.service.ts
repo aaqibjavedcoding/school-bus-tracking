@@ -24,6 +24,7 @@ import {
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { ListStaffQueryDto } from './dto/list-staff-query.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 
 /** Ranked preference for the crew member's "current" trip today. */
 const TRIP_PREFERENCE: Record<TripStatus, number> = {
@@ -58,6 +59,7 @@ export class StaffService {
     @Inject(STAFF_ROUTES_REPOSITORY) private readonly routes: typeof Route,
     @Inject(STAFF_BUSES_REPOSITORY) private readonly buses: typeof Bus,
     @Inject(STAFF_TRIPS_REPOSITORY) private readonly trips: typeof Trip,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /**
@@ -70,6 +72,7 @@ export class StaffService {
     role: R,
     dto: CreateStaffDto,
   ): Promise<StaffResponse<R>> {
+    await this.planLimits.assertStaffWithinLimit(schoolId, role);
     const email = normalizeEmail(dto.email);
     // Email uniqueness is tenant-scoped across ALL user roles (the unique
     // index is (school_id, email)), so a staff email may not collide with a

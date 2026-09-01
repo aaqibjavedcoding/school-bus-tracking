@@ -2,6 +2,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  PlanLimitResource,
   ParentDeleteResponse,
   ParentListResponse,
   ParentResponse,
@@ -18,6 +19,7 @@ import {
 import { CreateParentDto } from './dto/create-parent.dto';
 import { ListParentsQueryDto } from './dto/list-parents-query.dto';
 import { UpdateParentDto } from './dto/update-parent.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 
 /**
  * Tenant-safe management of users whose fixed role is `PARENT`.
@@ -29,7 +31,10 @@ import { UpdateParentDto } from './dto/update-parent.dto';
  */
 @Injectable()
 export class ParentsService {
-  constructor(@Inject(PARENTS_REPOSITORY) private readonly users: typeof User) {}
+  constructor(
+    @Inject(PARENTS_REPOSITORY) private readonly users: typeof User,
+    private readonly planLimits: PlanLimitsService,
+  ) {}
 
   /**
    * Creates a parent account that can use the existing `/auth/login` flow.
@@ -37,6 +42,7 @@ export class ParentsService {
    * as a bcrypt digest.
    */
   async create(schoolId: string, dto: CreateParentDto): Promise<ParentResponse> {
+    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.PARENTS);
     const email = normalizeEmail(dto.email);
     const existing = await this.users.findOne({ where: { school_id: schoolId, email } });
     if (existing) {

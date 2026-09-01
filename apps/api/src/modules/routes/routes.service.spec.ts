@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { Bus, Route, RouteAssignment, Stop, Student, Trip, User } from '../../database/models';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { RoutesService } from './routes.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
@@ -287,6 +288,13 @@ function makeReorderDto(stopIds: string[]): ReorderRouteStopsDto {
 }
 
 /** Builds the service with empty relation stubs (roster/crew/bus/trip/student). */
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function makeService(routes: typeof Route, stops: typeof Stop): RoutesService {
   const empty = { findAll: async () => [] } as unknown as typeof Stop;
   return new RoutesService(
@@ -297,6 +305,7 @@ function makeService(routes: typeof Route, stops: typeof Stop): RoutesService {
     empty as unknown as typeof Bus,
     empty as unknown as typeof Trip,
     empty as unknown as typeof Student,
+    allowAllPlanLimits(),
   );
 }
 
@@ -486,7 +495,16 @@ describe('RoutesService.findOne', () => {
         [{ home_stop_id: STOP_1, school_id: SCHOOL_A }] as unknown as Student[],
     } as unknown as typeof Student;
 
-    const service = new RoutesService(repo, stops, assignments, users, buses, trips, students);
+    const service = new RoutesService(
+      repo,
+      stops,
+      assignments,
+      users,
+      buses,
+      trips,
+      students,
+      allowAllPlanLimits(),
+    );
     const response = await service.findOne(SCHOOL_A, ROUTE_A);
 
     assert.equal(response.driver_name, 'Ada Driver');

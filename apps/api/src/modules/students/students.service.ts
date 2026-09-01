@@ -8,11 +8,13 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  PlanLimitResource,
   StudentDeleteResponse,
   StudentListResponse,
   StudentResponse,
   UserRole,
 } from '@school-bus-tracking/shared-types';
+import { PlanLimitsService } from '../../common/plan-limits';
 import {
   Bus,
   Route,
@@ -64,6 +66,7 @@ export class StudentsService {
     @Inject(STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY)
     private readonly assignments: typeof RouteAssignment,
     @Inject(STUDENTS_BUSES_REPOSITORY) private readonly buses: typeof Bus,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /**
@@ -74,6 +77,7 @@ export class StudentsService {
    * school before the row is written.
    */
   async create(schoolId: string, dto: CreateStudentDto): Promise<StudentResponse> {
+    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.STUDENTS);
     const homeStopId = dto.home_stop_id ?? null;
     if (homeStopId) {
       await this.assertHomeStopInSchool(schoolId, homeStopId);

@@ -21,6 +21,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { EmergenciesModule } from './modules/emergencies/emergencies.module';
 import { AccessModule } from './common/access';
+import { PlanLimitsModule } from './common/plan-limits';
 import { DatabaseModule } from './database/database.module';
 import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } from './config';
 
@@ -35,6 +36,7 @@ import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } f
     // Global school-lifecycle access checks (inactive-tenant enforcement),
     // injected into the shared JwtAuthGuard and AuthService.
     AccessModule,
+    PlanLimitsModule,
     HealthModule,
     AuthModule,
     AuthTestModule,

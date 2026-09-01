@@ -4,6 +4,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, TripStatus } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { BusesService } from './buses.service';
 import {
   BUS_DELETED_MESSAGE,
@@ -188,6 +189,13 @@ function makeQuery(overrides: Partial<ListBusesQueryDto> = {}): ListBusesQueryDt
  * route / crew / trip repositories. Tests that exercise enrichment pass their
  * own stubs via {@link makeServiceWithRelations}.
  */
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function makeService(repo: typeof Bus): BusesService {
   const empty = { findAll: async () => [] } as unknown as typeof Route;
   return new BusesService(
@@ -196,6 +204,7 @@ function makeService(repo: typeof Bus): BusesService {
     empty as unknown as typeof Route,
     empty as unknown as typeof User,
     empty as unknown as typeof Trip,
+    allowAllPlanLimits(),
   );
 }
 
@@ -382,7 +391,7 @@ describe('BusesService.findAll', () => {
         ] as unknown as Trip[],
     } as unknown as typeof Trip;
 
-    const service = new BusesService(repo, assignments, routes, users, trips);
+    const service = new BusesService(repo, assignments, routes, users, trips, allowAllPlanLimits());
 
     const response = await service.findAll(SCHOOL_A, makeQuery());
 

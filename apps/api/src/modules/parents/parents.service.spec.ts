@@ -8,6 +8,7 @@ import { UserRole } from '@school-bus-tracking/shared-types';
 import { CreateParentDto } from './dto/create-parent.dto';
 import { ListParentsQueryDto } from './dto/list-parents-query.dto';
 import { UpdateParentDto } from './dto/update-parent.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { ParentsService } from './parents.service';
 import {
   PARENT_DELETED_MESSAGE,
@@ -252,6 +253,13 @@ function makeRelationshipRepository(
   };
 }
 
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function parentDto(overrides: Partial<CreateParentDto> = {}): CreateParentDto {
   const dto = new CreateParentDto();
   dto.first_name = 'Alicia';
@@ -294,7 +302,7 @@ describe('ParentsService account management', () => {
   it('creates a PARENT in the JWT tenant with a bcrypt password hash', async () => {
     const capture: { createPayload?: Record<string, unknown> } = {};
     const { repo: users } = makeParentRepository([], capture);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
 
     const result = await service.create(SCHOOL_A, parentDto());
 
@@ -313,7 +321,7 @@ describe('ParentsService account management', () => {
   it('rejects duplicate email within the authenticated school', async () => {
     const existing = makeParent({ id: PARENT_A, school_id: SCHOOL_A, email: 'parent@example.org' });
     const { repo: users } = makeParentRepository([existing]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     await expectConflict(service.create(SCHOOL_A, parentDto()), PARENT_EMAIL_TAKEN_MESSAGE);
   });
 
@@ -321,7 +329,7 @@ describe('ParentsService account management', () => {
     const existing = makeParent({ id: PARENT_A, school_id: SCHOOL_B, email: 'parent@example.org' });
     const capture: { createPayload?: Record<string, unknown> } = {};
     const { repo: users } = makeParentRepository([existing], capture);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     await service.create(SCHOOL_A, parentDto());
     assert.equal(capture.createPayload?.school_id, SCHOOL_A);
   });
@@ -335,7 +343,7 @@ describe('ParentsService account management', () => {
           fields: { email: 'parent@example.org' },
         }),
       );
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     await expectConflict(service.create(SCHOOL_A, parentDto()), PARENT_EMAIL_TAKEN_MESSAGE);
   });
 
@@ -345,7 +353,7 @@ describe('ParentsService account management', () => {
       makeParent({ id: PARENT_B, school_id: SCHOOL_B }),
       makeParent({ id: 'staff', school_id: SCHOOL_A, role: UserRole.DRIVER }),
     ]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     const result = await service.findAll(SCHOOL_A, new ListParentsQueryDto());
     assert.deepEqual(
       result.items.map((item) => item.id),
@@ -360,7 +368,7 @@ describe('ParentsService account management', () => {
       makeParent({ id: PARENT_B, school_id: SCHOOL_B }),
       makeParent({ id: 'driver', school_id: SCHOOL_A, role: UserRole.DRIVER }),
     ]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     await expectNotFound(service.findOne(SCHOOL_A, PARENT_B), PARENT_NOT_FOUND_MESSAGE);
     await expectNotFound(service.findOne(SCHOOL_A, 'driver'), PARENT_NOT_FOUND_MESSAGE);
   });
@@ -368,7 +376,7 @@ describe('ParentsService account management', () => {
   it('updates profile fields and bcrypt-hashes a changed password without changing ownership', async () => {
     const parent = makeParent({ id: PARENT_A, school_id: SCHOOL_A });
     const { repo: users } = makeParentRepository([parent]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     const dto = new UpdateParentDto();
     dto.first_name = 'Alicia-Marie';
     dto.password = 'new-correct-password';
@@ -387,7 +395,7 @@ describe('ParentsService account management', () => {
     const parent = makeParent({ id: PARENT_A, school_id: SCHOOL_A, email: 'one@example.org' });
     const other = makeParent({ id: PARENT_B, school_id: SCHOOL_A, email: 'two@example.org' });
     const { repo: users } = makeParentRepository([parent, other]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     const dto = new UpdateParentDto();
     dto.email = 'two@example.org';
     await expectConflict(service.update(SCHOOL_A, PARENT_A, dto), PARENT_EMAIL_TAKEN_MESSAGE);
@@ -396,7 +404,7 @@ describe('ParentsService account management', () => {
   it('soft-deletes only an in-tenant parent account', async () => {
     const parent = makeParent({ id: PARENT_A, school_id: SCHOOL_A });
     const { repo: users } = makeParentRepository([parent]);
-    const service = new ParentsService(users);
+    const service = new ParentsService(users, allowAllPlanLimits());
     const result = await service.remove(SCHOOL_A, PARENT_A);
     assert.equal(parent.deleted_at?.toISOString(), '2026-03-01T00:00:00.000Z');
     assert.deepEqual(result, { id: PARENT_A, message: PARENT_DELETED_MESSAGE });

@@ -8,6 +8,7 @@ import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { ListStaffQueryDto } from './dto/list-staff-query.dto';
 import { UpdateStaffDto } from './dto/update-staff.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { StaffService } from './staff.service';
 import {
   STAFF_EMAIL_TAKEN_MESSAGE,
@@ -133,6 +134,13 @@ function makeStaffRepository(
 }
 
 /** Builds the service with the staff repository plus empty relation stubs. */
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function makeService(users: typeof User): StaffService {
   const empty = { findAll: async () => [] } as unknown as typeof Route;
   return new StaffService(
@@ -141,6 +149,7 @@ function makeService(users: typeof User): StaffService {
     empty as unknown as typeof Route,
     empty as unknown as typeof Bus,
     empty as unknown as typeof Trip,
+    allowAllPlanLimits(),
   );
 }
 
@@ -286,7 +295,7 @@ describe('StaffService driver management', () => {
         [{ driver_id: DRIVER_A, status: TripStatus.BOARDING, scheduled_start_at: new Date() }] as unknown as Trip[],
     } as unknown as typeof Trip;
 
-    const service = new StaffService(users, assignments, routes, buses, trips);
+    const service = new StaffService(users, assignments, routes, buses, trips, allowAllPlanLimits());
     const result = await service.findAll(SCHOOL_A, UserRole.DRIVER, new ListStaffQueryDto());
 
     assert.equal(result.items.length, 1);
