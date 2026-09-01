@@ -23,7 +23,6 @@ import { invalidIdMessage, isUuid } from '../../../../src/lib/ids';
 import { stopCode } from '../../../../src/lib/format';
 import { useLoad } from '../../../../src/hooks/useLoad';
 import {
-  Badge,
   Button,
   ConfirmDialog,
   EmptyState,
@@ -31,8 +30,8 @@ import {
   Fab,
   Field,
   FormSheet,
+  ListScreen,
   LoadingView,
-  Screen,
   SearchBar,
   SwitchRow,
   useToast,
@@ -192,55 +191,21 @@ export default function ManageRouteStopsScreen() {
   }
   if (error || !data) {
     return (
-      <Screen>
+      <View style={styles.center}>
         <ErrorState message={error ?? 'Route not found'} onRetry={() => void reload()} />
-      </Screen>
+      </View>
     );
   }
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading} extraBottomSpace={72}>
-        <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button">
-          <Text style={styles.backText}>‹ All routes</Text>
-        </Pressable>
-
-        <Text style={styles.title}>
-          {data.route.code} · {data.route.name}
-        </Text>
-        {data.route.description ? (
-          <Text style={styles.subtitle}>{data.route.description}</Text>
-        ) : null}
-        <Text style={styles.hint}>Order is the boarding sequence used for trip manifests.</Text>
-
-        {data.stops.length > 0 ? (
-          <SearchBar
-            value={search}
-            onChangeText={setSearch}
-            onClear={() => setSearch('')}
-            placeholder="Search stops…"
-          />
-        ) : null}
-
-        {visibleStops.length === 0 ? (
-          <EmptyState
-            title={term ? 'No matching stops' : 'No stops yet'}
-            description={
-              term
-                ? `Nothing matched “${search.trim()}”.`
-                : 'Add the first boarding point with the button below.'
-            }
-            action={
-              term ? (
-                <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />
-              ) : null
-            }
-          />
-        ) : (
-          visibleStops.map((stop) => {
-            const index = data.stops.findIndex((entry) => entry.id === stop.id);
-            return (
-            <View key={stop.id} style={styles.stopCard}>
+      <ListScreen
+        data={visibleStops}
+        keyExtractor={(stop) => stop.id}
+        renderItem={({ item: stop }) => {
+          const index = data.stops.findIndex((entry) => entry.id === stop.id);
+          return (
+            <View style={styles.stopCard}>
               <View style={styles.stopTop}>
                 <View style={styles.seqBadge}>
                   <Text style={styles.seqText}>{stop.sequence_number}</Text>
@@ -295,10 +260,49 @@ export default function ManageRouteStopsScreen() {
                 </Pressable>
               </View>
             </View>
-            );
-          })
-        )}
-      </Screen>
+          );
+        }}
+        header={
+          <>
+            <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button">
+              <Text style={styles.backText}>‹ All routes</Text>
+            </Pressable>
+            <Text style={styles.title}>
+              {data.route.code} · {data.route.name}
+            </Text>
+            {data.route.description ? (
+              <Text style={styles.subtitle}>{data.route.description}</Text>
+            ) : null}
+            <Text style={styles.hint}>Order is the boarding sequence used for trip manifests.</Text>
+            {data.stops.length > 0 ? (
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                onClear={() => setSearch('')}
+                placeholder="Search stops…"
+              />
+            ) : null}
+          </>
+        }
+        empty={
+          <EmptyState
+            title={term ? 'No matching stops' : 'No stops yet'}
+            description={
+              term
+                ? `Nothing matched “${search.trim()}”.`
+                : 'Add the first boarding point with the button below.'
+            }
+            action={
+              term ? (
+                <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />
+              ) : null
+            }
+          />
+        }
+        refresh={() => void reload()}
+        refreshing={loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Add stop" />
 
@@ -384,6 +388,7 @@ export default function ManageRouteStopsScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', padding: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
   backText: { color: colors.primary[700], fontSize: 15, fontWeight: '600' },

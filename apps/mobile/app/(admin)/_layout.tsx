@@ -21,6 +21,13 @@ function AdminTabs() {
   return (
     <Tabs
       safeAreaInsets={{ bottom: 0 }}
+      // Detail routes (trips/[id], manage/students/[id], …) live inside this
+      // tab navigator as hidden routes pushed from the list screens. The
+      // bottom-tab default `backBehavior` is `firstRoute`, so `router.back()`
+      // from a detail route jumps to the *first* tab (Dashboard). `history`
+      // makes back return to the screen actually visited before — the list the
+      // user opened the detail from.
+      backBehavior="history"
       screenOptions={{
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',

@@ -29,6 +29,9 @@ function CrewTabs() {
   return (
     <Tabs
       safeAreaInsets={{ bottom: 0 }}
+      // Keep back-navigation inside the tab history: with the default
+      // `firstRoute` behaviour, back from any tab returns to the first tab.
+      backBehavior="history"
       screenOptions={{
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',

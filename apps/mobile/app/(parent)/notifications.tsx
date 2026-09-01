@@ -7,8 +7,8 @@ import {
   Button,
   EmptyState,
   FilterChips,
+  ListScreen,
   LoadingView,
-  Screen,
   SearchBar,
 } from '../../src/components';
 import { formatDateTime } from '../../src/lib/format';
@@ -48,80 +48,86 @@ export default function ParentNotificationsScreen() {
   };
 
   return (
-    <Screen refresh={() => void refresh()} refreshing={loading}>
-      <View style={styles.headerRow}>
-        <Text style={styles.connected}>{connected ? '● Live' : '● Reconnecting…'}</Text>
-        {state.unreadCount > 0 ? (
-          <Button
-            label={`Mark all read (${state.unreadCount})`}
-            small
-            variant="ghost"
-            onPress={() => void markAllRead()}
-          />
-        ) : null}
-      </View>
-
-      {state.recent.length > 0 ? (
-        <>
-          <SearchBar
-            value={search}
-            onChangeText={setSearch}
-            onClear={() => setSearch('')}
-            placeholder="Search notifications…"
-          />
-          <FilterChips<'ALL' | 'UNREAD' | 'READ'>
-            options={[
-              { value: 'ALL', label: `All · ${state.recent.length}` },
-              { value: 'UNREAD', label: `Unread · ${state.unreadCount}` },
-              {
-                value: 'READ',
-                label: `Read · ${state.recent.length - state.unreadCount}`,
-              },
-            ]}
-            value={readFilter}
-            onChange={setReadFilter}
-          />
-        </>
-      ) : null}
-
-      {loading && state.recent.length === 0 ? (
-        <LoadingView label="Loading notifications…" />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          title={filtersActive ? 'No matching notifications' : 'No notifications yet'}
-          description={
-            filtersActive
-              ? 'No notifications match the current search or filter.'
-              : 'Boarding, drop-off, trip and stop-arrival alerts for your children arrive here in realtime.'
-          }
-          action={
-            filtersActive ? (
-              <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-            ) : null
-          }
-        />
-      ) : (
-        visible.map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => {
-              if (!item.is_read) {
-                void markRead(item.id);
-              }
-            }}
-            style={[styles.row, item.is_read ? null : styles.rowUnread]}
-          >
-            <View style={styles.rowTop}>
-              <Text style={styles.type}>{notificationTypeLabel(item.type)}</Text>
-              {!item.is_read ? <View style={styles.unreadDot} /> : null}
-            </View>
-            <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.message}>{item.message}</Text>
-            <Text style={styles.time}>{formatDateTime(item.created_at)}</Text>
-          </Pressable>
-        ))
+    <ListScreen
+      data={visible}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item }) => (
+        <Pressable
+          onPress={() => {
+            if (!item.is_read) {
+              void markRead(item.id);
+            }
+          }}
+          style={[styles.row, item.is_read ? null : styles.rowUnread]}
+        >
+          <View style={styles.rowTop}>
+            <Text style={styles.type}>{notificationTypeLabel(item.type)}</Text>
+            {!item.is_read ? <View style={styles.unreadDot} /> : null}
+          </View>
+          <Text style={styles.title}>{item.title}</Text>
+          <Text style={styles.message}>{item.message}</Text>
+          <Text style={styles.time}>{formatDateTime(item.created_at)}</Text>
+        </Pressable>
       )}
-    </Screen>
+      header={
+        <>
+          <View style={styles.headerRow}>
+            <Text style={styles.connected}>{connected ? '● Live' : '● Reconnecting…'}</Text>
+            {state.unreadCount > 0 ? (
+              <Button
+                label={`Mark all read (${state.unreadCount})`}
+                small
+                variant="ghost"
+                onPress={() => void markAllRead()}
+              />
+            ) : null}
+          </View>
+          {state.recent.length > 0 ? (
+            <>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                onClear={() => setSearch('')}
+                placeholder="Search notifications…"
+              />
+              <FilterChips<'ALL' | 'UNREAD' | 'READ'>
+                options={[
+                  { value: 'ALL', label: `All · ${state.recent.length}` },
+                  { value: 'UNREAD', label: `Unread · ${state.unreadCount}` },
+                  {
+                    value: 'READ',
+                    label: `Read · ${state.recent.length - state.unreadCount}`,
+                  },
+                ]}
+                value={readFilter}
+                onChange={setReadFilter}
+              />
+            </>
+          ) : null}
+        </>
+      }
+      empty={
+        loading && state.recent.length === 0 ? (
+          <LoadingView label="Loading notifications…" />
+        ) : (
+          <EmptyState
+            title={filtersActive ? 'No matching notifications' : 'No notifications yet'}
+            description={
+              filtersActive
+                ? 'No notifications match the current search or filter.'
+                : 'Boarding, drop-off, trip and stop-arrival alerts for your children arrive here in realtime.'
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
+            }
+          />
+        )
+      }
+      refresh={() => void refresh()}
+      refreshing={loading}
+    />
   );
 }
 

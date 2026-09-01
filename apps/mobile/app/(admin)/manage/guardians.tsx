@@ -34,9 +34,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   SwitchRow,
   useToast,
@@ -175,78 +175,86 @@ export default function ManageGuardiansScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search name or email…"
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter.filter}
-          onChange={activeFilter.setFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              activeFilter.isFiltered ? activeFilter.label : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && list.items.length === 0 ? (
-          <LoadingView label="Loading guardians…" />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No matches' : 'No guardians yet'}
-            description={
-              filtersActive
-                ? 'No guardians match the current search or filters.'
-                : 'Create parent accounts, then link them to students from the student detail screen.'
-            }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
-          />
-        ) : (
-          <>
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${visible.length} of ${list.meta.total} guardians`
-                : `${list.meta.total} guardians`}
-            </Text>
-            {visible.map((parent) => (
-              <ListCard
-                key={parent.id}
-                title={fullName(parent)}
-                subtitle={parent.email}
-                meta={parent.phone}
-                right={
-                  <Badge
-                    label={parent.is_active ? 'Active' : 'Inactive'}
-                    tone={parent.is_active ? 'success' : 'neutral'}
-                  />
-                }
-                onEdit={() => startEdit(parent)}
-                onDelete={() => setPendingDelete(parent)}
+      <ListScreen
+        data={visible}
+        keyExtractor={(parent) => parent.id}
+        renderItem={({ item }) => (
+          <ListCard
+            title={fullName(item)}
+            subtitle={item.email}
+            meta={item.phone}
+            right={
+              <Badge
+                label={item.is_active ? 'Active' : 'Inactive'}
+                tone={item.is_active ? 'success' : 'neutral'}
               />
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
-          </>
+            }
+            onEdit={() => startEdit(item)}
+            onDelete={() => setPendingDelete(item)}
+          />
         )}
-      </Screen>
+        header={
+          <>
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search name or email…"
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter.filter}
+              onChange={activeFilter.setFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  activeFilter.isFiltered ? activeFilter.label : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClear={resetFilters}
+              />
+            ) : null}
+            {visible.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${visible.length} of ${list.meta.total} guardians`
+                  : `${list.meta.total} guardians`}
+              </Text>
+            ) : null}
+          </>
+        }
+        footer={
+          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label="Loading guardians…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No matches' : 'No guardians yet'}
+              description={
+                filtersActive
+                  ? 'No guardians match the current search or filters.'
+                  : 'Create parent accounts, then link them to students from the student detail screen.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Add guardian" />
 

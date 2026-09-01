@@ -44,9 +44,9 @@ import {
   FilterChips,
   FilterSummary,
   FormSheet,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   Select,
   TripStatusBadge,
@@ -306,116 +306,127 @@ export default function AdminTripsScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search route, bus or crew…"
-        />
-
-        <View style={styles.dayRow}>
+      <ListScreen
+        data={rows}
+        keyExtractor={(trip) => trip.id}
+        renderItem={({ item: trip }) => (
           <Pressable
-            onPress={() => setDay((current) => shiftDay(current, -1))}
-            style={styles.dayButton}
-            accessibilityLabel="Previous day"
-            hitSlop={6}
+            onPress={() => router.push(`/trips/${trip.id}`)}
+            onLongPress={() => setPendingDelete(trip)}
+            style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
           >
-            <Text style={styles.dayButtonText}>‹</Text>
+            <View style={styles.cardTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {routeLabel(trip)}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {formatTime(trip.scheduled_start_at)} · Bus {busLabel(trip)}
+                </Text>
+                {trip.driver_name || trip.conductor_name ? (
+                  <Text style={styles.cardMeta} numberOfLines={1}>
+                    {trip.driver_name ? `Driver ${trip.driver_name}` : ''}
+                    {trip.driver_name && trip.conductor_name ? ' · ' : ''}
+                    {trip.conductor_name ? `Conductor ${trip.conductor_name}` : ''}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </View>
+            <View style={styles.badgeRow}>
+              <TripStatusBadge status={trip.status} />
+              {trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS ? (
+                <Badge label="● Live" tone="success" />
+              ) : null}
+            </View>
           </Pressable>
-          <View style={styles.dayLabel}>
-            <Text style={styles.dayLabelText}>{dayLabel(day)}</Text>
-            {isToday ? <Badge label="Today" tone="info" /> : null}
-          </View>
-          <Pressable
-            onPress={() => setDay((current) => shiftDay(current, 1))}
-            style={styles.dayButton}
-            accessibilityLabel="Next day"
-            hitSlop={6}
-          >
-            <Text style={styles.dayButtonText}>›</Text>
-          </Pressable>
-        </View>
-
-        <FilterChips<StatusFilter> options={statusOptions} value={status} onChange={setStatus} />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              status ? statusFilterLabel(status) : null,
-              !isToday ? dayLabel(day) : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && rows.length === 0 ? (
-          <LoadingView label="Loading the schedule…" />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : rows.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No matching trips' : 'No trips for this day'}
-            description={
-              filtersActive
-                ? 'No trips match the current filters.'
-                : 'Nothing is scheduled. Tap Schedule to dispatch a trip from an active assignment.'
-            }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : (
-                <Button label="Schedule trip" onPress={startCreate} />
-              )
-            }
-          />
-        ) : (
-          <>
-            <Text style={styles.count}>
-              {shownCount} {shownCount === 1 ? 'trip' : 'trips'}
-            </Text>
-            {rows.map((trip) => (
-              <Pressable
-                key={trip.id}
-                onPress={() => router.push(`/trips/${trip.id}`)}
-                onLongPress={() => setPendingDelete(trip)}
-                style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
-              >
-                <View style={styles.cardTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {routeLabel(trip)}
-                    </Text>
-                    <Text style={styles.cardMeta}>
-                      {formatTime(trip.scheduled_start_at)} · Bus {busLabel(trip)}
-                    </Text>
-                    {trip.driver_name || trip.conductor_name ? (
-                      <Text style={styles.cardMeta} numberOfLines={1}>
-                        {trip.driver_name ? `Driver ${trip.driver_name}` : ''}
-                        {trip.driver_name && trip.conductor_name ? ' · ' : ''}
-                        {trip.conductor_name ? `Conductor ${trip.conductor_name}` : ''}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text style={styles.chevron}>›</Text>
-                </View>
-                <View style={styles.badgeRow}>
-                  <TripStatusBadge status={trip.status} />
-                  {trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS ? (
-                    <Badge label="● Live" tone="success" />
-                  ) : null}
-                </View>
-              </Pressable>
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
-            <Text style={styles.hint}>Tip: long-press a trip to delete it.</Text>
-          </>
         )}
-      </Screen>
+        header={
+          <>
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search route, bus or crew…"
+            />
+            <View style={styles.dayRow}>
+              <Pressable
+                onPress={() => setDay((current) => shiftDay(current, -1))}
+                style={styles.dayButton}
+                accessibilityLabel="Previous day"
+                hitSlop={6}
+              >
+                <Text style={styles.dayButtonText}>‹</Text>
+              </Pressable>
+              <View style={styles.dayLabel}>
+                <Text style={styles.dayLabelText}>{dayLabel(day)}</Text>
+                {isToday ? <Badge label="Today" tone="info" /> : null}
+              </View>
+              <Pressable
+                onPress={() => setDay((current) => shiftDay(current, 1))}
+                style={styles.dayButton}
+                accessibilityLabel="Next day"
+                hitSlop={6}
+              >
+                <Text style={styles.dayButtonText}>›</Text>
+              </Pressable>
+            </View>
+            <FilterChips<StatusFilter> options={statusOptions} value={status} onChange={setStatus} />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  status ? statusFilterLabel(status) : null,
+                  !isToday ? dayLabel(day) : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClear={resetFilters}
+              />
+            ) : null}
+            {rows.length > 0 ? (
+              <Text style={styles.count}>
+                {shownCount} {shownCount === 1 ? 'trip' : 'trips'}
+              </Text>
+            ) : null}
+          </>
+        }
+        footer={
+          rows.length > 0 ? (
+            <>
+              <Pagination meta={list.meta} onPage={list.setPage} />
+              <Text style={styles.hint}>Tip: long-press a trip to delete it.</Text>
+            </>
+          ) : null
+        }
+        empty={
+          list.loading && rows.length === 0 ? (
+            <LoadingView label="Loading the schedule…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No matching trips' : 'No trips for this day'}
+              description={
+                filtersActive
+                  ? 'No trips match the current filters.'
+                  : 'Nothing is scheduled. Tap Schedule to dispatch a trip from an active assignment.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : (
+                  <Button label="Schedule trip" onPress={startCreate} />
+                )
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Schedule" />
 

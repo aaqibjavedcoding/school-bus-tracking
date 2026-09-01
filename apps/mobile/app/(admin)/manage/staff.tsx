@@ -30,9 +30,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   SegmentedControl,
   SwitchRow,
@@ -197,91 +197,99 @@ export default function ManageStaffScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SegmentedControl<Segment>
-          value={segment}
-          onChange={setSegment}
-          options={[
-            { value: 'drivers', label: 'Drivers' },
-            { value: 'conductors', label: 'Conductors' },
-          ]}
-        />
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search name or email…"
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter.filter}
-          onChange={activeFilter.setFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              activeFilter.isFiltered ? activeFilter.label : null,
+      <ListScreen
+        data={visible}
+        keyExtractor={(person) => person.id}
+        renderItem={({ item }) => (
+          <ListCard
+            title={fullName(item)}
+            subtitle={item.email}
+            meta={[
+              item.phone,
+              item.assigned_route_name ? `Route ${item.assigned_route_code ?? ''}` : null,
             ]
               .filter(Boolean)
               .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && list.items.length === 0 ? (
-          <LoadingView label={`Loading ${segment}…`} />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No matches' : `No ${segment} yet`}
-            description={
-              filtersActive
-                ? `No ${segment} match the current search or filters.`
-                : `Create a ${noun} account, then assign them to a route.`
+            right={
+              <Badge
+                label={item.is_active ? 'Active' : 'Inactive'}
+                tone={item.is_active ? 'success' : 'neutral'}
+              />
             }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
+            onEdit={() => startEdit(item)}
+            onDelete={() => setPendingDelete(item)}
           />
-        ) : (
+        )}
+        header={
           <>
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${visible.length} of ${list.meta.total} ${segment}`
-                : `${list.meta.total} ${segment}`}
-            </Text>
-            {visible.map((person) => (
-              <ListCard
-                key={person.id}
-                title={fullName(person)}
-                subtitle={person.email}
-                meta={[
-                  person.phone,
-                  person.assigned_route_name ? `Route ${person.assigned_route_code ?? ''}` : null,
+            <SegmentedControl<Segment>
+              value={segment}
+              onChange={setSegment}
+              options={[
+                { value: 'drivers', label: 'Drivers' },
+                { value: 'conductors', label: 'Conductors' },
+              ]}
+            />
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search name or email…"
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter.filter}
+              onChange={activeFilter.setFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  activeFilter.isFiltered ? activeFilter.label : null,
                 ]
                   .filter(Boolean)
                   .join(' · ')}
-                right={
-                  <Badge
-                    label={person.is_active ? 'Active' : 'Inactive'}
-                    tone={person.is_active ? 'success' : 'neutral'}
-                  />
-                }
-                onEdit={() => startEdit(person)}
-                onDelete={() => setPendingDelete(person)}
+                onClear={resetFilters}
               />
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
+            ) : null}
+            {visible.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${visible.length} of ${list.meta.total} ${segment}`
+                  : `${list.meta.total} ${segment}`}
+              </Text>
+            ) : null}
           </>
-        )}
-      </Screen>
+        }
+        footer={
+          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label={`Loading ${segment}…`} />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No matches' : `No ${segment} yet`}
+              description={
+                filtersActive
+                  ? `No ${segment} match the current search or filters.`
+                  : `Create a ${noun} account, then assign them to a route.`
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label={`Add ${noun}`} />
 

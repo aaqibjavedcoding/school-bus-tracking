@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import {
   TripStatus,
   type TripListResponse,
@@ -110,8 +110,8 @@ export default function AdminAttendanceScreen() {
     label: `${trip.route_code ?? 'Route'} · ${formatTime(trip.scheduled_start_at)} · ${tripStatusLabel(trip.status)}`,
   }));
 
-  return (
-    <Screen refresh={() => void manifestLoad.reload()} refreshing={manifestLoad.loading}>
+  const selector = (
+    <>
       <FilterChips<TripStatus | 'ALL'>
         options={[
           { value: 'ALL', label: `All · ${tripsLoad.data.trips.length}` },
@@ -123,7 +123,6 @@ export default function AdminAttendanceScreen() {
         value={statusFilter}
         onChange={setStatusFilter}
       />
-
       <Select
         label="Trip"
         value={activeId}
@@ -131,37 +130,55 @@ export default function AdminAttendanceScreen() {
         options={options}
         placeholder={options.length === 0 ? 'No trips match this filter' : 'Select a trip'}
       />
+    </>
+  );
 
+  const manifest = manifestLoad.data;
+  const hasStudents = Boolean(manifest && manifest.items.length > 0);
+
+  if (hasStudents && manifest) {
+    return (
+      <View style={styles.flex}>
+        <ManifestList
+          manifest={manifest}
+          canAct={activeTrip ? isTripOpen(activeTrip.status) : false}
+          busyStudentId={busyStudentId}
+          onBoard={(studentId) => void withAction(studentId, 'board')}
+          onDrop={(studentId) => void withAction(studentId, 'drop')}
+          header={selector}
+          footer={
+            activeTrip && !isTripOpen(activeTrip.status) ? (
+              <Text style={styles.hint}>
+                Boarding actions are available while the trip is boarding or in progress.
+              </Text>
+            ) : null
+          }
+          refresh={() => void manifestLoad.reload()}
+          refreshing={manifestLoad.loading}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <Screen refresh={() => void manifestLoad.reload()} refreshing={manifestLoad.loading}>
+      {selector}
       {manifestLoad.loading && !manifestLoad.data ? (
         <LoadingView label="Loading manifest…" />
       ) : manifestLoad.error ? (
         <ErrorState message={manifestLoad.error} onRetry={() => void manifestLoad.reload()} />
-      ) : !manifestLoad.data || manifestLoad.data.items.length === 0 ? (
+      ) : (
         <EmptyState
           title="No students on this route"
           description="This trip's route has no students with a home stop on it yet."
         />
-      ) : (
-        <>
-          <ManifestList
-            manifest={manifestLoad.data}
-            canAct={activeTrip ? isTripOpen(activeTrip.status) : false}
-            busyStudentId={busyStudentId}
-            onBoard={(studentId) => void withAction(studentId, 'board')}
-            onDrop={(studentId) => void withAction(studentId, 'drop')}
-          />
-          {activeTrip && !isTripOpen(activeTrip.status) ? (
-            <Text style={styles.hint}>
-              Boarding actions are available while the trip is boarding or in progress.
-            </Text>
-          ) : null}
-        </>
       )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   hint: {
     color: colors.neutral[400],
     fontSize: 12,

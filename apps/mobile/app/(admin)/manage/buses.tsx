@@ -33,9 +33,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   SwitchRow,
   useToast,
@@ -135,82 +135,90 @@ export default function ManageBusesScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search registration or fleet number…"
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter.filter}
-          onChange={activeFilter.setFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              activeFilter.isFiltered ? activeFilter.label : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && list.items.length === 0 ? (
-          <LoadingView label="Loading buses…" />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No buses match' : 'No buses yet'}
-            description={
-              filtersActive
-                ? 'No buses match the current search or filters.'
-                : 'Add a vehicle before creating route assignments.'
+      <ListScreen
+        data={visible}
+        keyExtractor={(bus) => bus.id}
+        renderItem={({ item }) => (
+          <ListCard
+            title={item.registration_number}
+            subtitle={
+              item.assigned_route_name
+                ? `Route ${item.assigned_route_code ?? ''} · ${item.assigned_route_name}`
+                : null
             }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
-          />
-        ) : (
-          <>
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${visible.length} of ${list.meta.total} buses`
-                : `${list.meta.total} buses`}
-            </Text>
-            {visible.map((bus) => (
-              <ListCard
-                key={bus.id}
-                title={bus.registration_number}
-                subtitle={
-                  bus.assigned_route_name
-                    ? `Route ${bus.assigned_route_code ?? ''} · ${bus.assigned_route_name}`
-                    : null
-                }
-                meta={`${bus.bus_number ? `Fleet ${bus.bus_number} · ` : ''}${bus.capacity} seats`}
-                right={
-                  <Badge
-                    label={bus.is_active ? 'Active' : 'Inactive'}
-                    tone={bus.is_active ? 'success' : 'neutral'}
-                  />
-                }
-                onEdit={() => startEdit(bus)}
-                onDelete={() => setPendingDelete(bus)}
+            meta={`${item.bus_number ? `Fleet ${item.bus_number} · ` : ''}${item.capacity} seats`}
+            right={
+              <Badge
+                label={item.is_active ? 'Active' : 'Inactive'}
+                tone={item.is_active ? 'success' : 'neutral'}
               />
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
-          </>
+            }
+            onEdit={() => startEdit(item)}
+            onDelete={() => setPendingDelete(item)}
+          />
         )}
-      </Screen>
+        header={
+          <>
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search registration or fleet number…"
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter.filter}
+              onChange={activeFilter.setFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  activeFilter.isFiltered ? activeFilter.label : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClear={resetFilters}
+              />
+            ) : null}
+            {visible.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${visible.length} of ${list.meta.total} buses`
+                  : `${list.meta.total} buses`}
+              </Text>
+            ) : null}
+          </>
+        }
+        footer={
+          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label="Loading buses…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No buses match' : 'No buses yet'}
+              description={
+                filtersActive
+                  ? 'No buses match the current search or filters.'
+                  : 'Add a vehicle before creating route assignments.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Add bus" />
 

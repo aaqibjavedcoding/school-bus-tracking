@@ -28,8 +28,8 @@ import {
   ErrorState,
   Field,
   FormSheet,
+  ListScreen,
   LoadingView,
-  Screen,
   SegmentedControl,
   useToast,
 } from '../../src/components';
@@ -120,41 +120,12 @@ export default function AdminEmergenciesScreen() {
   const openCount = events.filter((event) => event.status === EmergencyStatus.OPEN).length;
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
-      <SegmentedControl<StatusFilter>
-        value={filter}
-        onChange={setFilter}
-        options={FILTER_OPTIONS}
-      />
-
-      {openCount > 0 ? (
-        <Card title="Unacknowledged now" description="Crew are waiting for a response.">
-          <View style={styles.alertRow}>
-            <Ionicons name="alert-circle" size={20} color={colors.status.danger} />
-            <Text style={styles.alertText}>
-              {openCount} alert{openCount === 1 ? '' : 's'} not yet acknowledged.
-            </Text>
-          </View>
-        </Card>
-      ) : null}
-
-      {loading && !data ? (
-        <LoadingView label="Loading emergencies…" />
-      ) : error ? (
-        <ErrorState message={error} onRetry={() => void reload()} />
-      ) : events.length === 0 ? (
-        <EmptyState
-          title={filter === 'active' ? 'No active emergencies' : 'Nothing here'}
-          description={
-            filter === 'active'
-              ? 'When a driver or conductor raises an SOS it appears here immediately.'
-              : 'No emergency matches this filter.'
-          }
-        />
-      ) : (
-        events.map((event) => (
+    <>
+      <ListScreen
+        data={events}
+        keyExtractor={(event) => event.id}
+        renderItem={({ item: event }) => (
           <Card
-            key={event.id}
             title={`${EMERGENCY_TYPE_LABELS[event.type]} · ${event.raised_by_name ?? 'Crew'}`}
             description={
               event.raised_by_role ? `Raised by ${event.raised_by_role.toLowerCase()}` : undefined
@@ -214,8 +185,45 @@ export default function AdminEmergenciesScreen() {
               </View>
             ) : null}
           </Card>
-        ))
-      )}
+        )}
+        header={
+          <>
+            <SegmentedControl<StatusFilter>
+              value={filter}
+              onChange={setFilter}
+              options={FILTER_OPTIONS}
+            />
+            {openCount > 0 ? (
+              <Card title="Unacknowledged now" description="Crew are waiting for a response.">
+                <View style={styles.alertRow}>
+                  <Ionicons name="alert-circle" size={20} color={colors.status.danger} />
+                  <Text style={styles.alertText}>
+                    {openCount} alert{openCount === 1 ? '' : 's'} not yet acknowledged.
+                  </Text>
+                </View>
+              </Card>
+            ) : null}
+          </>
+        }
+        empty={
+          loading && !data ? (
+            <LoadingView label="Loading emergencies…" />
+          ) : error ? (
+            <ErrorState message={error} onRetry={() => void reload()} />
+          ) : (
+            <EmptyState
+              title={filter === 'active' ? 'No active emergencies' : 'Nothing here'}
+              description={
+                filter === 'active'
+                  ? 'When a driver or conductor raises an SOS it appears here immediately.'
+                  : 'No emergency matches this filter.'
+              }
+            />
+          )
+        }
+        refresh={() => void reload()}
+        refreshing={loading}
+      />
 
       {/**
        * Status changes go through a sheet rather than a bare confirm dialog:
@@ -263,7 +271,7 @@ export default function AdminEmergenciesScreen() {
           multiline
         />
       </FormSheet>
-    </Screen>
+    </>
   );
 }
 

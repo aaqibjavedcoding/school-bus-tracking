@@ -41,9 +41,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   Select,
   SwitchRow,
@@ -201,79 +201,87 @@ export default function ManageStudentsScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search name or admission number…"
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter.filter}
-          onChange={activeFilter.setFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              activeFilter.isFiltered ? activeFilter.label : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && list.items.length === 0 ? (
-          <LoadingView label="Loading students…" />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No students match' : 'No students yet'}
-            description={
-              filtersActive
-                ? 'No students match the current search or filters.'
-                : 'Add students to build your roster.'
-            }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
-          />
-        ) : (
-          <>
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${visible.length} of ${list.meta.total} students`
-                : `${list.meta.total} students`}
-            </Text>
-            {visible.map((student) => (
-              <ListCard
-                key={student.id}
-                title={`${student.first_name} ${student.last_name}`}
-                subtitle={student.home_stop_name ? `Stop: ${student.home_stop_name}` : null}
-                meta={`${student.admission_number}${student.grade_level ? ` · Grade ${student.grade_level}` : ''}`}
-                right={
-                  <Badge
-                    label={student.is_active ? 'Active' : 'Inactive'}
-                    tone={student.is_active ? 'success' : 'neutral'}
-                  />
-                }
-                onPress={() => router.push(`/manage/students/${student.id}`)}
-                onEdit={() => startEdit(student)}
-                onDelete={() => setPendingDelete(student)}
+      <ListScreen
+        data={visible}
+        keyExtractor={(student) => student.id}
+        renderItem={({ item }) => (
+          <ListCard
+            title={`${item.first_name} ${item.last_name}`}
+            subtitle={item.home_stop_name ? `Stop: ${item.home_stop_name}` : null}
+            meta={`${item.admission_number}${item.grade_level ? ` · Grade ${item.grade_level}` : ''}`}
+            right={
+              <Badge
+                label={item.is_active ? 'Active' : 'Inactive'}
+                tone={item.is_active ? 'success' : 'neutral'}
               />
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
-          </>
+            }
+            onPress={() => router.push(`/manage/students/${item.id}`)}
+            onEdit={() => startEdit(item)}
+            onDelete={() => setPendingDelete(item)}
+          />
         )}
-      </Screen>
+        header={
+          <>
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search name or admission number…"
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter.filter}
+              onChange={activeFilter.setFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  activeFilter.isFiltered ? activeFilter.label : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClear={resetFilters}
+              />
+            ) : null}
+            {visible.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${visible.length} of ${list.meta.total} students`
+                  : `${list.meta.total} students`}
+              </Text>
+            ) : null}
+          </>
+        }
+        footer={
+          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label="Loading students…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No students match' : 'No students yet'}
+              description={
+                filtersActive
+                  ? 'No students match the current search or filters.'
+                  : 'Add students to build your roster.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Add student" />
 

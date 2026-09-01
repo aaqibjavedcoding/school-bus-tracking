@@ -18,9 +18,9 @@ import {
   ErrorState,
   FilterSummary,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   SegmentedControl,
 } from '../../../src/components';
@@ -87,106 +87,113 @@ export default function ManageDocumentsScreen() {
   };
 
   return (
-    <Screen refresh={() => void list.reload()} refreshing={list.loading}>
-      <SegmentedControl<OwnerFilter> value={owner} onChange={setOwner} options={OWNER_OPTIONS} />
-      <SegmentedControl<ComplianceFilter>
-        value={compliance}
-        onChange={setCompliance}
-        options={COMPLIANCE_OPTIONS}
-      />
-
-      <SearchBar
-        value={list.search}
-        onChangeText={list.setSearch}
-        onClear={list.clearSearch}
-        searching={list.searching}
-        placeholder="Search bus or driver…"
-      />
-
-      {filtersActive ? (
-        <FilterSummary
-          label={[
-            list.activeSearch ? `“${list.activeSearch}”` : null,
-            owner !== 'ALL' ? (owner === 'BUS' ? 'Buses' : 'Drivers') : null,
-            compliance === 'attention' ? 'Needs attention' : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-          onClear={resetFilters}
-        />
-      ) : null}
-
-      {list.loading && list.items.length === 0 ? (
-        <LoadingView label="Loading compliance…" />
-      ) : list.error ? (
-        <ErrorState message={list.error} onRetry={() => void list.reload()} />
-      ) : list.items.length === 0 ? (
-        <EmptyState
-          title={filtersActive ? 'No matches' : 'Nothing to track yet'}
-          description={
-            filtersActive
-              ? 'No bus or driver matches the current filters.'
-              : 'Add buses and drivers first — their documents are tracked here.'
+    <ListScreen
+      data={list.items}
+      keyExtractor={(item) => `${item.owner_type}-${item.owner_id}`}
+      renderItem={({ item }) => (
+        <ListCard
+          title={item.owner_label}
+          subtitle={
+            item.issues.length > 0
+              ? item.issues
+                  .slice(0, 3)
+                  .map(
+                    (issue) =>
+                      `${issue.document_type_label}${
+                        issue.state === 'MISSING'
+                          ? ' · missing'
+                          : issue.state === 'EXPIRED'
+                            ? ' · expired'
+                            : ' · expiring soon'
+                      }`,
+                  )
+                  .join('\n')
+              : null
           }
-          action={
-            filtersActive ? (
-              <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-            ) : null
-          }
-        />
-      ) : (
-        <>
-          <Card title="School compliance" description="Totals across every bus and driver.">
-            <SummaryRow summary={aggregate} />
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${list.items.length} of ${list.meta.total} records`
-                : `${list.meta.total} records`}
-            </Text>
-          </Card>
-
-          {list.items.map((item) => (
-            <ListCard
-              key={`${item.owner_type}-${item.owner_id}`}
-              title={item.owner_label}
-              subtitle={
-                item.issues.length > 0
-                  ? item.issues
-                      .slice(0, 3)
-                      .map(
-                        (issue) =>
-                          `${issue.document_type_label}${
-                            issue.state === 'MISSING'
-                              ? ' · missing'
-                              : issue.state === 'EXPIRED'
-                                ? ' · expired'
-                                : ' · expiring soon'
-                          }`,
-                      )
-                      .join('\n')
-                  : null
-              }
-              meta={ownerTypeLabelOf(item.owner_type)}
-              right={
-                <Badge
-                  label={item.summary.is_compliant ? 'Compliant' : 'Action needed'}
-                  tone={item.summary.is_compliant ? 'success' : 'danger'}
-                />
-              }
-              onPress={() => router.push(documentOwnerRoute(item.owner_type, item.owner_id))}
+          meta={ownerTypeLabelOf(item.owner_type)}
+          right={
+            <Badge
+              label={item.summary.is_compliant ? 'Compliant' : 'Action needed'}
+              tone={item.summary.is_compliant ? 'success' : 'danger'}
             />
-          ))}
-          <Pagination meta={list.meta} onPage={list.setPage} />
-        </>
+          }
+          onPress={() => router.push(documentOwnerRoute(item.owner_type, item.owner_id))}
+        />
       )}
-
-      <Button
-        label="Document requirements"
-        variant="secondary"
-        onPress={() => router.push('/manage/documents/requirements')}
-        style={styles.requirements}
-      />
-    </Screen>
+      header={
+        <>
+          <SegmentedControl<OwnerFilter> value={owner} onChange={setOwner} options={OWNER_OPTIONS} />
+          <SegmentedControl<ComplianceFilter>
+            value={compliance}
+            onChange={setCompliance}
+            options={COMPLIANCE_OPTIONS}
+          />
+          <SearchBar
+            value={list.search}
+            onChangeText={list.setSearch}
+            onClear={list.clearSearch}
+            searching={list.searching}
+            placeholder="Search bus or driver…"
+          />
+          {filtersActive ? (
+            <FilterSummary
+              label={[
+                list.activeSearch ? `“${list.activeSearch}”` : null,
+                owner !== 'ALL' ? (owner === 'BUS' ? 'Buses' : 'Drivers') : null,
+                compliance === 'attention' ? 'Needs attention' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              onClear={resetFilters}
+            />
+          ) : null}
+          {list.items.length > 0 ? (
+            <Card title="School compliance" description="Totals across every bus and driver.">
+              <SummaryRow summary={aggregate} />
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${list.items.length} of ${list.meta.total} records`
+                  : `${list.meta.total} records`}
+              </Text>
+            </Card>
+          ) : null}
+        </>
+      }
+      footer={
+        <>
+          <Pagination meta={list.meta} onPage={list.setPage} />
+          <Button
+            label="Document requirements"
+            variant="secondary"
+            onPress={() => router.push('/manage/documents/requirements')}
+            style={styles.requirements}
+          />
+        </>
+      }
+      empty={
+        list.loading && list.items.length === 0 ? (
+          <LoadingView label="Loading compliance…" />
+        ) : list.error ? (
+          <ErrorState message={list.error} onRetry={() => void list.reload()} />
+        ) : (
+          <EmptyState
+            title={filtersActive ? 'No matches' : 'Nothing to track yet'}
+            description={
+              filtersActive
+                ? 'No bus or driver matches the current filters.'
+                : 'Add buses and drivers first — their documents are tracked here.'
+            }
+            action={
+              filtersActive ? (
+                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              ) : null
+            }
+          />
+        )
+      }
+      refresh={() => void list.reload()}
+      refreshing={list.loading}
+    />
   );
 }
 
