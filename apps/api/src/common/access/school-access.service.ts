@@ -1,6 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { School } from '../../database/models';
-import { SCHOOLS_PLATFORM_REPOSITORY } from './access.constants';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { School, User } from '../../database/models';
+import { SCHOOLS_PLATFORM_REPOSITORY, USERS_PLATFORM_REPOSITORY } from './access.constants';
 
 /**
  * Generic business error returned when a school tenant has been deactivated.
@@ -10,6 +10,15 @@ import { SCHOOLS_PLATFORM_REPOSITORY } from './access.constants';
  * from "school disabled" and authenticated school users get one clear reason.
  */
 export const SCHOOL_INACTIVE_MESSAGE = 'School is inactive';
+
+/**
+ * Business error returned when the authenticated *account* has been
+ * deactivated while it still holds a valid (unexpired) access token.
+ *
+ * Login already refuses a deactivated user; without this check an access
+ * token minted before the deactivation would keep working until it expired.
+ */
+export const USER_INACTIVE_MESSAGE = 'User account is inactive';
 
 /**
  * Centralized school-lifecycle checks.
@@ -22,7 +31,33 @@ export const SCHOOL_INACTIVE_MESSAGE = 'School is inactive';
  */
 @Injectable()
 export class SchoolAccessService {
-  constructor(@Inject(SCHOOLS_PLATFORM_REPOSITORY) private readonly schools: typeof School) {}
+  constructor(
+    @Inject(SCHOOLS_PLATFORM_REPOSITORY) private readonly schools: typeof School,
+    /**
+     * Optional so the service stays unit-constructible with a single stub
+     * (existing tests) — the global `AccessModule` always provides it.
+     */
+    @Optional() @Inject(USERS_PLATFORM_REPOSITORY) private readonly users?: typeof User,
+  ) {}
+
+  /**
+   * True when the account behind a verified token may still act.
+   *
+   * Returns `true` when no user repository is wired (stubbed unit/smoke
+   * bootstraps), so this check can never turn into a hard dependency for
+   * tests that do not exercise it.
+   */
+  async isUserActive(userId: string | null | undefined): Promise<boolean> {
+    if (!this.users || !userId) {
+      return true;
+    }
+    const user = await this.users.unscoped().findOne({
+      where: { id: userId },
+      attributes: ['id', 'is_active'],
+      raw: true,
+    });
+    return Boolean(user && user.is_active);
+  }
 
   /**
    * True when the caller may proceed.

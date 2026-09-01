@@ -21,6 +21,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { AdminSchoolsService } from './admin-schools.service';
 import { CreateAdminSchoolDto, ListAdminSchoolsQueryDto, UpdateAdminSchoolDto } from './dto';
@@ -52,6 +53,7 @@ export class AdminSchoolsController {
 
   /** `GET /admin/schools` — paginated, searchable, status-filtered list. */
   @Get()
+  @RateLimit('read_heavy')
   @Roles(UserRole.SUPER_ADMIN)
   async findAll(@Query() query: ListAdminSchoolsQueryDto): Promise<AdminSchoolListResponse> {
     return this.adminSchools.findAll(query);

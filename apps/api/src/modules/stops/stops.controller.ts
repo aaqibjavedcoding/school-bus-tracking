@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { StopsService } from './stops.service';
 import { CreateStopDto } from './dto/create-stop.dto';
@@ -52,6 +53,7 @@ export class StopsController {
    * optionally narrowed to one route.
    */
   @Get()
+  @RateLimit('read_heavy')
   async findAll(@CurrentUser('school_id') schoolId: string, @Query() query: ListStopsQueryDto) {
     return this.stopsService.findAll(schoolId, query);
   }

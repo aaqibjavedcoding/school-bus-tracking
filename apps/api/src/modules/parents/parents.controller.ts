@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ParentResponse, UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CreateParentDto } from './dto/create-parent.dto';
 import { CreateParentStudentRelationshipDto } from './dto/create-parent-student-relationship.dto';
@@ -51,6 +52,7 @@ export class ParentsController {
 
   /** GET /api/v1/parents */
   @Get()
+  @RateLimit('read_heavy')
   async findAll(@CurrentUser('school_id') schoolId: string, @Query() query: ListParentsQueryDto) {
     return this.parentsService.findAll(schoolId, query);
   }

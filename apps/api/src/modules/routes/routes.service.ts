@@ -96,26 +96,34 @@ export class RoutesService {
    * their code).
    */
   async create(schoolId: string, dto: CreateRouteDto): Promise<RouteResponse> {
-    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.ROUTES);
-    const code = dto.code.trim();
-    await this.assertCodeFree(schoolId, code);
+    return this.planLimits.runWithinLimit(
+      schoolId,
+      PlanLimitResource.ROUTES,
+      async (transaction) => {
+        const code = dto.code.trim();
+        await this.assertCodeFree(schoolId, code);
 
-    try {
-      const route = await this.routes.create({
-        school_id: schoolId,
-        name: dto.name.trim(),
-        code,
-        description: nullableTrim(dto.description),
-        is_active: dto.is_active ?? true,
-      });
-      const [response] = await this.toRouteResponses([route]);
-      return response;
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
-        throw new ConflictException(ROUTE_CODE_TAKEN_MESSAGE);
-      }
-      throw error;
-    }
+        try {
+          const route = await this.routes.create(
+            {
+              school_id: schoolId,
+              name: dto.name.trim(),
+              code,
+              description: nullableTrim(dto.description),
+              is_active: dto.is_active ?? true,
+            },
+            transaction ? { transaction } : {},
+          );
+          const [response] = await this.toRouteResponses([route]);
+          return response;
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) {
+            throw new ConflictException(ROUTE_CODE_TAKEN_MESSAGE);
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   /**

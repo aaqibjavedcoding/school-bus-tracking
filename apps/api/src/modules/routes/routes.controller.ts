@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { RoutesService } from './routes.service';
 import { CreateRouteDto } from './dto/create-route.dto';
@@ -56,6 +57,7 @@ export class RoutesController {
    * Paginated, searchable list of the authenticated school's routes only.
    */
   @Get()
+  @RateLimit('read_heavy')
   async findAll(@CurrentUser('school_id') schoolId: string, @Query() query: ListRoutesQueryDto) {
     return this.routesService.findAll(schoolId, query);
   }

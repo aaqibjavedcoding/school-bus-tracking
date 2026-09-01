@@ -175,6 +175,13 @@ function allowAllPlanLimits(): PlanLimitsService {
   return {
     assertWithinLimit: async () => undefined,
     assertStaffWithinLimit: async () => undefined,
+    // Transactional reservation used by the create paths. Without a database
+    // the real service behaves the same way: assert, then run the work with
+    // no transaction.
+    runWithinLimit: async <T>(_schoolId: string, _resource: unknown, work: () => Promise<T>) =>
+      work(),
+    runWithinStaffLimit: async <T>(_schoolId: string, _role: unknown, work: () => Promise<T>) =>
+      work(),
   } as unknown as PlanLimitsService;
 }
 

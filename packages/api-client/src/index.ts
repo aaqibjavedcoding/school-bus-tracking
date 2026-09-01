@@ -151,6 +151,15 @@ export interface ApiClientConfig {
    * supply it here so REST calls can attach `Authorization: Bearer`.
    */
   getAccessToken?: () => string | null;
+  /**
+   * Name of the readable CSRF cookie issued by the API (`csrf_token` by
+   * default). Its value is echoed in the `X-CSRF-Token` header on every
+   * unsafe request so cookie-authenticated browser calls pass the API's
+   * double-submit check.
+   */
+  csrfCookieName?: string;
+  /** Header the CSRF token is echoed in (`X-CSRF-Token` by default). */
+  csrfHeaderName?: string;
   /** Called after a successful `/auth/refresh` so the in-memory token can rotate. */
   setAccessToken?: (token: string | null) => void;
   /** Called when refresh fails so the UI can return to the login screen. */
@@ -171,12 +180,48 @@ export class ApiClientError extends Error {
 
 const AUTH_SKIP_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
 
+/** HTTP methods the API treats as safe (never CSRF-checked). */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+/** Default names of the API's double-submit CSRF cookie and header. */
+export const CSRF_COOKIE_NAME = 'csrf_token';
+export const CSRF_HEADER_NAME = 'X-CSRF-Token';
+
+/**
+ * Reads a cookie from `document.cookie`.
+ *
+ * The CSRF cookie is deliberately *not* httpOnly: the browser must be able to
+ * echo it back in a header, which is precisely what an attacker on another
+ * origin cannot do. Outside a browser (SSR, React Native, tests) there is no
+ * cookie jar and this returns null — bearer-token clients are unaffected.
+ */
+export function readBrowserCookie(name: string): string | null {
+  // Reached through `globalThis` so the package keeps building without the
+  // DOM lib and stays usable from Node/React Native.
+  const cookieJar = (globalThis as { document?: { cookie?: string } }).document;
+  if (!cookieJar || typeof cookieJar.cookie !== 'string') {
+    return null;
+  }
+  for (const entry of cookieJar.cookie.split(';')) {
+    const separator = entry.indexOf('=');
+    if (separator === -1) {
+      continue;
+    }
+    if (entry.slice(0, separator).trim() === name) {
+      return decodeURIComponent(entry.slice(separator + 1).trim());
+    }
+  }
+  return null;
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
   private readonly getAccessToken?: () => string | null;
   private readonly setAccessToken?: (token: string | null) => void;
   private readonly onUnauthorized?: () => void;
+  private readonly csrfCookieName: string;
+  private readonly csrfHeaderName: string;
   private refreshInFlight: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
@@ -190,6 +235,30 @@ export class ApiClient {
     this.getAccessToken = config.getAccessToken;
     this.setAccessToken = config.setAccessToken;
     this.onUnauthorized = config.onUnauthorized;
+    this.csrfCookieName = config.csrfCookieName || CSRF_COOKIE_NAME;
+    this.csrfHeaderName = config.csrfHeaderName || CSRF_HEADER_NAME;
+  }
+
+  /**
+   * Attaches the double-submit CSRF token to unsafe requests.
+   *
+   * Nothing happens when the caller already set the header, when the method
+   * is safe, or when there is no cookie to read (non-browser clients).
+   */
+  private applyCsrfHeader(method: string, headers: Record<string, string>): void {
+    if (SAFE_METHODS.has(method.toUpperCase())) {
+      return;
+    }
+    const alreadySet = Object.keys(headers).some(
+      (key) => key.toLowerCase() === this.csrfHeaderName.toLowerCase(),
+    );
+    if (alreadySet) {
+      return;
+    }
+    const token = readBrowserCookie(this.csrfCookieName);
+    if (token) {
+      headers[this.csrfHeaderName] = token;
+    }
   }
 
   private isAuthSkipPath(endpoint: string): boolean {
@@ -263,6 +332,8 @@ export class ApiClient {
         headers.Authorization = `Bearer ${token}`;
       }
     }
+
+    this.applyCsrfHeader(options.method || 'GET', headers);
 
     try {
       const response = await fetch(url, {

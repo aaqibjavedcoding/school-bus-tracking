@@ -72,37 +72,41 @@ export class StaffService {
     role: R,
     dto: CreateStaffDto,
   ): Promise<StaffResponse<R>> {
-    await this.planLimits.assertStaffWithinLimit(schoolId, role);
-    const email = normalizeEmail(dto.email);
-    // Email uniqueness is tenant-scoped across ALL user roles (the unique
-    // index is (school_id, email)), so a staff email may not collide with a
-    // school admin or parent either.
-    const existing = await this.users.findOne({ where: { school_id: schoolId, email } });
-    if (existing) {
-      throw new ConflictException(STAFF_EMAIL_TAKEN_MESSAGE);
-    }
-
-    const passwordHash = await hashPassword(dto.password);
-
-    try {
-      const member = await this.users.create({
-        school_id: schoolId,
-        role,
-        first_name: dto.first_name.trim(),
-        last_name: dto.last_name.trim(),
-        email,
-        password_hash: passwordHash,
-        email_verified_at: null,
-        phone: nullableTrim(dto.phone),
-        is_active: dto.is_active ?? true,
-      });
-      return this.toStaffResponse(member, role);
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
+    return this.planLimits.runWithinStaffLimit(schoolId, role, async (transaction) => {
+      const email = normalizeEmail(dto.email);
+      // Email uniqueness is tenant-scoped across ALL user roles (the unique
+      // index is (school_id, email)), so a staff email may not collide with a
+      // school admin or parent either.
+      const existing = await this.users.findOne({ where: { school_id: schoolId, email } });
+      if (existing) {
         throw new ConflictException(STAFF_EMAIL_TAKEN_MESSAGE);
       }
-      throw error;
-    }
+
+      const passwordHash = await hashPassword(dto.password);
+
+      try {
+        const member = await this.users.create(
+          {
+            school_id: schoolId,
+            role,
+            first_name: dto.first_name.trim(),
+            last_name: dto.last_name.trim(),
+            email,
+            password_hash: passwordHash,
+            email_verified_at: null,
+            phone: nullableTrim(dto.phone),
+            is_active: dto.is_active ?? true,
+          },
+          transaction ? { transaction } : {},
+        );
+        return this.toStaffResponse(member, role);
+      } catch (error) {
+        if (error instanceof UniqueConstraintError) {
+          throw new ConflictException(STAFF_EMAIL_TAKEN_MESSAGE);
+        }
+        throw error;
+      }
+    });
   }
 
   /** Lists only staff users of the given role belonging to the JWT tenant. */

@@ -6,3 +6,9 @@ export const PLAN_LIMITS_ROUTES_REPOSITORY = 'PLAN_LIMITS_ROUTES_REPOSITORY';
 export const PLAN_LIMITS_STOPS_REPOSITORY = 'PLAN_LIMITS_STOPS_REPOSITORY';
 export const PLAN_LIMITS_USERS_REPOSITORY = 'PLAN_LIMITS_USERS_REPOSITORY';
 export const PLAN_LIMITS_TRIPS_REPOSITORY = 'PLAN_LIMITS_TRIPS_REPOSITORY';
+/**
+ * Live Sequelize connection used for the transactional plan-limit
+ * reservation. Provided behind a token (and optional) so stubbed test/smoke
+ * bootstraps without a database keep working.
+ */
+export const PLAN_LIMITS_SEQUELIZE = 'PLAN_LIMITS_SEQUELIZE';

@@ -1,4 +1,6 @@
 import { Global, Module } from '@nestjs/common';
+import { getConnectionToken } from '@nestjs/sequelize';
+import { Sequelize } from 'sequelize-typescript';
 import {
   Bus,
   Plan,
@@ -13,6 +15,7 @@ import {
   PLAN_LIMITS_BUSES_REPOSITORY,
   PLAN_LIMITS_PLANS_REPOSITORY,
   PLAN_LIMITS_ROUTES_REPOSITORY,
+  PLAN_LIMITS_SEQUELIZE,
   PLAN_LIMITS_STOPS_REPOSITORY,
   PLAN_LIMITS_STUDENTS_REPOSITORY,
   PLAN_LIMITS_SUBSCRIPTIONS_REPOSITORY,
@@ -33,6 +36,15 @@ import { PlanLimitsService } from './plan-limits.service';
     { provide: PLAN_LIMITS_STOPS_REPOSITORY, useValue: Stop },
     { provide: PLAN_LIMITS_USERS_REPOSITORY, useValue: User },
     { provide: PLAN_LIMITS_TRIPS_REPOSITORY, useValue: Trip },
+    // The live connection powers the transactional advisory-lock reservation.
+    // `@Optional()` on the injection point keeps stubbed (no-database)
+    // bootstraps working; there the service falls back to the historical
+    // non-transactional check.
+    {
+      provide: PLAN_LIMITS_SEQUELIZE,
+      inject: [{ token: getConnectionToken(), optional: true }],
+      useFactory: (sequelize?: Sequelize) => sequelize ?? null,
+    },
   ],
   exports: [PlanLimitsService],
 })
