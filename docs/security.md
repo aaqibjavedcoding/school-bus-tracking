@@ -15,6 +15,47 @@ This document describes the security measures implemented in the School Bus Trac
 - CSRF protection: Double-submit cookie pattern
 - Token rotation: Refresh tokens are rotated on each use
 
+### CSRF: the exact contract clients must follow
+
+| Concern                           | Value                                                            | Configurable with           |
+| --------------------------------- | ---------------------------------------------------------------- | --------------------------- |
+| Bootstrap endpoint                | `GET /api/v1/auth/csrf` (unauthenticated, safe)                  | —                           |
+| Cookie                            | `csrf_token` — readable by scripts (**not** httpOnly), `Path=/`  | `CSRF_COOKIE_NAME`          |
+| Header                            | `X-CSRF-Token` (the endpoint also returns `header_name`)         | `CSRF_HEADER_NAME`          |
+| Session cookie the rule looks for | `refresh_token` (httpOnly, `Path=/api/v1/auth`)                  | `REFRESH_TOKEN_COOKIE_NAME` |
+| Enforcement                       | global `CsrfGuard` (`evaluateCsrf` in `common/security/csrf.ts`) | `CSRF_ENABLED`              |
+
+The rule, in order (see `evaluateCsrf`):
+
+1. safe method (`GET`/`HEAD`/`OPTIONS`/`TRACE`) → allow;
+2. no `Origin` header (native mobile, curl, server-to-server) → allow — not a browser;
+3. `Origin` present but not in `CORS_ORIGIN` → **403** `Request origin is not allowed`;
+4. `Authorization: Bearer …` → allow (a bearer token is never attached ambiently);
+5. ambient `refresh_token` cookie → require `X-CSRF-Token` to equal the `csrf_token`
+   cookie, else **403** `Invalid or missing CSRF token`.
+
+**Web client flow** (implemented in `@school-bus-tracking/api-client`):
+
+1. before any unsafe cookie-authenticated request (`/auth/login`, `/auth/refresh`,
+   `/auth/logout`), read the `csrf_token` cookie; if it is missing, call
+   `GET /auth/csrf` with `credentials: 'include'` and use the returned token;
+2. echo it in `X-CSRF-Token`;
+3. on a 403 CSRF rejection, re-seed **once** and replay (covers the 12h cookie TTL
+   and rotation from another tab).
+
+Step 1 is what keeps a browser out of the deadlock where it still holds the
+httpOnly `refresh_token` cookie but has no CSRF cookie: without a bootstrap,
+`refresh` _and_ `login` are both refused and the session can never be repaired.
+
+Requests are same-origin: the Next.js app proxies `/api/v1/*` to the API through
+`rewrites()`, which forwards `Origin`, `Cookie` and `X-CSRF-Token` and returns
+`Set-Cookie` unchanged.
+
+**Mobile is deliberately exempt.** React Native sends no `Origin` and
+authenticates with a bearer token, so rule 2/4 applies and the client adds no
+CSRF header (it has no cookie jar to read one from). Adding one would be
+security theatre — there is no cross-site context on a native client.
+
 ### Password Security
 
 - Bcrypt hashing with configurable rounds
@@ -106,6 +147,12 @@ All security-relevant operations are logged:
 ## WebSocket Security
 
 - Handshake authentication (JWT verification)
+- Clients never open a socket while signed out: `connectSocketWithToken`
+  (web) / `connectAuthenticatedSocket` (mobile) skip the handshake when no
+  access token is held, and every namespace socket is disconnected on
+  sign-out or a failed refresh. The gateway check is unchanged — this only
+  stops handshakes the server would refuse anyway (the
+  `Rejected unauthenticated … socket` warnings)
 - Room authorization (per-socket, per-trip)
 - Session revalidation (periodic check for user/school deactivation)
 - Payload validation (Zod schemas)

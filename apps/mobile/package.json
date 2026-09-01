@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/geo.spec.ts src/lib/format.spec.ts src/lib/roles.spec.ts src/lib/datetime-local.spec.ts src/lib/active-filter.spec.ts src/lib/paged-query.spec.ts src/lib/keyboard-aware.spec.ts src/lib/trips-list.spec.ts src/lib/navigation.spec.ts src/lib/errors.spec.ts src/theme/bottom-bar-metrics.spec.ts src/features/crew/crew-trip.spec.ts src/features/crew/navigation-stop.spec.ts src/features/parent/notifications-state.spec.ts src/features/admin/documents/helpers.spec.ts src/features/admin/documents/documentForm.spec.ts src/features/admin/emergencies/helpers.spec.ts src/services/sockets.spec.ts src/services/api-config.spec.ts src/services/list-query.spec.ts",
+    "test": "node --experimental-strip-types --test src/lib/geo.spec.ts src/lib/format.spec.ts src/lib/roles.spec.ts src/lib/datetime-local.spec.ts src/lib/active-filter.spec.ts src/lib/paged-query.spec.ts src/lib/keyboard-aware.spec.ts src/lib/trips-list.spec.ts src/lib/navigation.spec.ts src/lib/errors.spec.ts src/theme/bottom-bar-metrics.spec.ts src/features/crew/crew-trip.spec.ts src/features/crew/navigation-stop.spec.ts src/features/parent/notifications-state.spec.ts src/features/admin/documents/helpers.spec.ts src/features/admin/documents/documentForm.spec.ts src/features/admin/emergencies/helpers.spec.ts src/services/sockets.spec.ts src/services/api-config.spec.ts src/services/list-query.spec.ts src/services/socket-auth.spec.ts",
     "clean": "rimraf .expo dist"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NotificationResponse } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { getNotificationsSocket } from '../../services/notifications-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 
 /**
  * Parent notification state (Task 21).
@@ -97,8 +98,8 @@ export function useParentNotifications(
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('notification:new', onNew);
-    if (!socket.connected) socket.connect();
-    else setConnected(true);
+    if (socket.connected) setConnected(true);
+    else connectAuthenticatedSocket(socket);
 
     return () => {
       socket.off('connect', onConnect);

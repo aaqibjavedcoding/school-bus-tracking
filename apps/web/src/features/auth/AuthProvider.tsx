@@ -6,6 +6,7 @@ import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { disconnectNotificationsSocket } from '../../services/notifications-socket';
+import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -23,8 +24,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
 
   const clearSession = useCallback(() => {
+    // Every authenticated socket must go with the session: the gateways
+    // authenticate the handshake with the in-memory JWT, so a socket left
+    // open after sign-out keeps reconnecting without one and is rejected
+    // ("Rejected unauthenticated … socket") until the tab is closed.
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
+    disconnectEmergenciesSocket();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');
@@ -34,6 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUnauthorizedHandler(() => {
       disconnectLiveTrackingSocket();
       disconnectNotificationsSocket();
+      disconnectEmergenciesSocket();
       clearAccessToken();
       setUser(null);
       setStatus('anonymous');
@@ -42,6 +49,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let cancelled = false;
     void (async () => {
       try {
+        // Seed the double-submit CSRF cookie before the first state-changing
+        // auth call. The API only issues it on login/refresh success and on
+        // `GET /auth/csrf`; a tab that still holds the httpOnly refresh
+        // cookie but no CSRF cookie would otherwise get 403 "Invalid or
+        // missing CSRF token" on both refresh *and* login, with no way out.
+        await apiClient.ensureCsrfToken();
         const envelope = await apiClient.refresh();
         if (cancelled) return;
         if (envelope.data?.access_token && envelope.data.user) {

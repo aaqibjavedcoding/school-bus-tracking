@@ -11,6 +11,7 @@ import {
 import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { getEmergenciesSocket } from '../../src/services/emergencies-socket';
+import { connectAuthenticatedSocket } from '../../src/services/socket-auth';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
 import {
   emergencyActionLabel,
@@ -86,7 +87,7 @@ export default function AdminEmergenciesScreen() {
   useEffect(() => {
     const socket = getEmergenciesSocket();
     const refresh = () => void reload();
-    socket.connect();
+    connectAuthenticatedSocket(socket);
     socket.on(EMERGENCY_EVENTS.new, refresh);
     socket.on(EMERGENCY_EVENTS.updated, refresh);
     return () => {

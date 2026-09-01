@@ -15,6 +15,7 @@ import {
 import { ApiClientError } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../services/api';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 /**
@@ -196,7 +197,7 @@ export function useLiveTripTracking(tripId: string | null) {
       join();
     } else {
       setConnection('reconnecting');
-      socket.connect();
+      connectAuthenticatedSocket(socket);
     }
 
     return () => {

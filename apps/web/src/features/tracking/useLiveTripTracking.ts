@@ -18,6 +18,7 @@ import { tripLocationUpdateSchema } from '@school-bus-tracking/validation';
 import { ApiClientError } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../services/api';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 
 export type ConnectionState = 'live' | 'reconnecting' | 'offline';
 
@@ -149,7 +150,7 @@ export function useLiveTripTracking(tripId: string | null) {
     const onOffline = () => setConnection('offline');
     const onOnline = () => {
       setConnection(socket.connected ? 'live' : 'reconnecting');
-      if (!socket.connected) socket.connect();
+      if (!socket.connected) connectAuthenticatedSocket(socket);
     };
     const onLocation = (payload: TripLocationUpdateEvent) => {
       if (payload.trip_id !== tripId) return;
@@ -200,7 +201,7 @@ export function useLiveTripTracking(tripId: string | null) {
       join();
     } else {
       setConnection(currentConnection());
-      socket.connect();
+      connectAuthenticatedSocket(socket);
     }
 
     return () => {
@@ -239,7 +240,7 @@ export function useCrewLocationShare(tripId: string | null, enabled: boolean): s
     }
 
     const socket = getLiveTrackingSocket();
-    if (!socket.connected) socket.connect();
+    connectAuthenticatedSocket(socket);
 
     const watchId = navigator.geolocation.watchPosition(
       (position) => {

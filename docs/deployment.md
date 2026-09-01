@@ -49,7 +49,12 @@ DB_LOGGING=false
 SECURITY_IS_PRODUCTION=true
 SECURITY_HEADERS_ENABLED=true
 SECURITY_HSTS_MAX_AGE=15552000
-SECURITY_CSRF_ENABLED=true
+# CSRF is on by default; these are the names `security.config.ts` actually reads.
+CSRF_ENABLED=true
+CSRF_COOKIE_NAME=csrf_token
+CSRF_HEADER_NAME=x-csrf-token
+# Browser origins allowed to send credentialed requests (no wildcard in production).
+CORS_ORIGIN=https://app.example.com
 
 # Rate Limiting
 RATE_LIMIT_AUTH_LOGIN_LIMIT=5

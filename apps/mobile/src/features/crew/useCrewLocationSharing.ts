@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import {
   CREW_LOCATION_TASK,
   getCrewLocationStats,
@@ -139,9 +140,7 @@ export function useCrewLocationSharing(trip: TripResponse | null): CrewLocationS
 
       await setActiveCrewTrip(currentTrip.id);
       const socket = getLiveTrackingSocket();
-      if (!socket.connected) {
-        socket.connect();
-      }
+      connectAuthenticatedSocket(socket);
 
       await clearWatch();
       watchRef.current = await Location.watchPositionAsync(
