@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -8,7 +8,6 @@ import {
   type ConductorListResponse,
   type DriverListResponse,
   type RouteAssignmentCreateRequest,
-  type RouteAssignmentListResponse,
   type RouteAssignmentResponse,
   type RouteListResponse,
   type RouteResponse,
@@ -30,6 +29,7 @@ import {
 } from '../../../src/lib/errors';
 import { fullName, utcDateOnly } from '../../../src/lib/format';
 import { useLoad } from '../../../src/hooks/useLoad';
+import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
   Badge,
   Button,
@@ -42,8 +42,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
-  Screen,
+  Pagination,
   SearchBar,
   Select,
   SwitchRow,
@@ -51,7 +52,6 @@ import {
 } from '../../../src/components';
 import {
   ACTIVE_FILTER_OPTIONS,
-  filterByActive,
   type ActiveFilter,
 } from '../../../src/hooks/useActiveFilter';
 
@@ -73,22 +73,21 @@ export default function ManageAssignmentsScreen() {
   const router = useRouter();
   const toast = useToast();
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
-    assignments: RouteAssignmentResponse[];
+  // Lookups feed the create / edit form selects only; the roster itself is
+  // paginated and filtered server-side below.
+  const lookups = useLoad(async (): Promise<{
     routes: RouteResponse[];
     buses: BusResponse[];
     drivers: StaffResponse[];
     conductors: StaffResponse[];
   }> => {
-    const [assignments, routes, buses, drivers, conductors] = await Promise.all([
-      apiClient.listAssignments({ page: 1, limit: 100 }),
+    const [routes, buses, drivers, conductors] = await Promise.all([
       apiClient.listRoutes({ page: 1, limit: 100 }),
       apiClient.listBuses({ page: 1, limit: 100 }),
       apiClient.listDrivers({ page: 1, limit: 100 }),
       apiClient.listConductors({ page: 1, limit: 100 }),
     ]);
     return {
-      assignments: unwrapEnvelope<RouteAssignmentListResponse>(assignments).items,
       routes: unwrapEnvelope<RouteListResponse>(routes).items,
       buses: unwrapEnvelope<BusListResponse>(buses).items,
       drivers: unwrapEnvelope<DriverListResponse>(drivers).items,
@@ -96,39 +95,31 @@ export default function ManageAssignmentsScreen() {
     };
   }, []);
 
-  // Search + role + active filters, applied over the loaded assignment page
-  // (the endpoint takes page/limit/search/role/is_active; search is applied
-  // client-side here so the crew name and bus text are also matchable).
-  const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RouteAssignmentRole | 'ALL'>('ALL');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('ALL');
 
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    let rows = data?.assignments ?? [];
-    if (roleFilter !== 'ALL') rows = rows.filter((row) => row.role === roleFilter);
-    rows = filterByActive(rows, activeFilter);
-    if (term) {
-      rows = rows.filter((row) =>
-        [
-          row.route_code,
-          row.route_name,
-          row.user_name,
-          row.user_email,
-          row.bus_number,
-          row.bus_registration_number,
-        ]
-          .filter((value): value is string => Boolean(value))
-          .some((value) => value.toLowerCase().includes(term)),
-      );
-    }
-    return rows;
-  }, [data, search, roleFilter, activeFilter]);
+  // Reuse the server-side search + role + is_active filters (the endpoint
+  // takes page/limit/search/role/is_active) instead of narrowing a single
+  // 100-row page on the device — same debounce and stale-response guard as
+  // every other admin list.
+  const list = usePagedResource<RouteAssignmentResponse>(
+    async (page, search) =>
+      unwrapEnvelope(
+        await apiClient.listAssignments({
+          page,
+          limit: 20,
+          search: search || undefined,
+          role: roleFilter === 'ALL' ? undefined : roleFilter,
+          is_active: activeFilter === 'ALL' ? undefined : activeFilter === 'ACTIVE',
+        }),
+      ),
+    [roleFilter, activeFilter],
+  );
 
   const filtersActive =
-    search.trim().length > 0 || roleFilter !== 'ALL' || activeFilter !== 'ALL';
+    Boolean(list.activeSearch) || roleFilter !== 'ALL' || activeFilter !== 'ALL';
   const resetFilters = () => {
-    setSearch('');
+    list.clearSearch();
     setRoleFilter('ALL');
     setActiveFilter('ALL');
   };
@@ -192,7 +183,7 @@ export default function ManageAssignmentsScreen() {
         toast.push('Assignment created.', 'success');
       }
       setOpen(false);
-      await reload();
+      await list.reload();
     } catch (caught) {
       setFieldErrors(fieldErrorsFromUnknown(caught));
       toast.push(getApiErrorMessage(caught), 'danger');
@@ -208,7 +199,7 @@ export default function ManageAssignmentsScreen() {
       await apiClient.deleteAssignment(pendingDelete.id);
       toast.push('Assignment removed.', 'success');
       setPendingDelete(null);
-      await reload();
+      await list.reload();
     } catch (caught) {
       toast.push(getApiErrorMessage(caught), 'danger');
     } finally {
@@ -248,99 +239,124 @@ export default function ManageAssignmentsScreen() {
     );
   };
 
-  if (loading && !data) {
-    return <LoadingView label="Loading assignments…" />;
-  }
-  if (error || !data) {
-    return (
-      <Screen>
-        <ErrorState message={error ?? 'Could not load assignments'} onRetry={() => void reload()} />
-      </Screen>
-    );
-  }
-
-  const staffOptions = (form.role === RouteAssignmentRole.CONDUCTOR ? data.conductors : data.drivers).map(
-    (person) => ({ value: person.id, label: `${fullName(person)} (${person.email})` }),
-  );
+  const staffOptions = (
+    form.role === RouteAssignmentRole.CONDUCTOR
+      ? lookups.data?.conductors ?? []
+      : lookups.data?.drivers ?? []
+  ).map((person) => ({ value: person.id, label: `${fullName(person)} (${person.email})` }));
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading} extraBottomSpace={72}>
-        <SearchBar
-          value={search}
-          onChangeText={setSearch}
-          onClear={() => setSearch('')}
-          placeholder="Search route, crew or bus…"
-        />
-
-        <FilterChips<RouteAssignmentRole | 'ALL'>
-          options={[
-            { value: 'ALL', label: 'All roles' },
-            { value: RouteAssignmentRole.DRIVER, label: 'Drivers' },
-            { value: RouteAssignmentRole.CONDUCTOR, label: 'Conductors' },
-          ]}
-          value={roleFilter}
-          onChange={setRoleFilter}
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter}
-          onChange={setActiveFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={`${visible.length} of ${data.assignments.length} assignments`}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No matching assignments' : 'No assignments'}
-            description={
-              filtersActive
-                ? 'No assignments match the current search or filters.'
-                : 'Create a roster row before dispatching trips.'
+      <ListScreen
+        data={list.items}
+        keyExtractor={(row) => row.id}
+        renderItem={({ item: row }) => (
+          <ListCard
+            title={row.route_code ? `${row.route_code} · ${row.route_name ?? ''}`.trim() : 'Route'}
+            subtitle={`${row.role === RouteAssignmentRole.DRIVER ? 'Driver' : 'Conductor'}: ${row.user_name ?? '—'}`}
+            meta={`${row.bus_registration_number ?? row.bus_number ?? 'No bus'} · ${row.effective_from}${row.effective_to ? ` → ${row.effective_to}` : ' → open'}`}
+            right={
+              <Badge
+                label={row.is_active ? 'Active' : 'Inactive'}
+                tone={row.is_active ? 'success' : 'neutral'}
+              />
             }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
-          />
-        ) : (
-          visible.map((row) => (
-            <ListCard
-              key={row.id}
-              title={row.route_code ? `${row.route_code} · ${row.route_name ?? ''}`.trim() : 'Route'}
-              subtitle={`${row.role === RouteAssignmentRole.DRIVER ? 'Driver' : 'Conductor'}: ${row.user_name ?? '—'}`}
-              meta={`${row.bus_registration_number ?? row.bus_number ?? 'No bus'} · ${row.effective_from}${row.effective_to ? ` → ${row.effective_to}` : ' → open'}`}
-              right={
-                <Badge
-                  label={row.is_active ? 'Active' : 'Inactive'}
-                  tone={row.is_active ? 'success' : 'neutral'}
+            onEdit={() => startEdit(row)}
+            onDelete={() => setPendingDelete(row)}
+          >
+            {row.is_active ? (
+              <View style={styles.dispatchRow}>
+                <Button
+                  label="Dispatch now"
+                  small
+                  onPress={() => dispatch(row)}
+                  busy={dispatchingId === row.id}
+                  disabled={dispatchingId !== null}
                 />
-              }
-              onEdit={() => startEdit(row)}
-              onDelete={() => setPendingDelete(row)}
-            >
-              {row.is_active ? (
-                <View style={styles.dispatchRow}>
-                  <Button
-                    label="Dispatch now"
-                    small
-                    onPress={() => dispatch(row)}
-                    busy={dispatchingId === row.id}
-                    disabled={dispatchingId !== null}
-                  />
-                </View>
-              ) : null}
-            </ListCard>
-          ))
+              </View>
+            ) : null}
+          </ListCard>
         )}
-      </Screen>
+        header={
+          <>
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search route, crew or bus…"
+            />
+            <FilterChips<RouteAssignmentRole | 'ALL'>
+              options={[
+                { value: 'ALL', label: 'All roles' },
+                { value: RouteAssignmentRole.DRIVER, label: 'Drivers' },
+                { value: RouteAssignmentRole.CONDUCTOR, label: 'Conductors' },
+              ]}
+              value={roleFilter}
+              onChange={setRoleFilter}
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter}
+              onChange={setActiveFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  roleFilter !== 'ALL'
+                    ? roleFilter === RouteAssignmentRole.DRIVER
+                      ? 'Drivers'
+                      : 'Conductors'
+                    : null,
+                  activeFilter !== 'ALL'
+                    ? activeFilter === 'ACTIVE'
+                      ? 'Active'
+                      : 'Inactive'
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClear={resetFilters}
+              />
+            ) : null}
+            {list.items.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${list.items.length} of ${list.meta.total} assignments`
+                  : `${list.meta.total} assignments`}
+              </Text>
+            ) : null}
+          </>
+        }
+        footer={
+          list.items.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label="Loading assignments…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No matching assignments' : 'No assignments'}
+              description={
+                filtersActive
+                  ? 'No assignments match the current search or filters.'
+                  : 'Create a roster row before dispatching trips.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="New" />
 
@@ -371,7 +387,7 @@ export default function ManageAssignmentsScreen() {
           label="Route"
           value={form.route_id}
           onChange={(value) => setForm({ ...form, route_id: value })}
-          options={data.routes.map((route) => ({
+          options={(lookups.data?.routes ?? []).map((route) => ({
             value: route.id,
             label: `${route.name} (${route.code})`,
           }))}
@@ -382,7 +398,7 @@ export default function ManageAssignmentsScreen() {
           label="Bus"
           value={form.bus_id}
           onChange={(value) => setForm({ ...form, bus_id: value })}
-          options={data.buses.map((bus) => ({
+          options={(lookups.data?.buses ?? []).map((bus) => ({
             value: bus.id,
             label: bus.registration_number,
           }))}
@@ -441,6 +457,11 @@ export default function ManageAssignmentsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   row: { flexDirection: 'row', gap: spacing.sm },
+  count: {
+    color: colors.neutral[500],
+    fontSize: 12,
+    marginBottom: spacing.sm,
+  },
   dispatchRow: {
     marginTop: spacing.sm,
     alignItems: 'flex-start',

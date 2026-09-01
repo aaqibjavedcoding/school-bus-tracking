@@ -36,6 +36,9 @@ function ParentTabs() {
       ) : null}
       <Tabs
         safeAreaInsets={{ bottom: 0 }}
+        // Detail route (children/[id]) is pushed from the home tab; `history`
+        // makes back return to the child list rather than the first tab.
+        backBehavior="history"
         screenOptions={{
           headerStyle: { backgroundColor: colors.neutral[900] },
           headerTintColor: '#ffffff',

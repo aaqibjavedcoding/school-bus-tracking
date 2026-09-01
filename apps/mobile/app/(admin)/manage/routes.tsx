@@ -34,9 +34,9 @@ import {
   Field,
   FormSheet,
   ListCard,
+  ListScreen,
   LoadingView,
   Pagination,
-  Screen,
   SearchBar,
   SwitchRow,
   useToast,
@@ -139,84 +139,92 @@ export default function ManageRoutesScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void list.reload()} refreshing={list.loading} extraBottomSpace={72}>
-        <SearchBar
-          value={list.search}
-          onChangeText={list.setSearch}
-          onClear={list.clearSearch}
-          searching={list.searching}
-          placeholder="Search routes…"
-        />
-
-        <FilterChips<ActiveFilter>
-          options={ACTIVE_FILTER_OPTIONS}
-          value={activeFilter.filter}
-          onChange={activeFilter.setFilter}
-        />
-
-        {filtersActive ? (
-          <FilterSummary
-            label={[
-              list.activeSearch ? `“${list.activeSearch}”` : null,
-              activeFilter.isFiltered ? activeFilter.label : null,
+      <ListScreen
+        data={visible}
+        keyExtractor={(route) => route.id}
+        renderItem={({ item }) => (
+          <ListCard
+            title={`${item.code} · ${item.name}`}
+            subtitle={item.description}
+            meta={[
+              item.student_count != null ? `${item.student_count} students` : null,
+              item.driver_name ? `Driver ${item.driver_name}` : null,
             ]
               .filter(Boolean)
-              .join(' · ')}
-            onClear={resetFilters}
-          />
-        ) : null}
-
-        {list.loading && list.items.length === 0 ? (
-          <LoadingView label="Loading routes…" />
-        ) : list.error ? (
-          <ErrorState message={list.error} onRetry={() => void list.reload()} />
-        ) : visible.length === 0 ? (
-          <EmptyState
-            title={filtersActive ? 'No routes match' : 'No routes yet'}
-            description={
-              filtersActive
-                ? 'No routes match the current search or filters.'
-                : 'Create a route, then add stops in sequence.'
+              .join(' · ') || 'Tap to manage stops'}
+            right={
+              <Badge
+                label={item.is_active ? 'Active' : 'Inactive'}
+                tone={item.is_active ? 'success' : 'neutral'}
+              />
             }
-            action={
-              filtersActive ? (
-                <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-              ) : null
-            }
+            onPress={() => router.push(`/manage/routes/${item.id}`)}
+            onEdit={() => startEdit(item)}
+            onDelete={() => setPendingDelete(item)}
           />
-        ) : (
+        )}
+        header={
           <>
-            <Text style={styles.count}>
-              {filtersActive
-                ? `${visible.length} of ${list.meta.total} routes`
-                : `${list.meta.total} routes`}
-            </Text>
-            {visible.map((route) => (
-              <ListCard
-                key={route.id}
-                title={`${route.code} · ${route.name}`}
-                subtitle={route.description}
-                meta={[
-                  route.student_count != null ? `${route.student_count} students` : null,
-                  route.driver_name ? `Driver ${route.driver_name}` : null,
+            <SearchBar
+              value={list.search}
+              onChangeText={list.setSearch}
+              onClear={list.clearSearch}
+              searching={list.searching}
+              placeholder="Search routes…"
+            />
+            <FilterChips<ActiveFilter>
+              options={ACTIVE_FILTER_OPTIONS}
+              value={activeFilter.filter}
+              onChange={activeFilter.setFilter}
+            />
+            {filtersActive ? (
+              <FilterSummary
+                label={[
+                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  activeFilter.isFiltered ? activeFilter.label : null,
                 ]
                   .filter(Boolean)
-                  .join(' · ') || 'Tap to manage stops'}
-                right={
-                  <Badge
-                    label={route.is_active ? 'Active' : 'Inactive'}
-                    tone={route.is_active ? 'success' : 'neutral'}
-                  />
-                }
-                onPress={() => router.push(`/manage/routes/${route.id}`)}
-                onEdit={() => startEdit(route)}
-                onDelete={() => setPendingDelete(route)}
+                  .join(' · ')}
+                onClear={resetFilters}
               />
-            ))}
-            <Pagination meta={list.meta} onPage={list.setPage} />
+            ) : null}
+            {visible.length > 0 ? (
+              <Text style={styles.count}>
+                {filtersActive
+                  ? `${visible.length} of ${list.meta.total} routes`
+                  : `${list.meta.total} routes`}
+              </Text>
+            ) : null}
           </>
-        )}
-      </Screen>
+        }
+        footer={
+          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
+        }
+        empty={
+          list.loading && list.items.length === 0 ? (
+            <LoadingView label="Loading routes…" />
+          ) : list.error ? (
+            <ErrorState message={list.error} onRetry={() => void list.reload()} />
+          ) : (
+            <EmptyState
+              title={filtersActive ? 'No routes match' : 'No routes yet'}
+              description={
+                filtersActive
+                  ? 'No routes match the current search or filters.'
+                  : 'Create a route, then add stops in sequence.'
+              }
+              action={
+                filtersActive ? (
+                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+                ) : null
+              }
+            />
+          )
+        }
+        refresh={() => void list.reload()}
+        refreshing={list.loading}
+        extraBottomSpace={72}
+      />
 
       <Fab onPress={startCreate} label="Add route" />
 

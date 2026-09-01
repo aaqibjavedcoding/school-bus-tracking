@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { UserRole, type TripStudentManifestResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
@@ -86,6 +86,44 @@ export default function CrewManifestScreen() {
   const manifest = manifestLoad.data;
   const counts = manifest ? manifestCounts(manifest.items) : null;
 
+  if (manifest && manifest.items.length > 0) {
+    return (
+      <View style={styles.flex}>
+        <ManifestList
+          manifest={manifest}
+          canAct={isTripOpen(manifest.trip_status)}
+          busyStudentId={busyStudentId}
+          onBoard={(studentId) => void withAction(studentId, 'board')}
+          onDrop={(studentId) => void withAction(studentId, 'drop')}
+          header={
+            <>
+              <Text style={styles.role}>
+                {user ? `${crewRoleLabel(user.role)} · ` : ''}
+                {isDriver ? 'Students on board' : 'Boarding & drop'}
+              </Text>
+              <Text style={styles.hint}>
+                {isDriver
+                  ? 'The head-count you are carrying. Ask the conductor before moving off.'
+                  : 'Tap board when a student gets on and drop when they get off — the time is recorded automatically.'}
+              </Text>
+              <TripStatusBadge status={manifest.trip_status} />
+              {counts ? (
+                <Text style={styles.counts}>
+                  {counts.boarded} boarded · {counts.pending} waiting · {counts.dropped} dropped
+                </Text>
+              ) : null}
+            </>
+          }
+          refresh={() => {
+            void reloadToday();
+            void manifestLoad.reload();
+          }}
+          refreshing={manifestLoad.loading || todayLoading}
+        />
+      </View>
+    );
+  }
+
   return (
     <Screen
       refresh={() => {
@@ -95,40 +133,10 @@ export default function CrewManifestScreen() {
       refreshing={manifestLoad.loading || todayLoading}
     >
       {manifest ? (
-        <>
-          <Text style={styles.role}>
-            {user ? `${crewRoleLabel(user.role)} · ` : ''}
-            {isDriver ? 'Students on board' : 'Boarding & drop'}
-          </Text>
-          <Text style={styles.hint}>
-            {isDriver
-              ? 'The head-count you are carrying. Ask the conductor before moving off.'
-              : 'Tap board when a student gets on and drop when they get off — the time is recorded automatically.'}
-          </Text>
-          <TripStatusBadge status={manifest.trip_status} />
-          {counts ? (
-            <Text style={styles.counts}>
-              {counts.boarded} boarded · {counts.pending} waiting · {counts.dropped} dropped
-            </Text>
-          ) : null}
-          {manifestLoad.error ? (
-            <ErrorState message={manifestLoad.error} onRetry={() => void manifestLoad.reload()} />
-          ) : (
-            <ManifestList
-              manifest={manifest}
-              canAct={isTripOpen(manifest.trip_status)}
-              busyStudentId={busyStudentId}
-              onBoard={(studentId) => void withAction(studentId, 'board')}
-              onDrop={(studentId) => void withAction(studentId, 'drop')}
-            />
-          )}
-          {manifest.items.length === 0 ? (
-            <EmptyState
-              title="No students on this route"
-              description="Every manifest entry comes from active students whose home stop belongs to this route."
-            />
-          ) : null}
-        </>
+        <EmptyState
+          title="No students on this route"
+          description="Every manifest entry comes from active students whose home stop belongs to this route."
+        />
       ) : manifestLoad.loading ? (
         <LoadingView label="Loading manifest…" />
       ) : manifestLoad.error ? (
@@ -141,6 +149,7 @@ export default function CrewManifestScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   role: {
     fontSize: typography.fontSizes.lg,
     fontWeight: '800',
