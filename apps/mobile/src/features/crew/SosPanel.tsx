@@ -15,6 +15,7 @@ import { emergencySosSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../services/api';
 import { getEmergenciesSocket } from '../../services/emergencies-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
 import { emergencyStatusTone, isEmergencyActive } from '../admin/emergencies/helpers';
@@ -81,7 +82,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
   useEffect(() => {
     const socket = getEmergenciesSocket();
     const refresh = () => void reload();
-    socket.connect();
+    connectAuthenticatedSocket(socket);
     socket.on(EMERGENCY_EVENTS.updated, refresh);
     socket.on(EMERGENCY_EVENTS.new, refresh);
     return () => {

@@ -16,6 +16,7 @@ import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
 import { apiClient } from '../../services/api';
 import { getEmergenciesSocket } from '../../services/emergencies-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 
 /**
  * Crew emergency panel (Task 44) — the web counterpart of the mobile SOS tab.
@@ -72,7 +73,7 @@ export const SosPanel: React.FC<{ tripId: string | null }> = ({ tripId }) => {
   // without a refresh (the gateway puts this socket in the tenant room).
   useEffect(() => {
     const socket = getEmergenciesSocket();
-    socket.connect();
+    connectAuthenticatedSocket(socket);
     socket.on(EMERGENCY_EVENTS.updated, () => void reload());
     return () => {
       socket.off(EMERGENCY_EVENTS.updated);

@@ -31,6 +31,7 @@ import { getApiErrorMessage, unwrapEnvelope } from '../../../lib/errors';
 import { formatDateTime, formatRelative } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 import { getEmergenciesSocket } from '../../../services/emergencies-socket';
+import { connectAuthenticatedSocket } from '../../../services/socket-auth';
 
 /**
  * School-admin emergency console (Task 44).
@@ -116,7 +117,7 @@ export default function EmergenciesPage() {
       void reload();
       toast.push('An emergency event was updated.', 'info');
     };
-    socket.connect();
+    connectAuthenticatedSocket(socket);
     socket.on('connect', () => setLive(true));
     socket.on('disconnect', () => setLive(false));
     socket.on(EMERGENCY_EVENTS.new, refresh);

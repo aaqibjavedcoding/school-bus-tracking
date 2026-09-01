@@ -160,6 +160,21 @@ export interface ApiClientConfig {
   csrfCookieName?: string;
   /** Header the CSRF token is echoed in (`X-CSRF-Token` by default). */
   csrfHeaderName?: string;
+  /**
+   * Endpoint (relative to `baseUrl`) that seeds the readable CSRF cookie —
+   * `GET /auth/csrf` on this API.
+   */
+  csrfTokenPath?: string;
+  /**
+   * Whether the client may bootstrap a missing CSRF token by calling
+   * {@link ApiClientConfig.csrfTokenPath} before an unsafe request.
+   *
+   * Defaults to "browser only": a cookie jar the double-submit pattern can
+   * use exists exactly where `document.cookie` does. Native clients (React
+   * Native, Node) are authenticated with a bearer token and are exempted by
+   * the API, so they never issue the extra request.
+   */
+  csrfBootstrap?: boolean;
   /** Called after a successful `/auth/refresh` so the in-memory token can rotate. */
   setAccessToken?: (token: string | null) => void;
   /** Called when refresh fails so the UI can return to the login screen. */
@@ -186,6 +201,48 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
 /** Default names of the API's double-submit CSRF cookie and header. */
 export const CSRF_COOKIE_NAME = 'csrf_token';
 export const CSRF_HEADER_NAME = 'X-CSRF-Token';
+
+/**
+ * Endpoint that issues (or rotates) the readable double-submit CSRF cookie.
+ *
+ * `GET /auth/csrf` is unauthenticated and safe, so a browser can always call
+ * it — including before login, which is exactly when a stale session cookie
+ * would otherwise leave the app unable to obtain a token.
+ */
+export const CSRF_TOKEN_PATH = '/auth/csrf';
+
+/** Payload of `GET /auth/csrf` (inside the standard `{ success, data }` envelope). */
+export interface CsrfTokenPayload {
+  csrf_token: string;
+  header_name?: string;
+}
+
+/**
+ * True when the runtime has a browser cookie jar.
+ *
+ * The double-submit dance only makes sense there: a browser is the only
+ * client that attaches cookies ambiently, and the only one that can read the
+ * non-httpOnly CSRF cookie back out to echo it in a header. React Native and
+ * Node have no `document`, use bearer tokens and send no `Origin`, so the API
+ * exempts them — and this client never bootstraps a token for them.
+ */
+export function hasBrowserCookieJar(): boolean {
+  const cookieJar = (globalThis as { document?: { cookie?: string } }).document;
+  return Boolean(cookieJar) && typeof cookieJar?.cookie === 'string';
+}
+
+/** True when a 403 body is the API's CSRF rejection rather than an authorization failure. */
+function isCsrfRejection(errorData: unknown): boolean {
+  if (typeof errorData === 'string') {
+    return /csrf/i.test(errorData);
+  }
+  if (!errorData || typeof errorData !== 'object') {
+    return false;
+  }
+  const envelope = errorData as { message?: unknown; error?: { message?: unknown } };
+  const message = envelope.error?.message ?? envelope.message;
+  return typeof message === 'string' && /csrf/i.test(message);
+}
 
 /**
  * Reads a cookie from `document.cookie`.
@@ -221,8 +278,13 @@ export class ApiClient {
   private readonly setAccessToken?: (token: string | null) => void;
   private readonly onUnauthorized?: () => void;
   private readonly csrfCookieName: string;
-  private readonly csrfHeaderName: string;
+  private csrfHeaderName: string;
+  /** True when the caller pinned the header name, so the API cannot override it. */
+  private readonly csrfHeaderNamePinned: boolean;
+  private readonly csrfTokenPath: string;
+  private readonly csrfBootstrap?: boolean;
   private refreshInFlight: Promise<boolean> | null = null;
+  private csrfBootstrapInFlight: Promise<string | null> | null = null;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
@@ -237,15 +299,104 @@ export class ApiClient {
     this.onUnauthorized = config.onUnauthorized;
     this.csrfCookieName = config.csrfCookieName || CSRF_COOKIE_NAME;
     this.csrfHeaderName = config.csrfHeaderName || CSRF_HEADER_NAME;
+    this.csrfHeaderNamePinned = Boolean(config.csrfHeaderName);
+    this.csrfTokenPath = config.csrfTokenPath || CSRF_TOKEN_PATH;
+    this.csrfBootstrap = config.csrfBootstrap;
+  }
+
+  /** True when this runtime is allowed to call the CSRF bootstrap endpoint. */
+  private csrfBootstrapAllowed(): boolean {
+    return this.csrfBootstrap ?? hasBrowserCookieJar();
+  }
+
+  /**
+   * Returns a usable double-submit token, fetching one when the cookie jar
+   * has none.
+   *
+   * The API only seeds the cookie on `POST /auth/login`, `POST /auth/refresh`
+   * and `GET /auth/csrf`. A browser that still holds a refresh cookie but no
+   * CSRF cookie (fresh tab after the 12h cookie TTL, a session that predates
+   * the CSRF rollout, or a logout that cleared it) would otherwise be stuck:
+   * every state-changing auth call — including the login that is supposed to
+   * repair the session — is rejected with 403 "Invalid or missing CSRF
+   * token". Bootstrapping through the safe `GET` endpoint breaks that
+   * deadlock without weakening the check.
+   *
+   * Concurrent callers share one in-flight request; `force` re-fetches even
+   * when a (stale) cookie is present.
+   */
+  public async ensureCsrfToken(force = false): Promise<string | null> {
+    if (!force) {
+      const existing = readBrowserCookie(this.csrfCookieName);
+      if (existing) {
+        return existing;
+      }
+    }
+    if (!this.csrfBootstrapAllowed()) {
+      return null;
+    }
+    if (this.csrfBootstrapInFlight) {
+      return this.csrfBootstrapInFlight;
+    }
+
+    this.csrfBootstrapInFlight = this.fetchCsrfToken().finally(() => {
+      this.csrfBootstrapInFlight = null;
+    });
+
+    return this.csrfBootstrapInFlight;
+  }
+
+  /**
+   * Calls `GET /auth/csrf`.
+   *
+   * `credentials: 'include'` is what makes the browser store the returned
+   * cookie; the response body carries the same value so the header can be
+   * set even before the jar is readable. A failure is never fatal — the
+   * request is attempted with whatever the jar holds and the API decides.
+   */
+  private async fetchCsrfToken(): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}${this.csrfTokenPath}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        return readBrowserCookie(this.csrfCookieName);
+      }
+      const body = (await response.json()) as
+        | ApiResponse<CsrfTokenPayload>
+        | CsrfTokenPayload
+        | null;
+      const payload = (body && 'data' in body ? body.data : body) as
+        | CsrfTokenPayload
+        | null
+        | undefined;
+      if (!this.csrfHeaderNamePinned && payload?.header_name) {
+        // The header name is configurable server-side (`CSRF_HEADER_NAME`);
+        // adopting the advertised one keeps the client correct without a
+        // second environment variable.
+        this.csrfHeaderName = payload.header_name;
+      }
+      return payload?.csrf_token || readBrowserCookie(this.csrfCookieName);
+    } catch {
+      return readBrowserCookie(this.csrfCookieName);
+    }
   }
 
   /**
    * Attaches the double-submit CSRF token to unsafe requests.
    *
    * Nothing happens when the caller already set the header, when the method
-   * is safe, or when there is no cookie to read (non-browser clients).
+   * is safe, or when there is no token to be had (non-browser clients).
+   * `allowBootstrap` is false for bearer-authenticated calls: the API exempts
+   * them, so they must not pay for an extra round trip.
    */
-  private applyCsrfHeader(method: string, headers: Record<string, string>): void {
+  private async applyCsrfHeader(
+    method: string,
+    headers: Record<string, string>,
+    allowBootstrap: boolean,
+  ): Promise<void> {
     if (SAFE_METHODS.has(method.toUpperCase())) {
       return;
     }
@@ -255,7 +406,10 @@ export class ApiClient {
     if (alreadySet) {
       return;
     }
-    const token = readBrowserCookie(this.csrfCookieName);
+    let token = readBrowserCookie(this.csrfCookieName);
+    if (!token && allowBootstrap) {
+      token = await this.ensureCsrfToken();
+    }
     if (token) {
       headers[this.csrfHeaderName] = token;
     }
@@ -321,6 +475,7 @@ export class ApiClient {
     endpoint: string,
     options: RequestInit = {},
     skipRefresh = false,
+    skipCsrfRetry = false,
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const headers = this.mergeHeaders(options.headers);
@@ -333,7 +488,11 @@ export class ApiClient {
       }
     }
 
-    this.applyCsrfHeader(options.method || 'GET', headers);
+    // Bearer-authenticated calls are exempted by the API's CSRF rule (a
+    // bearer token is never ambiently attached by a browser), so only
+    // cookie-authenticated calls — the `/auth/*` ones — may bootstrap a token.
+    const sendsBearer = Boolean(headers.Authorization || headers.authorization);
+    await this.applyCsrfHeader(options.method || 'GET', headers, !sendsBearer);
 
     try {
       const response = await fetch(url, {
@@ -345,7 +504,7 @@ export class ApiClient {
       if (response.status === 401 && !skipRefresh && !skipAuth) {
         const refreshed = await this.refreshSession();
         if (refreshed) {
-          return this.request<T>(endpoint, options, true);
+          return this.request<T>(endpoint, options, true, skipCsrfRetry);
         }
         this.onUnauthorized?.();
       }
@@ -357,6 +516,23 @@ export class ApiClient {
         } catch {
           errorData = await response.text();
         }
+
+        // A 403 CSRF rejection means the cookie we echoed is gone or was
+        // rotated (logout in another tab, expired TTL). Re-seed once and
+        // replay — never more than once, so a genuinely rejected origin
+        // cannot turn into a request loop.
+        if (
+          response.status === 403 &&
+          !skipCsrfRetry &&
+          isCsrfRejection(errorData) &&
+          this.csrfBootstrapAllowed()
+        ) {
+          const token = await this.ensureCsrfToken(true);
+          if (token) {
+            return this.request<T>(endpoint, options, skipRefresh, true);
+          }
+        }
+
         throw new ApiClientError(
           `Request failed with status ${response.status}`,
           response.status,

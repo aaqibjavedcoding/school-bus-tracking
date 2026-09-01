@@ -194,8 +194,55 @@ describe('browser security (real HTTP)', () => {
       assert.equal(response.status, 403);
     });
 
-    it('leaves bearer-token clients (mobile) unaffected', async () => {
-      const session = await login(app.baseUrl, school.code, admin.email);
+    /**
+     * Regression: the web app could not log in after the CSRF rollout.
+     *
+     * A tab that still holds the httpOnly refresh cookie but no readable
+     * CSRF cookie (12h TTL elapsed, cookie cleared, session predating the
+     * rollout) is a cookie session without a token — correctly refused. The
+     * way out is the bootstrap endpoint, which is what the web client now
+     * calls before any state-changing auth request.
+     */
+    it('lets a browser without a CSRF cookie bootstrap one and log in again', async () => {
+      const session = await login(app.baseUrl, school.code, admin.email, {
+        origin: TEST_WEB_ORIGIN,
+      });
+
+      const blocked = await httpRequest(app.baseUrl, '/auth/login', {
+        method: 'POST',
+        origin: TEST_WEB_ORIGIN,
+        cookies: { refresh_token: session.refreshCookie as string },
+        body: { school_id: school.code, email: admin.email, password: TEST_PASSWORD },
+      });
+      assert.equal(blocked.status, 403);
+      assert.equal(errorMessage(blocked.body), CSRF_INVALID_MESSAGE);
+
+      const bootstrap = await httpRequest<{
+        data: { csrf_token: string; header_name: string };
+      }>(app.baseUrl, '/auth/csrf', {
+        origin: TEST_WEB_ORIGIN,
+        cookies: { refresh_token: session.refreshCookie as string },
+      });
+      const token = readCookie(bootstrap.cookies, CSRF_COOKIE_NAME);
+      assert.equal(bootstrap.status, 200);
+      assert.ok(token, 'GET /auth/csrf must set the readable cookie');
+      assert.equal(bootstrap.body.data.csrf_token, token);
+      assert.equal(bootstrap.body.data.header_name, CSRF_HEADER_NAME);
+
+      const allowed = await httpRequest(app.baseUrl, '/auth/login', {
+        method: 'POST',
+        origin: TEST_WEB_ORIGIN,
+        cookies: {
+          refresh_token: session.refreshCookie as string,
+          [CSRF_COOKIE_NAME]: token as string,
+        },
+        headers: { [CSRF_HEADER_NAME]: token as string },
+        body: { school_id: school.code, email: admin.email, password: TEST_PASSWORD },
+      });
+      assert.equal(allowed.status, 200);
+    });
+
+    it('leaves bearer-token clients (mobile) unaffected', async () => {      const session = await login(app.baseUrl, school.code, admin.email);
       const response = await httpRequest(app.baseUrl, '/buses', {
         method: 'POST',
         token: session.accessToken,

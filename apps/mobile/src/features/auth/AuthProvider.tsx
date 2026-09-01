@@ -4,6 +4,7 @@ import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { disconnectNotificationsSocket } from '../../services/notifications-socket';
+import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
 import { stopCrewLocationTask } from '../crew/location-task';
 
 /**
@@ -32,11 +33,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
 
   const clearSession = useCallback(() => {
-    // GPS sharing and both sockets are role-scoped sessions; they must never
-    // outlive the account that opened them.
+    // GPS sharing and every namespace socket are role-scoped sessions; they
+    // must never outlive the account that opened them. A socket left open
+    // reconnects with an empty handshake token and is refused by the gateway
+    // ("Rejected unauthenticated \u2026 socket") for as long as the app runs.
     void stopCrewLocationTask();
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
+    disconnectEmergenciesSocket();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');

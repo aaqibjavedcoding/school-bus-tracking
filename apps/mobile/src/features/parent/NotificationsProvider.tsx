@@ -5,6 +5,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { getNotificationsSocket } from '../../services/notifications-socket';
+import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import {
   applyAllNotificationsRead,
   applyNotificationEvent,
@@ -83,7 +84,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     if (socket.connected) {
       setConnected(true);
     } else {
-      socket.connect();
+      connectAuthenticatedSocket(socket);
     }
 
     return () => {

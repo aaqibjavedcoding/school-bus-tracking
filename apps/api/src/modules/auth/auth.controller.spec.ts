@@ -208,4 +208,61 @@ describe('AuthController', () => {
       path: '/api/v1/auth',
     });
   });
+
+  /**
+   * Double-submit CSRF cookie. The browser must be able to read this one
+   * back out (it is echoed in `X-CSRF-Token`), which is exactly why it is the
+   * only auth cookie that is *not* httpOnly.
+   */
+  describe('CSRF token cookie', () => {
+    it('seeds a readable CSRF cookie on login', async () => {
+      const controller = new AuthController(makeMockAuthService());
+      const { res, cookies } = makeMockResponse();
+      const dto = Object.assign(new LoginDto(), {
+        school_id: SCHOOL_ID,
+        email: 'driver@school.org',
+        password: 'correct-horse-battery',
+      });
+
+      await controller.login(dto, makeMockRequest(), res);
+
+      assert.ok(cookies['csrf_token'], 'login must issue the CSRF cookie');
+      assert.match(cookies['csrf_token'].val, /^[0-9a-f]{64}$/);
+      assert.equal((cookies['csrf_token'].options as { httpOnly: boolean }).httpOnly, false);
+    });
+
+    it('GET /csrf bootstraps a token for a browser that has none', async () => {
+      const controller = new AuthController(makeMockAuthService());
+      const { res, cookies } = makeMockResponse();
+
+      const payload = controller.getCsrfToken(makeMockRequest(), res);
+
+      assert.match(payload.csrf_token, /^[0-9a-f]{64}$/);
+      assert.equal(payload.header_name, 'x-csrf-token');
+      assert.equal(
+        cookies['csrf_token'].val,
+        payload.csrf_token,
+        'the cookie and the body must carry the same token (double submit)',
+      );
+    });
+
+    it('rotates the token on refresh and clears it on logout', async () => {
+      const controller = new AuthController(makeMockAuthService());
+      const { res, cookies, clearedCookies } = makeMockResponse();
+      const req = makeMockRequest({ cookies: { refresh_token: 'mock-refresh-token-123' } });
+
+      await controller.refresh(req, res);
+      const afterRefresh = cookies['csrf_token'].val;
+      assert.match(afterRefresh, /^[0-9a-f]{64}$/);
+
+      await controller.logout(req, res);
+      assert.ok(clearedCookies['csrf_token'], 'logout must clear the CSRF cookie too');
+      assert.deepEqual(clearedCookies['csrf_token'], {
+        httpOnly: false,
+        secure: false,
+        sameSite: 'lax',
+        path: '/',
+      });
+    });
+  });
 });
