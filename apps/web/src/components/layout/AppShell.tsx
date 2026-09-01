@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useMemo, useState } from 'react';
 import { fullName, initials, roleLabel } from '../../lib/format';
-import { navItemsForRole } from '../../lib/roles';
+import { activeNavHref, navItemsForRole } from '../../lib/roles';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { NotificationBell } from '../../features/notifications/NotificationBell';
 import { Button } from '../ui';
@@ -16,6 +16,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [open, setOpen] = useState(false);
 
   const items = useMemo(() => (user ? navItemsForRole(user.role) : []), [user]);
+  // Only the deepest matching section is highlighted, so `/admin/schools`
+  // never lights up the `/admin` dashboard entry as well.
+  const activeHref = useMemo(() => activeNavHref(items, pathname), [items, pathname]);
 
   if (!user) return <>{children}</>;
 
@@ -39,15 +42,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </div>
         <nav className="sidebar-nav">
           {items.map((item) => {
-            const active =
-              item.href === '/'
-                ? pathname === '/'
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = item.href === activeHref;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`nav-link ${active ? 'active' : ''}`.trim()}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => setOpen(false)}
               >
                 <NavIcon name={item.icon} />
@@ -80,13 +81,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             Menu
           </button>
           <div className="topbar-title">
-            {[...items]
-              .sort((a, b) => b.href.length - a.href.length)
-              .find((item) =>
-                item.href === '/'
-                  ? pathname === '/'
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`),
-              )?.label ?? 'Workspace'}
+            {items.find((item) => item.href === activeHref)?.label ?? 'Workspace'}
           </div>
           <div className="topbar-end">
             <NotificationBell />

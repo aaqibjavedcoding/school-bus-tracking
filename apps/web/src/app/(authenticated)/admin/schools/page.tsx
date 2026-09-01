@@ -2,41 +2,58 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import React, { useCallback, useState } from 'react';
-import { AdminSchoolStatus, SUBSCRIPTION_STATUS_LABELS } from '@school-bus-tracking/shared-types';
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  AdminSchoolStatus,
+  SUBSCRIPTION_STATUS_LABELS,
+  type AdminSchoolSummary,
+} from '@school-bus-tracking/shared-types';
 import {
   Badge,
   Button,
   ConfirmDialog,
   EmptyState,
   ErrorState,
-  Input,
   PageHeader,
   Pagination,
+  SearchInput,
   Select,
   Skeleton,
   useToast,
 } from '../../../../components/ui';
-import { useLoad } from '../../../../hooks/useLoad';
+import { usePagedResource } from '../../../../hooks/usePagedResource';
 import { fullName, formatDateTime } from '../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../lib/errors';
 import { apiClient } from '../../../../services/api';
 import { subscriptionStatusTone } from '../../../../features/admin/subscriptions/helpers';
 
-interface ListState {
-  page: number;
-  limit: number;
-  search: string;
-  status: '' | AdminSchoolStatus;
-}
+type SortKey = 'created_at:desc' | 'created_at:asc' | 'name:asc' | 'name:desc' | 'code:asc';
 
-const INITIAL_STATE: ListState = { page: 1, limit: 10, search: '', status: '' };
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'created_at:desc', label: 'Newest first' },
+  { value: 'created_at:asc', label: 'Oldest first' },
+  { value: 'name:asc', label: 'Name (A–Z)' },
+  { value: 'name:desc', label: 'Name (Z–A)' },
+  { value: 'code:asc', label: 'Code (A–Z)' },
+];
 
+const PAGE_SIZES = ['10', '20', '50'];
+
+/**
+ * School directory of the Super Admin console (`/admin/schools`).
+ *
+ * Search, status filter, sorting and page size are all handled by the
+ * existing `GET /admin/schools` endpoint (which already returns per-tenant
+ * stats, the primary admin and the subscription in bulk), so a page of rows
+ * costs a fixed number of queries. Nothing here reads another tenant's
+ * internal records — only the platform projection the endpoint returns.
+ */
 export default function AdminSchoolsPage() {
   const router = useRouter();
   const toast = useToast();
-  const [filters, setFilters] = useState<ListState>(INITIAL_STATE);
-  const [searchInput, setSearchInput] = useState('');
+  const [status, setStatus] = useState<'' | AdminSchoolStatus>('');
+  const [sort, setSort] = useState<SortKey>('created_at:desc');
+  const [limit, setLimit] = useState(10);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     id: string;
@@ -44,47 +61,71 @@ export default function AdminSchoolsPage() {
     action: 'activate' | 'deactivate';
   } | null>(null);
 
-  const { data, loading, error, reload, setData } = useLoad(async () => {
-    const envelope = await apiClient.listAdminSchools({
-      page: filters.page,
-      limit: filters.limit,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    });
-    return unwrapEnvelope(envelope);
-  }, [filters.page, filters.limit, filters.search, filters.status]);
+  const { items, meta, setPage, search, setSearch, loading, searching, error, reload } =
+    usePagedResource<AdminSchoolSummary>(
+      async (currentPage, currentSearch) => {
+        const [sortColumn, order] = sort.split(':') as [
+          'created_at' | 'name' | 'code',
+          'asc' | 'desc',
+        ];
+        const envelope = await apiClient.listAdminSchools({
+          page: currentPage,
+          limit,
+          search: currentSearch || undefined,
+          status: status || undefined,
+          sort: sortColumn,
+          order,
+        });
+        return unwrapEnvelope(envelope);
+      },
+      [status, sort, limit],
+    );
 
-  const applySearch = useCallback(() => {
-    setFilters((current) => ({ ...current, search: searchInput.trim(), page: 1 }));
-  }, [searchInput]);
+  const hasFilters = Boolean(search || status) || sort !== 'created_at:desc';
+
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setStatus('');
+    setSort('created_at:desc');
+    setPage(1);
+  }, [setPage, setSearch]);
 
   const runLifecycle = useCallback(
-    async (id: string, action: 'activate' | 'deactivate') => {
+    async (id: string, name: string, action: 'activate' | 'deactivate') => {
       setBusyId(id);
       try {
         if (action === 'deactivate') {
           await apiClient.deactivateAdminSchool(id);
-          toast.push('School deactivated — its users can no longer sign in', 'danger');
+          toast.push(`${name} deactivated — its users can no longer sign in.`, 'danger');
         } else {
           await apiClient.activateAdminSchool(id);
-          toast.push('School activated — access restored', 'success');
+          toast.push(`${name} activated — access restored.`, 'success');
         }
-        setData(null);
         await reload();
       } catch (caught) {
-        toast.push(getApiErrorMessage(caught, 'Lifecycle action failed'), 'danger');
+        toast.push(
+          getApiErrorMessage(caught, `Unable to ${action} ${name}. Please try again in a moment.`),
+          'danger',
+        );
       } finally {
         setBusyId(null);
       }
     },
-    [reload, setData, toast],
+    [reload, toast],
   );
+
+  const summary = useMemo(() => {
+    if (meta.total === 0) return 'No schools';
+    const first = (meta.page - 1) * meta.limit + 1;
+    const last = Math.min(meta.total, first + items.length - 1);
+    return `Showing ${first}–${last} of ${meta.total} school${meta.total === 1 ? '' : 's'}`;
+  }, [items.length, meta]);
 
   return (
     <div className="page">
       <PageHeader
         title="Schools"
-        description="Provision, inspect and suspend customer school tenants."
+        description="Provision, inspect and suspend the customer school tenants of the platform."
         actions={
           <Link href="/admin/schools/new">
             <Button>Add school</Button>
@@ -92,115 +133,127 @@ export default function AdminSchoolsPage() {
         }
       />
 
-      <div className="toolbar" style={{ marginBottom: '1rem' }}>
-        <form
-          className="row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            applySearch();
-          }}
-        >
-          <Input
-            name="search"
-            placeholder="Search name, code, city…"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            style={{ minWidth: 260 }}
-          />
-          <Button type="submit" variant="secondary">
-            Search
-          </Button>
-        </form>
+      <div className="toolbar" style={{ marginBottom: '0.75rem' }}>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          searching={searching}
+          placeholder="Search name, code, subdomain, email or city…"
+        />
         <Select
-          aria-label="Status filter"
-          value={filters.status}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              status: event.target.value as '' | AdminSchoolStatus,
-              page: 1,
-            }))
-          }
+          aria-label="Filter by tenant status"
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value as '' | AdminSchoolStatus);
+            setPage(1);
+          }}
           options={[
             { value: '', label: 'All statuses' },
-            { value: 'active', label: 'Active' },
-            { value: 'inactive', label: 'Inactive' },
+            { value: 'active', label: 'Active only' },
+            { value: 'inactive', label: 'Inactive only' },
           ]}
-          style={{ maxWidth: 200 }}
+          style={{ maxWidth: 190 }}
         />
+        <Select
+          aria-label="Sort schools"
+          value={sort}
+          onChange={(event) => {
+            setSort(event.target.value as SortKey);
+            setPage(1);
+          }}
+          options={SORT_OPTIONS}
+          style={{ maxWidth: 190 }}
+        />
+        <Select
+          aria-label="Rows per page"
+          value={String(limit)}
+          onChange={(event) => {
+            setLimit(Number(event.target.value));
+            setPage(1);
+          }}
+          options={PAGE_SIZES.map((size) => ({ value: size, label: `${size} per page` }))}
+          style={{ maxWidth: 150 }}
+        />
+        {hasFilters ? (
+          <Button variant="ghost" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
       </div>
 
-      {loading && !data ? (
+      {loading && items.length === 0 ? (
         <Skeleton lines={10} />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void reload()} />
-      ) : !data || data.items.length === 0 ? (
+        <ErrorState title="Unable to load schools" message={error} onRetry={() => void reload()} />
+      ) : items.length === 0 ? (
         <EmptyState
           title="No schools found"
           description={
-            filters.search || filters.status
-              ? 'Try a different search or filter.'
+            hasFilters
+              ? 'No school matches the current search and filters. Try a different term or clear the filters.'
               : 'Provision the first customer school to get started.'
           }
           action={
-            <Link href="/admin/schools/new">
-              <Button>Add school</Button>
-            </Link>
+            hasFilters ? (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : (
+              <Link href="/admin/schools/new">
+                <Button>Add school</Button>
+              </Link>
+            )
           }
         />
       ) : (
         <>
+          <p className="result-count" style={{ marginBottom: '0.5rem' }}>
+            {summary}
+          </p>
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>School</th>
-                  <th>Code</th>
-                  <th>Status</th>
-                  <th>Plan</th>
-                  <th>Admin</th>
-                  <th>Students</th>
-                  <th>Staff</th>
-                  <th>Buses</th>
-                  <th>Created</th>
-                  <th>Actions</th>
+                  <th scope="col">School</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Subscription</th>
+                  <th scope="col">Primary admin</th>
+                  <th scope="col">Students</th>
+                  <th scope="col">Crew</th>
+                  <th scope="col">Buses</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((school) => (
+                {items.map((school) => (
                   <tr key={school.id}>
                     <td>
                       <Link className="linkish" href={`/admin/schools/${school.id}`}>
                         {school.name}
                       </Link>
-                      {school.city ? (
-                        <div className="muted" style={{ fontSize: '0.8rem' }}>
-                          {school.city}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      <code>{school.code}</code>
+                      <div className="muted" style={{ fontSize: '0.8rem' }}>
+                        <code>{school.code}</code>
+                        {school.subdomain ? ` · ${school.subdomain}` : ''}
+                        {school.city ? ` · ${school.city}` : ''}
+                      </div>
                     </td>
                     <td>
                       <Badge tone={school.is_active ? 'success' : 'warning'}>
-                        {school.status === 'active' ? 'Active' : 'Inactive'}
+                        {school.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </td>
                     <td>
                       {/* Bulk-enriched by the list endpoint — never fetched per row. */}
-                      {school.subscription.plan ? (
-                        <>
-                          {school.subscription.plan.name}
-                          <div style={{ marginTop: '0.2rem' }}>
-                            <Badge tone={subscriptionStatusTone(school.subscription.status)}>
-                              {SUBSCRIPTION_STATUS_LABELS[school.subscription.status]}
-                            </Badge>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="muted">No plan</span>
-                      )}
+                      <Badge tone={subscriptionStatusTone(school.subscription.status)}>
+                        {SUBSCRIPTION_STATUS_LABELS[school.subscription.status]}
+                      </Badge>
+                      <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                        {school.subscription.plan ? school.subscription.plan.name : 'No plan'}
+                        {school.subscription.current_period_end
+                          ? ` · until ${formatDateTime(school.subscription.current_period_end)}`
+                          : ''}
+                      </div>
                     </td>
                     <td>
                       {school.primary_admin ? fullName(school.primary_admin) : '—'}
@@ -220,7 +273,7 @@ export default function AdminSchoolsPage() {
                           variant="ghost"
                           onClick={() => router.push(`/admin/schools/${school.id}`)}
                         >
-                          View
+                          Open
                         </Button>
                         {school.is_active ? (
                           <Button
@@ -251,11 +304,11 @@ export default function AdminSchoolsPage() {
             </table>
           </div>
           <Pagination
-            page={data.meta.page}
-            totalPages={data.meta.totalPages}
-            hasNextPage={data.meta.hasNextPage}
-            hasPreviousPage={data.meta.hasPreviousPage}
-            onPage={(page) => setFilters((current) => ({ ...current, page }))}
+            page={meta.page}
+            totalPages={meta.totalPages}
+            hasNextPage={meta.hasNextPage}
+            hasPreviousPage={meta.hasPreviousPage}
+            onPage={setPage}
           />
         </>
       )}
@@ -277,10 +330,10 @@ export default function AdminSchoolsPage() {
         busy={busyId === confirm?.id}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
-          if (confirm) {
-            void runLifecycle(confirm.id, confirm.action);
-            setConfirm(null);
-          }
+          if (!confirm) return;
+          const { id, name, action } = confirm;
+          setConfirm(null);
+          void runLifecycle(id, name, action);
         }}
       />
     </div>

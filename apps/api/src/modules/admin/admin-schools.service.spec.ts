@@ -36,6 +36,17 @@ function makeSubscriptionsStub(infoBySchool: Record<string, AdminSchoolSubscript
   };
 }
 
+/**
+ * Stub for the stop / route-assignment repositories used by the School 360
+ * resource overview: a grouped `findAll` that returns no rows.
+ */
+function emptyGroupedRepo() {
+  return {
+    sequelize: { fn: (name: string, col: unknown) => ({ fn: name, col }), col: (n: string) => n },
+    findAll: async () => [] as never[],
+  };
+}
+
 interface StubTransaction {
   state: 'active' | 'committed' | 'rolled-back';
 }
@@ -118,6 +129,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       refreshRepo as never,
       onboarding,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
 
     const deactivated = await service.deactivate(schoolId);
@@ -145,6 +158,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
     await assert.rejects(
       service.deactivate('99999999-9999-4999-9999-999999999999'),
@@ -176,6 +191,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
 
     const query = { page: 1, limit: 10, status: 'inactive' } as unknown as ListAdminSchoolsQueryDto;
@@ -206,6 +223,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
     await assert.rejects(
       service.update(schoolId, {}),
@@ -268,6 +287,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
 
     const details = await service.findOneOrThrow(schoolId);
@@ -291,6 +312,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
     await assert.rejects(service.findOneOrThrow('missing'), (error: unknown) => {
       assert.ok(error instanceof NotFoundException);
@@ -313,6 +336,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
     await assert.rejects(
       service.update('b', { email: 'shared@x.test' }),
@@ -367,6 +392,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub({ [schoolId]: subscription }) as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
 
     const details = await service.findOneOrThrow(schoolId);
@@ -413,6 +440,8 @@ describe('AdminSchoolsService.lifecycle', () => {
       {} as never,
       {} as never,
       makeSubscriptionsStub() as never,
+      emptyGroupedRepo() as never,
+      emptyGroupedRepo() as never,
     );
 
     const list = await service.findAll({ page: 1, limit: 10 } as unknown as ListAdminSchoolsQueryDto);
@@ -421,5 +450,70 @@ describe('AdminSchoolsService.lifecycle', () => {
       plan: null,
       current_period_end: null,
     });
+  });
+});
+
+describe('AdminSchoolsService.findOneOrThrow — School 360 resource overview', () => {
+  it('reports stop and route-assignment counts alongside the existing stats', async () => {
+    const schoolId = '66666666-6666-4666-8666-666666666666';
+    const schoolsRepo = makeSchoolsRepo([
+      {
+        id: schoolId,
+        name: 'Riverdale',
+        code: 'riverdale',
+        subdomain: null,
+        email: null,
+        phone: null,
+        address_line1: null,
+        address_line2: null,
+        city: null,
+        state: null,
+        postal_code: null,
+        country: null,
+        timezone: 'UTC',
+        is_active: true,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+        updated_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ] as unknown as Record<string, unknown>[]);
+    const sequelize = {
+      fn: (name: string, col: unknown) => ({ fn: name, col }),
+      col: (n: string) => n,
+    };
+    const empty = { sequelize, findAll: async () => [] as never[] };
+    const stopsRepo = {
+      sequelize,
+      findAll: async () => [{ count: 24 }] as never,
+    };
+    const assignmentsRepo = {
+      sequelize,
+      findAll: async () =>
+        [
+          { is_active: true, count: 5 },
+          { is_active: false, count: 2 },
+        ] as never,
+    };
+
+    const service = new AdminSchoolsService(
+      schoolsRepo.repo as never,
+      empty as never,
+      empty as never,
+      empty as never,
+      empty as never,
+      empty as never,
+      {} as never,
+      {} as never,
+      makeSubscriptionsStub() as never,
+      stopsRepo as never,
+      assignmentsRepo as never,
+    );
+
+    const details = await service.findOneOrThrow(schoolId);
+    assert.equal(details.stats.stop_count, 24);
+    assert.equal(details.stats.assignment_count, 7);
+    assert.equal(details.stats.active_assignment_count, 5);
+    // Untouched buckets keep reporting zero rather than undefined.
+    assert.equal(details.stats.student_count, 0);
+    assert.equal(details.stats.route_count, 0);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { canAccessPath, homePath, navItemsForRole } from './roles.ts';
+import { activeNavHref, canAccessPath, homePath, navItemsForRole } from './roles.ts';
 
 /**
  * Guard regressions are invisible in the UI: an allowed screen that the guard
@@ -51,5 +51,32 @@ describe('canAccessPath', () => {
     assert.equal(canAccessPath(UserRole.DRIVER, '/admin'), false);
     assert.equal(canAccessPath(UserRole.CONDUCTOR, '/admin/schools'), false);
     assert.equal(canAccessPath(UserRole.PARENT, '/admin/plans'), false);
+  });
+});
+
+describe('platform console navigation', () => {
+  it('exposes the revenue overview to the platform admin only', () => {
+    const items = navItemsForRole(UserRole.SUPER_ADMIN).map((item) => item.href);
+    assert.ok(items.includes('/admin/revenue'));
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/admin/revenue'), true);
+    assert.equal(canAccessPath(UserRole.SCHOOL_ADMIN, '/admin/revenue'), false);
+    assert.equal(canAccessPath(UserRole.PARENT, '/admin/revenue'), false);
+  });
+
+  it('highlights only the deepest matching nav section', () => {
+    const items = navItemsForRole(UserRole.SUPER_ADMIN);
+    assert.equal(activeNavHref(items, '/admin'), '/admin');
+    assert.equal(activeNavHref(items, '/admin/schools'), '/admin/schools');
+    // Deep links keep their section highlighted after a refresh.
+    assert.equal(activeNavHref(items, '/admin/schools/abc-123'), '/admin/schools');
+    assert.equal(activeNavHref(items, '/admin/plans/new'), '/admin/plans');
+    assert.equal(activeNavHref(items, '/nowhere'), null);
+  });
+
+  it('never treats the school dashboard root as a prefix match', () => {
+    const items = navItemsForRole(UserRole.SCHOOL_ADMIN);
+    assert.equal(activeNavHref(items, '/'), '/');
+    assert.equal(activeNavHref(items, '/students'), '/students');
+    assert.equal(activeNavHref(items, '/trips/42'), '/trips');
   });
 });

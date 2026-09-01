@@ -440,6 +440,11 @@ export interface AdminSchoolStats {
   active_bus_count: number;
   route_count: number;
   active_route_count: number;
+  /** Route stops configured by the tenant (counts against the plan limit). */
+  stop_count: number;
+  /** Driver/conductor ↔ route assignments configured by the tenant. */
+  assignment_count: number;
+  active_assignment_count: number;
   trip_count: number;
   active_trip_count: number;
 }

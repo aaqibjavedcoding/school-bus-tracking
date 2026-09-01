@@ -2,61 +2,65 @@
 
 import Link from 'next/link';
 import React from 'react';
-import { SUBSCRIPTION_STATUS_LABELS } from '@school-bus-tracking/shared-types';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  PageHeader,
-  Skeleton,
-} from '../../../components/ui';
+import { SubscriptionStatus } from '@school-bus-tracking/shared-types';
+import { Button, Card, EmptyState, ErrorState, PageHeader, Skeleton } from '../../../components/ui';
 import { useLoad } from '../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../lib/errors';
 import { formatCurrency, formatDateTime } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
+import { BarList, DonutChart } from '../../../features/admin/components/Charts';
+import { KpiCard, KpiGrid, KpiGridSkeleton } from '../../../features/admin/components/KpiCard';
 import {
-  billingPeriodSuffix,
-  subscriptionStatusTone,
-} from '../../../features/admin/subscriptions/helpers';
+  planDistributionBars,
+  resourceBars,
+  revenueByPlan,
+  schoolStatusSlices,
+  schoolsWithSubscriptionStatus,
+  subscriptionStatusSlices,
+} from '../../../features/admin/metrics';
 
-interface StatCard {
-  label: string;
-  value: number | string;
-  hint?: string;
-}
+const number = (value: number): string => new Intl.NumberFormat().format(value);
 
-const StatGrid: React.FC<{ cards: StatCard[] }> = ({ cards }) => (
-  <div className="stat-grid" style={{ marginBottom: '1.25rem' }}>
-    {cards.map((card) => (
-      <div className="stat-card" key={card.label}>
-        <span className="label">{card.label}</span>
-        <span className="value">{card.value}</span>
-        {card.hint ? (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            {card.hint}
-          </span>
-        ) : null}
-      </div>
-    ))}
-  </div>
-);
-
+/**
+ * Platform dashboard of the Super Admin console (`/admin`).
+ *
+ * Reads the single existing aggregate endpoint (`GET /admin/dashboard`) and
+ * presents it as a SaaS control panel: a headline KPI band, distribution
+ * charts and an estimated-revenue block. Every number shown here comes from
+ * that payload — nothing is fabricated client-side — and revenue figures are
+ * explicitly labelled as estimates because no payment provider is connected.
+ */
 export default function AdminOverviewPage() {
   const { data, loading, error, reload } = useLoad(async () => {
     const envelope = await apiClient.getAdminDashboard();
     return unwrapEnvelope(envelope);
   }, []);
 
+  const header = (
+    <PageHeader
+      title="Platform overview"
+      description="Live SaaS metrics across every customer school on the platform."
+      actions={
+        <>
+          <Button variant="secondary" onClick={() => void reload()} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </Button>
+          <Link href="/admin/schools/new">
+            <Button>Add school</Button>
+          </Link>
+        </>
+      }
+    />
+  );
+
   if (loading && !data) {
     return (
       <div className="page">
-        <PageHeader
-          title="Platform overview"
-          description="SaaS-level metrics across all customer schools."
-        />
-        <Skeleton lines={12} />
+        {header}
+        <KpiGridSkeleton count={8} />
+        <Card title="Loading platform metrics">
+          <Skeleton lines={8} />
+        </Card>
       </div>
     );
   }
@@ -64,230 +68,222 @@ export default function AdminOverviewPage() {
   if (error || !data) {
     return (
       <div className="page">
-        <PageHeader title="Platform overview" />
+        {header}
         <ErrorState
-          message={error ?? 'Unable to load platform metrics'}
+          title="Unable to load the platform overview"
+          message={error ?? 'The dashboard metrics could not be loaded. Please try again.'}
           onRetry={() => void reload()}
         />
       </div>
     );
   }
 
+  const trialSchools = schoolsWithSubscriptionStatus(data, SubscriptionStatus.TRIALING);
+  const primaryRevenue = data.estimated_revenue[0] ?? null;
+  const otherCurrencies = Math.max(0, data.estimated_revenue.length - 1);
+  const crew = data.users.drivers + data.users.conductors;
+  const planRevenue = revenueByPlan(data);
+
   return (
     <div className="page">
-      <PageHeader
-        title="Platform overview"
-        description="SaaS-level metrics across all customer schools."
-        actions={
-          <Link href="/admin/schools/new">
-            <Button>Add school</Button>
-          </Link>
-        }
-      />
+      {header}
 
-      <Card title="Schools" description="Tenant lifecycle across the platform.">
-        <StatGrid
-          cards={[
-            { label: 'Total schools', value: data.schools.total },
-            {
-              label: 'Active',
-              value: data.schools.active,
-              hint: 'Schools currently serving users',
-            },
-            {
-              label: 'Inactive',
-              value: data.schools.inactive,
-              hint: 'Suspended tenants, data retained',
-            },
-          ]}
-        />
-        <div className="row">
-          <Badge tone="success">{data.schools.active} active</Badge>
-          <Badge tone="warning">{data.schools.inactive} inactive</Badge>
-        </div>
-      </Card>
+      <section aria-label="Platform key metrics">
+        <KpiGrid>
+          <KpiCard
+            label="Total schools"
+            value={number(data.schools.total)}
+            hint="All tenants ever provisioned"
+          />
+          <KpiCard
+            label="Active schools"
+            value={number(data.schools.active)}
+            tone="success"
+            hint="Users can sign in"
+          />
+          <KpiCard
+            label="Inactive schools"
+            value={number(data.schools.inactive)}
+            tone="warning"
+            hint="Suspended, data retained"
+          />
+          <KpiCard
+            label="Trial schools"
+            value={number(trialSchools)}
+            tone="info"
+            hint="Current subscription is trialing"
+          />
+          <KpiCard
+            label="Active subscriptions"
+            value={number(data.subscriptions.active)}
+            tone="success"
+            hint={`${number(data.subscriptions.live)} live incl. trials`}
+          />
+          <KpiCard
+            label="Past due subscriptions"
+            value={number(data.subscriptions.past_due)}
+            tone="warning"
+            hint="Need follow-up"
+          />
+          <KpiCard
+            label="Cancelled subscriptions"
+            value={number(data.subscriptions.cancelled)}
+            tone="danger"
+            hint={`${number(data.subscriptions.expired)} expired`}
+          />
+          <KpiCard
+            label="Active plans"
+            value={number(data.plans.active)}
+            hint={`${number(data.plans.total)} in the catalogue`}
+          />
+          <KpiCard label="Students" value={number(data.users.students)} hint="Across all schools" />
+          <KpiCard
+            label="Buses"
+            value={number(data.transport.buses)}
+            hint={`${number(data.transport.active_buses)} active`}
+          />
+          <KpiCard
+            label="Drivers & conductors"
+            value={number(crew)}
+            hint={`${number(data.users.drivers)} drivers · ${number(data.users.conductors)} conductors`}
+          />
+          <KpiCard
+            label="Active routes"
+            value={number(data.transport.active_routes)}
+            hint={`${number(data.transport.routes)} routes total`}
+          />
+          <KpiCard
+            label="Estimated MRR"
+            value={
+              primaryRevenue
+                ? formatCurrency(primaryRevenue.estimated_mrr, primaryRevenue.currency)
+                : '—'
+            }
+            tone="info"
+            caption="Estimated"
+            hint={
+              primaryRevenue
+                ? `Based on ${number(primaryRevenue.live_subscriptions)} live subscription${primaryRevenue.live_subscriptions === 1 ? '' : 's'}${otherCurrencies > 0 ? ` · +${otherCurrencies} more currency` : ''}`
+                : 'No live subscriptions yet'
+            }
+          />
+          <KpiCard
+            label="Estimated ARR"
+            value={
+              primaryRevenue
+                ? formatCurrency(primaryRevenue.estimated_arr, primaryRevenue.currency)
+                : '—'
+            }
+            tone="info"
+            caption="Estimated"
+            hint="Estimated MRR × 12 — not billed revenue"
+          />
+        </KpiGrid>
+      </section>
 
-      <Card title="Users" description="Accounts by role across all active and inactive tenants.">
-        <StatGrid
-          cards={[
-            { label: 'School admins', value: data.users.school_admins },
-            { label: 'Students', value: data.users.students },
-            { label: 'Parents', value: data.users.parents },
-            { label: 'Drivers', value: data.users.drivers },
-            { label: 'Conductors', value: data.users.conductors },
-            { label: 'Platform admins', value: data.users.super_admins },
-          ]}
-        />
-      </Card>
+      <div className="section-grid">
+        <Card
+          title="Schools by status"
+          description="Tenant lifecycle: active tenants can sign in, inactive ones keep all their data."
+        >
+          <DonutChart
+            slices={schoolStatusSlices(data)}
+            centerValue={data.schools.total}
+            centerLabel="Schools"
+            emptyLabel="No schools have been provisioned yet."
+          />
+        </Card>
 
-      <Card
-        title="Transport operations"
-        description="Fleet, route network and current trip activity."
-      >
-        <StatGrid
-          cards={[
-            {
-              label: 'Buses',
-              value: `${data.transport.buses} (${data.transport.active_buses} active)`,
-            },
-            {
-              label: 'Routes',
-              value: `${data.transport.routes} (${data.transport.active_routes} active)`,
-            },
-            {
-              label: 'Active trips',
-              value: `${data.transport.active_trips} / ${data.transport.trips}`,
-              hint: 'Scheduled, boarding or in progress',
-            },
-          ]}
-        />
-      </Card>
+        <Card
+          title="Schools by subscription status"
+          description="Each school counted once, by the state of its current (or latest) subscription."
+        >
+          <DonutChart
+            slices={subscriptionStatusSlices(data)}
+            centerValue={data.schools.total}
+            centerLabel="Schools"
+            emptyLabel="No school has a subscription yet."
+          />
+        </Card>
 
-      <Card
-        title="Subscriptions"
-        description="Every persisted subscription record, including historical cancelled and expired rows."
-      >
-        <StatGrid
-          cards={[
-            { label: 'Total subscriptions', value: data.subscriptions.total },
-            { label: 'Live', value: data.subscriptions.live },
-            { label: 'Trialing', value: data.subscriptions.trialing },
-            { label: 'Active', value: data.subscriptions.active },
-            { label: 'Past due', value: data.subscriptions.past_due },
-            { label: 'Cancelled', value: data.subscriptions.cancelled },
-            { label: 'Expired', value: data.subscriptions.expired },
-          ]}
-        />
-      </Card>
+        <Card
+          title="Schools by plan"
+          description="Distribution of tenants across the plan catalogue, with the live share of each plan."
+        >
+          <BarList rows={planDistributionBars(data)} emptyLabel="No school is on a plan yet." />
+        </Card>
 
-      <Card title="Plans" description="Platform plan catalogue lifecycle.">
-        <StatGrid
-          cards={[
-            { label: 'Total plans', value: data.plans.total },
-            { label: 'Active', value: data.plans.active },
-            { label: 'Inactive', value: data.plans.inactive },
-          ]}
-        />
-      </Card>
-
-      <Card
-        title="Subscription status distribution"
-        description="Schools split by their current/latest subscription state. A school without any subscription is reported as 'No subscription'."
-      >
-        {data.school_subscription_status.length === 0 ? (
-          <EmptyState title="No subscriptions" description="No school has a subscription yet." />
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Status</th>
-                  <th>Schools</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.school_subscription_status.map((item) => (
-                  <tr key={item.status}>
-                    <td>
-                      <Badge tone={subscriptionStatusTone(item.status)}>
-                        {SUBSCRIPTION_STATUS_LABELS[item.status]}
-                      </Badge>
-                    </td>
-                    <td>{item.schools}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      <Card
-        title="Plan distribution"
-        description="Schools grouped by the plan of their current/latest subscription."
-      >
-        {data.plan_distribution.length === 0 ? (
-          <EmptyState title="No plan assignments" description="No school is on a plan yet." />
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Plan</th>
-                  <th>Price</th>
-                  <th>Schools</th>
-                  <th>Live schools</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.plan_distribution.map((item) => (
-                  <tr key={item.plan_id ?? 'none'}>
-                    <td>
-                      {item.plan_name ?? 'Unknown plan'}
-                      <div className="muted" style={{ fontSize: '0.8rem' }}>
-                        <code>{item.plan_code ?? '—'}</code>
-                      </div>
-                    </td>
-                    <td>
-                      {item.price && item.currency ? (
-                        <>
-                          {formatCurrency(item.price, item.currency)}{' '}
-                          {billingPeriodSuffix(item.billing_period)}
-                        </>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td>{item.schools}</td>
-                    <td>{item.live_schools}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+        <Card
+          title="Platform resources"
+          description="Total records managed by the platform across every tenant."
+        >
+          <BarList rows={resourceBars(data)} emptyLabel="No tenant data yet." />
+        </Card>
+      </div>
 
       <Card
         title="Estimated revenue"
-        description="Calculated from the plan catalogue list price attached to live subscriptions. No payment provider is connected — these are estimates, not invoiced or received revenue."
+        description="Derived from plan catalogue list prices attached to live subscriptions. No payment provider is connected — these are estimates, never billed or collected revenue."
       >
         {data.estimated_revenue.length === 0 ? (
           <EmptyState
             title="No live subscriptions"
-            description="Estimated MRR / ARR will appear once schools hold live subscriptions."
+            description="Estimated MRR and ARR appear as soon as schools hold a live subscription on a priced plan."
+            action={
+              <Link href="/admin/subscriptions">
+                <Button variant="secondary">Review subscriptions</Button>
+              </Link>
+            }
           />
         ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Currency</th>
-                  <th>Estimated MRR</th>
-                  <th>Estimated ARR</th>
-                  <th>Live subscriptions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.estimated_revenue.map((item) => (
-                  <tr key={item.currency}>
-                    <td>{item.currency}</td>
-                    <td>{formatCurrency(item.estimated_mrr, item.currency)}</td>
-                    <td>{formatCurrency(item.estimated_arr, item.currency)}</td>
-                    <td>{item.live_subscriptions}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <KpiGrid>
+              {data.estimated_revenue.map((item) => (
+                <React.Fragment key={item.currency}>
+                  <KpiCard
+                    label={`Estimated MRR (${item.currency})`}
+                    value={formatCurrency(item.estimated_mrr, item.currency)}
+                    caption="Estimated"
+                    tone="info"
+                    hint={`${number(item.live_subscriptions)} live subscription${item.live_subscriptions === 1 ? '' : 's'}`}
+                  />
+                  <KpiCard
+                    label={`Estimated ARR (${item.currency})`}
+                    value={formatCurrency(item.estimated_arr, item.currency)}
+                    caption="Estimated"
+                    tone="info"
+                    hint="Monthly estimate × 12"
+                  />
+                </React.Fragment>
+              ))}
+            </KpiGrid>
+            <div style={{ marginTop: '1rem' }}>
+              <BarList
+                rows={planRevenue.map((row) => ({
+                  key: row.plan_id,
+                  label: row.plan_name,
+                  hint: `${row.live_schools} live · ${Math.round(row.share)}% of ${row.currency} MRR`,
+                  value: row.estimated_mrr,
+                  display: formatCurrency(row.estimated_mrr, row.currency),
+                  tone: 'info' as const,
+                }))}
+                emptyLabel="No priced plan currently has a live subscription."
+              />
+            </div>
+            <div className="row" style={{ marginTop: '1rem' }}>
+              <Link href="/admin/revenue">
+                <Button variant="secondary">Open revenue overview</Button>
+              </Link>
+            </div>
+          </>
         )}
-        <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem' }}>
+        <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.9rem' }}>
           {data.revenue_note}
         </p>
       </Card>
 
       <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Metrics generated {formatDateTime(data.generated_at)}
+        Metrics generated {formatDateTime(data.generated_at)}.
       </p>
     </div>
   );

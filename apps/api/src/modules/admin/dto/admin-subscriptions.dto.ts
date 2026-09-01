@@ -1,5 +1,15 @@
 import { Transform, Type } from 'class-transformer';
-import { IsIn, IsISO8601, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsISO8601,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   AdminSchoolSubscriptionCancelRequest,
   AdminSchoolSubscriptionCreateRequest,
@@ -119,7 +129,9 @@ export class ListAdminSubscriptionsQueryDto {
 
   @IsOptional()
   @IsString({ message: 'search must be a string' })
-  @Max(100, { message: 'search must be at most 100 characters' })
+  // `MaxLength` (not `Max`, which only constrains numbers) is what actually
+  // bounds a free-text query — the same guard the schools/plans list DTOs use.
+  @MaxLength(100, { message: 'search must be at most 100 characters' })
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   search?: string;
 

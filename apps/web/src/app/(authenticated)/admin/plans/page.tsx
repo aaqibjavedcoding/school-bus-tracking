@@ -3,8 +3,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useCallback, useState } from 'react';
-import type { AdminPlanStatus } from '@school-bus-tracking/shared-types';
-import { PLAN_FEATURE_LABELS, PLAN_LIMIT_RESOURCE_LABELS, PlanFeature, PlanLimitResource } from '@school-bus-tracking/shared-types';
+import {
+  PLAN_FEATURE_LABELS,
+  PLAN_LIMIT_RESOURCE_VALUES,
+  PLAN_LIMIT_RESOURCE_LABELS,
+  PlanFeature,
+  type AdminPlanStatus,
+  type AdminPlanSummary,
+} from '@school-bus-tracking/shared-types';
 import {
   Badge,
   Button,
@@ -12,52 +18,46 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
-  Input,
   PageHeader,
   Pagination,
+  SearchInput,
   Select,
   Skeleton,
   useToast,
 } from '../../../../components/ui';
-import { useLoad } from '../../../../hooks/useLoad';
+import { usePagedResource } from '../../../../hooks/usePagedResource';
 import { formatCurrency, formatDateTime } from '../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../lib/errors';
 import { apiClient } from '../../../../services/api';
-
-interface ListState {
-  page: number;
-  limit: number;
-  search: string;
-  status: '' | AdminPlanStatus;
-}
-
-const INITIAL_STATE: ListState = { page: 1, limit: 10, search: '', status: '' };
+import { formatLimit } from '../../../../features/admin/metrics';
 
 const BILLING_LABELS: Record<string, string> = {
   monthly: '/ month',
   yearly: '/ year',
 };
 
-function formatLimitDisplay(
-  limit: { unlimited: boolean; value: number | null } | undefined,
-): string {
-  if (!limit) return '—';
-  if (limit.unlimited) return 'Unlimited';
-  return new Intl.NumberFormat().format(Number(limit.value));
-}
+type SortKey = 'created_at:desc' | 'price:asc' | 'price:desc' | 'name:asc';
 
-const SUMMARY_LIMITS: PlanLimitResource[] = [
-  PlanLimitResource.STUDENTS,
-  PlanLimitResource.BUSES,
-  PlanLimitResource.ROUTES,
-  PlanLimitResource.DRIVERS,
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'created_at:desc', label: 'Newest first' },
+  { value: 'price:asc', label: 'Price (low → high)' },
+  { value: 'price:desc', label: 'Price (high → low)' },
+  { value: 'name:asc', label: 'Name (A–Z)' },
 ];
 
+/**
+ * Plan catalogue of the Super Admin console (`/admin/plans`).
+ *
+ * Shows every commercial tier with its full limit matrix (unlimited vs a
+ * fixed cap vs "not set" are visually distinct) and its enabled features.
+ * Creation and editing live on dedicated pages; this screen owns discovery
+ * plus the activate/deactivate lifecycle, both behind confirmation dialogs.
+ */
 export default function AdminPlansPage() {
   const router = useRouter();
   const toast = useToast();
-  const [filters, setFilters] = useState<ListState>(INITIAL_STATE);
-  const [searchInput, setSearchInput] = useState('');
+  const [status, setStatus] = useState<'' | AdminPlanStatus>('');
+  const [sort, setSort] = useState<SortKey>('created_at:desc');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     id: string;
@@ -65,47 +65,64 @@ export default function AdminPlansPage() {
     action: 'activate' | 'deactivate';
   } | null>(null);
 
-  const { data, loading, error, reload, setData } = useLoad(async () => {
-    const envelope = await apiClient.listAdminPlans({
-      page: filters.page,
-      limit: filters.limit,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-    });
-    return unwrapEnvelope(envelope);
-  }, [filters.page, filters.limit, filters.search, filters.status]);
+  const { items, meta, setPage, search, setSearch, loading, searching, error, reload } =
+    usePagedResource<AdminPlanSummary>(
+      async (currentPage, currentSearch) => {
+        const [sortColumn, order] = sort.split(':') as [
+          'created_at' | 'name' | 'price',
+          'asc' | 'desc',
+        ];
+        const envelope = await apiClient.listAdminPlans({
+          page: currentPage,
+          limit: 12,
+          search: currentSearch || undefined,
+          status: status || undefined,
+          sort: sortColumn,
+          order,
+        });
+        return unwrapEnvelope(envelope);
+      },
+      [status, sort],
+    );
 
-  const applySearch = useCallback(() => {
-    setFilters((current) => ({ ...current, search: searchInput.trim(), page: 1 }));
-  }, [searchInput]);
+  const hasFilters = Boolean(search || status) || sort !== 'created_at:desc';
+
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setStatus('');
+    setSort('created_at:desc');
+    setPage(1);
+  }, [setPage, setSearch]);
 
   const runLifecycle = useCallback(
-    async (id: string, action: 'activate' | 'deactivate') => {
+    async (id: string, name: string, action: 'activate' | 'deactivate') => {
       setBusyId(id);
       try {
         if (action === 'deactivate') {
           await apiClient.deactivateAdminPlan(id);
-          toast.push('Plan deactivated — no longer available for new subscriptions', 'info');
+          toast.push(`${name} deactivated — hidden from new subscriptions.`, 'info');
         } else {
           await apiClient.activateAdminPlan(id);
-          toast.push('Plan activated', 'success');
+          toast.push(`${name} activated — available for new subscriptions.`, 'success');
         }
-        setData(null);
         await reload();
       } catch (caught) {
-        toast.push(getApiErrorMessage(caught, 'Lifecycle action failed'), 'danger');
+        toast.push(
+          getApiErrorMessage(caught, `Unable to ${action} ${name}. Please try again.`),
+          'danger',
+        );
       } finally {
         setBusyId(null);
       }
     },
-    [reload, setData, toast],
+    [reload, toast],
   );
 
   return (
     <div className="page">
       <PageHeader
-        title="Subscription Plans"
-        description="Define the commercial tiers schools can subscribe to. Features and limits are configurable per plan."
+        title="Plans"
+        description="The commercial tiers schools can subscribe to. Limits are enforced by the API for every tenant on the plan."
         actions={
           <Link href="/admin/plans/new">
             <Button>Create plan</Button>
@@ -114,78 +131,89 @@ export default function AdminPlansPage() {
       />
 
       <div className="toolbar" style={{ marginBottom: '1rem' }}>
-        <form
-          className="row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            applySearch();
-          }}
-        >
-          <Input
-            name="search"
-            placeholder="Search name or code…"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            style={{ minWidth: 260 }}
-          />
-          <Button type="submit" variant="secondary">
-            Search
-          </Button>
-        </form>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          searching={searching}
+          placeholder="Search plan name or code…"
+        />
         <Select
-          aria-label="Status filter"
-          value={filters.status}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              status: event.target.value as '' | AdminPlanStatus,
-              page: 1,
-            }))
-          }
+          aria-label="Filter by plan status"
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value as '' | AdminPlanStatus);
+            setPage(1);
+          }}
           options={[
             { value: '', label: 'All statuses' },
-            { value: 'active', label: 'Active' },
-            { value: 'inactive', label: 'Inactive' },
+            { value: 'active', label: 'Active only' },
+            { value: 'inactive', label: 'Inactive only' },
           ]}
-          style={{ maxWidth: 200 }}
+          style={{ maxWidth: 190 }}
         />
+        <Select
+          aria-label="Sort plans"
+          value={sort}
+          onChange={(event) => {
+            setSort(event.target.value as SortKey);
+            setPage(1);
+          }}
+          options={SORT_OPTIONS}
+          style={{ maxWidth: 210 }}
+        />
+        {hasFilters ? (
+          <Button variant="ghost" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
       </div>
 
-      {loading && !data ? (
+      {loading && items.length === 0 ? (
         <Skeleton lines={10} />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void reload()} />
-      ) : !data || data.items.length === 0 ? (
+        <ErrorState title="Unable to load plans" message={error} onRetry={() => void reload()} />
+      ) : items.length === 0 ? (
         <EmptyState
           title="No plans found"
           description={
-            filters.search || filters.status
-              ? 'Try a different search or filter.'
+            hasFilters
+              ? 'No plan matches the current search and filters.'
               : 'Create your first subscription plan to start offering the platform commercially.'
           }
           action={
-            <Link href="/admin/plans/new">
-              <Button>Create plan</Button>
-            </Link>
+            hasFilters ? (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : (
+              <Link href="/admin/plans/new">
+                <Button>Create plan</Button>
+              </Link>
+            )
           }
         />
       ) : (
         <>
+          <p className="result-count" style={{ marginBottom: '0.5rem' }}>
+            {meta.total} plan{meta.total === 1 ? '' : 's'} in the catalogue
+          </p>
           <div className="card-grid" style={{ marginBottom: '1rem' }}>
-            {data.items.map((plan) => {
+            {items.map((plan) => {
               const enabled = Object.entries(plan.features).filter(([, on]) => on);
               return (
-                <Card
-                  key={plan.id}
-                  title={plan.name}
-                  description={plan.description ?? undefined}
-                >
-                  <div className="row" style={{ justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                <Card key={plan.id} title={plan.name} description={plan.description ?? undefined}>
+                  <div
+                    className="row"
+                    style={{ justifyContent: 'space-between', marginBottom: '0.6rem' }}
+                  >
                     <div>
-                      <strong style={{ fontSize: '1.4rem' }}>
+                      <strong style={{ fontSize: '1.35rem' }}>
                         {formatCurrency(Number(plan.price), plan.currency)}
                       </strong>
-                      <span className="muted"> {BILLING_LABELS[plan.billing_period] ?? plan.billing_period}</span>
+                      <span className="muted">
+                        {' '}
+                        {BILLING_LABELS[plan.billing_period] ?? plan.billing_period}
+                      </span>
                     </div>
                     <Badge tone={plan.is_active ? 'success' : 'warning'}>
                       {plan.is_active ? 'Active' : 'Inactive'}
@@ -194,41 +222,65 @@ export default function AdminPlansPage() {
                   <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
                     Code: <code>{plan.code}</code>
                   </p>
-                  <div style={{ marginBottom: '0.75rem' }}>
-                    <div className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-                      Key limits
+
+                  <div style={{ marginBottom: '0.85rem' }}>
+                    <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
+                      Resource limits
                     </div>
-                    <div className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
-                      {SUMMARY_LIMITS.map((res) => (
-                        <Badge key={res} tone="neutral">
-                          {PLAN_LIMIT_RESOURCE_LABELS[res]}: {formatLimitDisplay(plan.limits[res])}
-                        </Badge>
-                      ))}
-                    </div>
+                    <dl className="detail-grid" style={{ gap: '0.4rem 1rem', margin: 0 }}>
+                      {PLAN_LIMIT_RESOURCE_VALUES.map((resource) => {
+                        const limit = plan.limits[resource];
+                        return (
+                          <div key={resource}>
+                            <dt className="detail-item__label">
+                              {PLAN_LIMIT_RESOURCE_LABELS[resource]}
+                            </dt>
+                            <dd
+                              className="detail-item__value"
+                              style={{
+                                margin: 0,
+                                fontWeight: 650,
+                                color: limit?.unlimited ? '#2563eb' : undefined,
+                              }}
+                            >
+                              {formatLimit(limit)}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
                   </div>
-                  <div style={{ marginBottom: '0.75rem' }}>
-                    <div className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+
+                  <div style={{ marginBottom: '0.85rem' }}>
+                    <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
                       Features ({enabled.length})
                     </div>
-                    <div className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
-                      {enabled.slice(0, 6).map(([key]) => (
-                        <Badge key={key} tone="info">
-                          {PLAN_FEATURE_LABELS[key as PlanFeature] ?? key}
-                        </Badge>
-                      ))}
-                      {enabled.length > 6 ? (
-                        <span className="muted" style={{ fontSize: '0.8rem' }}>
-                          +{enabled.length - 6} more
-                        </span>
-                      ) : null}
-                    </div>
+                    {enabled.length === 0 ? (
+                      <span className="muted" style={{ fontSize: '0.85rem' }}>
+                        No optional feature enabled on this plan.
+                      </span>
+                    ) : (
+                      <div className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {enabled.slice(0, 6).map(([key]) => (
+                          <Badge key={key} tone="info">
+                            {PLAN_FEATURE_LABELS[key as PlanFeature] ?? key}
+                          </Badge>
+                        ))}
+                        {enabled.length > 6 ? (
+                          <span className="muted" style={{ fontSize: '0.8rem' }}>
+                            +{enabled.length - 6} more
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
+
                   <div className="row">
                     <Button
-                      variant="ghost"
+                      variant="secondary"
                       onClick={() => router.push(`/admin/plans/${plan.id}`)}
                     >
-                      Edit
+                      Edit plan
                     </Button>
                     {plan.is_active ? (
                       <Button
@@ -260,11 +312,11 @@ export default function AdminPlansPage() {
             })}
           </div>
           <Pagination
-            page={data.meta.page}
-            totalPages={data.meta.totalPages}
-            hasNextPage={data.meta.hasNextPage}
-            hasPreviousPage={data.meta.hasPreviousPage}
-            onPage={(page) => setFilters((current) => ({ ...current, page }))}
+            page={meta.page}
+            totalPages={meta.totalPages}
+            hasNextPage={meta.hasNextPage}
+            hasPreviousPage={meta.hasPreviousPage}
+            onPage={setPage}
           />
         </>
       )}
@@ -278,7 +330,7 @@ export default function AdminPlansPage() {
         }
         message={
           confirm?.action === 'deactivate'
-            ? 'Schools already on this plan keep access, but the plan will be hidden from new subscription flows. Existing subscriptions are unaffected.'
+            ? 'Schools already on this plan keep their access and limits, but the plan will be hidden from new subscription flows. Existing subscriptions are unaffected.'
             : 'This plan will become available for new school subscriptions.'
         }
         confirmLabel={confirm?.action === 'deactivate' ? 'Deactivate plan' : 'Activate plan'}
@@ -286,10 +338,10 @@ export default function AdminPlansPage() {
         busy={busyId === confirm?.id}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
-          if (confirm) {
-            void runLifecycle(confirm.id, confirm.action);
-            setConfirm(null);
-          }
+          if (!confirm) return;
+          const { id, name, action } = confirm;
+          setConfirm(null);
+          void runLifecycle(id, name, action);
         }}
       />
     </div>

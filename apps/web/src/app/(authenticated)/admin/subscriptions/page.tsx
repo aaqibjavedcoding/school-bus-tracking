@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   SUBSCRIPTION_STATUS_LABELS,
   SubscriptionStatus,
@@ -13,13 +13,14 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  Input,
   PageHeader,
   Pagination,
+  SearchInput,
   Select,
   Skeleton,
 } from '../../../../components/ui';
 import { useLoad } from '../../../../hooks/useLoad';
+import { usePagedResource } from '../../../../hooks/usePagedResource';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../lib/errors';
 import { formatCurrency, formatDateTime } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
@@ -27,133 +28,208 @@ import {
   billingPeriodSuffix,
   subscriptionStatusTone,
 } from '../../../../features/admin/subscriptions/helpers';
+import { compactUsage } from '../../../../features/admin/metrics';
+import { KpiCard, KpiGrid } from '../../../../features/admin/components/KpiCard';
 
-interface Filters {
-  page: number;
-  limit: number;
-  search: string;
-  status: '' | SubscriptionStatus;
-  plan_id: string;
-}
-
-const INITIAL: Filters = { page: 1, limit: 20, search: '', status: '', plan_id: '' };
+/** Quick filters a platform owner reaches for every day. */
+const QUICK_FILTERS: Array<{ value: '' | SubscriptionStatus; label: string }> = [
+  { value: '', label: 'All' },
+  { value: SubscriptionStatus.TRIALING, label: 'Trial' },
+  { value: SubscriptionStatus.ACTIVE, label: 'Active' },
+  { value: SubscriptionStatus.PAST_DUE, label: 'Past due' },
+  { value: SubscriptionStatus.CANCELLED, label: 'Cancelled' },
+  { value: SubscriptionStatus.NONE, label: 'No subscription' },
+];
 
 const STATUS_OPTIONS = Object.entries(SUBSCRIPTION_STATUS_LABELS).map(([value, label]) => ({
   value,
   label,
 }));
 
+/**
+ * Platform-wide subscription console (`/admin/subscriptions`).
+ *
+ * Lists every school exactly once with its current (or latest) subscription,
+ * as returned by `GET /admin/subscriptions`. Search, status and plan filters
+ * are all applied server-side; the summary band re-uses the dashboard
+ * aggregate so the counts always match the platform overview.
+ */
 export default function AdminSubscriptionsPage() {
-  const [filters, setFilters] = useState<Filters>(INITIAL);
-  const [searchInput, setSearchInput] = useState('');
+  const [status, setStatus] = useState<'' | SubscriptionStatus>('');
+  const [planId, setPlanId] = useState('');
 
-  const { data, loading, error, reload } = useLoad(async () => {
-    const envelope = await apiClient.listAdminSubscriptions({
-      page: filters.page,
-      limit: filters.limit,
-      search: filters.search || undefined,
-      status: filters.status || undefined,
-      plan_id: filters.plan_id || undefined,
-    });
-    return unwrapEnvelope(envelope);
-  }, [filters.page, filters.limit, filters.search, filters.status, filters.plan_id]);
+  const { items, meta, setPage, search, setSearch, loading, searching, error, reload } =
+    usePagedResource<AdminSubscriptionListItem>(
+      async (currentPage, currentSearch) => {
+        const envelope = await apiClient.listAdminSubscriptions({
+          page: currentPage,
+          limit: 20,
+          search: currentSearch || undefined,
+          status: status || undefined,
+          plan_id: planId || undefined,
+        });
+        return unwrapEnvelope(envelope);
+      },
+      [status, planId],
+    );
 
   const plansState = useLoad(async () => {
     const plans = await apiClient.listAdminPlans({ limit: 100, sort: 'name', order: 'asc' });
     return unwrapEnvelope(plans).items;
   }, []);
 
-  const applySearch = useCallback(() => {
-    setFilters((current) => ({ ...current, search: searchInput.trim(), page: 1 }));
-  }, [searchInput]);
+  // The dashboard aggregate already counts schools per subscription state —
+  // re-used here instead of adding a second aggregate endpoint.
+  const summaryState = useLoad(async () => {
+    const envelope = await apiClient.getAdminDashboard();
+    return unwrapEnvelope(envelope);
+  }, []);
+
+  const hasFilters = Boolean(search || status || planId);
+
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setStatus('');
+    setPlanId('');
+    setPage(1);
+  }, [setPage, setSearch]);
+
+  const summary = useMemo(() => {
+    if (meta.total === 0) return 'No schools match these filters';
+    const first = (meta.page - 1) * meta.limit + 1;
+    const last = Math.min(meta.total, first + items.length - 1);
+    return `Showing ${first}–${last} of ${meta.total} school${meta.total === 1 ? '' : 's'}`;
+  }, [items.length, meta]);
+
+  const counts = summaryState.data;
 
   return (
     <div className="page">
       <PageHeader
         title="Subscriptions"
-        description="Platform-wide view of every school's current subscription, plan, period and usage."
+        description="Every school's current plan, period and usage in one platform-wide view."
+        actions={
+          <Link href="/admin/plans">
+            <Button variant="secondary">Plan catalogue</Button>
+          </Link>
+        }
       />
 
-      <div className="toolbar" style={{ marginBottom: '1rem' }}>
-        <form
-          className="row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            applySearch();
-          }}
-        >
-          <Input
-            name="subscription-search"
-            placeholder="Search school name, code or city…"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            style={{ minWidth: 260 }}
-          />
-          <Button type="submit" variant="secondary">
-            Search
-          </Button>
-        </form>
+      {counts ? (
+        <KpiGrid>
+          <KpiCard label="Schools" value={counts.schools.total} hint="On the platform" />
+          <KpiCard label="Trialing" value={counts.subscriptions.trialing} tone="info" />
+          <KpiCard label="Active" value={counts.subscriptions.active} tone="success" />
+          <KpiCard label="Past due" value={counts.subscriptions.past_due} tone="warning" />
+          <KpiCard label="Cancelled" value={counts.subscriptions.cancelled} tone="danger" />
+          <KpiCard label="Expired" value={counts.subscriptions.expired} hint="Kept for history" />
+        </KpiGrid>
+      ) : null}
+
+      <div className="toolbar" style={{ margin: '1rem 0 0.6rem' }}>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          searching={searching}
+          placeholder="Search school name, code, subdomain or city…"
+        />
         <Select
-          aria-label="Status filter"
-          value={filters.status}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              status: event.target.value as '' | SubscriptionStatus,
-              page: 1,
-            }))
-          }
+          aria-label="Filter by subscription status"
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value as '' | SubscriptionStatus);
+            setPage(1);
+          }}
           options={STATUS_OPTIONS}
           placeholder="All statuses"
           style={{ maxWidth: 200 }}
         />
         <Select
-          aria-label="Plan filter"
-          value={filters.plan_id}
-          onChange={(event) =>
-            setFilters((current) => ({ ...current, plan_id: event.target.value, page: 1 }))
-          }
-          options={(plansState.data ?? []).map((plan) => ({
-            value: plan.id,
-            label: plan.name,
-          }))}
+          aria-label="Filter by plan"
+          value={planId}
+          onChange={(event) => {
+            setPlanId(event.target.value);
+            setPage(1);
+          }}
+          options={(plansState.data ?? []).map((plan) => ({ value: plan.id, label: plan.name }))}
           placeholder="All plans"
           disabled={Boolean(plansState.loading) || Boolean(plansState.error)}
           style={{ maxWidth: 220 }}
         />
+        {hasFilters ? (
+          <Button variant="ghost" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="filter-chips" style={{ marginBottom: '1rem' }}>
+        {QUICK_FILTERS.map((filter) => (
+          <button
+            key={filter.value || 'all'}
+            type="button"
+            className="filter-chip"
+            aria-pressed={status === filter.value}
+            onClick={() => {
+              setStatus(filter.value);
+              setPage(1);
+            }}
+          >
+            {filter.label}
+          </button>
+        ))}
       </div>
 
       <Card>
-        {loading && !data ? (
+        {loading && items.length === 0 ? (
           <Skeleton lines={10} />
         ) : error ? (
-          <ErrorState message={error} onRetry={() => void reload()} />
-        ) : !data || data.items.length === 0 ? (
+          <ErrorState
+            title="Unable to load subscriptions"
+            message={error}
+            onRetry={() => void reload()}
+          />
+        ) : items.length === 0 ? (
           <EmptyState
             title="No subscriptions found"
             description={
-              filters.search || filters.status || filters.plan_id
-                ? 'Try a different search or filter.'
-                : 'No schools have a subscription yet. Assign a plan from a school details page.'
+              hasFilters
+                ? 'No school matches the current search and filters.'
+                : 'No schools have a subscription yet. Assign a plan from a school detail page.'
+            }
+            action={
+              hasFilters ? (
+                <Button variant="secondary" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : (
+                <Link href="/admin/schools">
+                  <Button variant="secondary">Go to schools</Button>
+                </Link>
+              )
             }
           />
         ) : (
           <>
+            <p className="result-count" style={{ marginBottom: '0.5rem' }}>
+              {summary}
+            </p>
             <div className="table-wrap">
               <table className="data">
                 <thead>
                   <tr>
-                    <th>School</th>
-                    <th>Plan</th>
-                    <th>Status</th>
-                    <th>Period</th>
-                    <th>Trial</th>
-                    <th>Usage</th>
-                    <th>Actions</th>
+                    <th scope="col">School</th>
+                    <th scope="col">Plan</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Current period</th>
+                    <th scope="col">Trial</th>
+                    <th scope="col">Usage vs limits</th>
+                    <th scope="col">Updated</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((item) => (
+                  {items.map((item) => (
                     <tr key={item.school_id}>
                       <td>
                         <Link className="linkish" href={`/admin/schools/${item.school_id}`}>
@@ -162,6 +238,7 @@ export default function AdminSubscriptionsPage() {
                         <div className="muted" style={{ fontSize: '0.8rem' }}>
                           <code>{item.school_code}</code>
                           {item.school_city ? ` · ${item.school_city}` : ''}
+                          {item.school_is_active ? '' : ' · tenant inactive'}
                         </div>
                       </td>
                       <td>
@@ -179,10 +256,12 @@ export default function AdminSubscriptionsPage() {
                         )}
                       </td>
                       <td>
-                        <Badge tone={subscriptionStatusTone(item.status)}>
-                          {SUBSCRIPTION_STATUS_LABELS[item.status]}
-                        </Badge>
-                        {item.is_current ? <Badge tone="info">Current</Badge> : null}
+                        <div className="row" style={{ gap: '0.35rem', flexWrap: 'wrap' }}>
+                          <Badge tone={subscriptionStatusTone(item.status)}>
+                            {SUBSCRIPTION_STATUS_LABELS[item.status]}
+                          </Badge>
+                          {item.is_current ? <Badge tone="info">Current</Badge> : null}
+                        </div>
                       </td>
                       <td>
                         {item.current_period_start || item.current_period_end ? (
@@ -191,30 +270,27 @@ export default function AdminSubscriptionsPage() {
                             {' → '}
                             {item.current_period_end
                               ? formatDateTime(item.current_period_end)
-                              : 'open'}
+                              : 'open-ended'}
                           </>
                         ) : (
                           '—'
                         )}
                       </td>
                       <td>
-                        {item.trial_start || item.trial_end ? (
-                          <>
-                            {formatDateTime(item.trial_start)}
-                            {' → '}
-                            {formatDateTime(item.trial_end)}
-                          </>
-                        ) : (
-                          '—'
-                        )}
+                        {item.trial_start || item.trial_end
+                          ? `${formatDateTime(item.trial_start)} → ${formatDateTime(item.trial_end)}`
+                          : '—'}
                       </td>
                       <td>
-                        <UsageRow item={item} />
+                        <UsageCell item={item} />
                       </td>
+                      <td>{formatDateTime(item.updated_at ?? item.created_at)}</td>
                       <td>
-                        <Link href={`/admin/schools/${item.school_id}`}>
-                          <Button variant="ghost">View school</Button>
-                        </Link>
+                        <div className="table-actions">
+                          <Link href={`/admin/schools/${item.school_id}`}>
+                            <Button variant="ghost">Manage</Button>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -222,11 +298,11 @@ export default function AdminSubscriptionsPage() {
               </table>
             </div>
             <Pagination
-              page={data.meta.page}
-              totalPages={data.meta.totalPages}
-              hasNextPage={data.meta.hasNextPage}
-              hasPreviousPage={data.meta.hasPreviousPage}
-              onPage={(page) => setFilters((current) => ({ ...current, page }))}
+              page={meta.page}
+              totalPages={meta.totalPages}
+              hasNextPage={meta.hasNextPage}
+              hasPreviousPage={meta.hasPreviousPage}
+              onPage={setPage}
             />
           </>
         )}
@@ -234,42 +310,38 @@ export default function AdminSubscriptionsPage() {
 
       {plansState.error ? (
         <p className="muted" style={{ fontSize: '0.8rem' }}>
-          Plan filter unavailable: {getApiErrorMessage(plansState.error, 'Could not load plans')}
+          Plan filter unavailable:{' '}
+          {getApiErrorMessage(plansState.error, 'the plan catalogue could not be loaded')}
         </p>
       ) : null}
     </div>
   );
 }
 
-/** Compact usage-vs-plan-limit cell. */
-const UsageRow: React.FC<{ item: AdminSubscriptionListItem }> = ({ item }) => {
-  const entries = [
-    { key: 'students', label: 'Students', limit: item.limits.students, usage: item.usage.students },
-    { key: 'buses', label: 'Buses', limit: item.limits.buses, usage: item.usage.buses },
-    { key: 'routes', label: 'Routes', limit: item.limits.routes, usage: item.usage.routes },
-    { key: 'drivers', label: 'Drivers', limit: item.limits.drivers, usage: item.usage.drivers },
-    { key: 'conductors', label: 'Conductors', limit: item.limits.conductors, usage: item.usage.conductors },
-    { key: 'parents', label: 'Parents', limit: item.limits.parents, usage: item.usage.parents },
-    { key: 'stops', label: 'Stops', limit: item.limits.stops, usage: item.usage.stops },
-    { key: 'trips', label: 'Trips', limit: item.limits.trips, usage: item.usage.trips },
-  ].filter((entry) => entry.limit !== undefined);
+/** Compact usage-vs-plan-limit cell; only resources the plan constrains. */
+const UsageCell: React.FC<{ item: AdminSubscriptionListItem }> = ({ item }) => {
+  const entries = (
+    [
+      ['students', 'Students', item.usage.students],
+      ['buses', 'Buses', item.usage.buses],
+      ['routes', 'Routes', item.usage.routes],
+      ['stops', 'Stops', item.usage.stops],
+      ['drivers', 'Drivers', item.usage.drivers],
+      ['conductors', 'Conductors', item.usage.conductors],
+      ['parents', 'Parents', item.usage.parents],
+      ['trips', 'Trips', item.usage.trips],
+    ] as const
+  ).filter(([key]) => item.limits[key] !== undefined);
 
   if (entries.length === 0) {
     return <span className="muted">No plan limits</span>;
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }}>
-      {entries.map((entry) => (
-        <span key={entry.key}>
-          <span className="muted">{entry.label}:</span>{' '}
-          {entry.limit?.unlimited ? (
-            `${entry.usage} / unlimited`
-          ) : (
-            <>
-              {entry.usage} / {entry.limit?.value ?? '—'}
-            </>
-          )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
+      {entries.map(([key, label, usage]) => (
+        <span key={key}>
+          <span className="muted">{label}:</span> {compactUsage(usage, item.limits[key])}
         </span>
       ))}
     </div>
