@@ -13,8 +13,9 @@ import {
   createSecurityHeadersMiddleware,
   resolveCorsPolicy,
 } from './common/security';
-import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { StructuredLoggingInterceptor } from './common/interceptors/structured-logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { models } from './database/models';
 import { LiveTrackingIoAdapter } from './modules/live-tracking/live-tracking.ws-adapter';
 
@@ -70,6 +71,10 @@ async function bootstrap() {
   );
 
   app.use(cookieParser());
+
+  // Request/correlation ID: accepts client-supplied x-request-id or generates one.
+  app.use(new RequestIdMiddleware().use.bind(new RequestIdMiddleware()));
+
   app.setGlobalPrefix(apiPrefix);
 
   app.useGlobalPipes(
@@ -81,7 +86,10 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new LoggingInterceptor(), new TransformInterceptor());
+  app.useGlobalInterceptors(
+    new StructuredLoggingInterceptor(),
+    new TransformInterceptor(),
+  );
 
   // The live-tracking Socket.IO server inherits the application's CORS
   // policy and packet caps through the custom adapter (see

@@ -19,6 +19,8 @@ import { BusDocument } from './bus-document.model';
 import { DriverDocument } from './driver-document.model';
 import { DocumentRequirement } from './document-requirement.model';
 import { EmergencyEvent } from './emergency-event.model';
+import { AuditLog } from './audit-log.model';
+import { IdempotencyKey } from './idempotency-key.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -110,6 +112,10 @@ export type {
   EmergencyEventAttributes,
   EmergencyEventCreationAttributes,
 } from './emergency-event.model';
+export { AuditLog } from './audit-log.model';
+export type { AuditLogAttributes, AuditLogCreationAttributes } from './audit-log.model';
+export { IdempotencyKey } from './idempotency-key.model';
+export type { IdempotencyKeyAttributes, IdempotencyKeyCreationAttributes } from './idempotency-key.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -146,4 +152,6 @@ export const models: ModelCtor<Model>[] = [
   DriverDocument,
   DocumentRequirement,
   EmergencyEvent,
+  AuditLog,
+  IdempotencyKey,
 ];

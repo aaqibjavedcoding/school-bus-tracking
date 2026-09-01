@@ -1,121 +1,163 @@
 # Testing
 
-The repository has three layers of tests. The first runs anywhere; the other
-two need a real PostgreSQL server, because the behaviour they verify (locking,
-constraints, transactions, HTTP semantics) cannot be faked.
+## Overview
 
-| Layer | Command | Needs a database |
-| --- | --- | --- |
-| Unit | `npm test` (root) | no |
-| Integration | `npm --prefix apps/api run test:integration` | **yes** |
-| End-to-end (HTTP) | `npm --prefix apps/api run test:e2e` | **yes** |
+This document describes the testing strategy and how to run tests.
 
-## 0. Clean checkout
+## Test Types
 
-The apps import `@school-bus-tracking/*` from each package's `dist/` output, so
-the workspace packages must be built before any suite runs. The root `test` and
-`typecheck` scripts do it for you:
+### 1. Unit Tests
 
-```bash
-npm ci
-npm test          # builds packages first, then runs api + web + mobile
-```
+- **Location**: `apps/api/src/**/*.spec.ts`, `apps/web/src/**/*.spec.ts`, `apps/mobile/src/**/*.spec.ts`
+- **Purpose**: Test individual functions, services, and components in isolation
+- **Run**: `npm test`
 
-When running a single workspace directly (`npm --prefix apps/api test`), build
-the packages once yourself: `npm run build:packages`.
+### 2. Integration Tests (Real PostgreSQL)
 
-## 1. Unit tests
+- **Location**: `apps/api/test/integration/`
+- **Purpose**: Test services against a real PostgreSQL database
+- **Run**: `npm run test:integration` (from `apps/api`)
+- **Requirements**: PostgreSQL server running
 
-```bash
-npm test                       # api + web + mobile
-npm --prefix apps/api test     # api only
-```
+### 3. E2E Tests (Real HTTP + PostgreSQL)
 
-Node's built-in runner (`node --test`) is used everywhere; there is no Jest.
-New API unit specs must be appended to the explicit file list in
-`apps/api/package.json` → `scripts.test`.
+- **Location**: `apps/api/test/e2e/`
+- **Purpose**: Test the full request pipeline (guards, middleware, services, SQL)
+- **Run**: `npm run test:e2e` (from `apps/api`)
+- **Requirements**: PostgreSQL server running
 
-## 2. Start a test database
+### 4. All Database Tests
 
-The integration and E2E suites talk to a real PostgreSQL instance. Anything
-that speaks the wire protocol works; the repository ships a Compose service:
+- **Run**: `npm run test:db` (from `apps/api`)
+- **Runs**: Integration tests + E2E tests
+
+## Setting Up PostgreSQL for Tests
+
+### Option 1: Docker Compose
 
 ```bash
 cd infrastructure
-docker compose up -d postgres      # postgis/postgis:16-3.4 on ${DB_PORT:-5432}
+docker compose up -d postgres
 ```
 
-The suites create the database `school_bus_tracking_test` themselves (through
-the maintenance `postgres` database), run every migration from empty, and
-truncate between tests. **They never touch your development database** unless
-you point them at it.
-
-Connection settings come from the environment:
+### Option 2: Local PostgreSQL
 
 ```bash
-# one URL …
-export TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/school_bus_tracking_test
-
-# … or discrete variables
-export TEST_DB_HOST=localhost
-export TEST_DB_PORT=5432
-export TEST_DB_USERNAME=postgres
-export TEST_DB_PASSWORD=postgres
-export TEST_DB_NAME=school_bus_tracking_test
+# Create test database
+createdb school_bus_tracking_test
 ```
 
-Defaults match the Compose service (`localhost:5432`, `postgres`/`postgres`).
-When no server is reachable the suites fail loudly with a hint instead of
-silently skipping.
-
-## 3. Run the database-backed suites
+### Environment Variables
 
 ```bash
-npm --prefix apps/api run test:integration   # migrations, constraints, isolation, limits
-npm --prefix apps/api run test:e2e           # real HTTP: cross-tenant, CSRF/CORS, rate limits
-npm --prefix apps/api run test:db            # both
+# Option A: Single URL
+TEST_DATABASE_URL=postgres://user:pass@host:port/dbname
+
+# Option B: Discrete variables
+TEST_DB_HOST=localhost
+TEST_DB_PORT=5432
+TEST_DB_USERNAME=postgres
+TEST_DB_PASSWORD=postgres
+TEST_DB_NAME=school_bus_tracking_test
 ```
 
-Both scripts run with `--test-concurrency=1`: the suites share one database and
-several of them assert on exact row counts.
+Default: `postgres://postgres:postgres@localhost:5432/school_bus_tracking_test`
 
-### What each suite proves
+## CI
 
-`apps/api/test/integration/`
+GitHub Actions runs all tests against a PostgreSQL service container:
 
-| File | Verifies |
-| --- | --- |
-| `migrations.integration.spec.ts` | every migration applies to an empty database, is idempotent, and reverses cleanly (`down` then `up` again) |
-| `constraints.integration.spec.ts` | foreign keys, per-tenant unique indexes, composite cross-tenant FKs, soft-delete semantics, cascade behaviour |
-| `tenant-isolation.integration.spec.ts` | the real services over two real tenants: no cross-tenant read, write, delete or usage count |
-| `subscriptions.integration.spec.ts` | one live subscription per school (partial unique index), CHECK constraints, time-aware entitlement, lazy expiry repair, timezone independence |
-| `attendance.integration.spec.ts` | one attendance row per (trip, student), concurrent board/drop resolves to exactly one winner |
-| `plan-limits.integration.spec.ts` | quota enforcement and the **race**: 99 rows, limit 100, two concurrent creates → one success, one `PLAN_LIMIT_REACHED`, final count 100 |
-
-`apps/api/test/e2e/`
-
-| File | Verifies |
-| --- | --- |
-| `cross-tenant.e2e.spec.ts` | the full cross-tenant matrix over real HTTP (students, parents, buses, routes, assignments, trips, documents, notifications, emergencies), forged `school_id` payloads, parent→other child, driver→other trip, conductor→foreign trip, inactive school, deactivated user, SUPER_ADMIN scope, and the generic 404 that discloses nothing |
-| `security.e2e.spec.ts` | CORS allowlist and preflight, security headers, CSRF double submit, refresh rotation/replay, logout cookie clearing |
-| `rate-limit.e2e.spec.ts` | login throttling and automatic recovery, per-identity counters, SOS/attendance/location/list policies, useful 429 payloads |
-
-Test helpers live in `apps/api/test/support/` (`env`, `database`, `fixtures`,
-`app`, `http`, `auth`). Fixtures write through the real Sequelize models, so a
-fixture that violates a constraint fails instead of drifting from production.
-
-## 4. Typecheck, lint, build
-
-```bash
-npm run typecheck
-npm run lint            # eslint . --max-warnings 0
-npm run build
+```yaml
+# .github/workflows/ci.yml
+services:
+  postgres:
+    image: postgres:16
+    env:
+      POSTGRES_DB: school_bus_tracking_test
 ```
 
-## Known environment limitations
+## Test Coverage
 
-* There is no CI job wired for the database-backed suites yet; they are opt-in
-  locally and should be added to the pipeline together with a Postgres service
-  container.
-* `test:e2e` boots the real Nest application per spec file. Each file listens on
-  an ephemeral port on `127.0.0.1`.
+### API
+
+- Unit tests for all services, controllers, DTOs
+- Integration tests for database operations, tenant isolation, plan limits, subscriptions
+- E2E tests for cross-tenant security, rate limiting, CORS/CSRF
+
+### Web
+
+- Unit tests for utilities, helpers, hooks
+- Component tests (where applicable)
+
+### Mobile
+
+- Unit tests for utilities, helpers, state management
+- Component tests (where applicable)
+
+## Writing Tests
+
+### Integration Tests
+
+```typescript
+import '../support/env';
+import { before, beforeEach, after, describe, it } from 'node:test';
+import { prepareDatabase, truncateAll } from '../support/database';
+
+describe('my feature (real PostgreSQL)', () => {
+  let sequelize: Sequelize;
+
+  before(async () => {
+    sequelize = await prepareDatabase();
+  });
+
+  beforeEach(async () => {
+    await truncateAll(sequelize);
+  });
+
+  after(async () => {
+    await sequelize?.close();
+  });
+
+  it('does something', async () => {
+    // Test against real database
+  });
+});
+```
+
+### E2E Tests
+
+```typescript
+import '../support/env';
+import { before, after, describe, it } from 'node:test';
+import { prepareDatabase, truncateAll } from '../support/database';
+import { startTestApp, TestApp } from '../support/app';
+import { login, TestSession } from '../support/auth';
+import { httpRequest } from '../support/http';
+
+describe('my feature (real HTTP + PostgreSQL)', () => {
+  let sequelize: Sequelize;
+  let app: TestApp;
+  let session: TestSession;
+
+  before(async () => {
+    sequelize = await prepareDatabase();
+    await truncateAll(sequelize);
+    // Create fixtures...
+    app = await startTestApp();
+    session = await login(app.baseUrl, schoolCode, email);
+  });
+
+  after(async () => {
+    await app?.close();
+    await sequelize?.close();
+  });
+
+  it('handles a request', async () => {
+    const response = await httpRequest(app.baseUrl, '/my-endpoint', {
+      method: 'GET',
+      token: session.accessToken,
+    });
+    assert.equal(response.status, 200);
+  });
+});
+```
