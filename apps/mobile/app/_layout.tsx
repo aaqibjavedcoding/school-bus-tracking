@@ -1,3 +1,8 @@
+// Side-effect import: registers the native API environment (platform + Metro
+// dev-server host) before any API client is created, so the REST/socket base
+// URL auto-resolves to this machine's LAN IP on physical devices.
+import '../src/services/api-env';
+
 // Side-effect import: registers the crew background-location task at app
 // entry so `expo-location` can deliver fixes even when the app was relaunched
 // headlessly by the OS.

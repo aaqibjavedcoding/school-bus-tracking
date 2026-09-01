@@ -25,11 +25,28 @@ re-export it.
 npm install
 npm run build:packages
 
-# point the app at your API (device-reachable host, not localhost)
-export EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api/v1
+# start the API first — the phone needs it running and reachable on port 3001
+npm --prefix apps/api start
 
+# then start the app
 npm --prefix apps/mobile start
 ```
+
+The app auto-detects the API host from the Metro dev server, so a physical
+phone on the same WiFi as your machine works out of the box (it uses the
+machine's LAN IP, not `localhost`). Only override it when the API is not on
+the same machine/network as Metro:
+
+```bash
+export EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api/v1   # optional override
+export EXPO_PUBLIC_API_PORT=3001                               # optional port override
+npm --prefix apps/mobile start
+```
+
+Requirements for a physical device: the phone and the machine running the API
+must be on the same network, the API must be reachable from the phone
+(`http://<your-lan-ip>:3001/api/v1/health` in a phone browser should answer),
+and the OS firewall must allow inbound connections to port 3001.
 
 Sign in with a school account (school tenant **code** or UUID + email +
 password). The access token is kept in memory only; the refresh cookie lives
@@ -74,6 +91,7 @@ src/
     map/                react-native-maps bus map
   hooks/                useLoad, useNetworkStatus
   lib/                  errors, format, geo (GPS mapping), roles
-  services/             api client, session, socket options/singletons
+  services/             api client + base-URL/env resolution, session, socket
+                       options/singletons
 scripts/generate-assets.mjs   deterministic icon/splash generator
 ```
