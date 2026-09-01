@@ -77,34 +77,42 @@ export class StudentsService {
    * school before the row is written.
    */
   async create(schoolId: string, dto: CreateStudentDto): Promise<StudentResponse> {
-    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.STUDENTS);
-    const homeStopId = dto.home_stop_id ?? null;
-    if (homeStopId) {
-      await this.assertHomeStopInSchool(schoolId, homeStopId);
-    }
+    return this.planLimits.runWithinLimit(
+      schoolId,
+      PlanLimitResource.STUDENTS,
+      async (transaction) => {
+        const homeStopId = dto.home_stop_id ?? null;
+        if (homeStopId) {
+          await this.assertHomeStopInSchool(schoolId, homeStopId);
+        }
 
-    try {
-      const student = await this.students.create({
-        school_id: schoolId,
-        admission_number: dto.admission_number.trim(),
-        first_name: dto.first_name.trim(),
-        last_name: dto.last_name.trim(),
-        home_stop_id: homeStopId,
-        date_of_birth: this.toDate(dto.date_of_birth),
-        gender: dto.gender ?? null,
-        grade_level: nullableTrim(dto.grade_level),
-        emergency_contact_name: nullableTrim(dto.emergency_contact_name),
-        emergency_contact_phone: nullableTrim(dto.emergency_contact_phone),
-        medical_notes: nullableTrim(dto.medical_notes),
-        is_active: dto.is_active ?? true,
-      });
-      return this.toStudentResponse(student);
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
-        throw new ConflictException(STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE);
-      }
-      throw error;
-    }
+        try {
+          const student = await this.students.create(
+            {
+              school_id: schoolId,
+              admission_number: dto.admission_number.trim(),
+              first_name: dto.first_name.trim(),
+              last_name: dto.last_name.trim(),
+              home_stop_id: homeStopId,
+              date_of_birth: this.toDate(dto.date_of_birth),
+              gender: dto.gender ?? null,
+              grade_level: nullableTrim(dto.grade_level),
+              emergency_contact_name: nullableTrim(dto.emergency_contact_name),
+              emergency_contact_phone: nullableTrim(dto.emergency_contact_phone),
+              medical_notes: nullableTrim(dto.medical_notes),
+              is_active: dto.is_active ?? true,
+            },
+            transaction ? { transaction } : {},
+          );
+          return this.toStudentResponse(student);
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) {
+            throw new ConflictException(STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE);
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   /**

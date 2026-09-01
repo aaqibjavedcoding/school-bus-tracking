@@ -8,6 +8,11 @@ import { ConfigService } from '@nestjs/config';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import {
+  buildCorsOptions,
+  createSecurityHeadersMiddleware,
+  resolveCorsPolicy,
+} from './common/security';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { models } from './database/models';
@@ -32,13 +37,37 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('app.port', 3001);
   const apiPrefix = configService.get<string>('app.apiPrefix', 'api/v1');
-  const corsOrigin = configService.get<string>('app.corsOrigin', '*');
 
-  app.enableCors({
-    origin: corsOrigin,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true,
+  // Explicit, allowlisted CORS. `resolveCorsPolicy` throws in production when
+  // the allowlist is missing or wildcarded, so a misconfigured deployment
+  // fails to boot instead of serving a wide-open API.
+  const corsPolicy = resolveCorsPolicy({
+    isProduction: configService.get<boolean>('security.isProduction', false),
+    corsOrigins: configService.get<string[]>('security.corsOrigins', []),
+    credentials: configService.get<boolean>('security.corsCredentials', true),
   });
+  app.enableCors(buildCorsOptions(corsPolicy));
+
+  // Security headers (Helmet + Permissions-Policy + conditional HSTS).
+  app.use(
+    createSecurityHeadersMiddleware({
+      enabled: configService.get<boolean>('security.headers.enabled', true),
+      isProduction: configService.get<boolean>('security.isProduction', false),
+      hstsMaxAge: configService.get<number>('security.headers.hstsMaxAge', 15552000),
+      hstsIncludeSubDomains: configService.get<boolean>(
+        'security.headers.hstsIncludeSubDomains',
+        true,
+      ),
+      hstsPreload: configService.get<boolean>('security.headers.hstsPreload', false),
+      cspEnabled: configService.get<boolean>('security.headers.cspEnabled', true),
+      frameAncestors: configService.get<string>('security.headers.frameAncestors', "'none'"),
+      referrerPolicy: configService.get<string>(
+        'security.headers.referrerPolicy',
+        'strict-origin-when-cross-origin',
+      ),
+      permissionsPolicy: configService.get<string>('security.headers.permissionsPolicy', ''),
+    }),
+  );
 
   app.use(cookieParser());
   app.setGlobalPrefix(apiPrefix);

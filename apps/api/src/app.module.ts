@@ -22,20 +22,46 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { EmergenciesModule } from './modules/emergencies/emergencies.module';
 import { AccessModule } from './common/access';
 import { PlanLimitsModule } from './common/plan-limits';
+import { RateLimitModule } from './common/rate-limit';
+import { SecurityModule } from './common/security';
 import { DatabaseModule } from './database/database.module';
-import { appConfig, databaseConfig, etaConfig, jwtConfig, liveTrackingConfig } from './config';
+import {
+  appConfig,
+  databaseConfig,
+  etaConfig,
+  jwtConfig,
+  liveTrackingConfig,
+  rateLimitConfig,
+  securityConfig,
+  subscriptionConfig,
+} from './config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, liveTrackingConfig, etaConfig],
+      load: [
+        appConfig,
+        databaseConfig,
+        jwtConfig,
+        liveTrackingConfig,
+        etaConfig,
+        securityConfig,
+        rateLimitConfig,
+        subscriptionConfig,
+      ],
       envFilePath: ['.env', '.env.local'],
     }),
     DatabaseModule.forRoot(),
     // Global school-lifecycle access checks (inactive-tenant enforcement),
     // injected into the shared JwtAuthGuard and AuthService.
     AccessModule,
+    // Browser-security guards (CSRF / origin validation). CORS and security
+    // headers are applied on the HTTP adapter in `main.ts`.
+    SecurityModule,
+    // Application-level abuse protection for the routes annotated with
+    // `@RateLimit(...)`.
+    RateLimitModule,
     PlanLimitsModule,
     HealthModule,
     AuthModule,

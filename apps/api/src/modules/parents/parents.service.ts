@@ -42,34 +42,44 @@ export class ParentsService {
    * as a bcrypt digest.
    */
   async create(schoolId: string, dto: CreateParentDto): Promise<ParentResponse> {
-    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.PARENTS);
-    const email = normalizeEmail(dto.email);
-    const existing = await this.users.findOne({ where: { school_id: schoolId, email } });
-    if (existing) {
-      throw new ConflictException(PARENT_EMAIL_TAKEN_MESSAGE);
-    }
+    // Quota check + INSERT in one advisory-locked transaction (see
+    // `PlanLimitsService.runWithinLimit`).
+    return this.planLimits.runWithinLimit(
+      schoolId,
+      PlanLimitResource.PARENTS,
+      async (transaction) => {
+        const email = normalizeEmail(dto.email);
+        const existing = await this.users.findOne({ where: { school_id: schoolId, email } });
+        if (existing) {
+          throw new ConflictException(PARENT_EMAIL_TAKEN_MESSAGE);
+        }
 
-    const passwordHash = await hashPassword(dto.password);
+        const passwordHash = await hashPassword(dto.password);
 
-    try {
-      const parent = await this.users.create({
-        school_id: schoolId,
-        role: UserRole.PARENT,
-        first_name: dto.first_name.trim(),
-        last_name: dto.last_name.trim(),
-        email,
-        password_hash: passwordHash,
-        email_verified_at: null,
-        phone: nullableTrim(dto.phone),
-        is_active: dto.is_active ?? true,
-      });
-      return this.toParentResponse(parent);
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
-        throw new ConflictException(PARENT_EMAIL_TAKEN_MESSAGE);
-      }
-      throw error;
-    }
+        try {
+          const parent = await this.users.create(
+            {
+              school_id: schoolId,
+              role: UserRole.PARENT,
+              first_name: dto.first_name.trim(),
+              last_name: dto.last_name.trim(),
+              email,
+              password_hash: passwordHash,
+              email_verified_at: null,
+              phone: nullableTrim(dto.phone),
+              is_active: dto.is_active ?? true,
+            },
+            transaction ? { transaction } : {},
+          );
+          return this.toParentResponse(parent);
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) {
+            throw new ConflictException(PARENT_EMAIL_TAKEN_MESSAGE);
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   /** Lists only PARENT users belonging to the authenticated school. */

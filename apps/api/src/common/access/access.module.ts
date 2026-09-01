@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
-import { School } from '../../database/models';
-import { SCHOOLS_PLATFORM_REPOSITORY } from './access.constants';
+import { School, User } from '../../database/models';
+import { SCHOOLS_PLATFORM_REPOSITORY, USERS_PLATFORM_REPOSITORY } from './access.constants';
 import { SchoolAccessService } from './school-access.service';
 
 /**
@@ -17,7 +17,11 @@ import { SchoolAccessService } from './school-access.service';
  */
 @Global()
 @Module({
-  providers: [SchoolAccessService, { provide: SCHOOLS_PLATFORM_REPOSITORY, useValue: School }],
+  providers: [
+    SchoolAccessService,
+    { provide: SCHOOLS_PLATFORM_REPOSITORY, useValue: School },
+    { provide: USERS_PLATFORM_REPOSITORY, useValue: User },
+  ],
   exports: [SchoolAccessService],
 })
 export class AccessModule {}

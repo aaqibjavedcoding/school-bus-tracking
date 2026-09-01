@@ -17,6 +17,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { AdminSchoolAdminsService } from './admin-school-admins.service';
 import {
@@ -99,6 +100,7 @@ export class AdminSchoolAdminsController {
 
   @Roles(UserRole.SUPER_ADMIN)
   @Post(':adminId/reset-password')
+  @RateLimit('password_reset')
   @HttpCode(HttpStatus.OK)
   async resetPassword(
     @Param('id', new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.BAD_REQUEST }))

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { SCHOOL_INACTIVE_MESSAGE, SchoolAccessService } from '../access';
+import { SCHOOL_INACTIVE_MESSAGE, USER_INACTIVE_MESSAGE, SchoolAccessService } from '../access';
 
 /**
  * Non-sensitive user context attached to `request.user` once the bearer
@@ -140,6 +140,15 @@ export class JwtAuthGuard implements CanActivate {
       if (!accessible) {
         throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
       }
+    }
+
+    // Account-lifecycle enforcement: a deactivated user must lose access
+    // immediately, not when its access token happens to expire. The optional
+    // chaining keeps the guard constructible with a minimal stub (existing
+    // unit tests) — the running application always wires the real service.
+    const isUserActive = this.schoolAccess?.isUserActive?.bind(this.schoolAccess);
+    if (isUserActive && !(await isUserActive(payload.sub))) {
+      throw new ForbiddenException(USER_INACTIVE_MESSAGE);
     }
 
     request.user = {

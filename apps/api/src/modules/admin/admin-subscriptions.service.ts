@@ -24,7 +24,12 @@ import {
   adminSchoolSubscriptionUpdateSchema,
 } from '@school-bus-tracking/validation';
 import { ZodError } from 'zod';
+import { ConfigService } from '@nestjs/config';
 import { Plan, School, SchoolSubscription } from '../../database/models';
+import {
+  pastDueGraceMsFromDays,
+  resolveSubscriptionEntitlement,
+} from '../../common/subscriptions';
 import { ADMIN_PLANS_REPOSITORY, PLAN_NOT_FOUND_MESSAGE } from './admin-plans.constants';
 import { toAdminPlanResponse, toAdminSchoolSubscriptionPlanRef } from './admin-plans.mapper';
 import { ADMIN_SCHOOLS_REPOSITORY, SCHOOL_NOT_FOUND_MESSAGE } from './admin.constants';
@@ -77,7 +82,49 @@ export class AdminSubscriptionsService {
     private readonly subscriptions: typeof SchoolSubscription,
     @Inject(ADMIN_SCHOOLS_REPOSITORY) private readonly schools: typeof School,
     @Inject(ADMIN_PLANS_REPOSITORY) private readonly plans: typeof Plan,
+    private readonly configService?: ConfigService,
   ) {}
+
+  /**
+   * Grace granted to `past_due` after `current_period_end`, in milliseconds.
+   * Single source of truth shared with `PlanLimitsService`.
+   */
+  private pastDueGraceMs(): number | undefined {
+    return pastDueGraceMsFromDays(this.configService?.get<number>('subscription.pastDueGraceDays'));
+  }
+
+  /**
+   * Read-repair for a stored-live row whose window has already elapsed.
+   *
+   * Access eligibility is *always* computed from the dates (see
+   * `resolveSubscriptionEntitlement`), so a lapsed row never grants paid
+   * access even if this repair has not run yet. What the repair adds is the
+   * persisted lifecycle status: an `active` row whose `current_period_end`
+   * has passed is written back as `expired` the first time anyone looks at
+   * it. That keeps the console honest, frees the single "live" slot for a new
+   * subscription, and needs no cron job. The write is best effort — if it
+   * fails, the row is still treated as not live for this request.
+   */
+  private async expireIfLapsed(
+    row: SchoolSubscription | null,
+  ): Promise<SchoolSubscription | null> {
+    if (!row) {
+      return null;
+    }
+    const entitlement = resolveSubscriptionEntitlement(row, new Date(), {
+      pastDueGraceMs: this.pastDueGraceMs(),
+    });
+    if (!entitlement.lapsed) {
+      return row;
+    }
+    try {
+      await row.update({ status: SubscriptionStatus.EXPIRED });
+    } catch {
+      // Best effort: a concurrent writer or a read-only replica must not turn
+      // a read into a 500. The row is reported as not live either way.
+    }
+    return null;
+  }
 
   /**
    * `GET /admin/schools/:schoolId/subscription`.
@@ -497,13 +544,14 @@ export class AdminSubscriptionsService {
 
   /** The school's current (live) subscription, if any. */
   private async findLive(schoolId: string): Promise<SchoolSubscription | null> {
-    return this.subscriptions.findOne({
+    const row = await this.subscriptions.findOne({
       where: {
         school_id: schoolId,
         status: { [Op.in]: LIVE_SUBSCRIPTION_STATUS_VALUES },
       },
       order: [['created_at', 'DESC']],
     });
+    return this.expireIfLapsed(row);
   }
 
   /** The live subscription, or the newest historical one. */

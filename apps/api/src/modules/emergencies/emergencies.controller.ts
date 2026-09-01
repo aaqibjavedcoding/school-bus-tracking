@@ -19,6 +19,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser } from '../../common/guards';
 import {
@@ -57,6 +58,7 @@ export class EmergenciesController {
    * Socket.IO room. The trip is resolved from the caller's own roster.
    */
   @Post('sos')
+  @RateLimit('sos_create')
   @HttpCode(HttpStatus.CREATED)
   @Roles(UserRole.DRIVER, UserRole.CONDUCTOR)
   async raiseSos(

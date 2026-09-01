@@ -2,6 +2,8 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { Server, ServerOptions } from 'socket.io';
+import { resolveCorsPolicy } from '../../common/security';
+import { parseOriginList } from '../../config';
 
 /**
  * Socket.IO adapter for the live-tracking gateway.
@@ -11,8 +13,9 @@ import type { Server, ServerOptions } from 'socket.io';
  * keep-alive timing) are applied here and the adapter is registered once in
  * `main.ts` via `app.useWebSocketAdapter(...)`.
  *
- * - **CORS** reuses the application-wide `app.corsOrigin` policy so the
- *   tracking socket honours exactly the same origin rule as the HTTP API.
+ * - **CORS** reuses the validated application-wide origin allowlist so the
+ *   tracking socket honours exactly the same origin rule as the HTTP API
+ *   (including the production ban on wildcards).
  * - **maxHttpBufferSize** caps a single client packet at 100 KiB: a GPS fix
  *   is a few hundred bytes, so anything larger is abuse, not a fix.
  * - **ping/pong timing** keeps idle sockets pruned quickly so a dead
@@ -28,15 +31,23 @@ export class LiveTrackingIoAdapter extends IoAdapter {
 
   createIOServer(port: number, options?: Partial<ServerOptions>): Server {
     const configService = this.app?.get(ConfigService);
-    const corsOrigin =
-      configService?.get<string>('liveTracking.corsOrigin') ??
-      configService?.get<string>('app.corsOrigin') ??
-      '*';
+    // The socket server honours exactly the same allowlist as the HTTP API:
+    // an explicit `liveTracking.corsOrigin` override wins, otherwise the
+    // validated `CORS_ORIGIN` allowlist is reused (production therefore
+    // rejects a wildcard here too).
+    const override = parseOriginList(configService?.get<string>('liveTracking.corsOrigin'));
+    const configured =
+      override.length > 0 ? override : configService?.get<string[]>('security.corsOrigins') ?? [];
+    const policy = resolveCorsPolicy({
+      isProduction: configService?.get<boolean>('security.isProduction', false) ?? false,
+      corsOrigins: configured,
+      credentials: configService?.get<boolean>('security.corsCredentials', true) ?? true,
+    });
     return super.createIOServer(port, {
       ...options,
       cors: {
-        origin: corsOrigin ?? '*',
-        credentials: true,
+        origin: policy.allowAll ? '*' : policy.origins,
+        credentials: policy.credentials,
       },
       // Keep Engine.IO's endpoint at `/socket.io` without a trailing slash;
       // the Next web proxy normalizes trailing slashes and redirects break

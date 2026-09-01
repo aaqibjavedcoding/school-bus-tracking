@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard, TenantRequestUser } from '../../common/guards';
 import { TripAttendanceService } from './trip-attendance.service';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
@@ -64,6 +65,7 @@ export class TripAttendanceController {
    * time is the server clock, so there is nothing a client could contribute.
    */
   @Post(':studentId/board')
+  @RateLimit('attendance_write')
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   @HttpCode(HttpStatus.OK)
   async board(
@@ -76,6 +78,7 @@ export class TripAttendanceController {
 
   /** `POST /api/v1/trips/:tripId/students/:studentId/drop` — body-less too. */
   @Post(':studentId/drop')
+  @RateLimit('attendance_write')
   @Roles(UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR)
   @HttpCode(HttpStatus.OK)
   async drop(

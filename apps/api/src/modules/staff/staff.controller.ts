@@ -19,6 +19,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { CurrentUser, Roles } from '../../common/decorators';
+import { RateLimit } from '../../common/rate-limit';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { ListStaffQueryDto } from './dto/list-staff-query.dto';
@@ -58,6 +59,7 @@ export abstract class StaffController<R extends StaffRole> {
 
   /** GET resource root — tenant-scoped, role-pinned staff roster. */
   @Get()
+  @RateLimit('read_heavy')
   async findAll(
     @CurrentUser('school_id') schoolId: string,
     @Query() query: ListStaffQueryDto,
