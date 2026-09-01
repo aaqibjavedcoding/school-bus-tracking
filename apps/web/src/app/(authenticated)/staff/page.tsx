@@ -236,9 +236,12 @@ export default function StaffPage() {
                     </td>
                     <td>
                       <div className="table-actions">
-                        {tab === 'drivers' && person.role === UserRole.DRIVER ? (
-                          <Link href={`/drivers/${person.id}/documents`}>
-                            <Button variant="secondary">Documents</Button>
+                        {person.role === UserRole.DRIVER || person.role === UserRole.CONDUCTOR ? (
+                          <Link
+                            className="btn btn-secondary"
+                            href={`/drivers/${person.id}/documents`}
+                          >
+                            Documents
                           </Link>
                         ) : null}
                         <Button variant="secondary" onClick={() => startEdit(person)}>

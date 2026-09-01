@@ -95,8 +95,17 @@ function makeRepository<T extends StubRecord>(prefix: string) {
     }
     return Object.entries(where).every(([key, value]) => {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const operators = value as Record<string, unknown>;
-        return Object.entries(operators).every(([op, operand]) => {
+        const operators = value as Record<string | symbol, unknown>;
+        // Sequelize operators are symbols (`Op.in`), so both string keys and
+        // symbol keys have to be inspected here.
+        const entries: [string, unknown][] = [
+          ...Object.entries(operators),
+          ...Object.getOwnPropertySymbols(operators).map((symbol): [string, unknown] => [
+            (symbol.description ?? '').replace(/^Symbol\(|\)$/g, ''),
+            operators[symbol],
+          ]),
+        ];
+        return entries.every(([op, operand]) => {
           if (op === 'in') {
             return (operand as unknown[]).includes(row[key]);
           }
@@ -422,16 +431,17 @@ describe('DocumentsService — driver documents', () => {
     assert.equal(created.is_required, false);
   });
 
-  it('refuses to attach documents to a conductor or a member of another school', async () => {
+  it('attaches documents to a conductor as well as a driver', async () => {
     const { service } = makeService();
-    await assert.rejects(
-      service.createDriverDocument(SCHOOL_A, 'conductor-a', driverBody()),
-      (error: unknown) => {
-        assert.ok(error instanceof NotFoundException);
-        assert.equal(error.message, DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE);
-        return true;
-      },
-    );
+    const created = await service.createDriverDocument(SCHOOL_A, 'conductor-a', driverBody());
+    assert.equal(created.driver_id, 'conductor-a');
+
+    const listed = await service.listDriverDocuments(SCHOOL_A, 'conductor-a', listQuery());
+    assert.equal(listed.items.length, 1);
+  });
+
+  it('refuses to attach documents to a member of another school', async () => {
+    const { service } = makeService();
     await assert.rejects(
       service.createDriverDocument(SCHOOL_B, DRIVER_A, driverBody()),
       (error: unknown) => {

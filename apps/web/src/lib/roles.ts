@@ -82,6 +82,20 @@ export function navItemsForRole(role: UserRole): NavItem[] {
 }
 
 /**
+ * Detail screens that are reachable from a nav section but do not live under
+ * its href.
+ *
+ * The sidebar only lists section landing pages, so a guard built from the nav
+ * alone would bounce a school admin away from perfectly legitimate deep links
+ * (for example the crew document screens opened from "Drivers & conductors").
+ * These prefixes are granted in addition to the nav hrefs.
+ */
+const EXTRA_ALLOWED_PREFIXES: Partial<Record<UserRole, string[]>> = {
+  [UserRole.SCHOOL_ADMIN]: ['/drivers', '/conductors'],
+  [UserRole.PARENT]: ['/children'],
+};
+
+/**
  * Frontend route guard. Mirrors the backend role enforcement so a school user
  * never even renders a platform page (and vice versa); the API is the real
  * boundary and would return 401/403 regardless.
@@ -100,6 +114,10 @@ export function canAccessPath(role: UserRole, pathname: string): boolean {
   }
 
   const allowed = new Set(navItemsForRole(role).map((item) => item.href));
+  for (const prefix of EXTRA_ALLOWED_PREFIXES[role] ?? []) {
+    allowed.add(prefix);
+  }
+
   if (pathname === '/') {
     return allowed.has('/') || role === UserRole.SCHOOL_ADMIN;
   }

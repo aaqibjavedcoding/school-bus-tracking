@@ -174,6 +174,6 @@ describe('documentOwnerPath', () => {
     assert.equal(documentOwnerPath('BUS', 'bus-1'), '/buses/bus-1/documents');
     assert.equal(documentOwnerPath('DRIVER', 'driver-1'), '/drivers/driver-1/documents');
     assert.equal(ownerTypeLabel('BUS'), 'Bus');
-    assert.equal(ownerTypeLabel('DRIVER'), 'Driver');
+    assert.equal(ownerTypeLabel('DRIVER'), 'Crew');
   });
 });

@@ -68,13 +68,23 @@ export default function DriverDocumentsPage() {
   const [pendingDelete, setPendingDelete] = useState<DriverDocumentResponse | null>(null);
 
   const load = useCallback(async () => {
+    // The screen serves both crew roles: the id is looked up as a driver
+    // first and as a conductor when that misses, so the "Documents" action
+    // works from either tab of the staff list.
+    const loadCrewMember = async () => {
+      try {
+        return unwrapEnvelope(await apiClient.getDriver(driverId));
+      } catch {
+        return unwrapEnvelope(await apiClient.getConductor(driverId));
+      }
+    };
     const [driver, documents, compliance] = await Promise.all([
-      apiClient.getDriver(driverId),
+      loadCrewMember(),
       apiClient.listDriverDocuments(driverId, { page, limit: 20 }),
       apiClient.getDriverDocumentCompliance(driverId).catch(() => null),
     ]);
     return {
-      driver: unwrapEnvelope(driver),
+      driver,
       documents: unwrapEnvelope(documents),
       compliance: compliance ? unwrapEnvelope(compliance) : null,
     };
@@ -156,7 +166,7 @@ export default function DriverDocumentsPage() {
   if (error || !data) {
     return (
       <div className="page">
-        <ErrorState message={error || 'Could not load this driver'} onRetry={() => void reload()} />
+        <ErrorState message={error || 'Could not load this crew member'} onRetry={() => void reload()} />
       </div>
     );
   }
@@ -168,7 +178,7 @@ export default function DriverDocumentsPage() {
     <div className="page">
       <PageHeader
         title={`Documents — ${fullName(driver)}`}
-        description="Licence and compliance paperwork for this driver. Validity is always calculated from the expiry date on file."
+        description="Licence and compliance paperwork for this crew member. Validity is always calculated from the expiry date on file."
         actions={
           <>
             <Link href="/staff">
@@ -190,7 +200,7 @@ export default function DriverDocumentsPage() {
         {data.documents.items.length === 0 ? (
           <EmptyState
             title="No documents yet"
-            description="Add the driving licence to see this driver's compliance."
+            description="Add the driving licence to see this crew member's compliance."
             action={<Button onClick={startCreate}>Add document</Button>}
           />
         ) : (
@@ -271,7 +281,7 @@ export default function DriverDocumentsPage() {
         title="Delete document?"
         message={
           pendingDelete
-            ? `${pendingDelete.document_type_label} will be removed from this driver.`
+            ? `${pendingDelete.document_type_label} will be removed from this crew member.`
             : ''
         }
         confirmLabel="Delete"

@@ -139,6 +139,10 @@ export function documentOwnerPath(ownerType: DocumentOwnerType, ownerId: string)
   return ownerType === 'BUS' ? `/buses/${ownerId}/documents` : `/drivers/${ownerId}/documents`;
 }
 
+/**
+ * The `DRIVER` owner covers both crew roles — drivers and conductors keep the
+ * same paperwork — so the label says so.
+ */
 export function ownerTypeLabel(ownerType: DocumentOwnerType): string {
-  return ownerType === 'BUS' ? 'Bus' : 'Driver';
+  return ownerType === 'BUS' ? 'Bus' : 'Crew';
 }
