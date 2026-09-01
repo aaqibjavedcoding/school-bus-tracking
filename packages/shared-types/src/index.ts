@@ -460,6 +460,65 @@ export interface AdminSchoolLifecycleResponse {
   message: string;
 }
 
+/**
+ * Platform subscription roll-up for `GET /api/v1/admin/dashboard`.
+ *
+ * `total` and the status counts count every persisted `school_subscriptions`
+ * row (including historical cancelled/expired rows), while
+ * {@link AdminDashboardResponse.school_subscription_status} below reports the
+ * *current* state of every school (a "none" entry for tenants without any
+ * subscription). The distinction matters: history makes `total` grow over a
+ * tenant's lifetime, but a school is still counted exactly once in the
+ * distribution.
+ */
+export interface AdminDashboardSubscriptionMetrics {
+  /** Every persisted subscription row, including historical ones. */
+  total: number;
+  /** Rows currently in `trialing` / `active` / `past_due`. */
+  live: number;
+  trialing: number;
+  active: number;
+  past_due: number;
+  cancelled: number;
+  expired: number;
+}
+
+/** One plan bucket of the dashboard's current-school distribution. */
+export interface AdminDashboardPlanDistribution {
+  plan_id: string | null;
+  plan_code: string | null;
+  plan_name: string | null;
+  price: string | null;
+  currency: string | null;
+  billing_period: PlanBillingPeriod | null;
+  /** Schools whose current subscription references this plan. */
+  schools: number;
+  /** Of those, schools on a live (`trialing`/`active`/`past_due`) row. */
+  live_schools: number;
+}
+
+/**
+ * Estimated revenue per currency.
+ *
+ * These numbers are computed from the plan catalogue list price attached to
+ * *live* subscriptions. They are **estimates only**: no payment provider,
+ * invoicing, dunning or cash ledger is connected, so this must never be
+ * presented as recognized MRR/ARR.
+ */
+export interface AdminDashboardRevenueEstimate {
+  currency: string;
+  estimated_mrr: string;
+  estimated_arr: string;
+  /** Number of live subscriptions included in the estimate. */
+  live_subscriptions: number;
+}
+
+/** Status bucket of the dashboard's current-school distribution. */
+export interface AdminDashboardSchoolSubscriptionStatus {
+  status: SubscriptionStatus;
+  schools: number;
+}
+
 /** Successful payload of `GET /api/v1/admin/dashboard`. */
 export interface AdminDashboardResponse {
   schools: {
@@ -484,6 +543,21 @@ export interface AdminDashboardResponse {
     trips: number;
     active_trips: number;
   };
+  /** Platform subscription roll-up (every persisted row). */
+  subscriptions: AdminDashboardSubscriptionMetrics;
+  /** Plan catalogue lifecycle. */
+  plans: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  /** Schools split by the plan of their current/latest subscription. */
+  plan_distribution: AdminDashboardPlanDistribution[];
+  /** Schools split by their current/latest subscription state. */
+  school_subscription_status: AdminDashboardSchoolSubscriptionStatus[];
+  /** Estimated revenue derived from live subscriptions; never real cash. */
+  estimated_revenue: AdminDashboardRevenueEstimate[];
+  revenue_note: string;
   generated_at: string;
 }
 
@@ -2333,6 +2407,71 @@ export interface AdminSchoolSubscriptionHistoryItem {
  */
 export interface AdminSchoolSubscriptionHistoryResponse {
   items: AdminSchoolSubscriptionHistoryItem[];
+}
+
+/**
+ * Global platform-wide subscription console
+ * (`GET /api/v1/admin/subscriptions`, Task 45).
+ *
+ * Unlike the school-scoped subscription endpoints this is a platform-level
+ * read model: every school in the system, paired with its current/latest
+ * subscription (or a clean `none` state), its plan, period dates, and the
+ * school's real usage against the plan's configured resource limits. It is
+ * SUPER_ADMIN-only and deliberately never accepts a client-supplied tenant
+ * id — the school relationship always comes from the data model.
+ */
+export interface AdminSubscriptionListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: SubscriptionStatus;
+  plan_id?: string;
+}
+
+/** Current resource usage of one school (non-paginated aggregate counts). */
+export interface AdminSubscriptionUsage {
+  students: number;
+  buses: number;
+  routes: number;
+  stops: number;
+  drivers: number;
+  conductors: number;
+  /** Total crew — drivers + conductors. */
+  staff: number;
+  parents: number;
+  trips: number;
+}
+
+/** One row of `GET /api/v1/admin/subscriptions`. */
+export interface AdminSubscriptionListItem {
+  /** `null` when the school has no subscription record at all (`none`). */
+  subscription_id: string | null;
+  school_id: string;
+  school_name: string;
+  school_code: string;
+  school_city: string | null;
+  school_is_active: boolean;
+  status: SubscriptionStatus;
+  plan_id: string | null;
+  plan: AdminSchoolSubscriptionPlanRef | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  trial_start: string | null;
+  trial_end: string | null;
+  cancelled_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  /** True when the row is the school's live subscription. */
+  is_current: boolean;
+  usage: AdminSubscriptionUsage;
+  /** Plan limits config from the referenced plan (empty for `none`). */
+  limits: PlanLimitsConfig;
+}
+
+/** Successful payload of `GET /api/v1/admin/subscriptions`. */
+export interface AdminSubscriptionListResponse {
+  items: AdminSubscriptionListItem[];
+  meta: PaginationMeta;
 }
 
 /**
