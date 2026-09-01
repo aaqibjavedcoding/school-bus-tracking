@@ -8,7 +8,6 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
-  PlanLimitResource,
   RouteAssignmentRole,
   TripDeleteResponse,
   TripListResponse,

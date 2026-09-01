@@ -23,6 +23,8 @@ import {
   AdminSchoolSubscriptionResponse,
   AdminSchoolSubscriptionUpdateRequest,
   AdminSchoolUpdateRequest,
+  AdminSubscriptionListQuery,
+  AdminSubscriptionListResponse,
   ApiResponse,
   ConductorCreateRequest,
   ConductorDeleteResponse,
@@ -609,6 +611,26 @@ export class ApiClient {
       `/admin/schools/${encodeURIComponent(schoolId)}/subscription/cancel`,
       body,
     );
+  }
+
+  /**
+   * Platform-wide subscription list (`/admin/subscriptions`).
+   *
+   * SUPER_ADMIN only. Returns every school paired with its current/latest
+   * subscription (or a clean `none` state), plan, period dates and current
+   * usage. No payment or billing data is ever included.
+   */
+  public async listAdminSubscriptions(
+    query: AdminSubscriptionListQuery = {},
+  ): Promise<ApiResponse<AdminSubscriptionListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    if (query.plan_id) params.set('plan_id', query.plan_id);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.get<AdminSubscriptionListResponse>(`/admin/subscriptions${suffix}`);
   }
 
   public async createStudent(body: StudentCreateRequest): Promise<ApiResponse<StudentResponse>> {

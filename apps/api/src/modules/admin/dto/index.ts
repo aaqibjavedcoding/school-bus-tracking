@@ -20,4 +20,5 @@ export {
   CreateSchoolSubscriptionDto,
   UpdateSchoolSubscriptionDto,
   CancelSchoolSubscriptionDto,
+  ListAdminSubscriptionsQueryDto,
 } from './admin-subscriptions.dto';

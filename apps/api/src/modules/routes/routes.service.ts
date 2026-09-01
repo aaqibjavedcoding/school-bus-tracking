@@ -177,7 +177,7 @@ export class RoutesService {
   async getDetails(schoolId: string, id: string): Promise<RouteDetailResponse> {
     const route = await this.findOne(schoolId, id);
 
-    const [stops, assignments, todayTrips] = await Promise.all([
+    const [stops, , todayTrips] = await Promise.all([
       this.stops.findAll({
         where: { route_id: id, school_id: schoolId },
         order: [['sequence_number', 'ASC']],

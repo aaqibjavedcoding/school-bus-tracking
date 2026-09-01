@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import React from 'react';
 import { TripStatus, UserRole } from '@school-bus-tracking/shared-types';
-import { Badge, Card, PageHeader, Skeleton, ErrorState } from '../../components/ui';
+import { Badge, Button, Card, PageHeader, Skeleton, ErrorState } from '../../components/ui';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useLoad } from '../../hooks/useLoad';
 import { unwrapEnvelope } from '../../lib/errors';
@@ -38,8 +38,30 @@ export default function DashboardPage() {
       <div className="page">
         <PageHeader
           title="Platform console"
-          description="School workspaces are managed through the API. Sign in as a school admin to operate a fleet."
+          description="SaaS-wide operations across all customer schools, plans and subscriptions."
         />
+        <div className="grid grid-2" style={{ gap: '1rem' }}>
+          <Card title="Platform overview" description="Aggregate schools, users, transport and subscription metrics.">
+            <Link href="/admin">
+              <Button>Open overview</Button>
+            </Link>
+          </Card>
+          <Card title="Schools" description="Provision, inspect and suspend customer tenants.">
+            <Link href="/admin/schools">
+              <Button>Open schools</Button>
+            </Link>
+          </Card>
+          <Card title="Subscriptions" description="Global view of plans, statuses and usage across all schools.">
+            <Link href="/admin/subscriptions">
+              <Button>Open subscriptions</Button>
+            </Link>
+          </Card>
+          <Card title="Plans" description="Maintain the commercial plan catalogue and limits.">
+            <Link href="/admin/plans">
+              <Button>Open plans</Button>
+            </Link>
+          </Card>
+        </div>
       </div>
     );
   }
