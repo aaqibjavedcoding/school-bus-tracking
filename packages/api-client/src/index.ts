@@ -414,7 +414,7 @@ export class ApiClient {
     if (query.status) params.set('status', query.status);
     if (query.sort) params.set('sort', query.sort);
     if (query.order) params.set('order', query.order);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<AdminSchoolListResponse>(`/admin/schools${suffix}`);
   }
 
@@ -451,7 +451,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<AdminSchoolAdminListResponse>(
       `/admin/schools/${encodeURIComponent(schoolId)}/admins${suffix}`,
     );
@@ -525,7 +525,7 @@ export class ApiClient {
     if (query.status) params.set('status', query.status);
     if (query.sort) params.set('sort', query.sort);
     if (query.order) params.set('order', query.order);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<AdminPlanListResponse>(`/admin/plans${suffix}`);
   }
 
@@ -629,7 +629,7 @@ export class ApiClient {
     if (query.search) params.set('search', query.search);
     if (query.status) params.set('status', query.status);
     if (query.plan_id) params.set('plan_id', query.plan_id);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<AdminSubscriptionListResponse>(`/admin/subscriptions${suffix}`);
   }
 
@@ -644,7 +644,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<StudentListResponse>(`/students${suffix}`);
   }
 
@@ -674,7 +674,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<ParentListResponse>(`/parents${suffix}`);
   }
 
@@ -823,7 +823,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.status) params.set('status', query.status);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<ParentNotificationListResponse>(`/parent/notifications${suffix}`);
   }
 
@@ -850,7 +850,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<BusListResponse>(`/buses${suffix}`);
   }
 
@@ -875,7 +875,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<RouteListResponse>(`/routes${suffix}`);
   }
 
@@ -922,7 +922,7 @@ export class ApiClient {
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
     if (query.route_id) params.set('route_id', query.route_id);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<StopListResponse>(`/stops${suffix}`);
   }
 
@@ -952,7 +952,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<DriverListResponse>(`/drivers${suffix}`);
   }
 
@@ -984,7 +984,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<ConductorListResponse>(`/conductors${suffix}`);
   }
 
@@ -1027,7 +1027,7 @@ export class ApiClient {
     if (query.user_id) params.set('user_id', query.user_id);
     if (query.role) params.set('role', query.role);
     if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<RouteAssignmentListResponse>(`/route-assignments${suffix}`);
   }
 
@@ -1072,7 +1072,7 @@ export class ApiClient {
     if (query.user_id) params.set('user_id', query.user_id);
     if (query.role) params.set('role', query.role);
     if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<RouteAssignmentListResponse>(`/assignments${suffix}`);
   }
 
@@ -1113,7 +1113,7 @@ export class ApiClient {
     if (query.date) params.set('date', query.date);
     if (query.date_from) params.set('date_from', query.date_from);
     if (query.date_to) params.set('date_to', query.date_to);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<TripListResponse>(`/trips${suffix}`);
   }
 
@@ -1171,7 +1171,7 @@ export class ApiClient {
     if (query.from) params.set('from', query.from);
     if (query.to) params.set('to', query.to);
     if (query.limit !== undefined) params.set('limit', String(query.limit));
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<TripLocationHistoryResponse>(
       `/trips/${encodeURIComponent(tripId)}/location/history${suffix}`,
     );
@@ -1216,7 +1216,7 @@ export class ApiClient {
     const params = new URLSearchParams();
     if (query.status) params.set('status', query.status);
     if (query.stop_id) params.set('stop_id', query.stop_id);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<TripStudentManifestResponse>(
       `/trips/${encodeURIComponent(tripId)}/students${suffix}`,
     );
@@ -1380,7 +1380,7 @@ export class ApiClient {
     if (query.owner_type) params.set('owner_type', query.owner_type);
     if (query.compliance) params.set('compliance', query.compliance);
     if (query.search) params.set('search', query.search);
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    const suffix = querySuffix(params);
     return this.get<DocumentOverviewResponse>(`/documents/overview${suffix}`);
   }
 
@@ -1464,6 +1464,26 @@ export const createApiClient = (config: ApiClientConfig): ApiClient => {
   return new ApiClient(config);
 };
 
+/**
+ * Serialises `params` into a `?a=1&b=2` suffix (or `''` when empty).
+ *
+ * Deliberately derived from `toString()` rather than `URLSearchParams.size`:
+ * `size` is a comparatively recent addition to the WHATWG URL spec and is
+ * **not implemented by the React Native / Expo URL polyfill**
+ * (`whatwg-url-without-unicode`), where it evaluates to `undefined`. A
+ * `params.size > 0` guard therefore silently returned `''` on mobile, so every
+ * list request was sent with no query string at all — no `page`, no `limit`
+ * and, most visibly, no `search`. Browsers implement `size`, which is why the
+ * web app was unaffected.
+ *
+ * `toString()` is part of the original URLSearchParams API and behaves
+ * identically in browsers, Node and the React Native polyfill.
+ */
+export function querySuffix(params: URLSearchParams): string {
+  const serialised = params.toString();
+  return serialised.length > 0 ? `?${serialised}` : '';
+}
+
 /** Query string of the bus/driver document list endpoints. */
 function documentQuerySuffix(query: DocumentListQuery): string {
   const params = new URLSearchParams();
@@ -1471,7 +1491,7 @@ function documentQuerySuffix(query: DocumentListQuery): string {
   if (query.limit !== undefined) params.set('limit', String(query.limit));
   if (query.document_type) params.set('document_type', query.document_type);
   if (query.status) params.set('status', query.status);
-  return params.size > 0 ? `?${params.toString()}` : '';
+  return querySuffix(params);
 }
 
 /** Query string of the emergency list endpoints. */
@@ -1485,5 +1505,5 @@ function emergencyQuerySuffix(query: EmergencyListQuery): string {
   if (query.bus_id) params.set('bus_id', query.bus_id);
   if (query.date_from) params.set('date_from', query.date_from);
   if (query.date_to) params.set('date_to', query.date_to);
-  return params.size > 0 ? `?${params.toString()}` : '';
+  return querySuffix(params);
 }

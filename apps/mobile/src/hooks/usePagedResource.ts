@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PaginationMeta } from '@school-bus-tracking/shared-types';
 import { getApiErrorMessage } from '../lib/errors';
+import {
+  SEARCH_DEBOUNCE_MS,
+  filtersKey,
+  isLatestRequest,
+  isSearchSettled,
+  normaliseSearch,
+  shouldResetPage,
+} from '../lib/paged-query';
 
 /**
  * Mobile port of the web `usePagedResource`: paginated + debounced-search
@@ -71,29 +79,29 @@ export function usePagedResource<T>(
 
   // Debounce the raw input; `searching` drives the inline spinner.
   useEffect(() => {
-    const trimmed = search.trim();
-    if (trimmed === debouncedSearch) {
+    if (isSearchSettled(search, debouncedSearch)) {
       setSearching(false);
       return;
     }
     setSearching(true);
     const handle = setTimeout(() => {
-      setDebouncedSearch(trimmed);
+      setDebouncedSearch(normaliseSearch(search));
       setSearching(false);
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [search, debouncedSearch]);
 
-  const depsKey = JSON.stringify(deps ?? []);
+  const depsKey = filtersKey(deps);
 
-  // A new query (search or filter) always restarts at page 1.
-  const firstRun = useRef(true);
+  // A new query (search or filter) always restarts at page 1 — searching from
+  // page 3 must not request page 3 of a smaller result set.
+  const lastQuery = useRef<{ search: string; filters: string } | null>(null);
   useEffect(() => {
-    if (firstRun.current) {
-      firstRun.current = false;
-      return;
+    const next = { search: debouncedSearch, filters: depsKey };
+    if (shouldResetPage(lastQuery.current, next)) {
+      setPage(1);
     }
-    setPage(1);
+    lastQuery.current = next;
   }, [debouncedSearch, depsKey]);
 
   const reload = useCallback(async () => {
@@ -102,15 +110,17 @@ export function usePagedResource<T>(
     setError(null);
     try {
       const result = await loaderRef.current(page, debouncedSearch);
-      if (!mounted.current || id !== requestId.current) return;
+      // Stale-response guard: a slow request for an older term must never
+      // overwrite the results of the newest one.
+      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
       setItems(result.items);
       setMeta(result.meta ?? EMPTY_META);
     } catch (caught) {
-      if (!mounted.current || id !== requestId.current) return;
+      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
       setItems([]);
       setError(getApiErrorMessage(caught));
     } finally {
-      if (mounted.current && id === requestId.current) {
+      if (mounted.current && isLatestRequest(id, requestId.current)) {
         setLoading(false);
       }
     }

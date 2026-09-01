@@ -114,21 +114,38 @@ export interface FieldProps extends TextInputProps {
   label: string;
   error?: string | null;
   hint?: string | null;
+  /** Extra style for the label + input + message wrapper. */
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
-export const Field: React.FC<FieldProps> = ({ label, error, hint, ...inputProps }) => (
-  <View style={styles.field}>
-    <Text style={styles.fieldLabel}>{label}</Text>
-    <TextInput
-      placeholderTextColor={colors.neutral[400]}
-      autoCapitalize="none"
-      {...inputProps}
-      style={[styles.fieldInput, error ? styles.fieldInputError : null, inputProps.style]}
-    />
-    {hint && !error ? <Text style={styles.fieldHint}>{hint}</Text> : null}
-    {error ? <Text style={styles.fieldError}>{error}</Text> : null}
-  </View>
-);
+/**
+ * Text field with label, hint and error.
+ *
+ * Forwards its ref to the underlying `TextInput` so forms can implement
+ * `Next`-key focus chaining (`ref.current?.focus()`) and keyboard-aware
+ * scrolling (`ref.current?.measureInWindow(...)`). `onLayout` on the wrapper
+ * is likewise forwarded via `containerProps` for screens that need the row's
+ * position inside a scroll view.
+ */
+export const Field = React.forwardRef<TextInput, FieldProps>(function Field(
+  { label, error, hint, containerStyle, ...inputProps },
+  ref,
+) {
+  return (
+    <View style={[styles.field, containerStyle]}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        ref={ref}
+        placeholderTextColor={colors.neutral[400]}
+        autoCapitalize="none"
+        {...inputProps}
+        style={[styles.fieldInput, error ? styles.fieldInputError : null, inputProps.style]}
+      />
+      {hint && !error ? <Text style={styles.fieldHint}>{hint}</Text> : null}
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+    </View>
+  );
+});
 
 /**
  * Search input with a leading icon, an inline "searching" spinner while the
