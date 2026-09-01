@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import React, { useState } from 'react';
+import { SUBSCRIPTION_STATUS_LABELS } from '@school-bus-tracking/shared-types';
 import {
   Badge,
   Button,
@@ -20,29 +21,20 @@ import { apiClient } from '../../../../../services/api';
 import { SchoolSubscriptionSection } from '../../../../../features/admin/subscriptions/SchoolSubscriptionSection';
 import { SchoolAdminsSection } from '../../../../../features/admin/school-admins/SchoolAdminsSection';
 import { EditSchoolProfileDialog } from '../../../../../features/admin/schools/EditSchoolProfileDialog';
+import { KpiCard, KpiGrid } from '../../../../../features/admin/components/KpiCard';
+import { subscriptionStatusTone } from '../../../../../features/admin/subscriptions/helpers';
 
-interface StatCard {
-  label: string;
-  value: number | string;
-  hint?: string;
-}
+const number = (value: number | undefined): string => new Intl.NumberFormat().format(value ?? 0);
 
-const StatGrid: React.FC<{ cards: StatCard[] }> = ({ cards }) => (
-  <div className="stat-grid" style={{ marginBottom: '1.25rem' }}>
-    {cards.map((card) => (
-      <div className="stat-card" key={card.label}>
-        <span className="label">{card.label}</span>
-        <span className="value">{card.value}</span>
-        {card.hint ? (
-          <span className="muted" style={{ fontSize: '0.8rem' }}>
-            {card.hint}
-          </span>
-        ) : null}
-      </div>
-    ))}
-  </div>
-);
-
+/**
+ * School 360 view of the Super Admin console (`/admin/schools/[id]`).
+ *
+ * One `GET /admin/schools/:id` call provides the profile, the tenant resource
+ * statistics and the subscription summary; the admins and subscription panels
+ * own their own data so a mutation in one never refetches the whole page. The
+ * managed tenant is always identified by the route id and authorised
+ * server-side — the client never sends a tenant claim of its own.
+ */
 export default function AdminSchoolDetailsPage() {
   const params = useParams<{ id: string }>();
   const schoolId = params.id;
@@ -61,15 +53,20 @@ export default function AdminSchoolDetailsPage() {
     try {
       if (action === 'deactivate') {
         await apiClient.deactivateAdminSchool(schoolId);
-        toast.push('School deactivated — its users can no longer sign in', 'danger');
+        toast.push('School deactivated — its users can no longer sign in.', 'danger');
       } else {
         await apiClient.activateAdminSchool(schoolId);
-        toast.push('School activated — access restored', 'success');
+        toast.push('School activated — access restored.', 'success');
       }
-      setData(null);
       await reload();
     } catch (caught) {
-      toast.push(getApiErrorMessage(caught, 'Lifecycle action failed'), 'danger');
+      toast.push(
+        getApiErrorMessage(
+          caught,
+          `Unable to ${action} this school. Please try again in a moment.`,
+        ),
+        'danger',
+      );
     } finally {
       setBusy(false);
     }
@@ -78,7 +75,11 @@ export default function AdminSchoolDetailsPage() {
   if (loading && !data) {
     return (
       <div className="page">
-        <Skeleton lines={14} />
+        <PageHeader title="School" description="Loading the tenant overview…" />
+        <Skeleton lines={6} />
+        <Card title="Loading">
+          <Skeleton lines={8} />
+        </Card>
       </div>
     );
   }
@@ -86,16 +87,22 @@ export default function AdminSchoolDetailsPage() {
   if (error || !data) {
     return (
       <div className="page">
+        <PageHeader title="School" />
         <ErrorState
-          title="Could not load school"
-          message={error ?? 'Not found'}
+          title="Unable to load this school"
+          message={error ?? 'The school could not be found or is no longer available.'}
           onRetry={() => void reload()}
         />
+        <div className="row">
+          <Link href="/admin/schools">
+            <Button variant="secondary">Back to schools</Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const { school, stats } = data;
+  const { school, stats, subscription } = data;
 
   const saveProfile = (updated: { id: string }) => {
     setData((current) => {
@@ -111,10 +118,10 @@ export default function AdminSchoolDetailsPage() {
         title={school.name}
         description={`Tenant code ${school.code}${school.subdomain ? ` · subdomain ${school.subdomain}` : ''}`}
         actions={
-          <div className="row">
-            <Badge tone={school.is_active ? 'success' : 'warning'}>
-              {school.is_active ? 'Active' : 'Inactive'}
-            </Badge>
+          <>
+            <Button variant="secondary" onClick={() => setEditProfileOpen(true)}>
+              Edit profile
+            </Button>
             {school.is_active ? (
               <Button variant="danger" disabled={busy} onClick={() => setConfirm('deactivate')}>
                 Deactivate
@@ -124,79 +131,87 @@ export default function AdminSchoolDetailsPage() {
                 Activate
               </Button>
             )}
-          </div>
+          </>
         }
       />
 
-      <Card title="Profile" description="Contact and operational details held for this tenant.">
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-          <Button variant="secondary" size="md" onClick={() => setEditProfileOpen(true)}>
-            Edit profile
-          </Button>
-        </div>
-        <div className="grid grid-2" style={{ gap: '0.5rem 2rem' }}>
+      <div className="row" style={{ flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+        <Badge tone={school.is_active ? 'success' : 'warning'}>
+          {school.is_active ? 'Active tenant' : 'Inactive tenant'}
+        </Badge>
+        <Badge tone={subscriptionStatusTone(subscription.status)}>
+          {SUBSCRIPTION_STATUS_LABELS[subscription.status]}
+        </Badge>
+        {subscription.plan ? <Badge tone="neutral">{subscription.plan.name}</Badge> : null}
+        <span className="muted" style={{ fontSize: '0.85rem' }}>
+          Created {formatDateTime(school.created_at)}
+        </span>
+      </div>
+
+      <Card
+        title="Resource overview"
+        description="Everything this tenant currently holds. Counts come from the tenant's own records."
+      >
+        <KpiGrid>
+          <KpiCard
+            label="Students"
+            value={number(stats.student_count)}
+            hint={`${number(stats.active_student_count)} active`}
+          />
+          <KpiCard label="Parents / Guardians" value={number(stats.parent_count)} />
+          <KpiCard
+            label="Buses"
+            value={number(stats.bus_count)}
+            hint={`${number(stats.active_bus_count)} active`}
+          />
+          <KpiCard label="Drivers" value={number(stats.driver_count)} />
+          <KpiCard label="Conductors" value={number(stats.conductor_count)} />
+          <KpiCard
+            label="Routes"
+            value={number(stats.route_count)}
+            hint={`${number(stats.active_route_count)} active`}
+          />
+          <KpiCard label="Stops" value={number(stats.stop_count)} />
+          <KpiCard
+            label="Assignments"
+            value={number(stats.assignment_count)}
+            hint={`${number(stats.active_assignment_count)} active`}
+          />
+          <KpiCard
+            label="School admins"
+            value={number(stats.admin_count)}
+            hint={`${number(stats.active_admin_count)} active`}
+          />
+          <KpiCard
+            label="Trips"
+            value={number(stats.trip_count)}
+            hint={`${number(stats.active_trip_count)} scheduled / boarding / in progress`}
+          />
+        </KpiGrid>
+      </Card>
+
+      <Card title="School profile" description="Identity and contact details held for this tenant.">
+        <div className="detail-grid">
+          <Detail label="Name" value={school.name} />
+          <Detail label="Code" value={school.code} mono />
+          <Detail label="Subdomain" value={school.subdomain} mono />
           <Detail label="Email" value={school.email} />
           <Detail label="Phone" value={school.phone} />
+          <Detail label="Address" value={joinAddress(school.address_line1, school.address_line2)} />
           <Detail label="City" value={school.city} />
           <Detail label="State / region" value={school.state} />
-          <Detail label="Address" value={school.address_line1} />
           <Detail label="Postal code" value={school.postal_code} />
           <Detail label="Country" value={school.country} />
           <Detail label="Timezone" value={school.timezone} />
+          <Detail label="Status" value={school.is_active ? 'Active' : 'Inactive'} />
           <Detail label="Created" value={formatDateTime(school.created_at)} />
           <Detail label="Last updated" value={formatDateTime(school.updated_at)} />
         </div>
       </Card>
 
-      <Card
-        title="Students & staff"
-        description="Active counts reflect enabled, non-deleted accounts in this tenant."
-      >
-        <StatGrid
-          cards={[
-            {
-              label: 'Students',
-              value: stats.student_count,
-              hint: `${stats.active_student_count} active`,
-            },
-            {
-              label: 'School admins',
-              value: stats.admin_count,
-              hint: `${stats.active_admin_count} active`,
-            },
-            { label: 'Drivers', value: stats.driver_count },
-            { label: 'Conductors', value: stats.conductor_count },
-            {
-              label: 'Active crew',
-              value: stats.active_staff_count,
-              hint: 'Active drivers + conductors',
-            },
-            { label: 'Parents', value: stats.parent_count },
-          ]}
-        />
-      </Card>
-
-      <Card title="Transport" description="Fleet, routes and trip activity.">
-        <StatGrid
-          cards={[
-            { label: 'Buses', value: stats.bus_count, hint: `${stats.active_bus_count} active` },
-            {
-              label: 'Routes',
-              value: stats.route_count,
-              hint: `${stats.active_route_count} active`,
-            },
-            {
-              label: 'Trips',
-              value: stats.trip_count,
-              hint: `${stats.active_trip_count} scheduled / boarding / in progress`,
-            },
-          ]}
-        />
-      </Card>
-
       <SchoolAdminsSection schoolId={schoolId} schoolName={school.name} />
 
-      <SchoolSubscriptionSection schoolId={schoolId} schoolName={school.name} />
+      <SchoolSubscriptionSection schoolId={schoolId} schoolName={school.name} stats={stats} />
 
       <div className="row">
         <Link href="/admin/schools">
@@ -233,17 +248,19 @@ export default function AdminSchoolDetailsPage() {
   );
 }
 
-const Detail: React.FC<{ label: string; value: string | null | undefined }> = ({
+function joinAddress(line1: string | null, line2: string | null): string | null {
+  return [line1, line2].filter((part) => part && part.trim()).join(', ') || null;
+}
+
+const Detail: React.FC<{ label: string; value: string | null | undefined; mono?: boolean }> = ({
   label,
   value,
+  mono = false,
 }) => (
   <div>
-    <div
-      className="muted"
-      style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-    >
-      {label}
+    <div className="detail-item__label">{label}</div>
+    <div className="detail-item__value">
+      {value && value.trim() ? mono ? <code>{value}</code> : value : '—'}
     </div>
-    <div>{value && value.trim() ? value : '—'}</div>
   </div>
 );

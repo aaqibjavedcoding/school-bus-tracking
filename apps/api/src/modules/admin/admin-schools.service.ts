@@ -23,16 +23,28 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { normalizeEmail } from '../../auth';
-import { Bus, RefreshToken, Route, School, Student, Trip, User } from '../../database/models';
+import {
+  Bus,
+  RefreshToken,
+  Route,
+  RouteAssignment,
+  School,
+  Stop,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 import { SchoolsService } from '../schools/schools.service';
 import { AdminSubscriptionsService } from './admin-subscriptions.service';
 import { NO_SUBSCRIPTION_INFO } from './admin-subscriptions.constants';
 import {
+  ADMIN_ASSIGNMENTS_REPOSITORY,
   ADMIN_BUSES_REPOSITORY,
   ADMIN_REFRESH_TOKENS_REPOSITORY,
   ADMIN_ROUTES_REPOSITORY,
   ADMIN_SCHOOL_CODE_TAKEN_MESSAGE,
   ADMIN_SCHOOLS_REPOSITORY,
+  ADMIN_STOPS_REPOSITORY,
   ADMIN_STUDENTS_REPOSITORY,
   ADMIN_TRIPS_REPOSITORY,
   ADMIN_USERS_REPOSITORY,
@@ -75,6 +87,13 @@ export class AdminSchoolsService {
      * `status: 'none'` block, so existing consumers are unaffected.
      */
     private readonly subscriptions: AdminSubscriptionsService,
+    /**
+     * Stops and route assignments complete the School 360 resource overview.
+     * They are appended last so the existing injection order is untouched.
+     */
+    @Inject(ADMIN_STOPS_REPOSITORY) private readonly stops: typeof Stop,
+    @Inject(ADMIN_ASSIGNMENTS_REPOSITORY)
+    private readonly assignments: typeof RouteAssignment,
   ) {}
 
   /**
@@ -414,7 +433,8 @@ export class AdminSchoolsService {
 
   /** Full tenant statistics for the details page — grouped aggregates only. */
   private async collectSchoolStats(schoolId: string): Promise<AdminSchoolStats> {
-    const [userRows, studentRows, busRows, routeRows, tripRows] = await Promise.all([
+    const [userRows, studentRows, busRows, routeRows, tripRows, stopRows, assignmentRows] =
+      await Promise.all([
       this.users.findAll({
         attributes: [
           'role',
@@ -461,6 +481,22 @@ export class AdminSchoolsService {
         group: ['status'],
         raw: true,
       }) as unknown as Promise<GroupCount[]>,
+      // Stops and route assignments complete the resource overview of the
+      // School 360 view. Both are plain grouped counts scoped to this tenant.
+      this.stops.findAll({
+        attributes: [[this.stops.sequelize!.fn('COUNT', this.stops.sequelize!.col('id')), 'count']],
+        where: { school_id: schoolId },
+        raw: true,
+      }) as unknown as Promise<GroupCount[]>,
+      this.assignments.findAll({
+        attributes: [
+          'is_active',
+          [this.assignments.sequelize!.fn('COUNT', this.assignments.sequelize!.col('id')), 'count'],
+        ],
+        where: { school_id: schoolId },
+        group: ['is_active'],
+        raw: true,
+      }) as unknown as Promise<GroupCount[]>,
     ]);
 
     const stats: AdminSchoolStats = {
@@ -476,6 +512,9 @@ export class AdminSchoolsService {
       active_bus_count: 0,
       route_count: 0,
       active_route_count: 0,
+      stop_count: 0,
+      assignment_count: 0,
+      active_assignment_count: 0,
       trip_count: 0,
       active_trip_count: 0,
     };
@@ -522,6 +561,14 @@ export class AdminSchoolsService {
       if (ACTIVE_TRIP_STATUSES.includes(row.status as TripStatus)) {
         stats.active_trip_count += count;
       }
+    }
+    for (const row of stopRows) {
+      stats.stop_count += Number(row.count ?? 0);
+    }
+    for (const row of assignmentRows) {
+      const count = Number(row.count ?? 0);
+      stats.assignment_count += count;
+      if (isActiveFlag(row.is_active)) stats.active_assignment_count += count;
     }
 
     return stats;

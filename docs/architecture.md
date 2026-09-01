@@ -110,6 +110,7 @@ The web frontend is engineered with **Next.js 14+ (App Router)** in **TypeScript
 - **Feature Slicing (`src/features`)**: Domain-specific logic is isolated into feature folders (`fleet`, `routes`, `students`, `settings`) containing local hooks, state stores, and sub-components.
 - **Shared Design Token Integration**: UI components strictly consume `@school-bus-tracking/design-tokens` for standardized colors, typography, borders, and responsive breakpoints.
 - **Resilient API Client**: Uses `@school-bus-tracking/api-client` for type-safe interaction with the backend API.
+- **Super Admin platform console (`/admin/*`)**: a `SUPER_ADMIN`-only surface (`Dashboard`, `Schools`, `Subscriptions`, `Plans`, `Revenue`) guarded client-side by `canAccessPath()` and server-side by `@Roles(SUPER_ADMIN)` on every `/api/v1/admin/*` controller. Shared derivations (KPIs, distributions, estimated revenue, usage-vs-limit rows) live in `src/features/admin/metrics.ts` and are unit-tested; the charts in `src/features/admin/components` are dependency-free inline SVG/CSS, so the console adds no charting library to the bundle. All revenue figures are explicitly labelled **estimates** derived from plan list prices — the platform has no payment provider, invoicing or cash ledger.
 
 ---
 

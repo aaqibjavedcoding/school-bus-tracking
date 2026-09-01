@@ -45,10 +45,13 @@ export function navItemsForRole(role: UserRole): NavItem[] {
   switch (role) {
     case UserRole.SUPER_ADMIN:
       return [
-        { href: '/admin', label: 'Overview', icon: 'home' },
+        { href: '/admin', label: 'Dashboard', icon: 'home' },
         { href: '/admin/schools', label: 'Schools', icon: 'school' },
         { href: '/admin/subscriptions', label: 'Subscriptions', icon: 'tag' },
         { href: '/admin/plans', label: 'Plans', icon: 'tag' },
+        // Backed by the existing dashboard aggregate endpoint — estimates
+        // derived from plan prices, never collected payments.
+        { href: '/admin/revenue', label: 'Revenue', icon: 'tag' },
       ];
     case UserRole.SCHOOL_ADMIN:
       return [
@@ -129,4 +132,25 @@ export function canAccessPath(role: UserRole, pathname: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * The nav entry that should be highlighted for `pathname`.
+ *
+ * Sections whose href is a prefix of another section (e.g. `/admin` and
+ * `/admin/schools`) must not both light up, so the *longest* matching href
+ * wins. `/` only ever matches itself. Returns null when nothing matches.
+ */
+export function activeNavHref(items: NavItem[], pathname: string): string | null {
+  let best: string | null = null;
+  for (const item of items) {
+    const matches =
+      item.href === '/'
+        ? pathname === '/'
+        : pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (matches && (best === null || item.href.length > best.length)) {
+      best = item.href;
+    }
+  }
+  return best;
 }

@@ -337,8 +337,19 @@ export default function NewPlanPage() {
 
 function focusFirstInvalidField(errors: Record<string, string>): void {
   const target = FIELD_IDS.find(([path]) => errors[path]);
-  if (!target) return;
+  if (target) {
+    window.requestAnimationFrame(() => {
+      document.getElementById(target[1])?.focus();
+    });
+    return;
+  }
+  // A rejected limit (e.g. a negative cap) is just as actionable as an
+  // identity field — focus the offending limit input instead of leaving the
+  // operator to hunt for the red row.
+  const limitPath = Object.keys(errors).find((key) => key.startsWith('limits.'));
+  if (!limitPath) return;
+  const resource = limitPath.split('.')[1];
   window.requestAnimationFrame(() => {
-    document.getElementById(target[1])?.focus();
+    document.getElementById(`limit-${resource}-value`)?.focus();
   });
 }

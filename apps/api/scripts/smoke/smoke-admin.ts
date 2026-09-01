@@ -408,6 +408,9 @@ async function main(): Promise<void> {
     buses: simpleCountStub(4, 3),
     routes: simpleCountStub(3, 3),
     trips: simpleCountStub(5, 5),
+    // School 360 resource overview: route stops and crew assignments.
+    stops: simpleCountStub(18, 18),
+    assignments: simpleCountStub(6, 5),
     refreshTokens: refreshRepo,
     onboarding: onboardingService,
   });
@@ -606,6 +609,24 @@ async function main(): Promise<void> {
       throw new Error('subscription placeholder missing');
     if (body.data.admins.length !== 1) throw new Error('expected one admin');
   });
+
+  await check(
+    'school details reports the School 360 resource overview (stops + assignments)',
+    async () => {
+      const res = await call('GET', `/admin/schools/${createdSchoolId}`, { token: superToken });
+      if (res.status !== 200)
+        throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+      const stats = (res.json as { data: { stats: Record<string, number> } }).data.stats;
+      if (stats.stop_count !== 18) throw new Error(`expected 18 stops, got ${stats.stop_count}`);
+      if (stats.assignment_count !== 6)
+        throw new Error(`expected 6 assignments, got ${stats.assignment_count}`);
+      if (stats.active_assignment_count !== 5)
+        throw new Error(`expected 5 active assignments, got ${stats.active_assignment_count}`);
+      // Previously reported counters must keep working unchanged.
+      if (stats.student_count !== 12) throw new Error('student_count regressed');
+      if (stats.route_count !== 3) throw new Error('route_count regressed');
+    },
+  );
 
   await check('PATCH updates school profile only (code/tenant fields rejected)', async () => {
     const res = await call('PATCH', `/admin/schools/${createdSchoolId}`, {
@@ -1067,6 +1088,14 @@ async function main(): Promise<void> {
     const data = (res.json as { data: { items: unknown[] } }).data;
     if (!Array.isArray(data.items) || data.items.length === 0)
       throw new Error('expected at least one subscription row');
+  });
+
+  await check('global subscriptions: an over-long search string is rejected with 400', async () => {
+    const res = await call('GET', `/admin/subscriptions?search=${'a'.repeat(101)}`, {
+      token: superToken,
+    });
+    if (res.status !== 400)
+      throw new Error(`expected 400, got ${res.status} ${JSON.stringify(res.json)}`);
   });
 
   await check('global subscriptions: status filter returns no-subscription schools', async () => {

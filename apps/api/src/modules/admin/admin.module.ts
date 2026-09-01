@@ -4,6 +4,7 @@ import {
   Plan,
   RefreshToken,
   Route,
+  RouteAssignment,
   School,
   SchoolSubscription,
   Stop,
@@ -25,6 +26,7 @@ import { AdminSubscriptionsService } from './admin-subscriptions.service';
 import { AdminGlobalSubscriptionsController } from './admin-global-subscriptions.controller';
 import { AdminGlobalSubscriptionsService } from './admin-global-subscriptions.service';
 import {
+  ADMIN_ASSIGNMENTS_REPOSITORY,
   ADMIN_BUSES_REPOSITORY,
   ADMIN_PLANS_REPOSITORY,
   ADMIN_REFRESH_TOKENS_REPOSITORY,
@@ -76,6 +78,7 @@ import {
     { provide: ADMIN_ROUTES_REPOSITORY, useValue: Route },
     { provide: ADMIN_STOPS_REPOSITORY, useValue: Stop },
     { provide: ADMIN_TRIPS_REPOSITORY, useValue: Trip },
+    { provide: ADMIN_ASSIGNMENTS_REPOSITORY, useValue: RouteAssignment },
     { provide: ADMIN_REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
     { provide: ADMIN_PLANS_REPOSITORY, useValue: Plan },
     { provide: ADMIN_SUBSCRIPTIONS_REPOSITORY, useValue: SchoolSubscription },

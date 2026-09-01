@@ -1,6 +1,10 @@
+import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { SubscriptionStatus } from '@school-bus-tracking/shared-types';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import { ListAdminSubscriptionsQueryDto } from './dto';
 import {
   adminSchoolSubscriptionCancelSchema,
   adminSchoolSubscriptionCreateSchema,
@@ -133,5 +137,43 @@ describe('Admin school subscription zod validation', () => {
       adminSchoolSubscriptionCancelSchema.safeParse({ cancelled_at: 'soon' }).success,
       false,
     );
+  });
+});
+
+describe('ListAdminSubscriptionsQueryDto (global subscription console filters)', () => {
+  const validateQuery = async (query: Record<string, unknown>) =>
+    validate(plainToInstance(ListAdminSubscriptionsQueryDto, query));
+
+  it('accepts the supported search / status / plan filters', async () => {
+    const errors = await validateQuery({
+      page: 2,
+      limit: 50,
+      search: 'lincoln',
+      status: SubscriptionStatus.PAST_DUE,
+      plan_id: PLAN_ID,
+    });
+    assert.equal(errors.length, 0);
+  });
+
+  it('accepts the projection-only `none` status as a read filter', async () => {
+    const errors = await validateQuery({ status: SubscriptionStatus.NONE });
+    assert.equal(errors.length, 0);
+  });
+
+  it('bounds the free-text search by length (MaxLength, not the numeric Max)', async () => {
+    const ok = await validateQuery({ search: 'a'.repeat(100) });
+    assert.equal(ok.length, 0);
+
+    const tooLong = await validateQuery({ search: 'a'.repeat(101) });
+    assert.equal(tooLong.length, 1);
+    assert.match(
+      Object.values(tooLong[0].constraints ?? {}).join(' '),
+      /at most 100 characters/,
+    );
+  });
+
+  it('rejects an unknown status and a non-UUID plan filter', async () => {
+    assert.equal((await validateQuery({ status: 'paused' })).length, 1);
+    assert.equal((await validateQuery({ plan_id: 'pro' })).length, 1);
   });
 });

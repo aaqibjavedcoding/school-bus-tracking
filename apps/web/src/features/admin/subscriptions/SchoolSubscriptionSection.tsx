@@ -5,6 +5,7 @@ import { ApiClientError } from '@school-bus-tracking/api-client';
 import {
   SUBSCRIPTION_STATUS_LABELS,
   type AdminPlanSummary,
+  type AdminSchoolStats,
   type AdminSchoolSubscriptionCreateRequest,
   type AdminSchoolSubscriptionHistoryItem,
   type AdminSchoolSubscriptionResponse,
@@ -26,6 +27,8 @@ import { apiClient } from '../../../services/api';
 import { AssignPlanDialog, type SubmitResult } from './AssignPlanDialog';
 import { ChangePlanDialog } from './ChangePlanDialog';
 import { billingPeriodSuffix, subscriptionStatusTone, subscriptionUiMode } from './helpers';
+import { UsageMeter } from '../components/Charts';
+import { schoolUsageRows } from '../metrics';
 
 interface SectionData {
   subscription: AdminSchoolSubscriptionResponse;
@@ -55,9 +58,16 @@ interface PlansState {
 export const SchoolSubscriptionSection = React.memo(function SchoolSubscriptionSection({
   schoolId,
   schoolName,
+  stats,
 }: {
   schoolId: string;
   schoolName: string;
+  /**
+   * Tenant resource counts from the school details payload. When provided,
+   * the section renders usage against the plan's limits — no extra request
+   * is made, the numbers are the ones the page already loaded.
+   */
+  stats?: AdminSchoolStats;
 }) {
   const toast = useToast();
   const [dialog, setDialog] = useState<DialogKind>(null);
@@ -300,6 +310,19 @@ export const SchoolSubscriptionSection = React.memo(function SchoolSubscriptionS
           </>
         )}
       </Card>
+
+      {stats && plan ? (
+        <Card
+          title="Plan usage"
+          description="Current tenant usage measured against the limits of the assigned plan. Limits are enforced by the API on every create."
+        >
+          <div className="usage-grid">
+            {schoolUsageRows(stats, plan.limits).map((row) => (
+              <UsageMeter key={row.resource} row={row} />
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <Card
         title="Subscription history"
