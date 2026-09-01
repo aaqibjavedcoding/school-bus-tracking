@@ -5,9 +5,11 @@ import {
   BusListResponse,
   BusResponse,
   PaginationMeta,
+  PlanLimitResource,
   RouteAssignmentRole,
   TripStatus,
 } from '@school-bus-tracking/shared-types';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { Bus, BusAttributes, Route, RouteAssignment, Trip, User } from '../../database/models';
 import {
   BUS_DELETED_MESSAGE,
@@ -51,6 +53,7 @@ export class BusesService {
     @Inject(BUSES_ROUTES_REPOSITORY) private readonly routes: typeof Route,
     @Inject(BUSES_USERS_REPOSITORY) private readonly users: typeof User,
     @Inject(BUSES_TRIPS_REPOSITORY) private readonly trips: typeof Trip,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /**
@@ -61,6 +64,7 @@ export class BusesService {
    * (soft-deleted rows release their identifiers).
    */
   async create(schoolId: string, dto: CreateBusDto): Promise<BusResponse> {
+    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.BUSES);
     const registrationNumber = dto.registration_number.trim();
     const busNumber = nullableTrim(dto.bus_number);
 

@@ -8,6 +8,7 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  PlanLimitResource,
   StopDeleteResponse,
   StopListResponse,
   StopResponse,
@@ -24,6 +25,7 @@ import {
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
+import { PlanLimitsService } from '../../common/plan-limits';
 
 /**
  * Tenant-safe stop management.
@@ -44,6 +46,7 @@ export class StopsService {
   constructor(
     @Inject(STOPS_REPOSITORY) private readonly stops: typeof Stop,
     @Inject(STOPS_ROUTES_REPOSITORY) private readonly routes: typeof Route,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /**
@@ -55,6 +58,7 @@ export class StopsService {
    * route's current last stop.
    */
   async create(schoolId: string, dto: CreateStopDto): Promise<StopResponse> {
+    await this.planLimits.assertWithinLimit(schoolId, PlanLimitResource.STOPS);
     await this.assertRouteInSchool(schoolId, dto.route_id);
     const sequenceNumber =
       dto.sequence_number ?? (await this.nextSequenceNumber(schoolId, dto.route_id));

@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Op, UniqueConstraintError } from 'sequelize';
 import { StudentGender } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Student, StudentGuardian, Stop } from '../../database/models';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { StudentsService } from './students.service';
 import {
   STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE,
@@ -170,6 +171,13 @@ function emptyGuardians(): typeof StudentGuardian {
 }
 
 /** Builds the service with empty route / assignment / bus relation stubs. */
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function makeService(
   students: typeof Student,
   stops: typeof Stop,
@@ -183,6 +191,7 @@ function makeService(
     empty as unknown as typeof Route,
     empty as unknown as typeof RouteAssignment,
     empty as unknown as typeof Bus,
+    allowAllPlanLimits(),
   );
 }
 
@@ -425,6 +434,7 @@ describe('StudentsService.findAll', () => {
       routes,
       assignments,
       buses,
+      allowAllPlanLimits(),
     );
 
     const response = await service.findAll(SCHOOL_A, makeQuery());

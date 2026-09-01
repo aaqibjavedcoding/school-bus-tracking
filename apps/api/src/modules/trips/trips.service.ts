@@ -8,6 +8,7 @@ import {
 import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
+  PlanLimitResource,
   RouteAssignmentRole,
   TripDeleteResponse,
   TripListResponse,
@@ -18,6 +19,7 @@ import {
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -98,6 +100,7 @@ export class TripsService {
     private readonly users: typeof User,
     private readonly liveTracking: LiveTrackingService,
     private readonly notifications: NotificationsService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   /** Dispatches a new `SCHEDULED` trip from an active roster row. */

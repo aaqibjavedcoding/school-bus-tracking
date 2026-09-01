@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { Route, Stop } from '../../database/models';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { StopsService } from './stops.service';
 import {
   STOP_DELETED_MESSAGE,
@@ -166,6 +167,14 @@ function makeRoutesRepository(records: Array<{ id: string; school_id: string }> 
   };
 }
 
+
+function allowAllPlanLimits(): PlanLimitsService {
+  return {
+    assertWithinLimit: async () => undefined,
+    assertStaffWithinLimit: async () => undefined,
+  } as unknown as PlanLimitsService;
+}
+
 function makeCreateDto(overrides: Partial<CreateStopDto> = {}): CreateStopDto {
   const dto = new CreateStopDto();
   dto.route_id = ROUTE_A;
@@ -218,6 +227,7 @@ describe('StopsService.create', () => {
     const service = new StopsService(
       stops,
       makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
     );
 
     const response = await service.create(SCHOOL_A, makeCreateDto());
@@ -248,6 +258,7 @@ describe('StopsService.create', () => {
     const service = new StopsService(
       stops,
       makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
     );
 
     await service.create(SCHOOL_A, makeCreateDto({ sequence_number: undefined }));
@@ -257,7 +268,7 @@ describe('StopsService.create', () => {
 
   it('rejects a route that does not exist', async () => {
     const { repo: stops } = makeStopsRepository();
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectBadRequest(service.create(SCHOOL_A, makeCreateDto()), STOP_ROUTE_INVALID_MESSAGE);
   });
@@ -267,6 +278,7 @@ describe('StopsService.create', () => {
     const service = new StopsService(
       stops,
       makeRoutesRepository([{ id: ROUTE_B, school_id: SCHOOL_B }]).repo,
+      allowAllPlanLimits(),
     );
 
     await expectBadRequest(
@@ -286,6 +298,7 @@ describe('StopsService.create', () => {
     const service = new StopsService(
       stops,
       makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
     );
 
     await expectConflict(service.create(SCHOOL_A, makeCreateDto()), STOP_SEQUENCE_TAKEN_MESSAGE);
@@ -301,7 +314,7 @@ describe('StopsService.findAll', () => {
       makeStopRecord({ school_id: SCHOOL_B, route_id: ROUTE_B }),
       makeStopRecord({ school_id: SCHOOL_A, route_id: ROUTE_A, deleted_at: new Date() }),
     ]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ page: 1, limit: 2 }));
 
@@ -317,7 +330,7 @@ describe('StopsService.findAll', () => {
       makeStopRecord({ route_id: ROUTE_A }),
       makeStopRecord({ route_id: ROUTE_B }),
     ]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ route_id: ROUTE_A }));
 
@@ -330,7 +343,7 @@ describe('StopsService.findAll', () => {
       makeStopRecord({ name: 'Main Gate', address: null }),
       makeStopRecord({ name: 'Library', address: 'Maple Street 10' }),
     ]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ search: 'maple' }));
 
@@ -343,7 +356,7 @@ describe('StopsService.findOne', () => {
   it('returns a stop only when id and school match', async () => {
     const stop = makeStopRecord({ id: STOP_A, school_id: SCHOOL_A });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.findOne(SCHOOL_A, STOP_A);
 
@@ -353,7 +366,7 @@ describe('StopsService.findOne', () => {
 
   it('returns the generic 404 for a missing id', async () => {
     const { repo: stops } = makeStopsRepository([]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectNotFound(service.findOne(SCHOOL_A, STOP_A));
   });
@@ -361,7 +374,7 @@ describe('StopsService.findOne', () => {
   it('returns the generic 404 for another school id', async () => {
     const stop = makeStopRecord({ id: STOP_A, school_id: SCHOOL_B });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectNotFound(service.findOne(SCHOOL_A, STOP_A));
   });
@@ -371,7 +384,7 @@ describe('StopsService.update', () => {
   it('partially updates a stop of the authenticated school', async () => {
     const stop = makeStopRecord({ id: STOP_A, name: 'Old name', geofence_radius_meters: 100 });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.update(
       SCHOOL_A,
@@ -392,7 +405,7 @@ describe('StopsService.update', () => {
       estimated_arrival_time: '08:15',
     });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.update(
       SCHOOL_A,
@@ -413,6 +426,7 @@ describe('StopsService.update', () => {
         { id: ROUTE_A, school_id: SCHOOL_A },
         { id: ROUTE_B, school_id: SCHOOL_A },
       ]).repo,
+      allowAllPlanLimits(),
     );
 
     const response = await service.update(SCHOOL_A, STOP_A, makeUpdateDto({ route_id: ROUTE_B }));
@@ -426,6 +440,7 @@ describe('StopsService.update', () => {
     const service = new StopsService(
       stops,
       makeRoutesRepository([{ id: ROUTE_B, school_id: SCHOOL_B }]).repo,
+      allowAllPlanLimits(),
     );
 
     await expectBadRequest(
@@ -440,7 +455,7 @@ describe('StopsService.update', () => {
     stop.update = async () => {
       throw new UniqueConstraintError({ errors: [{ path: 'sequence_number' } as never] });
     };
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectConflict(
       service.update(SCHOOL_A, STOP_A, makeUpdateDto({ sequence_number: 1 })),
@@ -451,7 +466,7 @@ describe('StopsService.update', () => {
   it('returns the generic 404 when updating another school stop', async () => {
     const stop = makeStopRecord({ id: STOP_A, school_id: SCHOOL_B });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectNotFound(service.update(SCHOOL_A, STOP_A, makeUpdateDto({ name: 'X' })));
   });
@@ -461,7 +476,7 @@ describe('StopsService.remove', () => {
   it('soft deletes a stop of the authenticated school', async () => {
     const stop = makeStopRecord({ id: STOP_A });
     const { repo: stops, all } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     const response = await service.remove(SCHOOL_A, STOP_A);
 
@@ -473,7 +488,7 @@ describe('StopsService.remove', () => {
   it('returns the generic 404 when deleting another school stop', async () => {
     const stop = makeStopRecord({ id: STOP_A, school_id: SCHOOL_B });
     const { repo: stops } = makeStopsRepository([stop]);
-    const service = new StopsService(stops, makeRoutesRepository().repo);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
 
     await expectNotFound(service.remove(SCHOOL_A, STOP_A));
   });

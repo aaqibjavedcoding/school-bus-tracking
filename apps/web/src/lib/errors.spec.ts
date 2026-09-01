@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { adminSchoolCreateSchema, loginSchema } from '@school-bus-tracking/validation';
-import { fieldErrorsFromZod, formErrorsFromZod } from './errors.ts';
+import { ApiClientError } from '@school-bus-tracking/api-client';
+import { fieldErrorsFromZod, formErrorsFromZod, getApiErrorMessage } from './errors.ts';
 
 /**
  * Regression guard for the Super Admin "Add school" form.
@@ -121,5 +122,23 @@ describe('web zod error mapping', () => {
 
     assert.deepEqual(Object.keys(fieldErrorsFromZod(result.error)), ['email']);
     assert.deepEqual(formErrorsFromZod(result.error), []);
+  });
+});
+
+describe('web plan-limit error handling', () => {
+  it('surfaces the API plan-limit message instead of a generic error', () => {
+    const message =
+      "You've reached your plan limit of 100 students. Please upgrade your plan or remove an existing student to add another.";
+    const error = new ApiClientError('Request failed with status 409', 409, {
+      success: false,
+      error: {
+        code: 'PLAN_LIMIT_REACHED',
+        message,
+        details: { resource: 'students', limit: 100, usage: 100 },
+      },
+    });
+    assert.equal(getApiErrorMessage(error), message);
+    assert.ok(!getApiErrorMessage(error).includes('Something went wrong'));
+    assert.match(getApiErrorMessage(error), /100 students/);
   });
 });

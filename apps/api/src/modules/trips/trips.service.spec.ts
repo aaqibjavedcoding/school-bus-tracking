@@ -5,6 +5,7 @@ import { Op, UniqueConstraintError } from 'sequelize';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
+import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -442,6 +443,10 @@ function makeService(
     repos.userRepo,
     liveTracking,
     notifications,
+    {
+      assertWithinLimit: async () => undefined,
+      assertStaffWithinLimit: async () => undefined,
+    } as unknown as PlanLimitsService,
   );
 }
 

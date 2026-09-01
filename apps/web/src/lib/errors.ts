@@ -29,6 +29,9 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
   if (error instanceof ApiClientError) {
     const fromDetails = readMessage(error.details);
     if (fromDetails) return fromDetails;
+    if (isPlanLimitError(error.details)) {
+      return planLimitFallback(error.details) ?? fromDetails ?? error.message;
+    }
     if (error.status === 0) {
       return 'Network error. Check your connection and try again.';
     }
@@ -109,6 +112,20 @@ export function unwrapEnvelope<T>(
     return envelope.data;
   }
   throw new Error(envelope.error?.message || envelope.message || fallback);
+}
+
+function isPlanLimitError(details: unknown): boolean {
+  if (!details || typeof details !== 'object') return false;
+  const record = details as Record<string, unknown>;
+  const nested =
+    record.error && typeof record.error === 'object'
+      ? (record.error as Record<string, unknown>)
+      : record;
+  return nested.error === 'PLAN_LIMIT_REACHED' || nested.code === 'PLAN_LIMIT_REACHED';
+}
+
+function planLimitFallback(details: unknown): string | null {
+  return readMessage(details);
 }
 
 export function emptyToNull(value: string): string | null {

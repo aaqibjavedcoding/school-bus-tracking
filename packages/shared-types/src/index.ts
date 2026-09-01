@@ -2012,9 +2012,11 @@ export enum PlanLimitResource {
   STUDENTS = 'students',
   BUSES = 'buses',
   ROUTES = 'routes',
+  STOPS = 'stops',
   DRIVERS = 'drivers',
   CONDUCTORS = 'conductors',
   STAFF = 'staff',
+  PARENTS = 'parents',
   TRIPS = 'trips',
 }
 
@@ -2025,11 +2027,23 @@ export const PLAN_LIMIT_RESOURCE_LABELS: Record<PlanLimitResource, string> = {
   [PlanLimitResource.STUDENTS]: 'Students',
   [PlanLimitResource.BUSES]: 'Buses',
   [PlanLimitResource.ROUTES]: 'Routes',
+  [PlanLimitResource.STOPS]: 'Stops',
   [PlanLimitResource.DRIVERS]: 'Drivers',
   [PlanLimitResource.CONDUCTORS]: 'Conductors',
   [PlanLimitResource.STAFF]: 'Staff',
+  [PlanLimitResource.PARENTS]: 'Parents / Guardians',
   [PlanLimitResource.TRIPS]: 'Trips',
 };
+
+/** Application error code returned when a school has used its plan quota. */
+export const PLAN_LIMIT_REACHED_CODE = 'PLAN_LIMIT_REACHED';
+
+/** Details attached to a plan-limit rejection (never a generic 500). */
+export interface PlanLimitReachedDetails {
+  resource: PlanLimitResource;
+  limit: number;
+  usage: number;
+}
 
 /** A single numeric limit; `unlimited: true` overrides `value`. */
 export interface PlanLimitValue {
