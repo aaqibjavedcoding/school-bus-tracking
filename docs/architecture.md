@@ -169,86 +169,61 @@ Shared packages ensure zero type divergence and unified styling across the platf
 
 ---
 
-## 8. Multi-Tenancy Architecture (Future Phases)
+## 8. Multi-Tenancy Architecture (Implemented)
 
-The School Bus Tracking platform is designed for scalable multi-tenancy across thousands of schools and school districts.
+The School Bus Tracking platform is a shared-database, row-level multi-tenant SaaS: every tenant is a row in `schools` and every tenant-owned resource carries `school_id`, which is the isolation anchor throughout the API and database.
 
-### 8.1 Multi-Tenancy Model Comparison
+### 8.1 Tenancy Model
 
-| Strategy                                 | Isolation Level  | Complexity  | Resource Efficiency | Suitable Scale               |
-| :--------------------------------------- | :--------------- | :---------- | :------------------ | :--------------------------- |
-| **Row-Level Partitioning (`tenant_id`)** | Logical          | Low–Medium  | Highest             | 10,000+ Tenants              |
-| **Schema-per-Tenant**                    | Logical/Physical | Medium–High | Medium              | 100–1,000 Large Districts    |
-| **Database-per-Tenant**                  | Strict Physical  | Very High   | Lowest (High cost)  | Enterprise Isolated Installs |
+1. **`School` is the tenant root.** `schools.id` (opaque UUID) and `schools.code` (human-friendly, e.g. `lincoln-high`) both identify a tenant. Every child table (`users`, `students`, `buses`, `routes`, `stops`, `trips`, `route_assignments`, `school_subscriptions`, …) carries `school_id`.
+2. **Composite foreign keys prevent cross-tenant references.** User, trip and assignment parents are referenced as `(school_id, id)` so no database row can point at a resource from another school.
+3. **Tenant context comes from verified JWT claims, never from the client.** Normal school users authenticate with the tenant that owns their account; no tenant HTTP header or body `school_id` is trusted for scoping. `POST/PATCH GET` requests derive `school_id` from the authenticated user and every service layer query pins the tenant and role.
+4. **Platform `SUPER_ADMIN` is tenant-less.** It owns no `school_id` and is explicitly a cross-tenant operator. Platform endpoints take the managed school id from the route and re-validate it server-side, so a platform operator can never accidentally address a tenant without its real UUID, and school users are rejected by role guards (401 / 403).
+5. **Email uniqueness is per tenant.** `uq_users_school_email` allows the same address in two schools; a separate partial unique index (`uq_users_super_admin_email`) guards platform admin logins.
 
-### 8.2 Recommended Hybrid Architecture
+### 8.2 Isolation at the API Boundary
 
-1. **Default: Discriminator Column (`tenant_id`) with Row-Level Security (RLS)**:
-   - All core tables (`schools`, `buses`, `routes`, `stops`, `students`, `guardians`) include an indexed `tenant_id: UUID` column.
-   - Sequelize models utilize global default scopes (`where: { tenant_id: ... }`) and Sequelize hooks to automatically inject `tenant_id` on all create and find operations.
-   - PostgreSQL Row Level Security (RLS) policies act as the ultimate safeguard at the database engine level:
-     ```sql
-     ALTER TABLE students ENABLE ROW LEVEL SECURITY;
-     CREATE POLICY tenant_isolation_policy ON students
-       USING (tenant_id = current_setting('app.current_tenant_id')::uuid);
-     ```
-2. **Tenant Context Resolution Middleware**:
-   - Requests are resolved via:
-     1. Custom subdomain (e.g., `lincolnhigh.schoolbustracking.com` → resolves to Lincoln High Tenant ID).
-     2. `X-Tenant-ID` header (for mobile apps and internal microservice requests).
-     3. Claims embedded within signed JWT tokens (`tenantId`).
-   - A NestJS `TenantContextInterceptor` validates tenant validity, sets request-scoped context via `AsyncLocalStorage`, and configures the Sequelize transaction session.
+- Every feature controller is guarded by `JwtAuthGuard + RolesGuard`.
+- Every school-scoped service derives `school_id` from the JWT and never accepts it from the request body.
+- Super Admin routes are explicitly `@Roles(SUPER_ADMIN)`.
+- Inactive tenants are blocked centrally; deactivation revokes open refresh tokens but never deletes data (audit-friendly soft lifecycle).
 
 ---
 
-## 9. Real-Time Tracking & Telemetry Architecture (Future Phases)
+## 9. Real-Time Tracking & Telemetry Architecture (Implemented)
 
-Real-time bus tracking requires handling high-frequency telemetry while delivering sub-second map updates to thousands of concurrent parents and dispatchers.
+Real-time bus tracking is delivered by a self-hosted Socket.IO gateway (`@nestjs/platform-socket.io`) inside the API app, plus first-party database persistence. There is **no third-party push/paid service**: live maps, ETA updates and emergency/notification feeds all use the same Socket.IO namespaces.
 
 ```
-+----------------+      High-Frequency GPS      +-------------------+
-|  Driver Mobile |  =========================>  |  API Gateway /    |
-|  App / IoT Unit|     (MQTT / WebSockets)      |  Ingestion Cluster|
-+----------------+                              +---------+---------+
-                                                          |
-                                           Publish Event  |
-                                                          v
-                                                +-------------------+
-                                                | Redis Streams /   |
-                                                | PubSub Cluster    |
-                                                +----+--------+-----+
-                                                     |        |
-                         +---------------------------+        +---------------------------+
-                         |                                                                |
-                         v                                                                v
-               +-------------------+                                            +-------------------+
-               | Telemetry Worker  |                                            | Socket.io Gateway |
-               | (BullMQ / Node)   |                                            | (Live WebSockets) |
-               +---------+---------+                                            +---------+---------+
-                         |                                                                |
-         Persist History | Geofence Check                                Broadcast Stream | (Filtered by Tenant & Route)
-                         v                                                                v
-               +-------------------+                                            +-------------------+
-               | PostgreSQL /      |                                            | Parent & Admin    |
-               | PostGIS Database  |                                            | Apps (Live Map)   |
-               +-------------------+                                            +-------------------+
++------------------+       GPS fix (HTTP) / live socket      +-----------------+
+| Driver / Crew    |  =====================================> |  Nest API       |
+| Mobile App       |                                          |  (JWT + tenant) |
++------------------+   trip:location:update, emergency:sos    +-------+---------+
+                                                                     |
+                                                        persist + tenant room
+                                                                     v
+                                                          +-----------------+
+                                                          | Socket.IO       |
+                                                          | /live-tracking  |
+                                                          | /notifications  |
+                                                          | /emergencies    |
+                                                          +-------+---------+
+                                                                     |
+                          broadcast to verified school room          |
+                                                                     v
++------------------+<--------------------------------------+-----------------+
+| Parent / School  |   sub-second live map, ETA, emergency  | Web + Mobile    |
+| Web / Mobile    |   and notification events               | Console         |
++------------------+                                         +-----------------+
 ```
 
-### 9.1 Ingestion & Processing Pipeline
+### 9.1 Real-time Namespaces & Tenant Rooms
 
-1. **Telemetry Capture**:
-   - Driver mobile apps (or dedicated on-board OBD-II / GPS hardware) transmit location packets at 3–5 second intervals containing `{ latitude, longitude, speed, heading, accuracy, timestamp, routeId, busId, tenantId }`.
-2. **Ingestion Layer**:
-   - Location packets arrive over WebSocket connections or lightweight MQTT brokers, authenticated via ephemeral device tokens.
-3. **Redis Real-Time Buffer & Pub/Sub**:
-   - Location data is published directly to Redis Pub/Sub channels keyed by tenant and route (`tenant:{tenantId}:route:{routeId}`).
-   - The latest bus position is cached in Redis with geospatial indexes (`GEOADD`) for ultra-low latency spatial lookups.
-4. **Geofencing & Proximity Calculation**:
-   - Telemetry workers evaluate proximity against the route's upcoming stops using PostGIS spatial functions (`ST_DWithin`, `ST_Distance`).
-   - When a bus enters the 500m/2-minute radius of an active student stop, a `STOP_APPROACHING` event triggers push notifications via Apple APNs and Firebase Cloud Messaging (FCM).
-5. **Conductor Boarding Flow**:
-   - Conductors scan student QR codes or RFID cards upon boarding.
-   - The event (`STUDENT_BOARDED`, `STUDENT_DEBOARDED`) is pushed to the server, verifying stop matching and notifying parents immediately.
+1. **`/live-tracking`** — live GPS updates and trip location history for school-admin / parent live map views. Sockets join tenant rooms derived from the verified JWT `school_id`; a client can never name or join another school's room.
+2. **`/notifications`** — in-app notification events for school users and parents.
+3. **`/emergencies`** — crew SOS (`emergency:new`) and status changes (`emergency:updated`) to the owning school's room.
+4. **Authorization** — Handshakes use the same JWT strategy; tenant isolation is enforced server-side by room ownership, never by trusting a client-declared room or tenant id.
+5. **Future work** — Redis Pub/Sub scaling, telemetry queue workers and PostGIS geofence computation remain future enhancements; the current architecture keeps every real-time event first-party and self-hosted.
 
 ---
 

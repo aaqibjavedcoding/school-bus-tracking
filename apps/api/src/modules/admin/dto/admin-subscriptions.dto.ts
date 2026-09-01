@@ -1,4 +1,5 @@
-import { IsIn, IsISO8601, IsOptional, IsUUID } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsISO8601, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import {
   AdminSchoolSubscriptionCancelRequest,
   AdminSchoolSubscriptionCreateRequest,
@@ -6,6 +7,7 @@ import {
   ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES,
   PERSISTED_SUBSCRIPTION_STATUS_VALUES,
   SubscriptionStatus,
+  SUBSCRIPTION_STATUS_VALUES,
 } from '@school-bus-tracking/shared-types';
 
 /**
@@ -92,4 +94,42 @@ export class CancelSchoolSubscriptionDto implements AdminSchoolSubscriptionCance
   @IsOptional()
   @IsISO8601({ strict: true }, { message: ISO_MESSAGE('cancelled_at') })
   cancelled_at?: string | null;
+}
+
+/**
+ * Query string of `GET /api/v1/admin/subscriptions` (global platform view).
+ *
+ * Unlike the school-scoped subscription DTOs, `status` accepts the
+ * projection-only `none` because a platform operator filters the list by
+ * "schools with no subscription" directly; the service never persists it.
+ */
+export class ListAdminSubscriptionsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'page must be an integer' })
+  @Min(1, { message: 'page must be at least 1' })
+  page: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'limit must be an integer' })
+  @Min(1, { message: 'limit must be at least 1' })
+  @Max(100, { message: 'limit must be at most 100' })
+  limit: number = 20;
+
+  @IsOptional()
+  @IsString({ message: 'search must be a string' })
+  @Max(100, { message: 'search must be at most 100 characters' })
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  search?: string;
+
+  @IsOptional()
+  @IsIn(SUBSCRIPTION_STATUS_VALUES, {
+    message: 'status must be one of none, trialing, active, past_due, cancelled, expired',
+  })
+  status?: SubscriptionStatus;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'plan_id must be a valid UUID' })
+  plan_id?: string;
 }

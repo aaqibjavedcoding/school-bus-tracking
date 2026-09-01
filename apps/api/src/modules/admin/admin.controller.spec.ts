@@ -11,6 +11,7 @@ import { AdminPlansController } from './admin-plans.controller';
 import { AdminSchoolAdminsController } from './admin-school-admins.controller';
 import { AdminSchoolsController } from './admin-schools.controller';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller';
+import { AdminGlobalSubscriptionsController } from './admin-global-subscriptions.controller';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -70,6 +71,7 @@ describe('Admin controllers authorization', () => {
   const adminsController = {} as AdminSchoolAdminsController;
   const plansController = {} as AdminPlansController;
   const subscriptionsController = {} as AdminSubscriptionsController;
+  const globalSubscriptionsController = {} as AdminGlobalSubscriptionsController;
 
   const protectedHandlers: Array<{
     method: string;
@@ -111,6 +113,11 @@ describe('Admin controllers authorization', () => {
       'update',
       'cancel',
     ]).map((h) => ({ ...h, controller: subscriptionsController })),
+    // Task 45 — the global platform-wide subscription console is SUPER_ADMIN only.
+    ...controllerFor(AdminGlobalSubscriptionsController, ['findAll']).map((h) => ({
+      ...h,
+      controller: globalSubscriptionsController,
+    })),
   ];
 
   it('restricts every admin route to the SUPER_ADMIN role', () => {

@@ -1440,6 +1440,17 @@ export type AdminSchoolSubscriptionCancelInput = z.infer<
   typeof adminSchoolSubscriptionCancelSchema
 >;
 
+/** Query string of `GET /api/v1/admin/subscriptions`. */
+export const adminSubscriptionListQuerySchema = paginationSchema
+  .extend({
+    search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+    status: subscriptionStatusSchema.optional(),
+    plan_id: z.string().uuid('plan_id must be a valid UUID').optional(),
+  })
+  .strict();
+
+export type AdminSubscriptionListQueryInput = z.infer<typeof adminSubscriptionListQuerySchema>;
+
 /**
  * Task 44 — Bus & driver compliance documents.
  *

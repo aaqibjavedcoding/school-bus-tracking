@@ -82,4 +82,34 @@ describe('ApiClient school subscription methods', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('targets the /admin/subscriptions global list with filters', async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      requests.push({ url: String(input), method: init?.method ?? 'GET' });
+      return new Response(JSON.stringify({ success: true, data: { items: [], meta: {} } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const client = new ApiClient({ baseUrl: 'https://api.example.test/api/v1' });
+      await client.listAdminSubscriptions({
+        page: 2,
+        limit: 25,
+        search: 'lincoln',
+        status: SubscriptionStatus.ACTIVE,
+        plan_id: PLAN_ID,
+      });
+      assert.equal(requests[0].method, 'GET');
+      assert.equal(
+        requests[0].url,
+        `https://api.example.test/api/v1/admin/subscriptions?page=2&limit=25&search=lincoln&status=active&plan_id=${PLAN_ID}`,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

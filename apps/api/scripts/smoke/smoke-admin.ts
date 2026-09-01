@@ -29,6 +29,7 @@ import { AdminSchoolsService } from '../../src/modules/admin/admin-schools.servi
 import { AdminDashboardService } from '../../src/modules/admin/admin-dashboard.service';
 import { AdminSchoolAdminsService } from '../../src/modules/admin/admin-school-admins.service';
 import { AdminSubscriptionsService } from '../../src/modules/admin/admin-subscriptions.service';
+import { AdminGlobalSubscriptionsService } from '../../src/modules/admin/admin-global-subscriptions.service';
 import { SchoolsService } from '../../src/modules/schools/schools.service';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { SchoolAccessService } from '../../src/common/access/school-access.service';
@@ -281,7 +282,15 @@ async function main(): Promise<void> {
     return {
       findOne: async (options: { where: Row }) =>
         plans.find((p) => p.id === options.where.id) ?? null,
-      findAll: async (options: { where?: Row } = {}) => {
+      findAll: async (options: { where?: Row; group?: string[] } = {}) => {
+        if (options.group?.includes('is_active')) {
+          const active = plans.filter((p) => p.is_active).length;
+          const inactive = plans.filter((p) => !p.is_active).length;
+          const out: Row[] = [];
+          if (active) out.push({ is_active: true, count: String(active) });
+          if (inactive) out.push({ is_active: false, count: String(inactive) });
+          return out;
+        }
         const idWhere = options.where?.id as Record<symbol, string[]> | undefined;
         const ids = idWhere ? idWhere[Op.in] : undefined;
         return ids ? plans.filter((p) => ids.includes(p.id as string)) : plans;
@@ -409,6 +418,8 @@ async function main(): Promise<void> {
     buses: simpleCountStub(4, 3),
     routes: simpleCountStub(3, 3),
     trips: simpleCountStub(7, 5),
+    plans: planStub(),
+    subscriptions: subscriptionStub(),
   });
   patchService(adminsService, { schools: schoolsRepo, users: usersRepo });
   const subscriptionsService = app.get(AdminSubscriptionsService);
@@ -416,6 +427,22 @@ async function main(): Promise<void> {
     subscriptions: subscriptionStub(),
     schools: schoolsRepo,
     plans: planStub(),
+  });
+  const globalSubscriptionsService = app.get(AdminGlobalSubscriptionsService);
+  const emptyRawRepo = () =>
+    ({
+      findAll: async () => [],
+    }) as unknown;
+  patchService(globalSubscriptionsService, {
+    subscriptions: subscriptionStub(),
+    schools: schoolsRepo,
+    plans: planStub(),
+    users: emptyRawRepo(),
+    students: emptyRawRepo(),
+    buses: emptyRawRepo(),
+    routes: emptyRawRepo(),
+    stops: emptyRawRepo(),
+    trips: emptyRawRepo(),
   });
   patchService(onboardingService, { schools: schoolsRepo, users: usersRepo });
   // Auth service repos are indexed by their token names; patch directly.
@@ -1019,6 +1046,38 @@ async function main(): Promise<void> {
       throw new Error('plan change must keep the superseded basic subscription as expired');
     const currentCount = items.filter((item) => item.is_current).length;
     if (currentCount !== 1) throw new Error('exactly one row may be current');
+  });
+
+  // ---- Task 45: global platform-wide subscriptions ----------------------
+
+  await check('global subscriptions: unauthenticated read is rejected with 401', async () => {
+    const res = await call('GET', '/admin/subscriptions');
+    if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
+  });
+
+  await check('global subscriptions: school admin is rejected with 403', async () => {
+    const res = await call('GET', '/admin/subscriptions', { token: schoolAdminToken });
+    if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
+  });
+
+  await check('global subscriptions: super admin gets the platform list', async () => {
+    const res = await call('GET', '/admin/subscriptions?limit=100', { token: superToken });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const data = (res.json as { data: { items: unknown[] } }).data;
+    if (!Array.isArray(data.items) || data.items.length === 0)
+      throw new Error('expected at least one subscription row');
+  });
+
+  await check('global subscriptions: status filter returns no-subscription schools', async () => {
+    const res = await call('GET', '/admin/subscriptions?status=none&limit=100', {
+      token: superToken,
+    });
+    if (res.status !== 200)
+      throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
+    const data = (res.json as { data: { items: Array<{ status: string }> } }).data;
+    if (data.items.some((item) => item.status !== 'none'))
+      throw new Error('none filter must only return schools without subscriptions');
   });
 
   await app.close();

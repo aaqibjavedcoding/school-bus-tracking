@@ -8,17 +8,18 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  EmptyState,
   ErrorState,
   PageHeader,
   Skeleton,
   useToast,
 } from '../../../../../components/ui';
 import { useLoad } from '../../../../../hooks/useLoad';
-import { fullName, formatDateTime } from '../../../../../lib/format';
+import { formatDateTime } from '../../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../../lib/errors';
 import { apiClient } from '../../../../../services/api';
 import { SchoolSubscriptionSection } from '../../../../../features/admin/subscriptions/SchoolSubscriptionSection';
+import { SchoolAdminsSection } from '../../../../../features/admin/school-admins/SchoolAdminsSection';
+import { EditSchoolProfileDialog } from '../../../../../features/admin/schools/EditSchoolProfileDialog';
 
 interface StatCard {
   label: string;
@@ -48,6 +49,7 @@ export default function AdminSchoolDetailsPage() {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<'activate' | 'deactivate' | null>(null);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
 
   const { data, loading, error, reload, setData } = useLoad(async () => {
     const envelope = await apiClient.getAdminSchool(schoolId);
@@ -93,7 +95,15 @@ export default function AdminSchoolDetailsPage() {
     );
   }
 
-  const { school, stats, admins } = data;
+  const { school, stats } = data;
+
+  const saveProfile = (updated: { id: string }) => {
+    setData((current) => {
+      if (!current) return current;
+      return { ...current, school: updated as typeof current.school };
+    });
+    setEditProfileOpen(false);
+  };
 
   return (
     <div className="page">
@@ -119,6 +129,11 @@ export default function AdminSchoolDetailsPage() {
       />
 
       <Card title="Profile" description="Contact and operational details held for this tenant.">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+          <Button variant="secondary" size="md" onClick={() => setEditProfileOpen(true)}>
+            Edit profile
+          </Button>
+        </div>
         <div className="grid grid-2" style={{ gap: '0.5rem 2rem' }}>
           <Detail label="Email" value={school.email} />
           <Detail label="Phone" value={school.phone} />
@@ -179,43 +194,7 @@ export default function AdminSchoolDetailsPage() {
         />
       </Card>
 
-      <Card
-        title="School administrators"
-        description="Accounts allowed to operate this tenant. Credentials are never shown."
-      >
-        {admins.length === 0 ? (
-          <EmptyState title="No administrators" description="This school has no admin accounts." />
-        ) : (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Phone</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admins.map((admin) => (
-                  <tr key={admin.id}>
-                    <td>{fullName(admin)}</td>
-                    <td>{admin.email}</td>
-                    <td>{admin.phone ?? '—'}</td>
-                    <td>
-                      <Badge tone={admin.is_active ? 'success' : 'warning'}>
-                        {admin.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </td>
-                    <td>{formatDateTime(admin.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      <SchoolAdminsSection schoolId={schoolId} schoolName={school.name} />
 
       <SchoolSubscriptionSection schoolId={schoolId} schoolName={school.name} />
 
@@ -224,6 +203,13 @@ export default function AdminSchoolDetailsPage() {
           <Button variant="secondary">Back to schools</Button>
         </Link>
       </div>
+
+      <EditSchoolProfileDialog
+        open={editProfileOpen}
+        school={school}
+        onClose={() => setEditProfileOpen(false)}
+        onSaved={saveProfile}
+      />
 
       <ConfirmDialog
         open={confirm !== null}

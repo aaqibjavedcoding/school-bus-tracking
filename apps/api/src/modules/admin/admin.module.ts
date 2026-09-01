@@ -6,6 +6,7 @@ import {
   Route,
   School,
   SchoolSubscription,
+  Stop,
   Student,
   Trip,
   User,
@@ -21,12 +22,15 @@ import { AdminPlansController } from './admin-plans.controller';
 import { AdminPlansService } from './admin-plans.service';
 import { AdminSubscriptionsController } from './admin-subscriptions.controller';
 import { AdminSubscriptionsService } from './admin-subscriptions.service';
+import { AdminGlobalSubscriptionsController } from './admin-global-subscriptions.controller';
+import { AdminGlobalSubscriptionsService } from './admin-global-subscriptions.service';
 import {
   ADMIN_BUSES_REPOSITORY,
   ADMIN_PLANS_REPOSITORY,
   ADMIN_REFRESH_TOKENS_REPOSITORY,
   ADMIN_ROUTES_REPOSITORY,
   ADMIN_SCHOOLS_REPOSITORY,
+  ADMIN_STOPS_REPOSITORY,
   ADMIN_STUDENTS_REPOSITORY,
   ADMIN_SUBSCRIPTIONS_REPOSITORY,
   ADMIN_TRIPS_REPOSITORY,
@@ -56,6 +60,7 @@ import {
     AdminSchoolAdminsController,
     AdminPlansController,
     AdminSubscriptionsController,
+    AdminGlobalSubscriptionsController,
   ],
   providers: [
     AdminDashboardService,
@@ -63,11 +68,13 @@ import {
     AdminSchoolAdminsService,
     AdminPlansService,
     AdminSubscriptionsService,
+    AdminGlobalSubscriptionsService,
     { provide: ADMIN_SCHOOLS_REPOSITORY, useValue: School },
     { provide: ADMIN_USERS_REPOSITORY, useValue: User },
     { provide: ADMIN_STUDENTS_REPOSITORY, useValue: Student },
     { provide: ADMIN_BUSES_REPOSITORY, useValue: Bus },
     { provide: ADMIN_ROUTES_REPOSITORY, useValue: Route },
+    { provide: ADMIN_STOPS_REPOSITORY, useValue: Stop },
     { provide: ADMIN_TRIPS_REPOSITORY, useValue: Trip },
     { provide: ADMIN_REFRESH_TOKENS_REPOSITORY, useValue: RefreshToken },
     { provide: ADMIN_PLANS_REPOSITORY, useValue: Plan },
