@@ -171,8 +171,8 @@ export default function BusesPage() {
                     </td>
                     <td>
                       <div className="table-actions">
-                        <Link href={`/buses/${bus.id}/documents`}>
-                          <Button variant="secondary">Documents</Button>
+                        <Link className="btn btn-secondary" href={`/buses/${bus.id}/documents`}>
+                          Documents
                         </Link>
                         <Button variant="secondary" onClick={() => startEdit(bus)}>
                           Edit

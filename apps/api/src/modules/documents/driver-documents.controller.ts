@@ -26,14 +26,14 @@ import { DocumentsService } from './documents.service';
 import { CreateDriverDocumentDto, ListDocumentsQueryDto, UpdateDriverDocumentDto } from './dto';
 
 /**
- * School-admin compliance documents of one driver
+ * School-admin compliance documents of one crew member
  * (`/api/v1/drivers/:driverId/documents`) — the driving licence first, plus
  * whatever else the school requires (medical, police verification, …).
  *
  * The owner is taken from the route, the tenant from the verified JWT, and the
- * service additionally pins the owner's role to `DRIVER`, so the endpoint can
- * never manage the documents of a conductor, a parent or another school's
- * employee.
+ * service additionally pins the owner's role to the crew roles (`DRIVER` or
+ * `CONDUCTOR`), so the endpoint can never manage the documents of a parent, an
+ * admin or another school's employee.
  */
 @Controller('drivers/:driverId/documents')
 @UseGuards(JwtAuthGuard, RolesGuard)

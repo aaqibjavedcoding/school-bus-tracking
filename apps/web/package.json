@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test src/lib/errors.spec.ts src/features/admin/subscriptions/helpers.spec.ts src/features/documents/helpers.spec.ts",
+    "test": "node --experimental-strip-types --test src/lib/errors.spec.ts src/lib/roles.spec.ts src/features/admin/subscriptions/helpers.spec.ts src/features/documents/helpers.spec.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf .next dist"
   },

@@ -11,7 +11,6 @@ import {
 } from '@school-bus-tracking/shared-types';
 import {
   Badge,
-  Button,
   Card,
   CheckboxRow,
   EmptyState,
@@ -23,10 +22,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../components/ui';
-import {
-  ComplianceSummaryBadges,
-  IssueLine,
-} from '../../../features/documents/CompliancePanel';
+import { ComplianceSummaryBadges, IssueLine } from '../../../features/documents/CompliancePanel';
 import {
   complianceSummaryLine,
   documentOwnerPath,
@@ -134,13 +130,10 @@ export default function DocumentsPage() {
     <div className="page">
       <PageHeader
         title="Documents"
-        description="Fleet and crew compliance in one place — missing, expiring and expired documents across every bus and driver."
+        description="Fleet and crew compliance in one place — missing, expiring and expired documents across every bus, driver and conductor."
       />
 
-      <Card
-        title="School summary"
-        description="Totals across every bus and driver of the school."
-      >
+      <Card title="School summary" description="Totals across every bus and driver of the school.">
         <ComplianceSummaryBadges summary={summary} />
         <p className="muted" style={{ marginTop: '0.6rem' }}>
           {complianceSummaryLine(summary)} across {overview.meta.total} bus
@@ -242,8 +235,11 @@ export default function DocumentsPage() {
                       )}
                     </td>
                     <td>
-                      <Link href={documentOwnerPath(item.owner_type, item.owner_id)}>
-                        <Button variant="ghost">Manage</Button>
+                      <Link
+                        className="btn btn-ghost"
+                        href={documentOwnerPath(item.owner_type, item.owner_id)}
+                      >
+                        Manage
                       </Link>
                     </td>
                   </tr>
@@ -270,7 +266,7 @@ export default function DocumentsPage() {
       />
 
       <RequirementCatalogue
-        title="Driver document requirements"
+        title="Crew document requirements"
         description="Which documents this school enforces for its drivers. The driving licence is required by default."
         items={data.driverRequirements.items}
         busy={busy}

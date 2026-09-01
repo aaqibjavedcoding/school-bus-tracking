@@ -1,3 +1,5 @@
+import { UserRole } from '@school-bus-tracking/shared-types';
+
 /**
  * Injection tokens and user-facing messages for the compliance-document
  * modules (Task 44).
@@ -25,7 +27,14 @@ export const MAX_DOCUMENT_LIMIT = 100;
  * confirm that a resource exists.
  */
 export const DOCUMENTS_BUS_NOT_FOUND_MESSAGE = 'Bus not found';
-export const DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE = 'Driver not found';
+export const DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE = 'Crew member not found';
+
+/**
+ * Crew roles that may own documents on the `/drivers/:driverId/documents`
+ * resource: schools keep the same licence / medical / police-verification
+ * paperwork for conductors as for drivers.
+ */
+export const DOCUMENT_CREW_ROLES = [UserRole.DRIVER, UserRole.CONDUCTOR] as const;
 
 /** Generic not-found message for a document row itself. */
 export const BUS_DOCUMENT_NOT_FOUND_MESSAGE = 'Bus document not found';

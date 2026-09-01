@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Op } from 'sequelize';
 import {
   BusDocumentCreateRequest,
   BusDocumentListResponse,
@@ -11,7 +12,6 @@ import {
   DriverDocumentResponse,
   DriverDocumentUpdateRequest,
   PaginationMeta,
-  UserRole,
 } from '@school-bus-tracking/shared-types';
 import {
   Bus,
@@ -27,6 +27,7 @@ import {
   BUS_DOCUMENT_NOT_FOUND_MESSAGE,
   DOCUMENTS_BUS_NOT_FOUND_MESSAGE,
   DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE,
+  DOCUMENT_CREW_ROLES,
   DOCUMENTS_BUS_REPOSITORY,
   DOCUMENTS_USER_REPOSITORY,
   DOCUMENT_DATE_RANGE_MESSAGE,
@@ -186,10 +187,16 @@ export class DocumentsService {
 
   // -------------------------------------------------------------- drivers --
 
-  /** Validates that the driver exists inside the authenticated school. */
+  /**
+   * Validates that the crew member exists inside the authenticated school.
+   *
+   * Both drivers and conductors carry compliance paperwork, so either role is
+   * accepted here; any other user (parent, school admin, another tenant's
+   * employee) gets the same generic `404`.
+   */
   async assertDriver(schoolId: string, driverId: string): Promise<User> {
     const driver = await this.users.findOne({
-      where: { id: driverId, school_id: schoolId, role: UserRole.DRIVER },
+      where: { id: driverId, school_id: schoolId, role: { [Op.in]: [...DOCUMENT_CREW_ROLES] } },
     });
     if (!driver) {
       throw new NotFoundException(DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE);

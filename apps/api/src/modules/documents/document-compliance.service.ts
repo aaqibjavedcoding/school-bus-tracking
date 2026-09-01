@@ -7,15 +7,16 @@ import {
   DocumentOwnerType,
   DocumentRequirementStatus,
   PaginationMeta,
-  UserRole,
 } from '@school-bus-tracking/shared-types';
 import { deriveDocumentStatus, documentDaysRemaining } from '@school-bus-tracking/validation';
+import { Op } from 'sequelize';
 import { Bus, BusDocument, DriverDocument, User } from '../../database/models';
 import {
   BUS_DOCUMENTS_REPOSITORY,
   DOCUMENTS_BUS_NOT_FOUND_MESSAGE,
   DOCUMENTS_BUS_REPOSITORY,
   DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE,
+  DOCUMENT_CREW_ROLES,
   DOCUMENTS_USER_REPOSITORY,
   DRIVER_DOCUMENTS_REPOSITORY,
 } from './documents.constants';
@@ -107,7 +108,7 @@ export class DocumentComplianceService {
     driverId: string,
   ): Promise<DocumentComplianceResponse> {
     const driver = await this.users.findOne({
-      where: { id: driverId, school_id: schoolId, role: UserRole.DRIVER },
+      where: { id: driverId, school_id: schoolId, role: { [Op.in]: [...DOCUMENT_CREW_ROLES] } },
     });
     if (!driver) {
       throw new NotFoundException(DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE);
@@ -300,7 +301,7 @@ export class DocumentComplianceService {
     const [buses, drivers, busDocuments, driverDocuments] = await Promise.all([
       this.buses.findAll({ where: { school_id: schoolId } }),
       this.users.findAll({
-        where: { school_id: schoolId, role: UserRole.DRIVER },
+        where: { school_id: schoolId, role: { [Op.in]: [...DOCUMENT_CREW_ROLES] } },
         order: [
           ['first_name', 'ASC'],
           ['last_name', 'ASC'],

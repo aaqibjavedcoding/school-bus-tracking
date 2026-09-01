@@ -40,8 +40,16 @@ function makeRepository(prefix: string) {
   const matches = (row: Row, where: Record<string, unknown>): boolean =>
     Object.entries(where).every(([key, value]) => {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
-        const operators = value as Record<string, unknown>;
-        return Object.entries(operators).every(([op, operand]) => {
+        const operators = value as Record<string | symbol, unknown>;
+        // Sequelize operators are symbols (`Op.in`), so symbol keys count too.
+        const entries: [string, unknown][] = [
+          ...Object.entries(operators),
+          ...Object.getOwnPropertySymbols(operators).map((symbol): [string, unknown] => [
+            (symbol.description ?? '').replace(/^Symbol\(|\)$/g, ''),
+            operators[symbol],
+          ]),
+        ];
+        return entries.every(([op, operand]) => {
           if (op === 'in') return (operand as unknown[]).includes(row[key]);
           return row[key] === operand;
         });
@@ -358,12 +366,11 @@ describe('DocumentComplianceService — driver compliance', () => {
     assert.equal(result.summary.is_compliant, true);
   });
 
-  it('refuses a conductor and a member of another school', async () => {
+  it('covers conductors too, and refuses a member of another school', async () => {
     const harness = makeHarness();
-    await assert.rejects(
-      harness.compliance.getDriverCompliance(SCHOOL_A, 'conductor-a'),
-      NotFoundException,
-    );
+    const conductor = await harness.compliance.getDriverCompliance(SCHOOL_A, 'conductor-a');
+    assert.equal(conductor.owner_label, 'Cory Duta');
+    assert.equal(conductor.summary.missing, 1);
     await assert.rejects(
       harness.compliance.getDriverCompliance(SCHOOL_B, DRIVER_A),
       NotFoundException,
@@ -372,21 +379,26 @@ describe('DocumentComplianceService — driver compliance', () => {
 });
 
 describe('DocumentComplianceService — school overview', () => {
-  it('lists every bus and driver of the school only', async () => {
+  it('lists every bus and crew member of the school only', async () => {
     const harness = makeHarness();
     const result = await harness.compliance.getOverview(SCHOOL_A, overviewQuery());
-    // One bus and one driver belong to school A; the conductor and school B's
-    // bus are not part of the compliance surface.
-    assert.equal(result.items.length, 2);
-    assert.deepEqual(result.items.map((item) => item.owner_type).sort(), ['BUS', 'DRIVER']);
+    // One bus, one driver and one conductor belong to school A; school B's bus
+    // is not part of the compliance surface.
+    assert.equal(result.items.length, 3);
+    assert.deepEqual(result.items.map((item) => item.owner_type).sort(), [
+      'BUS',
+      'DRIVER',
+      'DRIVER',
+    ]);
   });
 
   it('aggregates the school summary across every owner', async () => {
     const harness = makeHarness();
     const result = await harness.compliance.getOverview(SCHOOL_A, overviewQuery());
-    // 5 required bus documents + 1 required driver document, all missing.
-    assert.equal(result.summary.required_total, 6);
-    assert.equal(result.summary.missing, 6);
+    // 5 required bus documents + 1 required licence per crew member, all
+    // missing.
+    assert.equal(result.summary.required_total, 7);
+    assert.equal(result.summary.missing, 7);
     assert.equal(result.summary.is_compliant, false);
   });
 
@@ -394,6 +406,7 @@ describe('DocumentComplianceService — school overview', () => {
     const compliant = makeHarness();
     await fullyDocumentBus(compliant);
     await addLicence(compliant, DRIVER_A, dateInDays(365));
+    await addLicence(compliant, 'conductor-a', dateInDays(365));
 
     assert.equal(
       (await compliant.compliance.getOverview(SCHOOL_A, overviewQuery({ compliance: 'attention' })))
@@ -403,7 +416,7 @@ describe('DocumentComplianceService — school overview', () => {
     assert.equal(
       (await compliant.compliance.getOverview(SCHOOL_A, overviewQuery({ compliance: 'compliant' })))
         .items.length,
-      2,
+      3,
     );
 
     // An expiring document pushes the bus back into "attention".
@@ -412,6 +425,7 @@ describe('DocumentComplianceService — school overview', () => {
       [BusDocumentType.POLLUTION_CERTIFICATE]: dateInDays(2),
     });
     await addLicence(expiring, DRIVER_A, dateInDays(365));
+    await addLicence(expiring, 'conductor-a', dateInDays(365));
     const attentionAgain = await expiring.compliance.getOverview(
       SCHOOL_A,
       overviewQuery({ compliance: 'attention' }),
@@ -434,8 +448,11 @@ describe('DocumentComplianceService — school overview', () => {
       SCHOOL_A,
       overviewQuery({ owner_type: 'DRIVER' }),
     );
-    assert.equal(driversOnly.items.length, 1);
-    assert.equal(driversOnly.items[0].owner_label, 'Asha Rane');
+    assert.equal(driversOnly.items.length, 2);
+    assert.deepEqual(driversOnly.items.map((item) => item.owner_label).sort(), [
+      'Asha Rane',
+      'Cory Duta',
+    ]);
 
     assert.equal(
       (await harness.compliance.getOverview(SCHOOL_A, overviewQuery({ search: 'asha' }))).items
@@ -458,8 +475,8 @@ describe('DocumentComplianceService — school overview', () => {
     const harness = makeHarness();
     const firstPage = await harness.compliance.getOverview(SCHOOL_A, overviewQuery({ limit: 1 }));
     assert.equal(firstPage.items.length, 1);
-    assert.equal(firstPage.meta.total, 2);
-    assert.equal(firstPage.meta.totalPages, 2);
+    assert.equal(firstPage.meta.total, 3);
+    assert.equal(firstPage.meta.totalPages, 3);
     assert.equal(firstPage.meta.hasNextPage, true);
 
     const secondPage = await harness.compliance.getOverview(
@@ -475,7 +492,7 @@ describe('DocumentComplianceService — school overview', () => {
     const harness = makeHarness();
     await addBusDocument(harness, BUS_B, BusDocumentType.INSURANCE, dateInDays(200), SCHOOL_B);
     const result = await harness.compliance.getOverview(SCHOOL_A, overviewQuery());
-    assert.equal(result.items.length, 2);
+    assert.equal(result.items.length, 3);
     assert.equal(
       result.items.some((item) => item.owner_id === BUS_B),
       false,
