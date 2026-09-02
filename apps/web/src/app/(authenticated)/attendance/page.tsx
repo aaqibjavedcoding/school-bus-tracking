@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import { ExportDataset } from '@school-bus-tracking/shared-types';
 import { Card, ErrorState, PageHeader, Select, Skeleton } from '../../../components/ui';
 import { ManifestList } from '../../../features/attendance/ManifestList';
+import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../lib/errors';
 import { formatDateTime, tripStatusLabel, utcDateOnly } from '../../../lib/format';
@@ -29,7 +31,18 @@ export default function AttendancePage() {
 
   return (
     <div className="page">
-      <PageHeader title="Attendance" description="Board and drop students for today's trips." />
+      <PageHeader
+        title="Attendance"
+        description="Board and drop students for today's trips."
+        actions={
+          <ExportButton
+            dataset={ExportDataset.ATTENDANCE}
+            label="Export attendance"
+            disabled={!tripId}
+            query={{ trip_id: tripId || undefined }}
+          />
+        }
+      />
       {trips.loading ? (
         <Skeleton lines={6} />
       ) : trips.error ? (

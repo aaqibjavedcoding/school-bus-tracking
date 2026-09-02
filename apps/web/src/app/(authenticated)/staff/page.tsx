@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import React, { useState } from 'react';
 import type { StaffCreateRequest, StaffResponse } from '@school-bus-tracking/shared-types';
-import { UserRole } from '@school-bus-tracking/shared-types';
+import { ExportDataset, ImportModule, UserRole } from '@school-bus-tracking/shared-types';
 import { staffCreateSchema, staffUpdateSchema } from '@school-bus-tracking/validation';
 import {
   Badge,
@@ -19,6 +19,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../components/ui';
+import { ListActions } from '../../../features/data-transfer';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
   emptyToNull,
@@ -173,7 +174,13 @@ export default function StaffPage() {
         title="Drivers & conductors"
         description="Crew accounts that can be assigned to routes."
         actions={
-          <Button onClick={startCreate}>Add {tab === 'drivers' ? 'driver' : 'conductor'}</Button>
+          <ListActions
+            dataset={tab === 'drivers' ? ExportDataset.DRIVERS : ExportDataset.CONDUCTORS}
+            importModule={tab === 'drivers' ? ImportModule.DRIVERS : ImportModule.CONDUCTORS}
+            query={{ search: list.search || undefined }}
+          >
+            <Button onClick={startCreate}>Add {tab === 'drivers' ? 'driver' : 'conductor'}</Button>
+          </ListActions>
         }
       />
       <div className="tabs" role="tablist">

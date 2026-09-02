@@ -54,6 +54,18 @@ export default registerAs('rateLimit', () => ({
     location_read: policy('LOCATION_READ', 240, 60_000),
     /** Expensive list/search endpoints. */
     read_heavy: policy('READ_HEAVY', 300, 60_000),
+    /**
+     * Spreadsheet uploads (validate + commit). Deliberately tight: each request
+     * parses a file, runs thousands of validations and can hash hundreds of
+     * passwords, so it is by far the most expensive thing a tenant can ask for.
+     * Twelve per minute still covers an admin iterating on a file they are
+     * fixing row by row.
+     */
+    data_import: policy('DATA_IMPORT', 12, 60_000),
+    /** Streaming exports — each one can walk a whole table. */
+    data_export: policy('DATA_EXPORT', 30, 60_000),
+    /** Report queries and report exports (heavy aggregation, read-only). */
+    report_read: policy('REPORT_READ', 120, 60_000),
   },
   /**
    * Login brute-force protection is *windowed*, never a permanent lockout: a

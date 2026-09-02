@@ -18,7 +18,9 @@ export interface NavItem {
     | 'school'
     | 'tag'
     | 'doc'
-    | 'alert';
+    | 'alert'
+    | 'chart'
+    | 'upload';
 }
 
 /**
@@ -66,6 +68,8 @@ export function navItemsForRole(role: UserRole): NavItem[] {
         { href: '/trips', label: 'Trips', icon: 'trip' },
         { href: '/tracking', label: 'Live tracking', icon: 'map' },
         { href: '/attendance', label: 'Attendance', icon: 'check' },
+        { href: '/reports', label: 'Reports', icon: 'chart' },
+        { href: '/imports', label: 'Import data', icon: 'upload' },
       ];
     case UserRole.DRIVER:
     case UserRole.CONDUCTOR:

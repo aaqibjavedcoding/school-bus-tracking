@@ -3019,3 +3019,431 @@ export type EmergencySocketEvent =
  */
 export const emergencyRoomName = (schoolId: string): string =>
   `emergency:school:${schoolId}`;
+
+/* ============================================================================
+ * Import / Export / Reports (bulk data operations)
+ *
+ * Contracts shared by the API, the web console and the typed API client. The
+ * tenant is never part of any request here: the API derives `school_id`
+ * exclusively from the verified JWT, so a school admin can neither import into
+ * nor export from another school.
+ * ========================================================================= */
+
+/** Domain modules that support bulk Excel/CSV import. */
+export enum ImportModule {
+  STUDENTS = 'students',
+  PARENTS = 'parents',
+  STUDENT_GUARDIANS = 'student-guardians',
+  BUSES = 'buses',
+  ROUTES = 'routes',
+  STOPS = 'stops',
+  DRIVERS = 'drivers',
+  CONDUCTORS = 'conductors',
+  ROUTE_ASSIGNMENTS = 'route-assignments',
+}
+
+export const IMPORT_MODULE_VALUES: ImportModule[] = Object.values(ImportModule);
+
+/** Human labels for the import modules (used in UI and history tables). */
+export const IMPORT_MODULE_LABELS: Record<ImportModule, string> = {
+  [ImportModule.STUDENTS]: 'Students',
+  [ImportModule.PARENTS]: 'Parents / Guardians',
+  [ImportModule.STUDENT_GUARDIANS]: 'Student ↔ guardian links',
+  [ImportModule.BUSES]: 'Buses',
+  [ImportModule.ROUTES]: 'Routes',
+  [ImportModule.STOPS]: 'Stops',
+  [ImportModule.DRIVERS]: 'Drivers',
+  [ImportModule.CONDUCTORS]: 'Conductors',
+  [ImportModule.ROUTE_ASSIGNMENTS]: 'Route assignments',
+};
+
+/**
+ * How existing records are treated.
+ *
+ * `create` — only new records are written; a row whose natural key already
+ *            exists in the school is reported as a duplicate and skipped.
+ * `upsert` — new records are created and existing ones are updated in place.
+ */
+export enum ImportMode {
+  CREATE = 'create',
+  UPSERT = 'upsert',
+}
+
+export const IMPORT_MODE_VALUES: ImportMode[] = Object.values(ImportMode);
+
+/** Lifecycle of a stored import job. */
+export enum ImportJobStatus {
+  /** Dry run only — the file was validated, nothing was written. */
+  VALIDATED = 'VALIDATED',
+  /** Rows were written successfully (possibly with skipped invalid rows). */
+  COMPLETED = 'COMPLETED',
+  /** The transaction was rolled back; no row of this file was written. */
+  FAILED = 'FAILED',
+}
+
+export const IMPORT_JOB_STATUS_VALUES: ImportJobStatus[] = Object.values(ImportJobStatus);
+
+/**
+ * Per-row outcome, shown in the preview and written into the error workbook's
+ * `Import Status` column.
+ *
+ * Validation produces the first five ("what will happen"); a committed run
+ * produces the last three ("what did happen"). Keeping both in one enum lets
+ * the preview table and the history detail share a single renderer.
+ */
+export enum ImportRowStatus {
+  /** Passed every check and will be created. */
+  VALID = 'VALID',
+  /** Failed cell validation or a reference lookup. */
+  INVALID = 'INVALID',
+  /** The same natural key appears earlier in the uploaded file. */
+  DUPLICATE_IN_FILE = 'DUPLICATE_IN_FILE',
+  /** The record already exists and the run is in `create` mode. */
+  EXISTS = 'EXISTS',
+  /** The record already exists and the run is in `upsert` mode. */
+  WILL_UPDATE = 'WILL_UPDATE',
+  /** Written as a new record. */
+  CREATED = 'CREATED',
+  /** Matched an existing record which was updated in place. */
+  UPDATED = 'UPDATED',
+  /** Not written; the reason is carried by the row's issues. */
+  SKIPPED = 'SKIPPED',
+}
+
+export const IMPORT_ROW_STATUS_VALUES: ImportRowStatus[] = Object.values(ImportRowStatus);
+
+/** Row statuses that mean "this row did not make it into the database". */
+export const IMPORT_FAILED_ROW_STATUSES: ImportRowStatus[] = [
+  ImportRowStatus.INVALID,
+  ImportRowStatus.DUPLICATE_IN_FILE,
+  ImportRowStatus.EXISTS,
+  ImportRowStatus.SKIPPED,
+];
+
+/** Supported file formats for templates, exports and reports. */
+export enum DataFileFormat {
+  XLSX = 'xlsx',
+  CSV = 'csv',
+}
+
+export const DATA_FILE_FORMAT_VALUES: DataFileFormat[] = Object.values(DataFileFormat);
+
+/** One column of an import template. */
+export interface ImportTemplateColumn {
+  /** Exact header the parser expects (case/whitespace-insensitive matching). */
+  header: string;
+  required: boolean;
+  /** Short description shown in the template's notes row and instructions. */
+  description: string;
+  /** Example value written into the sample row. */
+  example: string;
+  /** Allowed values for enum-like columns, when applicable. */
+  allowed_values?: string[];
+}
+
+/** Metadata describing one importable module. */
+export interface ImportTemplateDescriptor {
+  module: ImportModule;
+  label: string;
+  /** Business explanation of what one row represents. */
+  description: string;
+  /** Natural key used to detect duplicates and to match rows on upsert. */
+  natural_key: string;
+  /** Maximum number of data rows accepted in one file. */
+  max_rows: number;
+  supports_upsert: boolean;
+  columns: ImportTemplateColumn[];
+}
+
+/** Successful payload of `GET /api/v1/imports/modules`. */
+export interface ImportModuleListResponse {
+  items: ImportTemplateDescriptor[];
+}
+
+/** One problem found on one row (or on the file as a whole). */
+export interface ImportRowIssue {
+  /** Column header the issue belongs to; null for row-level problems. */
+  column: string | null;
+  message: string;
+}
+
+/** A row that could not be imported, as shown in the preview and error file. */
+export interface ImportRowError {
+  /** 1-based row number as seen in the spreadsheet (header row excluded). */
+  row_number: number;
+  status: ImportRowStatus;
+  issues: ImportRowIssue[];
+  /** Original cell values, keyed by the template header. */
+  values: Record<string, string>;
+}
+
+/** Aggregate counters of a validation or import run. */
+export interface ImportSummary {
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  /** Rows whose natural key repeats inside the uploaded file. */
+  duplicate_rows_in_file: number;
+  /** Rows whose natural key already exists in the database. */
+  existing_records: number;
+  /** Rows that will be (or were) inserted. */
+  rows_to_create: number;
+  /** Rows that will be (or were) updated (upsert mode only). */
+  rows_to_update: number;
+  /** Rows that will be (or were) skipped — invalid + unusable duplicates. */
+  rows_to_skip: number;
+}
+
+/** One preview line shown in the review step. */
+export interface ImportPreviewRow {
+  row_number: number;
+  status: ImportRowStatus;
+  /** Short human label of the record, e.g. "Ahmed Khan (ST001)". */
+  label: string;
+  issues: ImportRowIssue[];
+}
+
+/** Successful payload of `POST /api/v1/imports/:module/validate`. */
+export interface ImportValidationResponse {
+  /** Stored `import_jobs` row so the error file stays downloadable. */
+  job_id: string;
+  module: ImportModule;
+  mode: ImportMode;
+  file_name: string;
+  summary: ImportSummary;
+  /** Bounded preview (valid + invalid) for the review screen. */
+  preview: ImportPreviewRow[];
+  /** True when the preview was truncated because the file is large. */
+  preview_truncated: boolean;
+  /** Columns present in the file that the template does not define. */
+  unknown_columns: string[];
+  /** Required columns the file is missing entirely. */
+  missing_columns: string[];
+  /** True when at least one row can be imported. */
+  can_import: boolean;
+  /** True when an error workbook can be downloaded for this job. */
+  has_error_file: boolean;
+}
+
+/** Successful payload of `POST /api/v1/imports/:module/commit`. */
+export interface ImportCommitResponse extends ImportValidationResponse {
+  status: ImportJobStatus;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  /** Set when the whole transaction was rolled back. */
+  failure_reason: string | null;
+}
+
+/** One row of the import-history table. */
+export interface ImportJobResponse {
+  id: string;
+  module: ImportModule;
+  module_label: string;
+  mode: ImportMode;
+  file_name: string;
+  status: ImportJobStatus;
+  /** True when the run was a validation dry run (nothing written). */
+  dry_run: boolean;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  imported_by_name: string | null;
+  started_at: string;
+  completed_at: string | null;
+  failure_reason: string | null;
+  has_error_file: boolean;
+}
+
+/** Detail payload of `GET /api/v1/imports/history/:id`. */
+export interface ImportJobDetailResponse extends ImportJobResponse {
+  summary: ImportSummary;
+  errors: ImportRowError[];
+  unknown_columns: string[];
+  missing_columns: string[];
+}
+
+/** Successful payload of `GET /api/v1/imports/history`. */
+export interface ImportJobListResponse {
+  items: ImportJobResponse[];
+  meta: PaginationMeta;
+}
+
+/** Query string of `GET /api/v1/imports/history`. */
+export interface ImportJobListQuery {
+  page?: number;
+  limit?: number;
+  module?: ImportModule;
+  status?: ImportJobStatus;
+  date_from?: string;
+  date_to?: string;
+}
+
+/** Datasets a school admin can export. */
+export enum ExportDataset {
+  STUDENTS = 'students',
+  PARENTS = 'parents',
+  STUDENT_GUARDIANS = 'student-guardians',
+  BUSES = 'buses',
+  ROUTES = 'routes',
+  STOPS = 'stops',
+  DRIVERS = 'drivers',
+  CONDUCTORS = 'conductors',
+  ROUTE_ASSIGNMENTS = 'route-assignments',
+  TRIPS = 'trips',
+  ATTENDANCE = 'attendance',
+  NOTIFICATIONS = 'notifications',
+  BUS_DOCUMENTS = 'bus-documents',
+  DRIVER_DOCUMENTS = 'driver-documents',
+}
+
+export const EXPORT_DATASET_VALUES: ExportDataset[] = Object.values(ExportDataset);
+
+export const EXPORT_DATASET_LABELS: Record<ExportDataset, string> = {
+  [ExportDataset.STUDENTS]: 'Students',
+  [ExportDataset.PARENTS]: 'Parents / Guardians',
+  [ExportDataset.STUDENT_GUARDIANS]: 'Student ↔ guardian links',
+  [ExportDataset.BUSES]: 'Buses',
+  [ExportDataset.ROUTES]: 'Routes',
+  [ExportDataset.STOPS]: 'Stops',
+  [ExportDataset.DRIVERS]: 'Drivers',
+  [ExportDataset.CONDUCTORS]: 'Conductors',
+  [ExportDataset.ROUTE_ASSIGNMENTS]: 'Route assignments',
+  [ExportDataset.TRIPS]: 'Trips',
+  [ExportDataset.ATTENDANCE]: 'Attendance',
+  [ExportDataset.NOTIFICATIONS]: 'Notifications',
+  [ExportDataset.BUS_DOCUMENTS]: 'Bus documents',
+  [ExportDataset.DRIVER_DOCUMENTS]: 'Driver documents',
+};
+
+/**
+ * Filters accepted by the export endpoints.
+ *
+ * Every dataset ignores the filters that do not apply to it. There is
+ * deliberately no `school_id`: the tenant always comes from the JWT.
+ */
+export interface ExportQuery {
+  format?: DataFileFormat;
+  search?: string;
+  /** `active` / `inactive` for lifecycle-flagged datasets. */
+  status?: string;
+  route_id?: string;
+  bus_id?: string;
+  stop_id?: string;
+  driver_id?: string;
+  conductor_id?: string;
+  parent_id?: string;
+  student_id?: string;
+  trip_id?: string;
+  /** Inclusive `YYYY-MM-DD` range on the dataset's primary date column. */
+  date_from?: string;
+  date_to?: string;
+}
+
+/** Reports available in the school-admin reporting area. */
+export enum ReportType {
+  STUDENTS_BY_ROUTE = 'students-by-route',
+  STUDENTS_BY_BUS = 'students-by-bus',
+  STUDENTS_BY_STOP = 'students-by-stop',
+  STUDENTS_UNASSIGNED = 'students-unassigned',
+  STUDENT_ROSTER = 'student-roster',
+  BUS_UTILIZATION = 'bus-utilization',
+  CREW_ASSIGNMENTS = 'crew-assignments',
+  TRIPS = 'trips',
+  ATTENDANCE = 'attendance',
+  NOTIFICATIONS = 'notifications',
+  DOCUMENTS = 'documents',
+}
+
+export const REPORT_TYPE_VALUES: ReportType[] = Object.values(ReportType);
+
+/** Report grouping used by the reports landing page. */
+export type ReportCategory = 'students' | 'transport' | 'trips' | 'attendance' | 'compliance';
+
+/** Filter keys a report understands, so the UI renders only relevant inputs. */
+export type ReportFilterKey =
+  | 'search'
+  | 'status'
+  | 'route_id'
+  | 'bus_id'
+  | 'stop_id'
+  | 'driver_id'
+  | 'student_id'
+  | 'trip_status'
+  | 'attendance_status'
+  | 'date_from'
+  | 'date_to';
+
+/** Static description of one report (drives the reports UI). */
+export interface ReportDescriptor {
+  report: ReportType;
+  label: string;
+  description: string;
+  category: ReportCategory;
+  filters: ReportFilterKey[];
+}
+
+/** Successful payload of `GET /api/v1/reports`. */
+export interface ReportCatalogueResponse {
+  items: ReportDescriptor[];
+}
+
+/** Column metadata of a report result table. */
+export interface ReportColumn {
+  key: string;
+  label: string;
+  /** `number` columns are right-aligned and totalled where meaningful. */
+  type: 'text' | 'number' | 'date';
+}
+
+/** One summary card of a report or of the reports overview. */
+export interface ReportSummaryCard {
+  key: string;
+  label: string;
+  value: number;
+  /** Optional context, e.g. "of 1,000 students". */
+  hint?: string | null;
+}
+
+/** Query string of the report endpoints. */
+export interface ReportQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  route_id?: string;
+  bus_id?: string;
+  stop_id?: string;
+  driver_id?: string;
+  student_id?: string;
+  trip_status?: TripStatus;
+  attendance_status?: TripAttendanceStatus;
+  date_from?: string;
+  date_to?: string;
+  format?: DataFileFormat;
+}
+
+/** Successful payload of `GET /api/v1/reports/:report`. */
+export interface ReportResultResponse {
+  report: ReportType;
+  label: string;
+  summary: ReportSummaryCard[];
+  columns: ReportColumn[];
+  rows: Array<Record<string, string | number | null>>;
+  meta: PaginationMeta;
+  /** Echo of the filters the server actually applied. */
+  filters_applied: Record<string, string>;
+  generated_at: string;
+}
+
+/** Successful payload of `GET /api/v1/reports/overview`. */
+export interface ReportOverviewResponse {
+  students: ReportSummaryCard[];
+  transport: ReportSummaryCard[];
+  operations: ReportSummaryCard[];
+  compliance: ReportSummaryCard[];
+  generated_at: string;
+}

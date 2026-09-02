@@ -17,6 +17,9 @@ export const RATE_LIMIT_POLICIES = [
   'attendance_write',
   'location_read',
   'read_heavy',
+  'data_import',
+  'data_export',
+  'report_read',
 ] as const;
 
 export type RateLimitPolicyName = (typeof RATE_LIMIT_POLICIES)[number];

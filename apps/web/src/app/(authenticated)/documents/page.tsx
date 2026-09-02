@@ -4,6 +4,7 @@ import Link from 'next/link';
 import React, { useCallback, useState } from 'react';
 import {
   DOCUMENT_OWNER_TYPE_VALUES,
+  ExportDataset,
   type DocumentComplianceSummary,
   type DocumentOverviewItem,
   type DocumentOwnerType,
@@ -29,6 +30,7 @@ import {
   needsAttention,
   ownerTypeLabel,
 } from '../../../features/documents/helpers';
+import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../lib/errors';
 import { apiClient } from '../../../services/api';
@@ -131,6 +133,20 @@ export default function DocumentsPage() {
       <PageHeader
         title="Documents"
         description="Fleet and crew compliance in one place — missing, expiring and expired documents across every bus, driver and conductor."
+        actions={
+          <>
+            <ExportButton
+              dataset={ExportDataset.BUS_DOCUMENTS}
+              label="Export bus documents"
+              query={{ search: activeSearch || undefined }}
+            />
+            <ExportButton
+              dataset={ExportDataset.DRIVER_DOCUMENTS}
+              label="Export crew documents"
+              query={{ search: activeSearch || undefined }}
+            />
+          </>
+        }
       />
 
       <Card title="School summary" description="Totals across every bus and driver of the school.">

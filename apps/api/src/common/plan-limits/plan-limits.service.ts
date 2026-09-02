@@ -148,6 +148,73 @@ export class PlanLimitsService {
   }
 
   /**
+   * {@link runWithinLimit} for bulk writes that create `additional` records at
+   * once (spreadsheet imports).
+   *
+   * The difference from the single-record path is that the check is
+   * `usage + additional > cap` rather than `usage >= cap`: a school with 4 free
+   * seats must not be able to slip a 500-row file through just because the
+   * *first* row fits. Several resources can be reserved together (a driver
+   * import meters both `drivers` and the combined `staff` cap), and the locks
+   * are taken in a stable sorted order so two concurrent imports can never
+   * deadlock against each other.
+   */
+  async runWithinBulkLimit<T>(
+    schoolId: string,
+    resources: PlanLimitResource[],
+    additional: number,
+    work: PlanLimitedWork<T>,
+  ): Promise<T> {
+    const unique = [...new Set(resources)].sort();
+
+    if (!this.sequelize) {
+      for (const resource of unique) {
+        await this.assertBulkWithinLimit(schoolId, resource, additional);
+      }
+      return work();
+    }
+
+    return this.sequelize.transaction(async (transaction) => {
+      for (const resource of unique) {
+        await this.acquireAdvisoryLock(schoolId, resource, transaction);
+      }
+      for (const resource of unique) {
+        await this.assertBulkWithinLimit(schoolId, resource, additional, transaction);
+      }
+      return work(transaction);
+    });
+  }
+
+  /**
+   * Rejects a bulk create that would take the school past its cap.
+   *
+   * `additional <= 0` short-circuits: an upsert-only import creates nothing and
+   * must not be blocked by a plan that is already at its limit.
+   */
+  async assertBulkWithinLimit(
+    schoolId: string,
+    resource: PlanLimitResource,
+    additional: number,
+    transaction?: Transaction,
+  ): Promise<void> {
+    if (additional <= 0) {
+      return;
+    }
+    const plan = await this.resolveLivePlan(schoolId, transaction);
+    if (!plan) {
+      return;
+    }
+    const cap = resolveCap(plan.limits, resource);
+    if (cap === null) {
+      return;
+    }
+    const usage = await this.countUsage(schoolId, resource, transaction);
+    if (usage + additional > cap) {
+      throw new PlanLimitReachedException(resource, cap, usage);
+    }
+  }
+
+  /**
    * Rejects creation when the school's live plan has already reached the
    * configured cap for `resource`. Missing subscription, missing limit, or
    * `unlimited: true` all allow the create.

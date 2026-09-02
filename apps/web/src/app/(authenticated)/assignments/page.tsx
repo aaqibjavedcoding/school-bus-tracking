@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import {
+  ExportDataset,
+  ImportModule,
   RouteAssignmentRole,
   type RouteAssignmentCreateRequest,
   type RouteAssignmentResponse,
@@ -25,6 +27,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../components/ui';
+import { ListActions } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
@@ -173,7 +176,14 @@ export default function AssignmentsPage() {
       <PageHeader
         title="Assignments"
         description="Pair a driver or conductor with a bus and route."
-        actions={<Button onClick={startCreate}>New assignment</Button>}
+        actions={
+          <ListActions
+            dataset={ExportDataset.ROUTE_ASSIGNMENTS}
+            importModule={ImportModule.ROUTE_ASSIGNMENTS}
+          >
+            <Button onClick={startCreate}>New assignment</Button>
+          </ListActions>
+        }
       />
       {list.loading ? (
         <Skeleton lines={8} />

@@ -4,11 +4,14 @@ import {
   BusDocumentType,
   DEFAULT_DOCUMENT_EXPIRY_WARNING_DAYS,
   DOCUMENT_OWNER_TYPE_VALUES,
+  DataFileFormat,
   DocumentOwnerType,
   DocumentStatus,
   DriverDocumentType,
   EmergencyStatus,
   EmergencyType,
+  ImportJobStatus,
+  ImportModule,
   PlanBillingPeriod,
   PlanFeature,
   PlanLimitResource,
@@ -1820,3 +1823,492 @@ export const emergencyListQuerySchema = paginationSchema.extend({
 });
 
 export type EmergencyListQueryInput = z.infer<typeof emergencyListQuerySchema>;
+
+/* ============================================================================
+ * Bulk import / export / reports
+ *
+ * Spreadsheet cells always arrive as text, so the row schemas below coerce
+ * before they validate and then delegate to the *existing* domain schemas
+ * (`studentCreateSchema`, `busCreateSchema`, …) wherever the shape matches.
+ * There is deliberately no second, parallel validation system: an import row
+ * is rejected by exactly the same rules a form submission would hit.
+ * ========================================================================= */
+
+/** Normalises a spreadsheet cell to a trimmed string, or null when empty. */
+export function normalizeCell(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  const text = typeof value === 'string' ? value : String(value);
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Accepted spellings of a boolean cell. */
+const TRUE_CELL_VALUES = new Set(['true', 'yes', 'y', '1', 'active', 'enabled']);
+const FALSE_CELL_VALUES = new Set(['false', 'no', 'n', '0', 'inactive', 'disabled']);
+
+/** Optional text cell: empty → null, otherwise trimmed. */
+const optionalTextCell = (max: number, label: string) =>
+  z.preprocess(
+    normalizeCell,
+    z
+      .string()
+      .max(max, `${label} must be at most ${max} characters`)
+      .nullable()
+      .optional(),
+  );
+
+/** Required text cell with a clear "is required" message. */
+const requiredTextCell = (max: number, label: string) =>
+  z.preprocess(
+    normalizeCell,
+    z
+      .string({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+      .min(1, `${label} is required`)
+      .max(max, `${label} must be at most ${max} characters`),
+  );
+
+/** Boolean cell accepting TRUE/FALSE/YES/NO/1/0; empty → undefined. */
+const booleanCell = (label: string) =>
+  z.preprocess((value) => {
+    const text = normalizeCell(value);
+    if (text === null) return undefined;
+    const lowered = text.toLowerCase();
+    if (TRUE_CELL_VALUES.has(lowered)) return true;
+    if (FALSE_CELL_VALUES.has(lowered)) return false;
+    return text;
+  }, z.boolean({ invalid_type_error: `${label} must be TRUE or FALSE` }).optional());
+
+/** Integer cell; empty → undefined. Rejects text and decimals explicitly. */
+const integerCell = (label: string, options: { min?: number; max?: number } = {}) =>
+  z.preprocess((value) => {
+    const text = normalizeCell(value);
+    if (text === null) return undefined;
+    const parsed = Number(text);
+    return Number.isNaN(parsed) ? text : parsed;
+  }, applyNumberBounds(z.number({ invalid_type_error: `${label} must be a number` }).int(`${label} must be a whole number`), label, options).optional());
+
+/** Decimal cell; empty → null. */
+const decimalCell = (label: string, options: { min?: number; max?: number } = {}) =>
+  z.preprocess((value) => {
+    const text = normalizeCell(value);
+    if (text === null) return null;
+    const parsed = Number(text);
+    return Number.isNaN(parsed) ? text : parsed;
+  }, applyNumberBounds(z.number({ invalid_type_error: `${label} must be a number` }), label, options).nullable().optional());
+
+function applyNumberBounds(
+  schema: z.ZodNumber,
+  label: string,
+  options: { min?: number; max?: number },
+): z.ZodNumber {
+  let next = schema;
+  if (options.min !== undefined) {
+    next = next.min(options.min, `${label} must be at least ${options.min}`);
+  }
+  if (options.max !== undefined) {
+    next = next.max(options.max, `${label} must be at most ${options.max}`);
+  }
+  return next;
+}
+
+/**
+ * Date cell.
+ *
+ * Excel hands dates back either as text or as a real `Date` (which
+ * `normalizeCell` turns into an ISO timestamp), so both are reduced to
+ * `YYYY-MM-DD` before the calendar check.
+ */
+const dateShape = (label: string) =>
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be a valid date in YYYY-MM-DD format`)
+    .refine(isRealCalendarDate, `${label} must be a valid calendar date`);
+
+/**
+ * Normalises a date cell before validation.
+ *
+ * ISO timestamps (what a real Excel date cell produces) and plain `YYYY-MM-DD`
+ * both reduce to the date part; anything else is passed through untouched so
+ * the regex is what reports the problem.
+ */
+const dateInput = (required: boolean) => (value: unknown) => {
+  const text = normalizeCell(value);
+  if (text === null) return required ? undefined : null;
+  const isoMatch = /^(\d{4}-\d{2}-\d{2})(?:T.*)?$/.exec(text);
+  return isoMatch ? isoMatch[1] : text;
+};
+
+const requiredDateCell = (label: string) =>
+  z.preprocess(
+    dateInput(true),
+    z
+      .string({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+      .pipe(dateShape(label)),
+  );
+
+const optionalDateCell = (label: string) =>
+  z.preprocess(dateInput(false), dateShape(label).nullable().optional());
+
+/**
+ * Date cell.
+ *
+ * Overloaded rather than returning a union: a required date must type as
+ * `string`, not `string | null | undefined`, or every consumer would have to
+ * re-check a value the schema already guaranteed.
+ */
+function dateCell(label: string): ReturnType<typeof optionalDateCell>;
+function dateCell(label: string, required: true): ReturnType<typeof requiredDateCell>;
+function dateCell(label: string, required = false) {
+  return required ? requiredDateCell(label) : optionalDateCell(label);
+}
+
+/** True when a `YYYY-MM-DD` string is a date that actually exists. */
+export function isRealCalendarDate(value: string): boolean {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** Time-of-day cell (`HH:MM` / `HH:MM:SS`); empty → null. */
+const timeCell = (label: string) =>
+  z.preprocess((value) => {
+    const text = normalizeCell(value);
+    if (text === null) return null;
+    // A real Excel time cell arrives as an ISO timestamp.
+    const isoMatch = /^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+    return isoMatch ? isoMatch[1] : text;
+  }, z
+    .string()
+    .regex(
+      /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/,
+      `${label} must be in HH:MM or HH:MM:SS format`,
+    )
+    .nullable()
+    .optional());
+
+/** Email cell reusing the canonical `emailSchema` (trim + lowercase + shape). */
+const requiredEmailCell = (label: string) =>
+  z.preprocess(
+    (value) => normalizeCell(value) ?? undefined,
+    z
+      .string({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+      .pipe(z.string().email(`${label} must be a valid email address`).max(255))
+      .transform((email) => email.trim().toLowerCase()),
+  );
+
+const optionalEmailCell = (label: string) =>
+  z.preprocess(
+    (value) => normalizeCell(value) ?? undefined,
+    emailSchema.refine(() => true, `${label} must be a valid email address`).nullable().optional(),
+  );
+
+/** Email cell reusing the canonical `emailSchema` (trim + lowercase + shape). */
+function emailCell(label: string): ReturnType<typeof requiredEmailCell>;
+function emailCell(label: string, required: true): ReturnType<typeof requiredEmailCell>;
+function emailCell(label: string, required: false): ReturnType<typeof optionalEmailCell>;
+function emailCell(label: string, required = true) {
+  return required ? requiredEmailCell(label) : optionalEmailCell(label);
+}
+
+/**
+ * Phone cell.
+ *
+ * Deliberately permissive about formatting (schools paste national formats,
+ * `+` prefixes and separators) but strict about content: it must contain 7–15
+ * digits and nothing but digits, spaces and `+ - ( ) .`.
+ */
+const phoneCell = (label: string) =>
+  z.preprocess(
+    normalizeCell,
+    z
+      .string()
+      .max(32, `${label} must be at most 32 characters`)
+      .refine(
+        (value) => /^[+()\-.\s\d]+$/.test(value),
+        `${label} may only contain digits and + - ( ) . characters`,
+      )
+      .refine((value) => {
+        const digits = value.replace(/\D/g, '').length;
+        return digits >= 7 && digits <= 15;
+      }, `${label} must contain between 7 and 15 digits`)
+      .nullable()
+      .optional(),
+  );
+
+/** Enum cell matched case-insensitively so `male` and `MALE` both work. */
+const enumShape = <T extends string>(label: string, values: readonly T[]) => {
+  const lookup = new Map(values.map((entry) => [entry.toLowerCase(), entry]));
+  return z
+    .custom<T>((value) => typeof value === 'string' && lookup.has(value.toLowerCase()), {
+      message: `${label} must be one of ${values.join(', ')}`,
+    })
+    .transform((value) => lookup.get(String(value).toLowerCase()) as T);
+};
+
+const requiredEnumCell = <T extends string>(label: string, values: readonly T[]) =>
+  z.preprocess(
+    (value) => normalizeCell(value) ?? undefined,
+    z
+      .string({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+      .pipe(enumShape(label, values)),
+  );
+
+const optionalEnumCell = <T extends string>(label: string, values: readonly T[]) =>
+  z.preprocess(
+    (value) => normalizeCell(value) ?? null,
+    z.union([enumShape(label, values), z.null()]).optional(),
+  );
+
+/** Enum cell matched case-insensitively so `male` and `MALE` both work. */
+function enumCell<T extends string>(
+  label: string,
+  values: readonly T[],
+): ReturnType<typeof optionalEnumCell<T>>;
+function enumCell<T extends string>(
+  label: string,
+  values: readonly T[],
+  required: true,
+): ReturnType<typeof requiredEnumCell<T>>;
+function enumCell<T extends string>(label: string, values: readonly T[], required = false) {
+  return required ? requiredEnumCell(label, values) : optionalEnumCell(label, values);
+}
+
+/** Password cell reusing the shared `passwordSchema` rules. */
+const passwordCell = (label: string) =>
+  z.preprocess(
+    (value) => normalizeCell(value) ?? undefined,
+    z
+      .string({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+      .pipe(passwordSchema)
+      .pipe(z.string().max(72, `${label} must be at most 72 characters`)),
+  );
+
+/**
+ * Student import row.
+ *
+ * The domain model has a single `home_stop_id` (used for both pickup and
+ * drop), so the template exposes one stop reference — resolved by
+ * `route_code` + `home_stop_name` — instead of inventing separate pickup/drop
+ * columns that the schema could not store.
+ */
+export const studentImportRowSchema = z.object({
+  admission_number: requiredTextCell(64, 'Admission number'),
+  first_name: requiredTextCell(100, 'First name'),
+  last_name: requiredTextCell(100, 'Last name'),
+  date_of_birth: dateCell('Date of birth'),
+  gender: enumCell('Gender', [StudentGender.MALE, StudentGender.FEMALE, StudentGender.OTHER]),
+  grade_level: optionalTextCell(32, 'Grade'),
+  route_code: optionalTextCell(32, 'Route code'),
+  home_stop_name: optionalTextCell(150, 'Home stop'),
+  emergency_contact_name: optionalTextCell(150, 'Emergency contact name'),
+  emergency_contact_phone: phoneCell('Emergency contact phone'),
+  medical_notes: optionalTextCell(4000, 'Medical notes'),
+  is_active: booleanCell('Active'),
+  parent_email: emailCell('Parent email', false),
+  parent_relationship: optionalTextCell(50, 'Parent relationship'),
+});
+
+export type StudentImportRow = z.infer<typeof studentImportRowSchema>;
+
+/** Parent account import row (creates a login-capable PARENT user). */
+export const parentImportRowSchema = z.object({
+  first_name: requiredTextCell(100, 'First name'),
+  last_name: requiredTextCell(100, 'Last name'),
+  email: emailCell('Email'),
+  password: passwordCell('Password'),
+  phone: phoneCell('Phone'),
+  is_active: booleanCell('Active'),
+});
+
+export type ParentImportRow = z.infer<typeof parentImportRowSchema>;
+
+/** Driver / conductor account import row. */
+export const staffImportRowSchema = parentImportRowSchema;
+
+export type StaffImportRow = z.infer<typeof staffImportRowSchema>;
+
+/** Student ↔ guardian relationship import row. */
+export const studentGuardianImportRowSchema = z.object({
+  admission_number: requiredTextCell(64, 'Admission number'),
+  parent_email: emailCell('Parent email'),
+  relationship: requiredTextCell(50, 'Relationship'),
+  can_pick_up: booleanCell('Can pick up'),
+  is_primary: booleanCell('Primary contact'),
+});
+
+export type StudentGuardianImportRow = z.infer<typeof studentGuardianImportRowSchema>;
+
+/** Bus import row. */
+export const busImportRowSchema = z.object({
+  registration_number: requiredTextCell(32, 'Registration number'),
+  bus_number: optionalTextCell(32, 'Bus number'),
+  capacity: integerCell('Capacity', { min: 1, max: 200 }).pipe(
+    z.number({ required_error: 'Capacity is required', invalid_type_error: 'Capacity is required' }),
+  ),
+  is_active: booleanCell('Active'),
+});
+
+export type BusImportRow = z.infer<typeof busImportRowSchema>;
+
+/** Route import row. */
+export const routeImportRowSchema = z.object({
+  name: requiredTextCell(150, 'Route name'),
+  code: requiredTextCell(32, 'Route code'),
+  description: optionalTextCell(2000, 'Description'),
+  is_active: booleanCell('Active'),
+});
+
+export type RouteImportRow = z.infer<typeof routeImportRowSchema>;
+
+/** Stop import row; the parent route is referenced by its business code. */
+export const stopImportRowSchema = z
+  .object({
+    route_code: requiredTextCell(32, 'Route code'),
+    name: requiredTextCell(150, 'Stop name'),
+    sequence_number: integerCell('Sequence number', { min: 1, max: 10_000 }),
+    address: optionalTextCell(500, 'Address'),
+    latitude: decimalCell('Latitude', { min: -90, max: 90 }),
+    longitude: decimalCell('Longitude', { min: -180, max: 180 }),
+    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 10, max: 2000 }),
+    estimated_arrival_time: timeCell('Estimated arrival time'),
+    is_active: booleanCell('Active'),
+  })
+  .superRefine((value, context) => {
+    // Half a coordinate pair would place the stop at 0,0 — reject it, exactly
+    // like `stopCreateSchema` does for the form path.
+    const hasLatitude = value.latitude !== null && value.latitude !== undefined;
+    const hasLongitude = value.longitude !== null && value.longitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['latitude'],
+        message: 'Latitude and longitude must be supplied together',
+      });
+    }
+  });
+
+export type StopImportRow = z.infer<typeof stopImportRowSchema>;
+
+/** Route assignment import row (crew + optional bus on a route). */
+export const routeAssignmentImportRowSchema = z
+  .object({
+    route_code: requiredTextCell(32, 'Route code'),
+    user_email: emailCell('Crew email'),
+    role: enumCell('Role', [RouteAssignmentRole.DRIVER, RouteAssignmentRole.CONDUCTOR], true),
+    bus_registration_number: optionalTextCell(32, 'Bus registration number'),
+    effective_from: dateCell('Effective from', true),
+    effective_to: dateCell('Effective to'),
+    is_active: booleanCell('Active'),
+  })
+  .superRefine((value, context) => {
+    if (value.effective_to && value.effective_to < value.effective_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['effective_to'],
+        message: 'Effective to must be on or after Effective from',
+      });
+    }
+  });
+
+export type RouteAssignmentImportRow = z.infer<typeof routeAssignmentImportRowSchema>;
+
+/** Every import row schema, keyed by module. */
+export const IMPORT_ROW_SCHEMAS = {
+  [ImportModule.STUDENTS]: studentImportRowSchema,
+  [ImportModule.PARENTS]: parentImportRowSchema,
+  [ImportModule.STUDENT_GUARDIANS]: studentGuardianImportRowSchema,
+  [ImportModule.BUSES]: busImportRowSchema,
+  [ImportModule.ROUTES]: routeImportRowSchema,
+  [ImportModule.STOPS]: stopImportRowSchema,
+  [ImportModule.DRIVERS]: staffImportRowSchema,
+  [ImportModule.CONDUCTORS]: staffImportRowSchema,
+  [ImportModule.ROUTE_ASSIGNMENTS]: routeAssignmentImportRowSchema,
+} as const;
+
+/** `YYYY-MM-DD` filter value used by exports and reports. */
+const filterDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be in YYYY-MM-DD format')
+  .refine(isRealCalendarDate, 'date must be a valid calendar date');
+
+const uuidFilter = (field: string) => z.string().uuid(`${field} must be a valid UUID`).optional();
+
+/** Query of `GET /api/v1/exports/:dataset`. */
+export const exportQuerySchema = z
+  .object({
+    format: z.nativeEnum(DataFileFormat).default(DataFileFormat.XLSX),
+    search: z.string().trim().max(100).optional(),
+    status: z.string().trim().max(32).optional(),
+    route_id: uuidFilter('route_id'),
+    bus_id: uuidFilter('bus_id'),
+    stop_id: uuidFilter('stop_id'),
+    driver_id: uuidFilter('driver_id'),
+    conductor_id: uuidFilter('conductor_id'),
+    parent_id: uuidFilter('parent_id'),
+    student_id: uuidFilter('student_id'),
+    trip_id: uuidFilter('trip_id'),
+    date_from: filterDateSchema.optional(),
+    date_to: filterDateSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.date_from && value.date_to && value.date_to < value.date_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['date_to'],
+        message: 'date_to must be on or after date_from',
+      });
+    }
+  });
+
+export type ExportQueryInput = z.infer<typeof exportQuerySchema>;
+
+/** Query of `GET /api/v1/reports/:report` (and its export variant). */
+export const reportQuerySchema = z
+  .object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(200).default(50),
+    search: z.string().trim().max(100).optional(),
+    status: z.string().trim().max(32).optional(),
+    route_id: uuidFilter('route_id'),
+    bus_id: uuidFilter('bus_id'),
+    stop_id: uuidFilter('stop_id'),
+    driver_id: uuidFilter('driver_id'),
+    student_id: uuidFilter('student_id'),
+    trip_status: z.nativeEnum(TripStatus).optional(),
+    attendance_status: z.nativeEnum(TripAttendanceStatus).optional(),
+    date_from: filterDateSchema.optional(),
+    date_to: filterDateSchema.optional(),
+    format: z.nativeEnum(DataFileFormat).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.date_from && value.date_to && value.date_to < value.date_from) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['date_to'],
+        message: 'date_to must be on or after date_from',
+      });
+    }
+  });
+
+export type ReportQueryInput = z.infer<typeof reportQuerySchema>;
+
+/** Query of `GET /api/v1/imports/history`. */
+export const importJobListQuerySchema = paginationSchema.extend({
+  module: z.nativeEnum(ImportModule).optional(),
+  status: z.nativeEnum(ImportJobStatus).optional(),
+  date_from: filterDateSchema.optional(),
+  date_to: filterDateSchema.optional(),
+});
+
+export type ImportJobListQueryInput = z.infer<typeof importJobListQuerySchema>;

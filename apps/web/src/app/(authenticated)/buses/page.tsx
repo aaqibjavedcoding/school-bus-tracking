@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import React, { useState } from 'react';
-import type {
-  BusCreateRequest,
-  BusResponse,
-  BusUpdateRequest,
+import {
+  ExportDataset,
+  ImportModule,
+  type BusCreateRequest,
+  type BusResponse,
+  type BusUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 import { busCreateSchema, busUpdateSchema } from '@school-bus-tracking/validation';
 import {
@@ -22,6 +24,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../components/ui';
+import { ListActions } from '../../../features/data-transfer';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
   emptyToNull,
@@ -125,7 +128,15 @@ export default function BusesPage() {
       <PageHeader
         title="Buses"
         description="School fleet vehicles used on routes."
-        actions={<Button onClick={startCreate}>Add bus</Button>}
+        actions={
+          <ListActions
+            dataset={ExportDataset.BUSES}
+            importModule={ImportModule.BUSES}
+            query={{ search: list.search || undefined }}
+          >
+            <Button onClick={startCreate}>Add bus</Button>
+          </ListActions>
+        }
       />
       <div className="toolbar">
         <Input
