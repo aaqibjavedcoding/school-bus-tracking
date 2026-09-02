@@ -1,4 +1,5 @@
 import {
+  DataFileFormat,
   AdminDashboardResponse,
   AdminPlanCreateRequest,
   AdminPlanLifecycleResponse,
@@ -116,6 +117,21 @@ import {
   TripStudentManifestResponse,
   TripUpdateRequest,
   TripEtaResponse,
+  ExportDataset,
+  ExportQuery,
+  ImportCommitResponse,
+  ImportJobDetailResponse,
+  ImportJobListQuery,
+  ImportJobListResponse,
+  ImportMode,
+  ImportModule,
+  ImportModuleListResponse,
+  ImportValidationResponse,
+  ReportCatalogueResponse,
+  ReportOverviewResponse,
+  ReportQuery,
+  ReportResultResponse,
+  ReportType,
   BusDocumentCreateRequest,
   BusDocumentListResponse,
   BusDocumentResponse,
@@ -1705,6 +1721,189 @@ export class ApiClient {
       body,
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Import / export / reports
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetches a binary download (template, export, report, error workbook).
+   *
+   * File endpoints deliberately bypass the JSON `{ success, data }` envelope,
+   * so they cannot go through {@link request} — the response body is a
+   * spreadsheet, not JSON. Everything else about the call is identical:
+   * bearer token, cookie credentials, a single refresh-and-replay on 401, and
+   * the same {@link ApiClientError} on failure.
+   */
+  public async downloadFile(
+    endpoint: string,
+    options: RequestInit = {},
+    skipRefresh = false,
+  ): Promise<DownloadedFile> {
+    const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    const headers = this.mergeHeaders(options.headers);
+
+    if (!headers.Authorization && !headers.authorization) {
+      const token = this.getAccessToken?.();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    const sendsBearer = Boolean(headers.Authorization || headers.authorization);
+    await this.applyCsrfHeader(options.method || 'GET', headers, !sendsBearer);
+
+    let response: Response;
+    try {
+      response = await fetch(url, { credentials: 'include', ...options, headers });
+    } catch (error) {
+      throw new ApiClientError(
+        error instanceof Error ? error.message : 'Unknown network error',
+        0,
+        error,
+      );
+    }
+
+    if (response.status === 401 && !skipRefresh) {
+      const refreshed = await this.refreshSession();
+      if (refreshed) {
+        return this.downloadFile(endpoint, options, true);
+      }
+      this.onUnauthorized?.();
+    }
+
+    if (!response.ok) {
+      // An error response *is* JSON even on a download route, because the
+      // failure happens before any bytes of the file are written.
+      let errorData: unknown;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = await response.text();
+      }
+      throw new ApiClientError(
+        `Request failed with status ${response.status}`,
+        response.status,
+        errorData,
+      );
+    }
+
+    return {
+      blob: await response.blob(),
+      fileName:
+        fileNameFromContentDisposition(response.headers.get('content-disposition')) ??
+        defaultFileName(endpoint),
+      totalRecords: parseTotalRecords(response.headers.get('x-total-records')),
+    };
+  }
+
+  /** Metadata for every importable module (columns, examples, natural key). */
+  public async listImportModules(): Promise<ApiResponse<ImportModuleListResponse>> {
+    return this.get<ImportModuleListResponse>('/imports/modules');
+  }
+
+  /** Downloads the blank import template for a module. */
+  public async downloadImportTemplate(
+    module: ImportModule,
+    format: DataFileFormat = DataFileFormat.XLSX,
+  ): Promise<DownloadedFile> {
+    const params = new URLSearchParams({ format });
+    return this.downloadFile(
+      `/imports/${encodeURIComponent(module)}/template${querySuffix(params)}`,
+    );
+  }
+
+  /**
+   * Dry run: validates an uploaded spreadsheet without writing anything.
+   *
+   * The body is `FormData`, so `Content-Type` is deliberately *not* set —
+   * the browser has to add its own multipart boundary, and a hand-written
+   * header would make the request unparseable.
+   */
+  public async validateImport(
+    module: ImportModule,
+    file: File | Blob,
+    mode: ImportMode,
+    fileName?: string,
+  ): Promise<ApiResponse<ImportValidationResponse>> {
+    return this.request<ApiResponse<ImportValidationResponse>>(
+      `/imports/${encodeURIComponent(module)}/validate${querySuffix(
+        new URLSearchParams({ mode }),
+      )}`,
+      { method: 'POST', body: toFormData(file, fileName) },
+    );
+  }
+
+  /** Writes the valid rows of an uploaded spreadsheet. */
+  public async commitImport(
+    module: ImportModule,
+    file: File | Blob,
+    mode: ImportMode,
+    fileName?: string,
+  ): Promise<ApiResponse<ImportCommitResponse>> {
+    return this.request<ApiResponse<ImportCommitResponse>>(
+      `/imports/${encodeURIComponent(module)}/commit${querySuffix(
+        new URLSearchParams({ mode }),
+      )}`,
+      { method: 'POST', body: toFormData(file, fileName) },
+    );
+  }
+
+  /** Paginated import history of the authenticated school. */
+  public async listImportJobs(
+    query: ImportJobListQuery = {},
+  ): Promise<ApiResponse<ImportJobListResponse>> {
+    return this.get<ImportJobListResponse>(`/imports/history${importJobQuerySuffix(query)}`);
+  }
+
+  /** One import run with its stored per-row errors. */
+  public async getImportJob(id: string): Promise<ApiResponse<ImportJobDetailResponse>> {
+    return this.get<ImportJobDetailResponse>(`/imports/history/${encodeURIComponent(id)}`);
+  }
+
+  /** Rebuilds and downloads the error workbook of a past run. */
+  public async downloadImportErrorFile(id: string): Promise<DownloadedFile> {
+    return this.downloadFile(`/imports/history/${encodeURIComponent(id)}/error-file`);
+  }
+
+  /** Streams a dataset export, honouring the caller's list filters. */
+  public async downloadExport(
+    dataset: ExportDataset,
+    query: ExportQuery = {},
+  ): Promise<DownloadedFile> {
+    return this.downloadFile(
+      `/exports/${encodeURIComponent(dataset)}${exportQuerySuffix(query)}`,
+    );
+  }
+
+  /** Catalogue of available reports and the filters each one supports. */
+  public async listReports(): Promise<ApiResponse<ReportCatalogueResponse>> {
+    return this.get<ReportCatalogueResponse>('/reports');
+  }
+
+  /** Headline figures for the reports landing page. */
+  public async getReportOverview(): Promise<ApiResponse<ReportOverviewResponse>> {
+    return this.get<ReportOverviewResponse>('/reports/overview');
+  }
+
+  /** Runs one report and returns summary cards plus a paginated table. */
+  public async runReport(
+    report: ReportType,
+    query: ReportQuery = {},
+  ): Promise<ApiResponse<ReportResultResponse>> {
+    return this.get<ReportResultResponse>(
+      `/reports/${encodeURIComponent(report)}${reportQuerySuffix(query)}`,
+    );
+  }
+
+  /** Downloads a report with the same filters as the on-screen table. */
+  public async downloadReport(
+    report: ReportType,
+    query: ReportQuery = {},
+  ): Promise<DownloadedFile> {
+    return this.downloadFile(
+      `/reports/${encodeURIComponent(report)}/export${reportQuerySuffix(query)}`,
+    );
+  }
 }
 
 export const createApiClient = (config: ApiClientConfig): ApiClient => {
@@ -1752,5 +1951,113 @@ function emergencyQuerySuffix(query: EmergencyListQuery): string {
   if (query.bus_id) params.set('bus_id', query.bus_id);
   if (query.date_from) params.set('date_from', query.date_from);
   if (query.date_to) params.set('date_to', query.date_to);
+  return querySuffix(params);
+}
+
+/** A binary download plus the file name the server suggested. */
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string;
+  /** Rows the server matched, when it reported them (`X-Total-Records`). */
+  totalRecords: number | null;
+}
+
+/**
+ * Wraps a file in `FormData` under the `file` field the API expects.
+ *
+ * A `File` already carries its name; a bare `Blob` does not, so one is
+ * supplied — multer needs a filename to derive the extension the import
+ * endpoints validate.
+ */
+function toFormData(file: File | Blob, fileName?: string): FormData {
+  const form = new FormData();
+  const name = fileName ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'import.xlsx');
+  form.append('file', file, name);
+  return form;
+}
+
+/**
+ * Extracts the download name from a `Content-Disposition` header.
+ *
+ * The RFC 5987 `filename*` form is preferred (it survives non-ASCII names);
+ * the quoted ASCII `filename` is the fallback.
+ */
+export function fileNameFromContentDisposition(header: string | null): string | null {
+  if (!header) {
+    return null;
+  }
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Fall through to the ASCII form on a malformed encoding.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() ?? null;
+}
+
+/** Last path segment of an endpoint, used when the server sent no name. */
+function defaultFileName(endpoint: string): string {
+  const path = endpoint.split('?')[0];
+  const segment = path.split('/').filter(Boolean).pop() ?? 'download';
+  return segment.includes('.') ? segment : `${segment}.xlsx`;
+}
+
+function parseTotalRecords(header: string | null): number | null {
+  if (!header) return null;
+  const value = Number(header);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Query string of `GET /api/v1/imports/history`. */
+function importJobQuerySuffix(query: ImportJobListQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.module) params.set('module', query.module);
+  if (query.status) params.set('status', query.status);
+  if (query.date_from) params.set('date_from', query.date_from);
+  if (query.date_to) params.set('date_to', query.date_to);
+  return querySuffix(params);
+}
+
+/** Query string of `GET /api/v1/exports/:dataset`. */
+function exportQuerySuffix(query: ExportQuery): string {
+  const params = new URLSearchParams();
+  if (query.format) params.set('format', query.format);
+  if (query.search) params.set('search', query.search);
+  if (query.status) params.set('status', query.status);
+  if (query.route_id) params.set('route_id', query.route_id);
+  if (query.bus_id) params.set('bus_id', query.bus_id);
+  if (query.stop_id) params.set('stop_id', query.stop_id);
+  if (query.driver_id) params.set('driver_id', query.driver_id);
+  if (query.conductor_id) params.set('conductor_id', query.conductor_id);
+  if (query.parent_id) params.set('parent_id', query.parent_id);
+  if (query.student_id) params.set('student_id', query.student_id);
+  if (query.trip_id) params.set('trip_id', query.trip_id);
+  if (query.date_from) params.set('date_from', query.date_from);
+  if (query.date_to) params.set('date_to', query.date_to);
+  return querySuffix(params);
+}
+
+/** Query string of the report endpoints. */
+function reportQuerySuffix(query: ReportQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.search) params.set('search', query.search);
+  if (query.status) params.set('status', query.status);
+  if (query.route_id) params.set('route_id', query.route_id);
+  if (query.bus_id) params.set('bus_id', query.bus_id);
+  if (query.stop_id) params.set('stop_id', query.stop_id);
+  if (query.driver_id) params.set('driver_id', query.driver_id);
+  if (query.student_id) params.set('student_id', query.student_id);
+  if (query.trip_status) params.set('trip_status', query.trip_status);
+  if (query.attendance_status) params.set('attendance_status', query.attendance_status);
+  if (query.date_from) params.set('date_from', query.date_from);
+  if (query.date_to) params.set('date_to', query.date_to);
+  if (query.format) params.set('format', query.format);
   return querySuffix(params);
 }

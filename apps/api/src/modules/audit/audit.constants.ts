@@ -77,6 +77,14 @@ export const AUDIT_ACTIONS = {
   EMERGENCY_RESOLVE: 'emergency.resolve',
   EMERGENCY_CANCEL: 'emergency.cancel',
 
+  // Bulk data transfer (import / export / reports)
+  IMPORT_VALIDATE: 'import.validate',
+  IMPORT_COMMIT: 'import.commit',
+  IMPORT_TEMPLATE_DOWNLOAD: 'import.template_download',
+  IMPORT_ERROR_FILE_DOWNLOAD: 'import.error_file_download',
+  EXPORT_DOWNLOAD: 'export.download',
+  REPORT_EXPORT: 'report.export',
+
   // Auth / security
   AUTH_LOGIN: 'auth.login',
   AUTH_LOGOUT: 'auth.logout',
@@ -105,6 +113,9 @@ export const AUDIT_ENTITY_TYPES = {
   PLAN: 'plan',
   SUBSCRIPTION: 'subscription',
   NOTIFICATION: 'notification',
+  IMPORT_JOB: 'import_job',
+  EXPORT: 'export',
+  REPORT: 'report',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

@@ -21,6 +21,8 @@ import { AdminModule } from './modules/admin/admin.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { EmergenciesModule } from './modules/emergencies/emergencies.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { DataTransferModule } from './modules/data-transfer/data-transfer.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { IdempotencyModule } from './common/idempotency/idempotency.module';
 import { WorkersModule } from './workers/workers.module';
 import { AccessModule } from './common/access';
@@ -101,6 +103,11 @@ import {
     EmergenciesModule,
     // Durable audit logging for security-relevant and operational mutations.
     AuditModule,
+    // Spreadsheet import / export: templates, validate-then-commit imports,
+    // import history and filtered dataset exports.
+    DataTransferModule,
+    // School-admin reporting over live, tenant-scoped queries.
+    ReportsModule,
     // Idempotency for critical mutations (boarding, drop, SOS, trip status).
     IdempotencyModule,
     // Background workers for retention cleanup and notification retry.

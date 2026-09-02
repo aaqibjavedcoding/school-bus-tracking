@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import React, { useState } from 'react';
-import type {
-  StopCreateRequest,
-  StopResponse,
-  StopUpdateRequest,
+import {
+  ExportDataset,
+  ImportModule,
+  type StopCreateRequest,
+  type StopResponse,
+  type StopUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 import { stopCreateSchema, stopUpdateSchema } from '@school-bus-tracking/validation';
 import {
@@ -22,6 +24,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../../components/ui';
+import { ListActions } from '../../../../features/data-transfer';
 import { useLoad } from '../../../../hooks/useLoad';
 import {
   emptyToNull,
@@ -184,7 +187,13 @@ export default function RouteDetailPage() {
             <Link className="btn btn-secondary" href="/routes">
               All routes
             </Link>
-            <Button onClick={startCreate}>Add stop</Button>
+            <ListActions
+              dataset={ExportDataset.STOPS}
+              importModule={ImportModule.STOPS}
+              query={{ route_id: data.route.id }}
+            >
+              <Button onClick={startCreate}>Add stop</Button>
+            </ListActions>
           </>
         }
       />

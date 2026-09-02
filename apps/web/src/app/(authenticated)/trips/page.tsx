@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { useState } from 'react';
-import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
+import { ExportDataset, TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
 import { tripCreateSchema } from '@school-bus-tracking/validation';
 import {
   Badge,
@@ -20,6 +20,7 @@ import {
   Skeleton,
   useToast,
 } from '../../../components/ui';
+import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
@@ -131,7 +132,20 @@ export default function TripsPage() {
       <PageHeader
         title="Trips"
         description="Dispatch a run from an active assignment."
-        actions={<Button onClick={() => setOpen(true)}>Schedule trip</Button>}
+        actions={
+          <>
+            <Button onClick={() => setOpen(true)}>Schedule trip</Button>
+            <ExportButton
+              dataset={ExportDataset.TRIPS}
+              query={{
+                search: list.search || undefined,
+                status: statusFilter || undefined,
+                date_from: dateFilter || undefined,
+                date_to: dateFilter || undefined,
+              }}
+            />
+          </>
+        }
       />
       <div className="toolbar">
         <SearchInput

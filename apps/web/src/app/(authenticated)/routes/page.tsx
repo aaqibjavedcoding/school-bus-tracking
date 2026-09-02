@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import React, { useState } from 'react';
-import type {
-  RouteCreateRequest,
-  RouteResponse,
-  RouteUpdateRequest,
+import {
+  ExportDataset,
+  ImportModule,
+  type RouteCreateRequest,
+  type RouteResponse,
+  type RouteUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 import { routeCreateSchema, routeUpdateSchema } from '@school-bus-tracking/validation';
 import {
@@ -23,6 +25,7 @@ import {
   Textarea,
   useToast,
 } from '../../../components/ui';
+import { ListActions } from '../../../features/data-transfer';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
   emptyToNull,
@@ -121,7 +124,15 @@ export default function RoutesPage() {
       <PageHeader
         title="Routes"
         description="Named runs and their ordered boarding stops."
-        actions={<Button onClick={startCreate}>Add route</Button>}
+        actions={
+          <ListActions
+            dataset={ExportDataset.ROUTES}
+            importModule={ImportModule.ROUTES}
+            query={{ search: list.search || undefined }}
+          >
+            <Button onClick={startCreate}>Add route</Button>
+          </ListActions>
+        }
       />
       <div className="toolbar">
         <Input

@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import React, { useState } from 'react';
 import {
+  ExportDataset,
+  ImportModule,
   StudentGender,
   type StudentCreateRequest,
   type StudentResponse,
@@ -25,6 +27,7 @@ import {
   Textarea,
   useToast,
 } from '../../../components/ui';
+import { ListActions } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
@@ -176,7 +179,15 @@ export default function StudentsPage() {
       <PageHeader
         title="Students"
         description="Roster, home stops and emergency contacts."
-        actions={<Button onClick={startCreate}>Add student</Button>}
+        actions={
+          <ListActions
+            dataset={ExportDataset.STUDENTS}
+            importModule={ImportModule.STUDENTS}
+            query={{ search: list.search || undefined }}
+          >
+            <Button onClick={startCreate}>Add student</Button>
+          </ListActions>
+        }
       />
       <div className="toolbar">
         <Input

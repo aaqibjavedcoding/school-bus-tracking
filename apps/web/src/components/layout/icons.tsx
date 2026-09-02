@@ -71,6 +71,20 @@ export const NavIcon: React.FC<{ name: NavItem['icon'] }> = ({ name }) => {
           <path d="M12 9v5M12 17.5h.01" />
         </svg>
       );
+    case 'chart':
+      return (
+        <svg {...common}>
+          <path d="M4 20V4M4 20h16" />
+          <path d="M8 17v-5M12.5 17V8M17 17v-7" />
+        </svg>
+      );
+    case 'upload':
+      return (
+        <svg {...common}>
+          <path d="M12 16V4m0 0L8 8m4-4 4 4" />
+          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        </svg>
+      );
     case 'trip':
       return (
         <svg {...common}>
