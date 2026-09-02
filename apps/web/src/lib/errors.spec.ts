@@ -125,6 +125,17 @@ describe('web zod error mapping', () => {
   });
 });
 
+describe('web import multipart JSON-parse error', () => {
+  it('surfaces the ------WebK parse error the Import wizard showed', () => {
+    const message = `Unexpected token '-', "------WebK"... is not valid JSON`;
+    const error = new ApiClientError('Request failed with status 400', 400, {
+      success: false,
+      error: { code: 'Bad Request', message },
+    });
+    assert.equal(getApiErrorMessage(error), message);
+  });
+});
+
 describe('web plan-limit error handling', () => {
   it('surfaces the API plan-limit message instead of a generic error', () => {
     const message =

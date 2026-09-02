@@ -495,6 +495,14 @@ export class ApiClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const headers = this.mergeHeaders(options.headers);
+    // FormData must carry the runtime-generated multipart boundary. The
+    // client's default `Content-Type: application/json` would otherwise ride
+    // along with the upload, Nest's JSON parser would consume
+    // `------WebKitFormBoundary...`, and the Import UI would show
+    // `Unexpected token '-', "------WebK"... is not valid JSON`.
+    if (isFormDataBody(options.body)) {
+      stripHeader(headers, 'content-type');
+    }
     const skipAuth = this.isAuthSkipPath(endpoint);
 
     if (!skipAuth && !headers.Authorization && !headers.authorization) {
@@ -1974,6 +1982,28 @@ function toFormData(file: File | Blob, fileName?: string): FormData {
   const name = fileName ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'import.xlsx');
   form.append('file', file, name);
   return form;
+}
+
+/** True when `body` is a FormData payload that must set its own Content-Type. */
+function isFormDataBody(body: unknown): boolean {
+  if (body == null) {
+    return false;
+  }
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    return true;
+  }
+  // Some runtimes (React Native) expose a different FormData constructor.
+  return Object.prototype.toString.call(body) === '[object FormData]';
+}
+
+/** Removes a header by name, case-insensitively. */
+function stripHeader(headers: Record<string, string>, name: string): void {
+  const needle = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === needle) {
+      delete headers[key];
+    }
+  }
 }
 
 /**
