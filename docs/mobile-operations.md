@@ -4,6 +4,23 @@
 
 This document describes mobile-specific operational features for drivers, conductors, and admins.
 
+## Mobile vs Web Scope
+
+| Capability                                                                                                  | Mobile | Web |
+| ----------------------------------------------------------------------------------------------------------- | :----: | :-: |
+| Crew trip lifecycle, manifest board/drop, GPS sharing                                                       |   ✅   | ✅  |
+| Parent live tracking, ETA, notifications                                                                    |   ✅   | ✅  |
+| School-admin dashboard, trips, live tracking, attendance, emergencies                                       |   ✅   | ✅  |
+| School-admin CRUD: students, buses, routes & stops, drivers & conductors, guardians, assignments, documents |   ✅   | ✅  |
+| Bulk Excel import / export and import-job history                                                           |   ❌   | ✅  |
+| Reports                                                                                                     |   ❌   | ✅  |
+| `SUPER_ADMIN` platform console                                                                              |   ❌   | ✅  |
+
+Mobile admin CRUD lives under the `(admin)/manage` route group and calls the same
+API endpoints and shared Zod schemas as the web console. Bulk import/export and
+reporting are deliberately web-only back-office workflows
+(see `docs/import-export-reports.md`).
+
 ## Offline Attendance
 
 ### Problem
