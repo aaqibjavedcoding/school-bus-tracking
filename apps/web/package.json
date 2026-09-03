@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-strip-types --test src/lib/errors.spec.ts src/lib/roles.spec.ts src/features/admin/subscriptions/helpers.spec.ts src/features/admin/metrics.spec.ts src/features/documents/helpers.spec.ts src/lib/security-headers.spec.ts src/lib/api-csrf.spec.ts src/lib/socket-auth.spec.ts src/lib/api-import-multipart.spec.ts",
+    "test": "node --experimental-strip-types --test src/lib/errors.spec.ts src/lib/roles.spec.ts src/lib/nav-routes.spec.ts src/features/admin/subscriptions/helpers.spec.ts src/features/admin/metrics.spec.ts src/features/documents/helpers.spec.ts src/lib/security-headers.spec.ts src/lib/api-csrf.spec.ts src/lib/socket-auth.spec.ts src/lib/api-import-multipart.spec.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf .next dist"
   },
