@@ -130,19 +130,21 @@ export default function RouteDetailPage() {
 
   const move = async (index: number, direction: -1 | 1) => {
     if (!data) return;
-    const next = data.stops.slice();
+    const snapshot = data;
+    const next = snapshot.stops.slice();
     const target = index + direction;
     if (target < 0 || target >= next.length) return;
     const [removed] = next.splice(index, 1);
     next.splice(target, 0, removed);
-    setData({ ...data, stops: next });
+    setData({ ...snapshot, stops: next });
     try {
       const envelope = await apiClient.reorderRouteStops(params.id, {
         stop_ids: next.map((stop) => stop.id),
       });
-      setData({ ...data, stops: unwrapEnvelope(envelope).items });
+      setData((prev) => (prev ? { ...prev, stops: unwrapEnvelope(envelope).items } : prev));
     } catch (caught) {
       toast.push(getApiErrorMessage(caught), 'danger');
+      setData(snapshot);
       await reload();
     }
   };
