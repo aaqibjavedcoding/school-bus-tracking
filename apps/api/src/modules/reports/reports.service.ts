@@ -13,7 +13,13 @@ import {
   type ReportSummaryCard,
 } from '@school-bus-tracking/shared-types';
 import { deriveDocumentStatus } from '@school-bus-tracking/validation';
-import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AuditService } from '../audit';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+  AUDIT_ENTITY_TYPES,
+  type AssistedAuditContext,
+  AuditService,
+} from '../audit';
 import type {
   Bus,
   BusDocument,
@@ -160,6 +166,12 @@ export class ReportsService {
     actorUserId: string,
     report: ReportType,
     query: ReportQuery,
+    /**
+     * Set only on the Super Admin assisted-management surface: marks the audit
+     * row and links it to the open session. The actor stays the Super Admin
+     * and the report stays scoped to the managed school.
+     */
+    context?: AssistedAuditContext,
   ): Promise<ReportFile> {
     const definition = getReportDefinition(report);
     const format = query.format ?? DataFileFormat.XLSX;
@@ -194,6 +206,12 @@ export class ReportsService {
         record_count: result.total,
         exported_rows: rows.length,
         filters_applied: this.appliedFilters(definition.filters, query),
+        ...(context
+          ? {
+              context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+              assisted_session_id: context.assisted_session_id ?? null,
+            }
+          : {}),
       },
     });
 

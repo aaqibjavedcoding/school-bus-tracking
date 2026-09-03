@@ -10,7 +10,13 @@ import {
   type PaginationMeta,
 } from '@school-bus-tracking/shared-types';
 import type { ImportJob, User } from '../../../database/models';
-import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AuditService } from '../../audit';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+  AUDIT_ENTITY_TYPES,
+  type AssistedAuditContext,
+  AuditService,
+} from '../../audit';
 import {
   DATA_TRANSFER_IMPORT_JOBS_REPOSITORY,
   DATA_TRANSFER_USERS_REPOSITORY,
@@ -111,6 +117,11 @@ export class ImportHistoryService {
     schoolId: string,
     actorUserId: string,
     jobId: string,
+    /**
+     * Set only on the Super Admin assisted-management surface: marks the audit
+     * row and links it to the open session.
+     */
+    context?: AssistedAuditContext,
   ): Promise<ErrorFileDownload> {
     const job = await this.requireJob(schoolId, jobId);
     const errors = (job.errors ?? []) as ImportRowError[];
@@ -128,7 +139,17 @@ export class ImportHistoryService {
       action: AUDIT_ACTIONS.IMPORT_ERROR_FILE_DOWNLOAD,
       entity_type: AUDIT_ENTITY_TYPES.IMPORT_JOB,
       entity_id: job.id,
-      metadata: { module: job.module, file_name: job.file_name, error_rows: errors.length },
+      metadata: {
+        module: job.module,
+        file_name: job.file_name,
+        error_rows: errors.length,
+        ...(context
+          ? {
+              context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+              assisted_session_id: context.assisted_session_id ?? null,
+            }
+          : {}),
+      },
     });
 
     return { buffer, fileName: errorFileName(job.file_name) };

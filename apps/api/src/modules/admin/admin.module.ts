@@ -13,6 +13,7 @@ import {
   User,
 } from '../../database/models';
 import { SchoolsModule } from '../schools/schools.module';
+import { AdminManageModule } from './manage/admin-manage.module';
 import { AdminDashboardController } from './admin-dashboard.controller';
 import { AdminDashboardService } from './admin-dashboard.service';
 import { AdminSchoolAdminsController } from './admin-school-admins.controller';
@@ -55,7 +56,9 @@ import {
  * change or cancel them.
  */
 @Module({
-  imports: [SchoolsModule],
+  // AdminManageModule is the Super Admin "Manage Data" surface: a guarded,
+  // route-parameter-driven context over the existing tenant feature services.
+  imports: [SchoolsModule, AdminManageModule],
   controllers: [
     AdminDashboardController,
     AdminSchoolsController,

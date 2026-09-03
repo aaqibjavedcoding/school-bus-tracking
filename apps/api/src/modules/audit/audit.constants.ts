@@ -85,6 +85,15 @@ export const AUDIT_ACTIONS = {
   EXPORT_DOWNLOAD: 'export.download',
   REPORT_EXPORT: 'report.export',
 
+  // Super Admin assisted school management ("Manage Data"). The platform
+  // operator manages a school's operational data as themselves — never as the
+  // school admin — so these actions carry the Super Admin as the actor and the
+  // managed school as the tenant, with the session id in the metadata.
+  ASSISTED_SESSION_START: 'assisted.session_start',
+  ASSISTED_SESSION_END: 'assisted.session_end',
+  /** Generic create/update/delete through an assisted-management endpoint. */
+  ASSISTED_MUTATION: 'assisted.mutation',
+
   // Auth / security
   AUTH_LOGIN: 'auth.login',
   AUTH_LOGOUT: 'auth.logout',
@@ -116,6 +125,7 @@ export const AUDIT_ENTITY_TYPES = {
   IMPORT_JOB: 'import_job',
   EXPORT: 'export',
   REPORT: 'report',
+  ASSISTED_MANAGEMENT_SESSION: 'assisted_management_session',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];
@@ -139,3 +149,21 @@ export const AUDIT_REDACTED_FIELDS = [
   'medical_notes',
   'health_conditions',
 ] as const;
+
+/**
+ * Value written into audit `metadata.context` for every event produced by the
+ * Super Admin assisted-management surface ("Manage Data"). Present in the
+ * metadata of rows that already record the Super Admin as `actor_user_id` and
+ * the managed school as `school_id`, so platform-operator activity is
+ * identifiable at a glance in the existing audit UI.
+ */
+export const AUDIT_CONTEXT_ASSISTED_MANAGEMENT = 'assisted_management';
+
+/**
+ * Optional audit context handed to reusable services (import, export,
+ * reports) when they run inside an assisted-management session. It carries no
+ * identity — the actor and school are already known — only the session link.
+ */
+export interface AssistedAuditContext {
+  assisted_session_id?: string | null;
+}

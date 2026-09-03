@@ -4,6 +4,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { AuthenticatedUser, LoginRequest } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
+import {
+  clearManagedSchool,
+  getManagedSchool,
+} from '../managed/managed-school-store';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { disconnectNotificationsSocket } from '../../services/notifications-socket';
 import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
@@ -31,6 +35,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
     disconnectEmergenciesSocket();
+    // An ended platform session must never keep a managed-school context: the
+    // banner and the API-call remap both disappear with it. (Server-side, the
+    // open session is closed on the next entry as `superseded`.)
+    clearManagedSchool();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');
@@ -86,6 +94,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(async () => {
+    // Close an open assisted-management session first, while the access token
+    // is still available — the audit trail then records a clean `exit`.
+    const managed = getManagedSchool();
+    if (managed) {
+      try {
+        await apiClient.endManagedSchoolSession(managed.schoolId);
+      } catch {
+        // Best effort; the session is superseded on the next entry either way.
+      }
+    }
     try {
       await apiClient.logout();
     } catch {

@@ -22,7 +22,13 @@ import {
   type ImportValidationResponse,
 } from '@school-bus-tracking/shared-types';
 import { PlanLimitsService } from '../../../common/plan-limits';
-import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AuditService } from '../../audit';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+  AUDIT_ENTITY_TYPES,
+  type AssistedAuditContext,
+  AuditService,
+} from '../../audit';
 import type {
   Bus,
   ImportJob,
@@ -69,10 +75,32 @@ export interface UploadedImportFile {
   buffer: Buffer;
 }
 
+/**
+ * Metadata fragment marking an audit row as produced by the Super Admin
+ * assisted-management surface and linking it to the open session. Emits
+ * nothing for ordinary school-admin runs, whose metadata stays unchanged.
+ */
+function assistedMetadata(actor: ImportActor): Record<string, unknown> {
+  if (!actor.context) {
+    return {};
+  }
+  return {
+    context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+    assisted_session_id: actor.context.assisted_session_id ?? null,
+  };
+}
+
 /** Who is running the import (all values come from the verified JWT). */
 export interface ImportActor {
   schoolId: string;
   userId: string;
+  /**
+   * Set only on the Super Admin assisted-management surface: links the audit
+   * rows this run produces to the open assisted-management session. It never
+   * changes *who* the actor is — the Super Admin stays the actor — nor which
+   * school the rows target.
+   */
+  context?: AssistedAuditContext;
 }
 
 /** Per-row analysis produced before anything is written. */
@@ -179,6 +207,7 @@ export class ImportService {
         mode,
         file_name: file.originalName,
         ...analysis.summary,
+        ...assistedMetadata(actor),
       },
     });
 
@@ -658,6 +687,7 @@ export class ImportService {
         created_count: counts.created,
         updated_count: counts.updated,
         ...analysis.summary,
+        ...assistedMetadata(actor),
       },
     });
   }

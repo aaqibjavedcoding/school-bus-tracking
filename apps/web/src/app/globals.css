@@ -1213,7 +1213,9 @@ table.data tbody tr:hover {
   padding: 0.5rem 0.6rem;
   border-radius: 10px;
   border: 1px solid var(--color-slate-200);
-  transition: border-color 120ms ease, background 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
 }
 
 .checkbox-row:hover {
@@ -1727,4 +1729,76 @@ table.data.compact td,
 table.data.compact th {
   padding: 0.4rem 0.6rem;
   font-size: 0.85rem;
+}
+
+/* ==========================================================================
+   Super Admin assisted management ("Manage Data")
+   ========================================================================== */
+
+.managed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  padding: 0.6rem 1.1rem;
+  border-bottom: 2px solid var(--color-primary-400);
+  background: var(--color-primary-50);
+  color: var(--color-slate-900, #0f172a);
+}
+
+.managed-banner__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.managed-banner__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--color-primary-400);
+  color: var(--color-primary-700);
+  font-size: 1rem;
+  flex: none;
+}
+
+.managed-banner__identity strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.managed-banner__code {
+  font-size: 0.78rem;
+  background: rgba(251, 191, 36, 0.3);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+}
+
+.managed-banner__hint {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-slate-600, #475569);
+}
+
+.managed-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.managed-banner__profile {
+  font-size: 0.85rem;
+  color: var(--color-slate-700, #334155);
+  text-decoration: underline;
+}
+
+.managed-banner__profile:hover {
+  color: var(--color-slate-900, #0f172a);
 }
