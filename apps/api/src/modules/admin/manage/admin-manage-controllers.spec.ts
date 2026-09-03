@@ -87,7 +87,7 @@ const MANAGE_CONTROLLERS: Array<{ controller: object; methods: string[]; path: s
     path: 'admin/schools/:schoolId/manage/students/:studentId/guardians',
   },
   {
-    controller: new AdminManageParentsController({} as never),
+    controller: new AdminManageParentsController({} as never, {} as never),
     methods: [
       'create',
       'findAll',
@@ -141,7 +141,7 @@ const MANAGE_CONTROLLERS: Array<{ controller: object; methods: string[]; path: s
     path: 'admin/schools/:schoolId/manage/route-assignments',
   },
   {
-    controller: new AdminManageImportsController({} as never),
+    controller: new AdminManageImportsController({} as never, {} as never, {} as never, {} as never, {} as never),
     methods: [
       'listModules',
       'listHistory',
@@ -154,12 +154,12 @@ const MANAGE_CONTROLLERS: Array<{ controller: object; methods: string[]; path: s
     path: 'admin/schools/:schoolId/manage/imports',
   },
   {
-    controller: new AdminManageExportsController({} as never),
+    controller: new AdminManageExportsController({} as never, {} as never),
     methods: ['listDatasets', 'download'],
     path: 'admin/schools/:schoolId/manage/exports',
   },
   {
-    controller: new AdminManageReportsController({} as never),
+    controller: new AdminManageReportsController({} as never, {} as never),
     methods: ['catalogue', 'overview', 'exportReport', 'run'],
     path: 'admin/schools/:schoolId/manage/reports',
   },

@@ -142,17 +142,19 @@ describe('multi-school security (comprehensive E2E)', () => {
       }
     });
 
-    it('GET /students — arbitrary school_id query param ignored', async () => {
+    it('GET /students — arbitrary school_id query param rejected (400)', async () => {
       const response = await httpRequest(app.baseUrl, `/students?school_id=${beta.school.id}`, {
         method: 'GET',
         token: adminA.accessToken,
       });
-      assert.equal(response.status, 200);
-      // Results must only contain school A students.
-      const items = (response.body as { data?: { items?: Array<{ school_id: string }> } }).data?.items ?? [];
-      for (const item of items) {
-        assert.equal(item.school_id, alpha.school.id);
-      }
+      // The strict query-parameter whitelist refuses the forged tenant
+      // selector outright: nothing is returned, so school B data cannot leak.
+      assert.equal(response.status, 400);
+      const messages = (response.body as { error?: { message?: unknown } }).error?.message;
+      assert.ok(
+        Array.isArray(messages) && messages.some((message) => String(message).includes('school_id')),
+        'the 400 must name the forged school_id property',
+      );
     });
   });
 
@@ -256,8 +258,11 @@ describe('multi-school security (comprehensive E2E)', () => {
     });
 
     it('PATCH /trips/:id — cross-tenant blocked', async () => {
+      // `status` is a lifecycle value handled only by PATCH /trips/:id/status,
+      // so the generic update body must carry an allowed field. The cross-
+      // tenant id must still collapse into the same generic 404 as a ghost id.
       await expectCrossTenantBlocked(adminA, 'PATCH', `/trips/${beta.trip.id}`, {
-        status: 'CANCELLED',
+        scheduled_start_at: '2030-01-01T09:00:00.000Z',
       });
     });
 
@@ -369,15 +374,25 @@ describe('multi-school security (comprehensive E2E)', () => {
   // =========================================================================
   describe('Inactive school', () => {
     it('inactive school JWT is rejected', async () => {
-      // Create a school and deactivate it.
-      const school = await createFullSchool(sequelize, { is_active: false });
+      // Create an active school, obtain a real session, then deactivate the
+      // school: the already-issued JWT must stop granting access immediately.
+      const school = await createFullSchool(sequelize);
       const session = await login(app.baseUrl, school.school.code, school.admin.email);
 
-      const response = await httpRequest(app.baseUrl, '/students', {
+      const before = await httpRequest(app.baseUrl, '/students', {
         method: 'GET',
         token: session.accessToken,
       });
-      assert.ok([401, 403].includes(response.status));
+      assert.equal(before.status, 200);
+
+      await school.school.update({ is_active: false });
+
+      const after = await httpRequest(app.baseUrl, '/students', {
+        method: 'GET',
+        token: session.accessToken,
+      });
+      assert.equal(after.status, 403);
+      assert.match(String(errorMessage(after.body)), /inactive/i);
     });
   });
 

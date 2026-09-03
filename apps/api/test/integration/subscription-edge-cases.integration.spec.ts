@@ -2,22 +2,28 @@ import '../support/env';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
-import { PlanLimitResource, SubscriptionStatus } from '@school-bus-tracking/shared-types';
+import {
+  PLAN_LIMIT_REACHED_CODE,
+  PlanLimitResource,
+  SubscriptionStatus,
+} from '@school-bus-tracking/shared-types';
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import {
   createBus,
   createPlan,
+  createRoute,
   createSchool,
-  createStop,
   createStudent,
   createSubscription,
 } from '../support/fixtures';
 import { PlanLimitsService } from '../../src/common/plan-limits';
+import { SUBSCRIPTION_LAPSED_CODE } from '../../src/common/subscriptions';
 import {
   Bus,
   Plan,
   Route,
+  School,
   SchoolSubscription,
   Stop,
   Student,
@@ -26,26 +32,24 @@ import {
 } from '../../src/database/models';
 
 /**
- * Comprehensive subscription and plan edge-case regression tests.
+ * Subscription and plan-limit edge cases against a real PostgreSQL server.
  *
- * Covers:
- * - active subscription
- * - trialing subscription
- * - expired subscription
- * - past_due subscription
- * - past_due inside grace period
- * - past_due after grace period
- * - cancelled subscription
- * - resubscribed
- * - no subscription
- * - inactive school
- * - exact plan limit
- * - limit + 1
- * - unlimited
- * - not-set limits
- * - plan deactivation
- * - subscription change
- * - concurrent resource creation
+ * Covers the current time-aware enforcement model:
+ * - live subscription below / at / over a cap (active)
+ * - unlimited (`value: null`) and unset resource limits
+ * - a stored *live* status whose window has already elapsed — refused
+ *   (`SUBSCRIPTION_INACTIVE`), not silently upgraded to "no plan"
+ * - past_due inside the grace window vs. after the grace window
+ * - trialing inside vs. after the trial window
+ * - no live subscription row (legacy "no caps configured" fallback)
+ * - plan deactivation does not lift the caps of an existing live subscription
+ * - subscription switch applies the new plan's caps immediately
+ * - concurrent creation at the cap boundary (advisory-locked transactions)
+ * - caps enforced independently per resource type
+ *
+ * School lifecycle (`is_active`) and admin-side plan gating live in the
+ * authentication/authorization layer and the admin services, not in
+ * `PlanLimitsService`, so they are not re-tested here.
  */
 describe('subscription and plan edge cases (real PostgreSQL)', () => {
   let sequelize: Sequelize;
@@ -74,282 +78,305 @@ describe('subscription and plan edge cases (real PostgreSQL)', () => {
     await sequelize?.close();
   });
 
-  async function createSchoolWithPlan(
-    planOverrides: Partial<{
-      max_students: number | null;
-      max_buses: number | null;
-      max_routes: number | null;
-    }> = {},
-    schoolOverrides: Partial<{ is_active: boolean }> = {},
-  ) {
-    const school = await createSchool(schoolOverrides);
-    const plan = await createPlan({
-      max_students: planOverrides.max_students ?? 100,
-      max_buses: planOverrides.max_buses ?? 20,
-      max_routes: planOverrides.max_routes ?? 10,
-    });
+  function cap(value: number): { unlimited: boolean; value: number | null } {
+    return { unlimited: false, value };
+  }
+
+  function unlimited(): { unlimited: boolean; value: number | null } {
+    return { unlimited: true, value: null };
+  }
+
+  /** A school with a plan that carries the given per-resource limits. */
+  async function schoolWithPlan(
+    limits: Partial<Record<PlanLimitResource, { unlimited: boolean; value: number | null }>>,
+  ): Promise<{ school: School; plan: Plan }> {
+    const school = await createSchool();
+    const plan = await createPlan(limits);
     return { school, plan };
+  }
+
+  async function expectAllowed(schoolId: string, resource: PlanLimitResource): Promise<void> {
+    await planLimits.runWithinLimit(schoolId, resource, async () => undefined);
+  }
+
+  /**
+   * Asserts the guarded work is refused with the standard plan-limit 409 and
+   * that the work itself never runs.
+   */
+  async function expectPlanLimitReached(
+    schoolId: string,
+    resource: PlanLimitResource,
+    expected: { limit: number; usage: number },
+  ): Promise<void> {
+    let workRan = false;
+    await assert.rejects(
+      planLimits.runWithinLimit(schoolId, resource, async () => {
+        workRan = true;
+        return undefined;
+      }),
+      (error: { getStatus?: () => number; getResponse?: () => unknown }) => {
+        assert.equal(error.getStatus?.(), 409);
+        const body = error.getResponse?.() as {
+          error?: string;
+          details?: { limit?: number; usage?: number };
+        };
+        assert.equal(body.error, PLAN_LIMIT_REACHED_CODE);
+        assert.equal(body.details?.limit, expected.limit);
+        assert.equal(body.details?.usage, expected.usage);
+        return true;
+      },
+    );
+    assert.equal(workRan, false, 'the guarded work must not run when the cap is reached');
+  }
+
+  /** Asserts a lapsed live subscription refuses the guarded work with 409. */
+  async function expectLapsed(schoolId: string, resource: PlanLimitResource): Promise<void> {
+    await assert.rejects(
+      planLimits.runWithinLimit(schoolId, resource, async () => undefined),
+      (error: { getStatus?: () => number; getResponse?: () => unknown }) => {
+        assert.equal(error.getStatus?.(), 409);
+        const body = error.getResponse?.() as { error?: string };
+        assert.equal(body.error, SUBSCRIPTION_LAPSED_CODE);
+        return true;
+      },
+    );
   }
 
   describe('active subscription', () => {
     it('allows resource creation within limits', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 5 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(5) });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Create 4 students (within limit of 5).
       for (let i = 0; i < 4; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
+      assert.equal(await Student.count({ where: { school_id: school.id } }), 4);
     });
 
-    it('blocks resource creation at exact limit', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 3 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+    it('blocks resource creation at the exact cap', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(3) });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Create exactly 3 students (at limit).
       for (let i = 0; i < 3; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await expectPlanLimitReached(school.id, PlanLimitResource.STUDENTS, { limit: 3, usage: 3 });
     });
 
-    it('blocks resource creation at limit + 1', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 3 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+    it('blocks resource creation past the cap', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(3) });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Create 4 students (over limit of 3).
       for (let i = 0; i < 4; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await expectPlanLimitReached(school.id, PlanLimitResource.STUDENTS, { limit: 3, usage: 4 });
     });
   });
 
   describe('unlimited plan', () => {
-    it('allows unlimited resources when limit is null', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: null });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+    it('allows unlimited resources when the limit is null', async () => {
+      const { school, plan } = await schoolWithPlan({
+        [PlanLimitResource.STUDENTS]: unlimited(),
+      });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Create many students.
       for (let i = 0; i < 50; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
   describe('not-set limits', () => {
-    it('treats undefined limits as unlimited', async () => {
-      const { school, plan } = await createSchoolWithPlan({});
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+    it('treats unset resource entries as unlimited', async () => {
+      const { school, plan } = await schoolWithPlan({});
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
-  describe('expired subscription', () => {
-    it('blocks resource creation for expired subscription', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 10 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.EXPIRED);
+  describe('lapsed live subscription', () => {
+    it('blocks resource creation once a stored active period has elapsed', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(10) });
+      await createSubscription(school.id, plan.id, {
+        status: SubscriptionStatus.ACTIVE,
+        current_period_start: new Date(Date.now() - 60 * 86_400_000),
+        current_period_end: new Date(Date.now() - 86_400_000),
+      });
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await expectLapsed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
   describe('past_due subscription', () => {
-    it('allows creation inside grace period', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 10 });
-      // Create a past_due subscription with a future grace period end.
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 5);
-      await createSubscription(school.id, plan.id, SubscriptionStatus.PAST_DUE, {
-        grace_period_end: futureDate,
+    it('allows creation inside the grace period', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(10) });
+      // current_period_end is 3 days ago: still inside the default 7-day grace.
+      await createSubscription(school.id, plan.id, {
+        status: SubscriptionStatus.PAST_DUE,
+        current_period_start: new Date(Date.now() - 10 * 86_400_000),
+        current_period_end: new Date(Date.now() - 3 * 86_400_000),
       });
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
     });
 
-    it('blocks creation after grace period', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 10 });
-      // Create a past_due subscription with an expired grace period.
-      const pastDate = new Date();
-      pastDate.setDate(pastDate.getDate() - 1);
-      await createSubscription(school.id, plan.id, SubscriptionStatus.PAST_DUE, {
-        grace_period_end: pastDate,
+    it('blocks creation once the grace period has elapsed', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(10) });
+      // current_period_end is 10 days ago: past the default 7-day grace.
+      await createSubscription(school.id, plan.id, {
+        status: SubscriptionStatus.PAST_DUE,
+        current_period_start: new Date(Date.now() - 60 * 86_400_000),
+        current_period_end: new Date(Date.now() - 10 * 86_400_000),
       });
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
-    });
-  });
-
-  describe('cancelled subscription', () => {
-    it('blocks resource creation for cancelled subscription', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 10 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.CANCELLED);
-
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await expectLapsed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
   describe('trialing subscription', () => {
-    it('allows resource creation during trial', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 5 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.TRIALING);
+    it('allows resource creation during the trial window', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(5) });
+      await createSubscription(school.id, plan.id, {
+        status: SubscriptionStatus.TRIALING,
+        trial_end: new Date(Date.now() + 5 * 86_400_000),
+      });
 
-      // Create 3 students (within limit).
       for (let i = 0; i < 3; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
+    });
+
+    it('blocks resource creation once the trial window has elapsed', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(10) });
+      await createSubscription(school.id, plan.id, {
+        status: SubscriptionStatus.TRIALING,
+        trial_start: new Date(Date.now() - 10 * 86_400_000),
+        trial_end: new Date(Date.now() - 86_400_000),
+      });
+
+      await expectLapsed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
-  describe('no subscription', () => {
-    it('blocks resource creation when no subscription exists', async () => {
+  describe('no live subscription', () => {
+    it('leaves creation unblocked (legacy no-cap fallback)', async () => {
+      // No live row means no plan is resolved: the pre-billing fallback is
+      // "no caps configured" rather than an invented limit.
       const school = await createSchool();
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
-    });
-  });
-
-  describe('inactive school', () => {
-    it('blocks resource creation for inactive school', async () => {
-      const { school, plan } = await createSchoolWithPlan(
-        { max_students: 10 },
-        { is_active: false },
-      );
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
-
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
   describe('plan deactivation', () => {
-    it('blocks resource creation when plan is deactivated', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 10 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
-
-      // Deactivate the plan.
+    it('keeps enforcing the stored caps for an existing live subscription', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(2) });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
       await plan.update({ is_active: false });
 
-      const result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
+      await createStudent(school.id, null);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
+
+      await createStudent(school.id, null);
+      await expectPlanLimitReached(school.id, PlanLimitResource.STUDENTS, { limit: 2, usage: 2 });
     });
   });
 
   describe('subscription change', () => {
-    it('uses the new plan limits after subscription change', async () => {
+    it('applies the new plan limits immediately after the switch', async () => {
       const school = await createSchool();
-      const oldPlan = await createPlan({ max_students: 5 });
-      const newPlan = await createPlan({ max_students: 20 });
+      const oldPlan = await createPlan({ [PlanLimitResource.STUDENTS]: cap(5) });
+      const newPlan = await createPlan({ [PlanLimitResource.STUDENTS]: cap(20) });
 
-      await createSubscription(school.id, oldPlan.id, SubscriptionStatus.ACTIVE);
+      await createSubscription(school.id, oldPlan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Create 5 students (at old limit).
       for (let i = 0; i < 5; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
+      await expectPlanLimitReached(school.id, PlanLimitResource.STUDENTS, { limit: 5, usage: 5 });
 
-      // Verify at limit.
-      let result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
-
-      // Change subscription to new plan.
       await SchoolSubscription.update(
         { plan_id: newPlan.id },
         { where: { school_id: school.id } },
       );
 
-      // Verify now allowed.
-      result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, true);
+      await expectAllowed(school.id, PlanLimitResource.STUDENTS);
     });
   });
 
   describe('concurrent resource creation', () => {
-    it('handles concurrent creation at limit boundary', async () => {
-      const { school, plan } = await createSchoolWithPlan({ max_students: 2 });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+    it('holds the boundary under concurrent creates at the cap', async () => {
+      const { school, plan } = await schoolWithPlan({ [PlanLimitResource.STUDENTS]: cap(2) });
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
+      await createStudent(school.id, null);
 
-      // Create 1 student (below limit).
-      const stop = await createStop(school.id, randomUUID());
-      await createStudent(school.id, stop.id);
+      // Two more slots exist but three concurrent creates race for them; the
+      // advisory-locked transaction must admit exactly one.
+      const attempts = [0, 1, 2].map((index) =>
+        planLimits.runWithinLimit(
+          school.id,
+          PlanLimitResource.STUDENTS,
+          async (transaction) =>
+            Student.create(
+              {
+                id: randomUUID(),
+                school_id: school.id,
+                home_stop_id: null,
+                admission_number: `EDGE-${index}-${randomUUID().slice(0, 8)}`,
+                first_name: 'Edge',
+                last_name: String(index),
+                date_of_birth: null,
+                gender: null,
+                grade_level: 'Grade 1',
+                emergency_contact_name: null,
+                emergency_contact_phone: null,
+                medical_notes: null,
+                is_active: true,
+              } as never,
+              transaction ? { transaction } : {},
+            ),
+        ),
+      );
+      const results = await Promise.allSettled(attempts);
 
-      // Try to create 3 more concurrently (limit is 2, so only 1 should succeed).
-      const results = await Promise.allSettled([
-        (async () => {
-          const s = await createStop(school.id, randomUUID());
-          return createStudent(school.id, s.id);
-        })(),
-        (async () => {
-          const s = await createStop(school.id, randomUUID());
-          return createStudent(school.id, s.id);
-        })(),
-        (async () => {
-          const s = await createStop(school.id, randomUUID());
-          return createStudent(school.id, s.id);
-        })(),
-      ]);
-
-      const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-      // At most 1 should succeed (we already have 1, limit is 2).
-      assert.ok(succeeded <= 1, `Expected at most 1 to succeed, got ${succeeded}`);
+      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+      assert.equal(results.filter((result) => result.status === 'rejected').length, 2);
+      assert.equal(await Student.count({ where: { school_id: school.id } }), 2);
     });
   });
 
   describe('multiple resource types', () => {
     it('enforces limits independently per resource type', async () => {
-      const { school, plan } = await createSchoolWithPlan({
-        max_students: 2,
-        max_buses: 1,
-        max_routes: 1,
+      const { school, plan } = await schoolWithPlan({
+        [PlanLimitResource.STUDENTS]: cap(2),
+        [PlanLimitResource.BUSES]: cap(1),
+        [PlanLimitResource.ROUTES]: cap(1),
       });
-      await createSubscription(school.id, plan.id, SubscriptionStatus.ACTIVE);
+      await createSubscription(school.id, plan.id, { status: SubscriptionStatus.ACTIVE });
 
-      // Fill student limit.
       for (let i = 0; i < 2; i++) {
-        const stop = await createStop(school.id, randomUUID());
-        await createStudent(school.id, stop.id);
+        await createStudent(school.id, null);
       }
+      await expectPlanLimitReached(school.id, PlanLimitResource.STUDENTS, { limit: 2, usage: 2 });
+      await expectAllowed(school.id, PlanLimitResource.BUSES);
+      await expectAllowed(school.id, PlanLimitResource.ROUTES);
 
-      // Students at limit.
-      let result = await planLimits.checkLimit(school.id, PlanLimitResource.STUDENTS);
-      assert.equal(result.allowed, false);
-
-      // Buses still allowed.
-      result = await planLimits.checkLimit(school.id, PlanLimitResource.BUSES);
-      assert.equal(result.allowed, true);
-
-      // Fill bus limit.
       await createBus(school.id);
+      await expectPlanLimitReached(school.id, PlanLimitResource.BUSES, { limit: 1, usage: 1 });
+      await expectAllowed(school.id, PlanLimitResource.ROUTES);
 
-      // Buses at limit.
-      result = await planLimits.checkLimit(school.id, PlanLimitResource.BUSES);
-      assert.equal(result.allowed, false);
+      await createRoute(school.id);
+      await expectPlanLimitReached(school.id, PlanLimitResource.ROUTES, { limit: 1, usage: 1 });
     });
   });
 });

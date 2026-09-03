@@ -62,6 +62,20 @@ interface Envelope<T> {
   error?: { code?: string; message?: string };
 }
 
+/** Payload shapes the suite reads back from the assisted-management API. */
+type SessionData = {
+  session: { actor_user_id: string; end_reason?: string | null };
+  school: { id: string };
+  capabilities: unknown[];
+};
+type StudentData = { id?: string; grade_level?: string; school_id?: string };
+type StudentListData = { items: Array<{ id: string; school_id: string }> };
+type ImportHistoryData = {
+  items: Array<{ id: string; file_name: string; status: ImportJobStatus }>;
+};
+type StudentPageData = { meta: { total: number }; items: unknown[] };
+type ImportCommitData = { created_count: number; job_id?: string | null; status?: string };
+
 async function manageRequest<T>(
   app: TestApp,
   method: string,
@@ -85,7 +99,7 @@ async function importSpreadsheet(
   rows: Array<Record<string, string>>,
 ): Promise<{
   status: number;
-  body: Envelope<{ created_count: number; job_id: string; status: string }>;
+  body: Envelope<ImportCommitData>;
 }> {
   const workbook = new Workbook();
   const sheet = workbook.addWorksheet('Students');
@@ -117,10 +131,7 @@ async function importSpreadsheet(
       body: form,
     },
   );
-  const body = (await response.json()) as Envelope<{
-    created_count: number;
-    job_id: string | null;
-  }>;
+  const body = (await response.json()) as Envelope<ImportCommitData>;
   return { status: response.status, body };
 }
 
@@ -158,13 +169,13 @@ describe('Super Admin assisted school management (E2E)', () => {
   });
 
   it('1. authorised Super Admin manages a school end to end', async () => {
-    const start = await manageRequest(app, 'POST', alpha.school.id, '/session', root);
+    const start = await manageRequest<SessionData>(app, 'POST', alpha.school.id, '/session', root);
     assert.equal(start.status, 201, JSON.stringify(start.body));
     assert.equal(start.body.data?.session.actor_user_id, superAdmin.id);
     assert.equal(start.body.data?.school.id, alpha.school.id);
     assert.ok((start.body.data?.capabilities.length ?? 0) > 0);
 
-    const created = await manageRequest(app, 'POST', alpha.school.id, '/students', root, {
+    const created = await manageRequest<StudentData>(app, 'POST', alpha.school.id, '/students', root, {
       admission_number: `AMG-${randomUUID().slice(0, 8)}`,
       first_name: 'Ayaan',
       last_name: 'Khan',
@@ -173,11 +184,11 @@ describe('Super Admin assisted school management (E2E)', () => {
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const studentId = created.body.data?.id as string;
 
-    const listed = await manageRequest(app, 'GET', alpha.school.id, '/students?search=Ayaan', root);
+    const listed = await manageRequest<StudentListData>(app, 'GET', alpha.school.id, '/students?search=Ayaan', root);
     assert.equal(listed.status, 200);
     assert.ok(listed.body.data?.items.some((item) => item.id === studentId));
 
-    const updated = await manageRequest(
+    const updated = await manageRequest<StudentData>(
       app,
       'PATCH',
       alpha.school.id,
@@ -190,11 +201,11 @@ describe('Super Admin assisted school management (E2E)', () => {
     assert.equal(updated.status, 200);
     assert.equal(updated.body.data?.grade_level, 'Grade 4');
 
-    const current = await manageRequest(app, 'GET', alpha.school.id, '/session/current', root);
+    const current = await manageRequest<SessionData>(app, 'GET', alpha.school.id, '/session/current', root);
     assert.equal(current.status, 200);
     assert.equal(current.body.data?.session?.actor_user_id, superAdmin.id);
 
-    const ended = await manageRequest(app, 'POST', alpha.school.id, '/session/end', root);
+    const ended = await manageRequest<SessionData>(app, 'POST', alpha.school.id, '/session/end', root);
     assert.equal(ended.status, 200);
     assert.equal(ended.body.data?.session?.end_reason, 'exit');
   });
@@ -230,7 +241,7 @@ describe('Super Admin assisted school management (E2E)', () => {
       );
       assert.equal(leaked.status, 404);
 
-      const listed = await manageRequest(app, 'GET', beta.school.id, '/students?limit=200', root);
+      const listed = await manageRequest<StudentListData>(app, 'GET', beta.school.id, '/students?limit=200', root);
       assert.ok((listed.body.data?.items ?? []).every((item) => item.school_id === beta.school.id));
       assert.ok(!(listed.body.data?.items ?? []).some((item) => item.id === alpha.student.id));
 
@@ -299,7 +310,7 @@ describe('Super Admin assisted school management (E2E)', () => {
     await manageRequest(app, 'POST', alpha.school.id, '/session', root);
     try {
       // Guardian create + link, all through the managed surface.
-      const guardian = await manageRequest(app, 'POST', alpha.school.id, '/parents', root, {
+      const guardian = await manageRequest<StudentData>(app, 'POST', alpha.school.id, '/parents', root, {
         first_name: 'Fatima',
         last_name: 'Khan',
         email: `fatima.${randomUUID().slice(0, 8)}@parents.example.test`,
@@ -366,7 +377,7 @@ describe('Super Admin assisted school management (E2E)', () => {
       assert.notEqual(crossAssignment.status, 201, JSON.stringify(crossAssignment.body));
 
       // B's own route and bus still work normally in B's context.
-      const ownRoute = await manageRequest(app, 'POST', beta.school.id, '/routes', root, {
+      const ownRoute = await manageRequest<StudentData>(app, 'POST', beta.school.id, '/routes', root, {
         code: `BETA-${randomUUID().slice(0, 6).toUpperCase()}`,
         name: 'Beta North',
       });
@@ -442,7 +453,7 @@ describe('Super Admin assisted school management (E2E)', () => {
       );
 
       // The import job itself is owned by school A.
-      const history = await manageRequest(app, 'GET', alpha.school.id, '/imports/history', root);
+      const history = await manageRequest<ImportHistoryData>(app, 'GET', alpha.school.id, '/imports/history', root);
       assert.equal(history.status, 200);
       const job = history.body.data?.items.find((item) => item.file_name === 'roster.xlsx');
       assert.ok(job);
@@ -723,7 +734,7 @@ describe('Super Admin assisted school management (E2E)', () => {
     assert.ok(importMs < 120_000, `import took ${importMs}ms`);
 
     const listStartedAt = Date.now();
-    const page = await manageRequest(app, 'GET', big.id, '/students?limit=20&page=3', root);
+    const page = await manageRequest<StudentPageData>(app, 'GET', big.id, '/students?limit=20&page=3', root);
     const listMs = Date.now() - listStartedAt;
     assert.equal(page.status, 200);
     assert.equal(page.body.data?.meta.total, 300);
@@ -732,7 +743,7 @@ describe('Super Admin assisted school management (E2E)', () => {
 
     // Deep page is equally cheap (offset pagination on an indexed column).
     const deepStartedAt = Date.now();
-    const deep = await manageRequest(app, 'GET', big.id, '/students?limit=20&page=15', root);
+    const deep = await manageRequest<StudentPageData>(app, 'GET', big.id, '/students?limit=20&page=15', root);
     assert.equal(deep.status, 200);
     assert.equal(deep.body.data?.items.length, 20);
     assert.ok(Date.now() - deepStartedAt < 5_000, 'deep page stays cheap');
@@ -760,7 +771,7 @@ describe('Super Admin assisted school management (E2E)', () => {
     // 25 parallel creates with unique keys: all succeed, all visible.
     const uniqueBatch = await Promise.all(
       Array.from({ length: 25 }, (_, index) =>
-        manageRequest(app, 'POST', concurrency.id, '/students', root, {
+        manageRequest<StudentData>(app, 'POST', concurrency.id, '/students', root, {
           admission_number: `CONC-U-${String(index + 1).padStart(3, '0')}`,
           first_name: `Conc${index + 1}`,
           last_name: 'Unique',
