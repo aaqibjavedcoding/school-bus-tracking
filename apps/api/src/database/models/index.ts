@@ -13,6 +13,7 @@ import { TripStudentAttendance } from './trip-student-attendance.model';
 import { TripLocation } from './trip-location.model';
 import { TripStopArrival } from './trip-stop-arrival.model';
 import { Notification } from './notification.model';
+import { DeviceToken } from './device-token.model';
 import { Plan } from './plan.model';
 import { SchoolSubscription } from './school-subscription.model';
 import { BusDocument } from './bus-document.model';
@@ -90,6 +91,8 @@ export type {
 } from './trip-stop-arrival.model';
 export { Notification } from './notification.model';
 export type { NotificationAttributes, NotificationCreationAttributes } from './notification.model';
+export { DeviceToken } from './device-token.model';
+export type { DeviceTokenAttributes, DeviceTokenCreationAttributes } from './device-token.model';
 export { Plan } from './plan.model';
 export type { PlanAttributes, PlanCreationAttributes } from './plan.model';
 export { SchoolSubscription } from './school-subscription.model';
@@ -117,10 +120,16 @@ export type {
 export { AuditLog } from './audit-log.model';
 export type { AuditLogAttributes, AuditLogCreationAttributes } from './audit-log.model';
 export { IdempotencyKey } from './idempotency-key.model';
-export type { IdempotencyKeyAttributes, IdempotencyKeyCreationAttributes } from './idempotency-key.model';
+export type {
+  IdempotencyKeyAttributes,
+  IdempotencyKeyCreationAttributes,
+} from './idempotency-key.model';
 export { ImportJob } from './import-job.model';
 export type { ImportJobAttributes, ImportJobCreationAttributes } from './import-job.model';
-export { AssistedManagementSession, ASSISTED_SESSION_END_REASONS } from './assisted-management-session.model';
+export {
+  AssistedManagementSession,
+  ASSISTED_SESSION_END_REASONS,
+} from './assisted-management-session.model';
 export type {
   AssistedManagementSessionAttributes,
   AssistedManagementSessionCreationAttributes,
@@ -156,6 +165,7 @@ export const models: ModelCtor<Model>[] = [
   TripLocation,
   TripStopArrival,
   Notification,
+  DeviceToken,
   Plan,
   SchoolSubscription,
   BusDocument,

@@ -2,11 +2,9 @@
  * Notification provider abstractions.
  *
  * These interfaces define the contract for external notification delivery.
- * In the current phase, only development/local/no-op implementations are
- * provided — no paid services are connected.
- *
- * External push provider integration is intentionally deferred because paid
- * services are prohibited in the current phase.
+ * Push delivery is implemented by `NoOpPushProvider` (default, local/dev/CI)
+ * and `FcmPushProvider` (Firebase Cloud Messaging — free). Email and SMS stay
+ * no-op placeholders; no paid service is connected.
  */
 
 /** Result of a notification delivery attempt. */
@@ -16,6 +14,16 @@ export interface NotificationDeliveryResult {
   messageId?: string;
   error?: string;
   retryable: boolean;
+}
+
+/** Push delivery result, extended with the per-device invalidation detail. */
+export interface PushDeliveryResult extends NotificationDeliveryResult {
+  /**
+   * Device tokens the push provider rejected as unregistered / invalid.
+   * The caller deactivates those `device_tokens` rows so they are never
+   * targeted again.
+   */
+  invalidTokens?: string[];
 }
 
 /** A notification to be delivered externally. */
@@ -48,16 +56,16 @@ export interface SmsNotificationPayload extends NotificationPayload {
  * Push notification provider interface.
  *
  * Implementations:
- * - `NoOpPushProvider` — development/local (logs but does not deliver)
- *
- * Future: Firebase Cloud Messaging, Apple Push Notification Service, etc.
+ * - `NoOpPushProvider` — default when Firebase env is absent (local/dev/CI)
+ * - `FcmPushProvider` — Firebase Cloud Messaging (free), selected when
+ *   `FIREBASE_SERVICE_ACCOUNT_JSON` is set
  */
 export interface PushNotificationProvider {
   readonly name: string;
   readonly isConfigured: boolean;
 
-  send(payload: PushNotificationPayload): Promise<NotificationDeliveryResult>;
-  sendBatch(payloads: PushNotificationPayload[]): Promise<NotificationDeliveryResult[]>;
+  send(payload: PushNotificationPayload): Promise<PushDeliveryResult>;
+  sendBatch(payloads: PushNotificationPayload[]): Promise<PushDeliveryResult[]>;
 }
 
 /**

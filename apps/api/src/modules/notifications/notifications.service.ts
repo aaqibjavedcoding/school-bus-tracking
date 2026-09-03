@@ -19,13 +19,19 @@ import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common
 import {
   DEFAULT_NOTIFICATION_LIMIT,
   MAX_NOTIFICATION_LIMIT,
+  NOOP_PUSH_PROVIDER_NAME,
   NOTIFICATIONS_GUARDIANS_REPOSITORY,
+  NOTIFICATIONS_PUSH_PROVIDER,
   NOTIFICATIONS_REPOSITORY,
   NOTIFICATIONS_STOPS_REPOSITORY,
   NOTIFICATIONS_STUDENTS_REPOSITORY,
   NOTIFICATIONS_TRIPS_REPOSITORY,
   NOTIFICATIONS_USERS_REPOSITORY,
   NOTIFICATION_NOT_FOUND_MESSAGE,
+  PUSH_NO_DEVICE_REASON,
+  PUSH_STATUS_FAILED,
+  PUSH_STATUS_NOT_CONFIGURED,
+  PUSH_STATUS_SENT,
   STOP_ARRIVED_MESSAGE,
   STOP_ARRIVED_TITLE,
   STUDENT_BOARDED_MESSAGE,
@@ -35,6 +41,8 @@ import {
   TRIP_STATUS_MESSAGES,
   TRIP_STATUS_TITLES,
 } from './notifications.constants';
+import type { PushNotificationProvider } from './providers';
+import { DeviceTokensService } from './device-tokens.service';
 
 /** Which attendance action a student notification announces. */
 export type StudentAttendanceAction = 'boarded' | 'dropped';
@@ -120,6 +128,9 @@ export class NotificationsService {
     private readonly stops: typeof Stop,
     @Inject(NOTIFICATIONS_TRIPS_REPOSITORY)
     private readonly trips: typeof Trip,
+    private readonly deviceTokens: DeviceTokensService,
+    @Inject(NOTIFICATIONS_PUSH_PROVIDER)
+    private readonly pushProvider: PushNotificationProvider,
   ) {}
 
   /** Attach (or replace) the room broadcaster; the gateway does this once. */
@@ -558,6 +569,109 @@ export class NotificationsService {
     };
 
     this.broadcaster?.(notificationRoomName(values.user_id), NOTIFICATION_EVENTS.new, payload);
+
+    // External OS-level push (FCM) happens after the row and the in-app
+    // broadcast are in place; it is strictly best-effort (see deliverPush).
+    await this.deliverPush(created);
+  }
+
+  /**
+   * Sends the created notification as an OS-level push to the recipient's
+   * active devices and records the outcome on the row.
+   *
+   * Never throws: a push outage (provider down, no tokens, database hiccup)
+   * must never break attendance, trip lifecycle or the in-app Socket.IO
+   * broadcast. Outcomes:
+   *
+   * - `NoOpPushProvider` active → `push_status = 'not_configured'` (local
+   *   dev/CI without Firebase env).
+   * - No active device tokens → `push_status = 'failed'`, retry count +1.
+   * - FCM success → `push_status = 'sent'`, retry count reset.
+   * - FCM failure → `push_status = 'failed'`, retry count +1, reason stored.
+   * - FCM `UNREGISTERED` / `INVALID_REGISTRATION` → the offending token rows
+   *   are deactivated so they are never targeted again.
+   */
+  private async deliverPush(notificationRow: Notification): Promise<void> {
+    try {
+      const attemptedAt = new Date();
+
+      if (this.pushProvider.name === NOOP_PUSH_PROVIDER_NAME) {
+        await notificationRow.update({
+          push_status: PUSH_STATUS_NOT_CONFIGURED,
+          last_delivery_attempt_at: attemptedAt,
+          delivery_failure_reason: null,
+        });
+        return;
+      }
+
+      const tokens = await this.deviceTokens.findActiveTokenStrings(
+        notificationRow.school_id,
+        notificationRow.user_id,
+      );
+      if (tokens.length === 0) {
+        await notificationRow.update({
+          push_status: PUSH_STATUS_FAILED,
+          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
+          last_delivery_attempt_at: attemptedAt,
+          delivery_failure_reason: PUSH_NO_DEVICE_REASON,
+        });
+        return;
+      }
+
+      const result = await this.pushProvider.send({
+        recipientId: notificationRow.user_id,
+        title: notificationRow.title,
+        body: notificationRow.message,
+        data: pushDataPayload(notificationRow),
+        deviceTokens: tokens,
+        priority: 'high',
+      });
+
+      if (result.success) {
+        await notificationRow.update({
+          push_status: PUSH_STATUS_SENT,
+          delivery_retry_count: 0,
+          last_delivery_attempt_at: attemptedAt,
+          delivery_failure_reason: null,
+        });
+      } else {
+        await notificationRow.update({
+          push_status: PUSH_STATUS_FAILED,
+          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
+          last_delivery_attempt_at: attemptedAt,
+          delivery_failure_reason: result.error ?? 'Push delivery failed',
+        });
+      }
+
+      if (result.invalidTokens && result.invalidTokens.length > 0) {
+        // Deactivation is best-effort too: the rows will simply retry once
+        // more if this write fails, and FCM will reject them again.
+        await this.deviceTokens.deactivateTokens(
+          notificationRow.school_id,
+          notificationRow.user_id,
+          result.invalidTokens,
+        );
+      }
+    } catch (error) {
+      // Log the reason (never the payload; tokens/credentials stay out of
+      // logs) but keep the notification flow alive.
+      this.logger.error(
+        `Failed to deliver push for notification ${notificationRow.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      try {
+        await notificationRow.update({
+          push_status: PUSH_STATUS_FAILED,
+          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
+          last_delivery_attempt_at: new Date(),
+          delivery_failure_reason: error instanceof Error ? error.message : String(error),
+        });
+      } catch {
+        // The row itself may be un-updatable in a read-only stub; the push
+        // already failed and the next event will try again.
+      }
+    }
   }
 
   /** Explicit projection — ORM internals never leak into a response. */
@@ -615,4 +729,28 @@ function fullName(firstName: string, lastName: string): string {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+/**
+ * FCM `data` payload for deep-linking (all string values — FCM requirement):
+ * the recipient's tenant/user, the event's trip/student/stop when present,
+ * the notification type and the row id for the future deep-link target.
+ */
+function pushDataPayload(row: Notification): Record<string, string> {
+  const data: Record<string, string> = {
+    school_id: row.school_id,
+    user_id: row.user_id,
+    type: row.type,
+    id: row.id,
+  };
+  for (const [key, value] of [
+    ['trip_id', row.trip_id],
+    ['student_id', row.student_id],
+    ['stop_id', row.stop_id],
+  ] as const) {
+    if (value) {
+      data[key] = value;
+    }
+  }
+  return data;
 }

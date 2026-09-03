@@ -8,5 +8,9 @@ export type {
 } from './notifications.service';
 export { NotificationsGateway } from './notifications.gateway';
 export { NotificationsController } from './notifications.controller';
+export { DeviceTokensController } from './device-tokens.controller';
+export { DeviceTokensService } from './device-tokens.service';
+export { RegisterDeviceTokenDto } from './dto/device-token.dto';
 export { ListParentNotificationsQueryDto } from './dto/list-parent-notifications-query.dto';
 export * from './notifications.constants';
+export * from './providers';

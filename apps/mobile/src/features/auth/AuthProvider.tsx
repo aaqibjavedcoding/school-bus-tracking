@@ -6,6 +6,7 @@ import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socke
 import { disconnectNotificationsSocket } from '../../services/notifications-socket';
 import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
 import { stopCrewLocationTask } from '../crew/location-task';
+import { setupPushNotifications, unregisterPushDevice } from '../notifications';
 
 /**
  * Mobile auth context (port of the web AuthProvider onto the same
@@ -41,6 +42,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
     disconnectEmergenciesSocket();
+    // Fire-and-forget: unregistering the push token must never delay logout.
+    void unregisterPushDevice();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');
@@ -58,6 +61,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setAccessToken(envelope.data.access_token);
           setUser(envelope.data.user);
           setStatus('authenticated');
+          // Re-register the device token on every app start; the server
+          // upserts, so a restored session is always in sync (any role).
+          void setupPushNotifications(envelope.data.user);
           return;
         }
         setStatus('anonymous');
@@ -80,6 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAccessToken(envelope.data.access_token);
     setUser(envelope.data.user);
     setStatus('authenticated');
+    // OS-level push after login, for every role (parents + crew + admin).
+    void setupPushNotifications(envelope.data.user);
   }, []);
 
   const logout = useCallback(async () => {

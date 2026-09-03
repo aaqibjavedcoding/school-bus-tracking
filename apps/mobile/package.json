@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/geo.spec.ts src/lib/format.spec.ts src/lib/roles.spec.ts src/lib/datetime-local.spec.ts src/lib/active-filter.spec.ts src/lib/paged-query.spec.ts src/lib/keyboard-aware.spec.ts src/lib/trips-list.spec.ts src/lib/navigation.spec.ts src/lib/errors.spec.ts src/theme/bottom-bar-metrics.spec.ts src/features/crew/crew-trip.spec.ts src/features/crew/navigation-stop.spec.ts src/features/parent/notifications-state.spec.ts src/features/admin/documents/helpers.spec.ts src/features/admin/documents/documentForm.spec.ts src/features/admin/emergencies/helpers.spec.ts src/services/sockets.spec.ts src/services/api-config.spec.ts src/services/list-query.spec.ts src/services/socket-auth.spec.ts",
+    "test": "node --experimental-strip-types --test src/lib/geo.spec.ts src/lib/format.spec.ts src/lib/roles.spec.ts src/lib/datetime-local.spec.ts src/lib/active-filter.spec.ts src/lib/paged-query.spec.ts src/lib/keyboard-aware.spec.ts src/lib/trips-list.spec.ts src/lib/navigation.spec.ts src/lib/errors.spec.ts src/theme/bottom-bar-metrics.spec.ts src/features/crew/crew-trip.spec.ts src/features/crew/navigation-stop.spec.ts src/features/parent/notifications-state.spec.ts src/features/notifications/push-registration.spec.ts src/features/admin/documents/helpers.spec.ts src/features/admin/documents/documentForm.spec.ts src/features/admin/emergencies/helpers.spec.ts src/services/sockets.spec.ts src/services/api-config.spec.ts src/services/list-query.spec.ts src/services/socket-auth.spec.ts",
     "clean": "rimraf .expo dist"
   },
   "dependencies": {
@@ -27,6 +27,7 @@
     "expo-constants": "~18.0.14",
     "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.24",
     "expo-status-bar": "~3.0.9",
     "expo-task-manager": "~14.0.9",
