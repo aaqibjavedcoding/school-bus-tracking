@@ -22,6 +22,7 @@ import { SchoolSubscriptionSection } from '../../../../../features/admin/subscri
 import { SchoolAdminsSection } from '../../../../../features/admin/school-admins/SchoolAdminsSection';
 import { EditSchoolProfileDialog } from '../../../../../features/admin/schools/EditSchoolProfileDialog';
 import { KpiCard, KpiGrid } from '../../../../../features/admin/components/KpiCard';
+import { useManagedSchool } from '../../../../../features/managed';
 import { subscriptionStatusTone } from '../../../../../features/admin/subscriptions/helpers';
 
 const number = (value: number | undefined): string => new Intl.NumberFormat().format(value ?? 0);
@@ -39,6 +40,26 @@ export default function AdminSchoolDetailsPage() {
   const params = useParams<{ id: string }>();
   const schoolId = params.id;
   const toast = useToast();
+  const { enterSchool, busy: entering, managed } = useManagedSchool();
+
+  const enterManageData = async () => {
+    if (!data) return;
+    try {
+      await enterSchool({
+        id: data.school.id,
+        name: data.school.name,
+        code: data.school.code,
+        is_active: data.school.is_active,
+      });
+    } catch (error) {
+      toast.push(
+        error instanceof Error
+          ? error.message
+          : 'Unable to start assisted management for this school.',
+        'danger',
+      );
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<'activate' | 'deactivate' | null>(null);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -119,6 +140,15 @@ export default function AdminSchoolDetailsPage() {
         description={`Tenant code ${school.code}${school.subdomain ? ` · subdomain ${school.subdomain}` : ''}`}
         actions={
           <>
+            {managed?.schoolId === schoolId ? (
+              <Link href="/students">
+                <Button variant="secondary">Managing… open workspace</Button>
+              </Link>
+            ) : (
+              <Button variant="primary" disabled={entering || !data} onClick={() => void enterManageData()}>
+                {entering ? 'Entering…' : 'Manage data'}
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => setEditProfileOpen(true)}>
               Edit profile
             </Button>

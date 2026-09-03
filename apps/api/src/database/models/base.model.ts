@@ -62,10 +62,17 @@ export abstract class BaseModel<
   })
   declare id: string;
 
+  /**
+   * `allowNull` is deliberately NOT declared on the timestamp attributes.
+   * Sequelize fills timestamps *after* `bulkCreate` validation, and models
+   * that disable a mapping (`updatedAt: false`, e.g. the append-only audit
+   * log) still carry the attribute — a model-level NOT NULL would fail
+   * validation for rows the database itself accepts and defaults correctly.
+   * The physical NOT NULL constraints live in the migrations.
+   */
   @CreatedAt
   @Column({
     type: DataType.DATE,
-    allowNull: false,
     field: 'created_at',
   })
   declare created_at: Date;
@@ -73,7 +80,6 @@ export abstract class BaseModel<
   @UpdatedAt
   @Column({
     type: DataType.DATE,
-    allowNull: false,
     field: 'updated_at',
   })
   declare updated_at: Date;

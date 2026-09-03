@@ -22,6 +22,7 @@ import { EmergencyEvent } from './emergency-event.model';
 import { AuditLog } from './audit-log.model';
 import { IdempotencyKey } from './idempotency-key.model';
 import { ImportJob } from './import-job.model';
+import { AssistedManagementSession } from './assisted-management-session.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -119,6 +120,12 @@ export { IdempotencyKey } from './idempotency-key.model';
 export type { IdempotencyKeyAttributes, IdempotencyKeyCreationAttributes } from './idempotency-key.model';
 export { ImportJob } from './import-job.model';
 export type { ImportJobAttributes, ImportJobCreationAttributes } from './import-job.model';
+export { AssistedManagementSession, ASSISTED_SESSION_END_REASONS } from './assisted-management-session.model';
+export type {
+  AssistedManagementSessionAttributes,
+  AssistedManagementSessionCreationAttributes,
+  AssistedSessionEndReasonValue,
+} from './assisted-management-session.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -158,4 +165,5 @@ export const models: ModelCtor<Model>[] = [
   AuditLog,
   IdempotencyKey,
   ImportJob,
+  AssistedManagementSession,
 ];

@@ -6,16 +6,23 @@ import React, { useMemo, useState } from 'react';
 import { fullName, initials, roleLabel } from '../../lib/format';
 import { activeNavHref, navItemsForRole } from '../../lib/roles';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { ManagedSchoolBanner, useManagedSchool } from '../../features/managed';
+import { clearManagedSchool } from '../../features/managed/managed-school-store';
 import { NotificationBell } from '../../features/notifications/NotificationBell';
 import { Button } from '../ui';
 import { NavIcon } from './icons';
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
+  const { managed } = useManagedSchool();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const items = useMemo(() => (user ? navItemsForRole(user.role) : []), [user]);
+  const managingSchool = Boolean(managed);
+  const items = useMemo(
+    () => (user ? navItemsForRole(user.role, managingSchool) : []),
+    [user, managingSchool],
+  );
   // Only the deepest matching section is highlighted, so `/admin/schools`
   // never lights up the `/admin` dashboard entry as well.
   const activeHref = useMemo(() => activeNavHref(items, pathname), [items, pathname]);
@@ -65,12 +72,21 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <span>{roleLabel(user.role)}</span>
             </div>
           </div>
-          <Button variant="secondary" onClick={() => void logout()} style={{ width: '100%' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              // Leaving the platform also leaves the managed-school context.
+              clearManagedSchool();
+              void logout();
+            }}
+            style={{ width: '100%' }}
+          >
             Sign out
           </Button>
         </div>
       </aside>
       <div className="app-main">
+        {managingSchool ? <ManagedSchoolBanner /> : null}
         <header className="topbar">
           <button
             type="button"

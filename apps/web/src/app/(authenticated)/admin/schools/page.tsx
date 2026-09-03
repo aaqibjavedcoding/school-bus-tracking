@@ -25,6 +25,7 @@ import { usePagedResource } from '../../../../hooks/usePagedResource';
 import { fullName, formatDateTime } from '../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../lib/errors';
 import { apiClient } from '../../../../services/api';
+import { useManagedSchool } from '../../../../features/managed';
 import { subscriptionStatusTone } from '../../../../features/admin/subscriptions/helpers';
 
 type SortKey = 'created_at:desc' | 'created_at:asc' | 'name:asc' | 'name:desc' | 'code:asc';
@@ -51,6 +52,7 @@ const PAGE_SIZES = ['10', '20', '50'];
 export default function AdminSchoolsPage() {
   const router = useRouter();
   const toast = useToast();
+  const { enterSchool, managed } = useManagedSchool();
   const [status, setStatus] = useState<'' | AdminSchoolStatus>('');
   const [sort, setSort] = useState<SortKey>('created_at:desc');
   const [limit, setLimit] = useState(10);
@@ -112,6 +114,25 @@ export default function AdminSchoolsPage() {
       }
     },
     [reload, toast],
+  );
+
+  const enterManageData = useCallback(
+    async (school: AdminSchoolSummary) => {
+      try {
+        await enterSchool({
+          id: school.id,
+          name: school.name,
+          code: school.code,
+          is_active: school.is_active,
+        });
+      } catch (error) {
+        toast.push(
+          error instanceof Error ? error.message : `Unable to open ${school.name} for management.`,
+          'danger',
+        );
+      }
+    },
+    [enterSchool, toast],
   );
 
   const summary = useMemo(() => {
@@ -275,6 +296,19 @@ export default function AdminSchoolsPage() {
                         >
                           Open
                         </Button>
+                        {managed?.schoolId === school.id ? (
+                          <Button variant="secondary" onClick={() => router.push('/students')}>
+                            Managing…
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            disabled={busyId === school.id}
+                            onClick={() => void enterManageData(school)}
+                          >
+                            Manage data
+                          </Button>
+                        )}
                         {school.is_active ? (
                           <Button
                             variant="danger"

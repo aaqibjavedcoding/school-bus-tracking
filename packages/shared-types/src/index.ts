@@ -3447,3 +3447,50 @@ export interface ReportOverviewResponse {
   compliance: ReportSummaryCard[];
   generated_at: string;
 }
+
+// ============================================================================
+// Super Admin assisted school management ("Manage Data")
+// ============================================================================
+
+/** Why an assisted-management session was closed. */
+export type AssistedSessionEndReason = 'exit' | 'superseded';
+
+/** One recorded assisted-management session. */
+export interface AssistedManagementSessionResponse {
+  id: string;
+  /** The managed school (route-derived on the API; never a client claim). */
+  school_id: string;
+  /** The platform SUPER_ADMIN who entered the school (nullable after account removal). */
+  actor_user_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  end_reason: AssistedSessionEndReason | null;
+}
+
+/** Summary of the managed school returned with session lifecycle calls. */
+export interface ManagedSchoolSummary {
+  id: string;
+  name: string;
+  code: string;
+  is_active: boolean;
+}
+
+/** Successful payload of `POST /admin/schools/:schoolId/manage/session`. */
+export interface AssistedSessionStartResponse {
+  session: AssistedManagementSessionResponse;
+  school: ManagedSchoolSummary;
+  /** Explicit allowlist of capabilities assisted management supports. */
+  capabilities: string[];
+}
+
+/** Successful payload of `GET /admin/schools/:schoolId/manage/session/current`. */
+export interface AssistedSessionCurrentResponse {
+  session: AssistedManagementSessionResponse | null;
+  school: ManagedSchoolSummary;
+}
+
+/** Successful payload of `POST /admin/schools/:schoolId/manage/session/end`. */
+export interface AssistedSessionEndResponse {
+  session: AssistedManagementSessionResponse | null;
+  school: ManagedSchoolSummary;
+}

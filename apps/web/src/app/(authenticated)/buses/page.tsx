@@ -34,6 +34,7 @@ import {
   unwrapEnvelope,
 } from '../../../lib/errors';
 import { apiClient } from '../../../services/api';
+import { useManagedSchool } from '../../../features/managed';
 
 const emptyForm = {
   registration_number: '',
@@ -43,6 +44,7 @@ const emptyForm = {
 };
 
 export default function BusesPage() {
+  const { managed } = useManagedSchool();
   const toast = useToast();
   const list = usePagedResource(
     async (page, search) => unwrapEnvelope(await apiClient.listBuses({ page, limit: 20, search })),
@@ -182,9 +184,13 @@ export default function BusesPage() {
                     </td>
                     <td>
                       <div className="table-actions">
-                        <Link className="btn btn-secondary" href={`/buses/${bus.id}/documents`}>
-                          Documents
-                        </Link>
+                        {/* Compliance documents are outside the assisted-management
+                            scope, so the link only exists in the school's own workspace. */}
+                        {managed ? null : (
+                          <Link className="btn btn-secondary" href={`/buses/${bus.id}/documents`}>
+                            Documents
+                          </Link>
+                        )}
                         <Button variant="secondary" onClick={() => startEdit(bus)}>
                           Edit
                         </Button>

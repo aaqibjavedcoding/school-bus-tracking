@@ -5,7 +5,13 @@ import {
   ExportDataset,
   type ExportQuery,
 } from '@school-bus-tracking/shared-types';
-import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AuditService } from '../../audit';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+  AUDIT_ENTITY_TYPES,
+  type AssistedAuditContext,
+  AuditService,
+} from '../../audit';
 import type {
   Bus,
   BusDocument,
@@ -119,6 +125,13 @@ export class ExportService {
     actorUserId: string,
     dataset: ExportDataset,
     query: ExportQuery,
+    /**
+     * Set only on the Super Admin assisted-management surface: marks the audit
+     * row and links it to the open session. The actor and the tenant are
+     * unchanged — the Super Admin exports the managed school's data as
+     * themselves.
+     */
+    context?: AssistedAuditContext,
   ): Promise<ExportStreamPlan> {
     const definition = getExportDefinition(dataset);
     const format = query.format ?? DataFileFormat.XLSX;
@@ -136,6 +149,12 @@ export class ExportService {
         dataset_label: EXPORT_DATASET_LABELS[dataset],
         format,
         record_count: prepared.total,
+        ...(context
+          ? {
+              context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+              assisted_session_id: context.assisted_session_id ?? null,
+            }
+          : {}),
         // Only the filters this dataset honours, and never a free-text search
         // term (it can contain a pupil's name).
         filters_applied: this.appliedFilters(definition.supportedFilters, query),

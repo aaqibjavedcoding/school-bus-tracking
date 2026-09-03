@@ -155,6 +155,9 @@ import {
   EmergencySosRequest,
   EmergencyStatus,
   EmergencyStatusUpdateRequest,
+  AssistedSessionCurrentResponse,
+  AssistedSessionEndResponse,
+  AssistedSessionStartResponse,
 } from '@school-bus-tracking/shared-types';
 
 export interface ApiClientConfig {
@@ -195,6 +198,66 @@ export interface ApiClientConfig {
   setAccessToken?: (token: string | null) => void;
   /** Called when refresh fails so the UI can return to the login screen. */
   onUnauthorized?: () => void;
+  /**
+   * Active Super Admin managed-school context ("Manage Data"), if any.
+   *
+   * When it returns a school id, tenant resource calls (`/students`,
+   * `/imports/...`, `/reports/...`, …) are transparently remapped to the
+   * guarded assisted-management endpoints
+   * (`/admin/schools/:id/manage/...`) — see {@link resolveManagedSchoolPath}.
+   * The server still enforces the role and the managed-school boundary on
+   * every call; this mapping only points the client at the right surface.
+   * Platform (`/admin/...`) and auth calls are never remapped.
+   */
+  resolveManagedSchoolId?: () => string | null;
+}
+
+/**
+ * Tenant resources the assisted-management surface supports.
+ *
+ * Deliberately an allowlist: anything not listed is left untouched, so a page
+ * outside the assisted scope (trips, tracking, documents, parent portal, …)
+ * keeps calling its tenant endpoint and is rejected server-side by the role
+ * guard rather than being silently redirected somewhere unexpected.
+ */
+const MANAGED_TENANT_PATH_RULES: RegExp[] = [
+  /^\/students(?:\/[0-9a-fA-F-]{36})?(?:\/guardians(?:\/[0-9a-fA-F-]{36})?)?$/,
+  /^\/parents(?:\/[0-9a-fA-F-]{36})?(?:\/students\/[0-9a-fA-F-]{36})?$/,
+  /^\/buses(?:\/[0-9a-fA-F-]{36})?$/,
+  /^\/routes(?:\/[0-9a-fA-F-]{36})?(?:\/(?:stops|details))?$/,
+  /^\/stops(?:\/[0-9a-fA-F-]{36})?$/,
+  /^\/(?:drivers|conductors)(?:\/[0-9a-fA-F-]{36})?$/,
+  /^\/(?:route-assignments|assignments)(?:\/[0-9a-fA-F-]{36})?$/,
+  /^\/imports(?:\/(?:modules|history(?:\/[0-9a-fA-F-]{36}(?:\/error-file)?)?|[a-z-]+\/(?:template|validate|commit)))?$/,
+  /^\/exports(?:\/[a-z-]+)?$/,
+  /^\/reports(?:\/(?:overview|[a-z0-9_]+(?:\/export)?))?$/,
+];
+
+/**
+ * Remaps a tenant endpoint onto the assisted-management surface.
+ *
+ * Pure and exported for tests. The query string is preserved untouched; the
+ * managed school id always lands in the path, exactly where the API's
+ * {@linkcode ManagedSchoolGuard} expects it.
+ *
+ * Returns `null` when the endpoint is not a supported tenant resource — the
+ * caller then sends the endpoint unchanged (and the API's role guard decides).
+ */
+export function resolveManagedSchoolPath(schoolId: string, endpoint: string): string | null {
+  if (!schoolId || !endpoint.startsWith('/')) {
+    return null;
+  }
+  const queryIndex = endpoint.indexOf('?');
+  const path = queryIndex === -1 ? endpoint : endpoint.slice(0, queryIndex);
+  const query = queryIndex === -1 ? '' : endpoint.slice(queryIndex);
+
+  const normalised = path !== '/' && path.endsWith('/') ? path.replace(/\/+$/, '') : path;
+
+  const matched = MANAGED_TENANT_PATH_RULES.some((rule) => rule.test(normalised));
+  if (!matched) {
+    return null;
+  }
+  return `/admin/schools/${encodeURIComponent(schoolId)}/manage${normalised}${query}`;
 }
 
 export class ApiClientError extends Error {
@@ -299,6 +362,7 @@ export class ApiClient {
   private readonly csrfHeaderNamePinned: boolean;
   private readonly csrfTokenPath: string;
   private readonly csrfBootstrap?: boolean;
+  private readonly resolveManagedSchoolId?: () => string | null;
   private refreshInFlight: Promise<boolean> | null = null;
   private csrfBootstrapInFlight: Promise<string | null> | null = null;
 
@@ -318,6 +382,20 @@ export class ApiClient {
     this.csrfHeaderNamePinned = Boolean(config.csrfHeaderName);
     this.csrfTokenPath = config.csrfTokenPath || CSRF_TOKEN_PATH;
     this.csrfBootstrap = config.csrfBootstrap;
+    this.resolveManagedSchoolId = config.resolveManagedSchoolId;
+  }
+
+  /**
+   * Endpoint to actually send: the managed-school remap happens here so every
+   * verb (JSON requests and binary downloads) follows the same rule. Idempotent
+   * — already-remapped `/admin/...` endpoints never match the tenant rules.
+   */
+  private effectiveEndpoint(endpoint: string): string {
+    const managedSchoolId = this.resolveManagedSchoolId?.() ?? null;
+    if (!managedSchoolId) {
+      return endpoint;
+    }
+    return resolveManagedSchoolPath(managedSchoolId, endpoint) ?? endpoint;
   }
 
   /** True when this runtime is allowed to call the CSRF bootstrap endpoint. */
@@ -493,6 +571,7 @@ export class ApiClient {
     skipRefresh = false,
     skipCsrfRetry = false,
   ): Promise<T> {
+    endpoint = this.effectiveEndpoint(endpoint);
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const headers = this.mergeHeaders(options.headers);
     // FormData must carry the runtime-generated multipart boundary. The
@@ -902,6 +981,41 @@ export class ApiClient {
     if (query.plan_id) params.set('plan_id', query.plan_id);
     const suffix = querySuffix(params);
     return this.get<AdminSubscriptionListResponse>(`/admin/subscriptions${suffix}`);
+  }
+
+  /**
+   * Assisted-management session lifecycle ("Manage Data").
+   *
+   * These are the only assisted endpoints that take the school id directly —
+   * every other managed call is produced by the automatic path remap while the
+   * context is active.
+   */
+
+  /** Super Admin enters the school: opens (or supersedes) the session. */
+  public async startManagedSchoolSession(
+    schoolId: string,
+  ): Promise<ApiResponse<AssistedSessionStartResponse>> {
+    return this.post<AssistedSessionStartResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/manage/session`,
+    );
+  }
+
+  /** Open session of the current Super Admin in the school, if any. */
+  public async getManagedSchoolSession(
+    schoolId: string,
+  ): Promise<ApiResponse<AssistedSessionCurrentResponse>> {
+    return this.get<AssistedSessionCurrentResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/manage/session/current`,
+    );
+  }
+
+  /** Super Admin exits the school (idempotent). */
+  public async endManagedSchoolSession(
+    schoolId: string,
+  ): Promise<ApiResponse<AssistedSessionEndResponse>> {
+    return this.post<AssistedSessionEndResponse>(
+      `/admin/schools/${encodeURIComponent(schoolId)}/manage/session/end`,
+    );
   }
 
   public async createStudent(body: StudentCreateRequest): Promise<ApiResponse<StudentResponse>> {
@@ -1748,6 +1862,7 @@ export class ApiClient {
     options: RequestInit = {},
     skipRefresh = false,
   ): Promise<DownloadedFile> {
+    endpoint = this.effectiveEndpoint(endpoint);
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const headers = this.mergeHeaders(options.headers);
 

@@ -30,6 +30,7 @@ import {
 } from '../../../lib/errors';
 import { fullName } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
+import { useManagedSchool } from '../../../features/managed';
 
 type Tab = 'drivers' | 'conductors';
 
@@ -43,6 +44,7 @@ const emptyForm = {
 };
 
 export default function StaffPage() {
+  const { managed } = useManagedSchool();
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('drivers');
   const list = usePagedResource<StaffResponse>(
@@ -243,7 +245,11 @@ export default function StaffPage() {
                     </td>
                     <td>
                       <div className="table-actions">
-                        {person.role === UserRole.DRIVER || person.role === UserRole.CONDUCTOR ? (
+                        {/* Compliance documents are outside the assisted-management
+                            scope, so the link only exists in the school's own workspace. */}
+                        {!managed &&
+                        (person.role === UserRole.DRIVER ||
+                          person.role === UserRole.CONDUCTOR) ? (
                           <Link
                             className="btn btn-secondary"
                             href={`/drivers/${person.id}/documents`}
