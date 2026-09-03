@@ -7,6 +7,8 @@ import {
   ImportMode,
   ImportModule,
   ImportRowStatus,
+  RouteAssignmentRole,
+  UserRole,
 } from '@school-bus-tracking/shared-types';
 import type { PlanLimitsService } from '../../../common/plan-limits';
 import type { AuditService } from '../../audit';
@@ -137,8 +139,10 @@ interface Harness {
   students: StubModel;
   guardians: StubModel;
   users: StubModel;
+  buses: StubModel;
   routes: StubModel;
   stops: StubModel;
+  assignments: StubModel;
   importJobs: StubModel;
   auditEntries: Array<Record<string, unknown>>;
   bulkLimitCalls: Array<{ schoolId: string; additional: number }>;
@@ -148,18 +152,20 @@ function makeHarness(
   options: {
     students?: StubRow[];
     users?: StubRow[];
+    buses?: StubRow[];
     routes?: StubRow[];
     stops?: StubRow[];
+    assignments?: StubRow[];
     planLimitError?: Error;
   } = {},
 ): Harness {
   const students = new StubModel(options.students ?? []);
   const guardians = new StubModel();
   const users = new StubModel(options.users ?? []);
-  const buses = new StubModel();
+  const buses = new StubModel(options.buses ?? []);
   const routes = new StubModel(options.routes ?? []);
   const stops = new StubModel(options.stops ?? []);
-  const assignments = new StubModel();
+  const assignments = new StubModel(options.assignments ?? []);
   const importJobs = new StubModel();
 
   const auditEntries: Array<Record<string, unknown>> = [];
@@ -205,8 +211,10 @@ function makeHarness(
     students,
     guardians,
     users,
+    buses,
     routes,
     stops,
+    assignments,
     importJobs,
     auditEntries,
     bulkLimitCalls,
@@ -922,5 +930,465 @@ describe('ImportService — history and audit', () => {
     // Losing the audit row must not undo an import that actually succeeded.
     assert.equal(result.created_count, 1);
     assert.equal(result.job_id, '');
+  });
+});
+
+describe('ImportService route assignments — overlapping rosters', () => {
+  const ROUTE_AM: StubRow = { id: 'route-am', school_id: SCHOOL_A, code: 'AM' };
+  const ROUTE_PM: StubRow = { id: 'route-pm', school_id: SCHOOL_A, code: 'PM' };
+  const BUS_ONE: StubRow = {
+    id: 'bus-1',
+    school_id: SCHOOL_A,
+    registration_number: 'KA-01-AB-1234',
+  };
+  const BUS_TWO: StubRow = {
+    id: 'bus-2',
+    school_id: SCHOOL_A,
+    registration_number: 'KA-02-CD-5678',
+  };
+  const DRIVER_USER: StubRow = {
+    id: 'driver-1',
+    school_id: SCHOOL_A,
+    email: 'driver@example.com',
+    role: UserRole.DRIVER,
+  };
+  const CONDUCTOR_USER: StubRow = {
+    id: 'conductor-1',
+    school_id: SCHOOL_A,
+    email: 'conductor@example.com',
+    role: UserRole.CONDUCTOR,
+  };
+
+  const ASSIGNMENT_HEADERS = [
+    'Route Code',
+    'Crew Email',
+    'Role',
+    'Bus Registration Number',
+    'Effective From',
+    'Effective To',
+    'Active',
+  ];
+
+  const crewFile = (
+    rows: Array<Record<string, string>>,
+    name = 'route_assignments.csv',
+  ): UploadedImportFile =>
+    csvFile(
+      ASSIGNMENT_HEADERS,
+      rows.map((row) => ASSIGNMENT_HEADERS.map((header) => row[header] ?? '')),
+      name,
+    );
+
+  const rosterHarness = (
+    options: {
+      users?: StubRow[];
+      buses?: StubRow[];
+      routes?: StubRow[];
+      assignments?: StubRow[];
+    } = {},
+  ) =>
+    makeHarness({
+      users: options.users ?? [DRIVER_USER, CONDUCTOR_USER],
+      buses: options.buses ?? [BUS_ONE, BUS_TWO],
+      routes: options.routes ?? [ROUTE_AM, ROUTE_PM],
+      assignments: options.assignments ?? [],
+    });
+
+  it('flags a row that double-books a driver on two routes inside one file', async () => {
+    const local = rosterHarness();
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-02-CD-5678',
+          'Effective From': '2026-06-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 1);
+    assert.equal(result.summary.invalid_rows, 1);
+    const invalid = result.preview.find((row) => row.row_number === 2);
+    assert.equal(invalid?.status, ImportRowStatus.INVALID);
+    assert.match(
+      invalid?.issues[0]?.message ?? '',
+      /driver or conductor is already assigned to another route/,
+    );
+  });
+
+  it('writes only the non-conflicting row when a file double-books a crew member', async () => {
+    const local = rosterHarness();
+
+    const result = await local.service.commit(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-02-CD-5678',
+          'Effective From': '2026-06-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.status, ImportJobStatus.COMPLETED);
+    assert.equal(result.created_count, 1);
+    assert.equal(result.skipped_count, 1);
+    assert.equal(local.assignments.created.length, 1);
+    assert.equal(local.assignments.created[0].route_id, 'route-am');
+  });
+
+  it('flags a file row overlapping an existing assignment of the same crew member', async () => {
+    const local = rosterHarness({
+      assignments: [
+        {
+          id: 'existing-pm',
+          school_id: SCHOOL_A,
+          route_id: 'route-pm',
+          bus_id: 'bus-2',
+          user_id: 'driver-1',
+          role: RouteAssignmentRole.DRIVER,
+          effective_from: '2026-01-01',
+          effective_to: null,
+          is_active: true,
+        },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-03-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 0);
+    assert.equal(result.summary.invalid_rows, 1);
+    assert.match(
+      result.preview[0].issues[0]?.message ?? '',
+      /driver or conductor is already assigned to another route/,
+    );
+  });
+
+  it('still allows the driver + conductor pair on the same route in one file', async () => {
+    const local = rosterHarness();
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'conductor@example.com',
+          Role: 'CONDUCTOR',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 2);
+    assert.equal(result.summary.invalid_rows, 0);
+  });
+
+  it('allows the same crew member on two routes when the periods do not overlap', async () => {
+    const local = rosterHarness();
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-01-01',
+          'Effective To': '2026-06-30',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-02-CD-5678',
+          'Effective From': '2026-07-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 2);
+    assert.equal(result.summary.invalid_rows, 0);
+  });
+
+  it('allows overlapping periods when the second roster row is inactive', async () => {
+    const local = rosterHarness();
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-02-CD-5678',
+          'Effective From': '2026-06-01',
+          'Effective To': '',
+          Active: 'FALSE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 2);
+    assert.equal(result.summary.invalid_rows, 0);
+  });
+
+  it('flags one bus double-booked across two routes inside one file', async () => {
+    const local = rosterHarness({
+      users: [
+        DRIVER_USER,
+        { id: 'driver-2', school_id: SCHOOL_A, email: 'other@example.com', role: UserRole.DRIVER },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'other@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-06-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 1);
+    assert.equal(result.summary.invalid_rows, 1);
+    const invalid = result.preview.find((row) => row.status === ImportRowStatus.INVALID);
+    assert.match(
+      invalid?.issues[0]?.message ?? '',
+      /^This bus is already assigned to another route/,
+    );
+  });
+
+  it('flags a second driver on the same route during an overlap', async () => {
+    const local = rosterHarness({
+      users: [
+        DRIVER_USER,
+        { id: 'driver-2', school_id: SCHOOL_A, email: 'other@example.com', role: UserRole.DRIVER },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-04-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'other@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-02-CD-5678',
+          'Effective From': '2026-06-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_create, 1);
+    assert.equal(result.summary.invalid_rows, 1);
+    const invalid = result.preview.find((row) => row.status === ImportRowStatus.INVALID);
+    assert.match(
+      invalid?.issues[0]?.message ?? '',
+      /route already has an active assignment for this role/,
+    );
+  });
+
+  it('rejects an upsert that would move a bus onto a route that already uses it', async () => {
+    const local = rosterHarness({
+      users: [
+        DRIVER_USER,
+        { id: 'driver-2', school_id: SCHOOL_A, email: 'other@example.com', role: UserRole.DRIVER },
+      ],
+      assignments: [
+        {
+          id: 'existing-am',
+          school_id: SCHOOL_A,
+          route_id: 'route-am',
+          bus_id: 'bus-1',
+          user_id: 'driver-1',
+          role: RouteAssignmentRole.DRIVER,
+          effective_from: '2026-01-01',
+          effective_to: null,
+          is_active: true,
+        },
+        {
+          id: 'existing-pm',
+          school_id: SCHOOL_A,
+          route_id: 'route-pm',
+          bus_id: 'bus-2',
+          user_id: 'driver-2',
+          role: RouteAssignmentRole.DRIVER,
+          effective_from: '2026-07-01',
+          effective_to: null,
+          is_active: true,
+        },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.UPSERT,
+      crewFile([
+        {
+          'Route Code': 'PM',
+          'Crew Email': 'other@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-07-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.rows_to_update, 0);
+    assert.equal(result.summary.invalid_rows, 1);
+    assert.match(
+      result.preview[0].issues[0]?.message ?? '',
+      /^This bus is already assigned to another route/,
+    );
+  });
+
+  it('keeps conflict detection tenant-scoped', async () => {
+    const local = rosterHarness({
+      assignments: [
+        {
+          id: 'other-school',
+          school_id: SCHOOL_B,
+          route_id: 'route-am',
+          bus_id: 'bus-1',
+          user_id: 'driver-1',
+          role: RouteAssignmentRole.DRIVER,
+          effective_from: '2026-01-01',
+          effective_to: null,
+          is_active: true,
+        },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.ROUTE_ASSIGNMENTS,
+      ImportMode.CREATE,
+      crewFile([
+        {
+          'Route Code': 'AM',
+          'Crew Email': 'driver@example.com',
+          Role: 'DRIVER',
+          'Bus Registration Number': 'KA-01-AB-1234',
+          'Effective From': '2026-03-01',
+          'Effective To': '',
+          Active: 'TRUE',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.existing_records, 0);
+    assert.equal(result.summary.rows_to_create, 1);
+    assert.equal(result.summary.invalid_rows, 0);
   });
 });

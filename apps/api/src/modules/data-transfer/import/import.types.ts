@@ -1,6 +1,7 @@
 import type { Transaction } from 'sequelize';
 import type { ZodType } from 'zod';
 import type {
+  ImportMode,
   ImportModule,
   ImportRowIssue,
   ImportTemplateColumn,
@@ -69,6 +70,21 @@ export interface ImportAcceptedRow {
   existingId: string | null;
 }
 
+/**
+ * A row that passed per-row resolution and is therefore a candidate for
+ * writing. Batch-level validations that need to compare rows against each
+ * other (period overlap conflicts, duplicate business rules across rows, …)
+ * run against this list once the import mode is known.
+ */
+export interface ImportResolvedRow {
+  rowNumber: number;
+  /** Stable natural key of the row (unique inside the file). */
+  key: string;
+  parsed: unknown;
+  payload: Record<string, unknown>;
+  existingId: string | null;
+}
+
 /** Counters returned by a definition after it wrote its rows. */
 export interface ImportPersistResult {
   created: number;
@@ -85,6 +101,21 @@ export interface ImportPersistResult {
 export interface PreparedImport {
   /** Resolves references for one parsed row. */
   resolve(parsed: unknown, naturalKey: string): ImportRowResolution;
+  /**
+   * Optional batch-level validation run after every row has been resolved, now
+   * that the import mode and the full set of accepted rows are known. Returns
+   * extra row issues keyed by natural key; rows with issues are skipped like
+   * any other invalid row.
+   *
+   * Modules whose rows only make sense relative to each other or to existing
+   * records as a set (route assignments with overlapping effective periods)
+   * implement this so a spreadsheet can never bypass the conflicts the
+   * single-record endpoints enforce.
+   */
+  batchIssues?(
+    rows: ImportResolvedRow[],
+    mode: ImportMode,
+  ): Promise<ReadonlyMap<string, ImportRowIssue[]>>;
   /** Writes the accepted rows. Always called inside a transaction. */
   persist(rows: ImportAcceptedRow[], transaction: Transaction): Promise<ImportPersistResult>;
   /**

@@ -12,6 +12,7 @@ import {
   ROUTE_ASSIGNMENT_BUS_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_BUS_INVALID_MESSAGE,
   ROUTE_ASSIGNMENT_CONFLICT_MESSAGE,
+  ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_DATE_RANGE_MESSAGE,
   ROUTE_ASSIGNMENT_DELETED_MESSAGE,
   ROUTE_ASSIGNMENT_NOT_FOUND_MESSAGE,
@@ -119,17 +120,30 @@ function makeRepositories(
   } = {},
 ) {
   const assignments = [...initialAssignments];
-  const routes = resources.routes ?? [
-    { ...makeResource(ROUTE_A), name: 'North Loop', code: 'N1' },
-  ];
+  const routes = resources.routes ?? [{ ...makeResource(ROUTE_A), name: 'North Loop', code: 'N1' }];
   const buses = resources.buses ?? [
     { ...makeResource(BUS_A), registration_number: 'REG-A', bus_number: 'B-01' },
     { ...makeResource(BUS_B), registration_number: 'REG-B', bus_number: 'B-02' },
   ];
   const users = resources.users ?? [
-    { ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }), first_name: 'Ada', last_name: 'Driver', email: 'ada@school.org' },
-    { ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }), first_name: 'Con', last_name: 'Ductor', email: 'con@school.org' },
-    { ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }), first_name: 'Bob', last_name: 'Driver', email: 'bob@school.org' },
+    {
+      ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }),
+      first_name: 'Ada',
+      last_name: 'Driver',
+      email: 'ada@school.org',
+    },
+    {
+      ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }),
+      first_name: 'Con',
+      last_name: 'Ductor',
+      email: 'con@school.org',
+    },
+    {
+      ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }),
+      first_name: 'Bob',
+      last_name: 'Driver',
+      email: 'bob@school.org',
+    },
   ];
 
   const matches = (record: Record<string, unknown>, where: Record<string, unknown>) =>
@@ -200,7 +214,9 @@ function makeRepositories(
       ) ?? null) as unknown as Route;
     },
     findAll: async (options: { where: Record<string, unknown> }) => {
-      return routes.filter((route) => route.school_id === options.where.school_id) as unknown as Route[];
+      return routes.filter(
+        (route) => route.school_id === options.where.school_id,
+      ) as unknown as Route[];
     },
   } as unknown as typeof Route;
 
@@ -224,7 +240,9 @@ function makeRepositories(
       ) ?? null) as unknown as User;
     },
     findAll: async (options: { where: Record<string, unknown> }) => {
-      return users.filter((user) => user.school_id === options.where.school_id) as unknown as User[];
+      return users.filter(
+        (user) => user.school_id === options.where.school_id,
+      ) as unknown as User[];
     },
   } as unknown as typeof User;
 
@@ -561,6 +579,93 @@ describe('RouteAssignmentsService conflicts and CRUD', () => {
       service.create(SCHOOL_A, createDto({ route_id: ROUTE_B })),
       ROUTE_ASSIGNMENT_BUS_CONFLICT_MESSAGE,
     );
+  });
+
+  it('rejects double-booking the same driver on two routes during an overlap', async () => {
+    const { service } = serviceWith([makeAssignment()]);
+    await expectConflict(
+      service.create(SCHOOL_A, createDto({ route_id: ROUTE_B, bus_id: BUS_B })),
+      ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('rejects double-booking the same conductor on two routes during an overlap', async () => {
+    const conductor = makeAssignment({
+      user_id: CONDUCTOR_A,
+      role: RouteAssignmentRole.CONDUCTOR,
+    });
+    const { service } = serviceWith([conductor]);
+    await expectConflict(
+      service.create(
+        SCHOOL_A,
+        createDto({
+          route_id: ROUTE_B,
+          bus_id: BUS_B,
+          user_id: CONDUCTOR_A,
+          role: RouteAssignmentRole.CONDUCTOR,
+        }),
+      ),
+      ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('rejects an update that makes the same crew member overlap on two routes', async () => {
+    const first = makeAssignment({
+      id: 'a1',
+      route_id: ROUTE_A,
+      bus_id: BUS_A,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-01-01',
+      effective_to: '2026-06-30',
+    });
+    const second = makeAssignment({
+      id: 'a2',
+      route_id: ROUTE_B,
+      bus_id: BUS_B,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-07-01',
+      effective_to: null,
+    });
+    const { service } = serviceWith([first, second]);
+
+    await expectConflict(
+      service.update(SCHOOL_A, 'a2', updateDto({ effective_from: '2026-06-15' })),
+      ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('allows the same crew member to serve two routes in non-overlapping periods', async () => {
+    const first = makeAssignment({
+      id: 'a1',
+      route_id: ROUTE_A,
+      bus_id: BUS_A,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-01-01',
+      effective_to: '2026-06-30',
+    });
+    const { service } = serviceWith([first]);
+    const response = await service.create(
+      SCHOOL_A,
+      createDto({
+        route_id: ROUTE_B,
+        bus_id: BUS_B,
+        user_id: DRIVER_A,
+        role: RouteAssignmentRole.DRIVER,
+        effective_from: '2026-07-01',
+        effective_to: '2026-12-31',
+      }),
+    );
+    assert.equal(response.route_id, ROUTE_B);
+    assert.equal(response.user_id, DRIVER_A);
+  });
+
+  it('ignores conflicting assignments that belong to another school', async () => {
+    const { service } = serviceWith([makeAssignment({ school_id: SCHOOL_B })]);
+    const response = await service.create(SCHOOL_A, createDto());
+    assert.equal(response.route_id, ROUTE_A);
   });
 
   it('allows non-overlapping history and ignores inactive conflicts', async () => {

@@ -15,7 +15,6 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { Bus, Route, RouteAssignment, User } from '../../database/models';
 import {
-  ROUTE_ASSIGNMENT_BUS_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_BUS_INVALID_MESSAGE,
   ROUTE_ASSIGNMENT_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_DATE_INVALID_MESSAGE,
@@ -25,15 +24,14 @@ import {
   ROUTE_ASSIGNMENT_NOT_FOUND_MESSAGE,
   ROUTE_ASSIGNMENT_ROLE_INVALID_MESSAGE,
   ROUTE_ASSIGNMENT_ROLE_MISMATCH_MESSAGE,
-  ROUTE_ASSIGNMENT_ROUTE_BUS_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_ROUTE_INVALID_MESSAGE,
-  ROUTE_ASSIGNMENT_ROUTE_ROLE_CONFLICT_MESSAGE,
   ROUTE_ASSIGNMENT_USER_INVALID_MESSAGE,
   ROUTE_ASSIGNMENTS_BUSES_REPOSITORY,
   ROUTE_ASSIGNMENTS_REPOSITORY,
   ROUTE_ASSIGNMENTS_ROUTES_REPOSITORY,
   ROUTE_ASSIGNMENTS_USERS_REPOSITORY,
 } from './assignments.constants';
+import { findAssignmentConflict } from './assignment-conflicts';
 import { CreateRouteAssignmentDto } from './dto/create-route-assignment.dto';
 import { ListRouteAssignmentsQueryDto } from './dto/list-route-assignments-query.dto';
 import { UpdateRouteAssignmentDto } from './dto/update-route-assignment.dto';
@@ -246,11 +244,11 @@ export class RouteAssignmentsService {
   /**
    * Checks period overlap for active assignments.
    *
-   * Two crew rows on the same route and bus are expected (DRIVER + CONDUCTOR).
-   * A route may not have two people in the same role, a route may not switch
-   * buses during an overlapping period, and a bus may not serve two routes at
-   * once. A staff member can serve several routes over time, matching the
-   * existing RouteAssignment model's documented roster semantics.
+   * Two crew rows on the same route and bus are expected (DRIVER + CONDUCTOR),
+   * and the same crew member can serve several routes sequentially. What is
+   * never allowed is the same crew member covering two different routes during
+   * an overlapping active period — the same double-booking rule the roster UI
+   * enforces for a route's role slot and a bus.
    */
   private async assertNoActiveConflict(
     schoolId: string,
@@ -269,30 +267,9 @@ export class RouteAssignmentsService {
       if (excludeId && existing.id === excludeId) {
         continue;
       }
-      if (existing.is_active === false || !periodsOverlap(values, existing)) {
-        continue;
-      }
-
-      if (existing.route_id === values.route_id && existing.role === values.role) {
-        throw new ConflictException(ROUTE_ASSIGNMENT_ROUTE_ROLE_CONFLICT_MESSAGE);
-      }
-
-      if (
-        existing.route_id === values.route_id &&
-        existing.bus_id !== null &&
-        values.bus_id !== null &&
-        existing.bus_id !== values.bus_id
-      ) {
-        throw new ConflictException(ROUTE_ASSIGNMENT_ROUTE_BUS_CONFLICT_MESSAGE);
-      }
-
-      if (
-        existing.bus_id !== null &&
-        values.bus_id !== null &&
-        existing.bus_id === values.bus_id &&
-        existing.route_id !== values.route_id
-      ) {
-        throw new ConflictException(ROUTE_ASSIGNMENT_BUS_CONFLICT_MESSAGE);
+      const conflict = findAssignmentConflict(values, existing);
+      if (conflict) {
+        throw new ConflictException(conflict.message);
       }
     }
   }
@@ -373,9 +350,7 @@ export class RouteAssignmentsService {
     }
     const schoolId = assignments[0].school_id;
     const routeIds = [...new Set(assignments.map((assignment) => assignment.route_id))];
-    const busIds = [
-      ...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId)),
-    ];
+    const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
     const userIds = [...new Set(assignments.map((assignment) => assignment.user_id))];
 
     const [routes, buses, users] = await Promise.all([
@@ -451,7 +426,10 @@ export class RouteAssignmentsService {
       this.users.findAll({
         where: {
           school_id: schoolId,
-          [Op.or]: [{ first_name: { [Op.iLike]: pattern } }, { last_name: { [Op.iLike]: pattern } }],
+          [Op.or]: [
+            { first_name: { [Op.iLike]: pattern } },
+            { last_name: { [Op.iLike]: pattern } },
+          ],
         },
         attributes: ['id'],
       }),
@@ -521,14 +499,6 @@ function assertDateRange(effectiveFrom: string, effectiveTo: string | null): voi
   if (effectiveTo !== null && effectiveTo < effectiveFrom) {
     throw new BadRequestException(ROUTE_ASSIGNMENT_DATE_RANGE_MESSAGE);
   }
-}
-
-function periodsOverlap(values: AssignmentValues, existing: RouteAssignment): boolean {
-  const existingFrom = normalizeDateOnly(existing.effective_from);
-  const existingTo = normalizeNullableDateOnly(existing.effective_to);
-  const valuesEnd = values.effective_to ?? '9999-12-31';
-  const existingEnd = existingTo ?? '9999-12-31';
-  return values.effective_from <= existingEnd && existingFrom <= valuesEnd;
 }
 
 function toIsoString(value: Date | string): string {

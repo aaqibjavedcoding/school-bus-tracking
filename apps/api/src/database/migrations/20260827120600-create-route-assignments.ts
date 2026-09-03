@@ -9,7 +9,8 @@ import { DataTypes, Op, col } from 'sequelize';
  * One row = one person in one role for one period, which covers:
  * - driver *and* conductor on the same route (two rows),
  * - crew rotation over time (`effective_from` / `effective_to`),
- * - the same person serving several routes.
+ * - the same person serving several routes sequentially (never on two routes
+ *   with overlapping effective periods).
  *
  * All three references (`route_id`, `bus_id`, `user_id`) are tenant-pinned
  * composite foreign keys on `(school_id, <entity>_id)`, so a roster entry can
