@@ -1,7 +1,13 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { activeNavHref, canAccessPath, homePath, navItemsForRole } from './roles.ts';
+import {
+  MANAGED_NAV_ITEMS,
+  activeNavHref,
+  canAccessPath,
+  homePath,
+  navItemsForRole,
+} from './roles.ts';
 
 /**
  * Guard regressions are invisible in the UI: an allowed screen that the guard
@@ -78,5 +84,81 @@ describe('platform console navigation', () => {
     assert.equal(activeNavHref(items, '/'), '/');
     assert.equal(activeNavHref(items, '/students'), '/students');
     assert.equal(activeNavHref(items, '/trips/42'), '/trips');
+  });
+});
+
+/**
+ * Assisted management ("Manage Data") lets the platform Super Admin work
+ * inside one school's workspace. The guard is what decides whether a tenant
+ * URL renders or bounces back to `/admin`, so the Parents / Guardians section
+ * — the entry that used to 404 — is asserted here alongside its siblings.
+ */
+describe('assisted-management navigation', () => {
+  it('offers Parents / Guardians in the managed sidebar', () => {
+    const hrefs = MANAGED_NAV_ITEMS.map((item) => item.href);
+    assert.ok(hrefs.includes('/parents'));
+    assert.deepEqual(
+      hrefs,
+      navItemsForRole(UserRole.SUPER_ADMIN, true).map((item) => item.href),
+    );
+  });
+
+  it('opens every managed section to the Super Admin while a context is active', () => {
+    for (const { href } of MANAGED_NAV_ITEMS) {
+      assert.equal(canAccessPath(UserRole.SUPER_ADMIN, href, true), true, href);
+    }
+  });
+
+  it('keeps the managed sections shut without an active context', () => {
+    // Without "Manage Data" the platform admin has no business in a tenant
+    // workspace at all — a hand-typed /parents must bounce to /admin.
+    for (const { href } of MANAGED_NAV_ITEMS) {
+      assert.equal(canAccessPath(UserRole.SUPER_ADMIN, href, false), false, href);
+    }
+    assert.equal(homePath(UserRole.SUPER_ADMIN), '/admin');
+  });
+
+  it('survives a direct URL refresh on a managed section', () => {
+    // A full reload re-runs the guard with the restored context; /parents and
+    // its deep links must still render rather than redirect.
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/parents', true), true);
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/parents/parent-1', true), true);
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/students/student-1', true), true);
+    // …and the section stays highlighted in the sidebar afterwards.
+    assert.equal(activeNavHref(MANAGED_NAV_ITEMS, '/parents'), '/parents');
+    assert.equal(activeNavHref(MANAGED_NAV_ITEMS, '/parents/parent-1'), '/parents');
+    // `/parent` (the parent portal) must never light up the `/parents` entry.
+    assert.equal(activeNavHref(MANAGED_NAV_ITEMS, '/parent'), null);
+  });
+
+  it('never opens out-of-scope areas, even while managing', () => {
+    // The allowlist mirrors the API's assisted surface: the parent portal,
+    // trips, tracking, documents, attendance and emergencies stay blocked.
+    for (const path of [
+      '/parent',
+      '/parent/children',
+      '/children/child-1',
+      '/trips',
+      '/tracking',
+      '/documents',
+      '/attendance',
+      '/emergencies',
+    ]) {
+      assert.equal(canAccessPath(UserRole.SUPER_ADMIN, path, true), false, path);
+    }
+  });
+
+  it('does not leak the managed sections to school roles', () => {
+    // Tenant isolation runs the other way too: the managed flag is a Super
+    // Admin concept and must not widen anybody else's access.
+    assert.equal(canAccessPath(UserRole.PARENT, '/parents', true), false);
+    assert.equal(canAccessPath(UserRole.DRIVER, '/parents', true), false);
+    assert.equal(canAccessPath(UserRole.CONDUCTOR, '/parents', true), false);
+    // A school admin reaches guardians through the student profile, not a
+    // top-level section, so /parents is not part of their nav.
+    assert.equal(
+      navItemsForRole(UserRole.SCHOOL_ADMIN).some((item) => item.href === '/parents'),
+      false,
+    );
   });
 });
