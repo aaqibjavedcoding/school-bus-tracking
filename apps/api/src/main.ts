@@ -15,6 +15,7 @@ import {
 } from './common/security';
 import { StructuredLoggingInterceptor } from './common/interceptors/structured-logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { createCompressionMiddleware } from './common/middleware/compression.middleware';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { models } from './database/models';
 import { LiveTrackingIoAdapter } from './modules/live-tracking/live-tracking.ws-adapter';
@@ -48,6 +49,17 @@ async function bootstrap() {
     credentials: configService.get<boolean>('security.corsCredentials', true),
   });
   app.enableCors(buildCorsOptions(corsPolicy));
+
+  // gzip/deflate response compression. Content-negotiated via
+  // Accept-Encoding: WebSocket upgrade requests and already-compressed
+  // bodies (e.g. XLSX/CSV exports) are passed through untouched. Mounted
+  // first so every JSON response over the size threshold is compressed.
+  app.use(
+    createCompressionMiddleware({
+      enabled: configService.get<boolean>('app.compression.enabled', true),
+      threshold: configService.get<number>('app.compression.thresholdBytes', 1024),
+    }),
+  );
 
   // Security headers (Helmet + Permissions-Policy + conditional HSTS).
   app.use(
@@ -86,10 +98,7 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(
-    new StructuredLoggingInterceptor(),
-    new TransformInterceptor(),
-  );
+  app.useGlobalInterceptors(new StructuredLoggingInterceptor(), new TransformInterceptor());
 
   // The live-tracking Socket.IO server inherits the application's CORS
   // policy and packet caps through the custom adapter (see

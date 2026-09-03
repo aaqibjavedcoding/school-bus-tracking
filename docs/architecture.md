@@ -130,7 +130,7 @@ The backend is built with **NestJS** and **TypeScript**, providing an enterprise
 
 ## 5. Mobile Application (`apps/mobile`)
 
-The mobile client is a unified **React Native** application powered by **Expo (SDK 51)** and **expo-router**. It reuses the existing NestJS API, the shared `api-client`, `shared-types` and `validation` packages, and both Socket.IO namespaces (`/live-tracking`, `/notifications`) — it contains no backend logic of its own.
+The mobile client is a unified **React Native** application powered by **Expo (SDK 54)** and **expo-router**. It reuses the existing NestJS API, the shared `api-client`, `shared-types` and `validation` packages, and both Socket.IO namespaces (`/live-tracking`, `/notifications`) — it contains no backend logic of its own.
 
 - **Role-based navigation** (`src/lib/roles.ts` + `RoleGate`): every route group is guarded client-side exactly like the API guards it server-side.
   - `(crew)` — **one shared Driver + Conductor experience**: today's trip (`BOARDING → IN_PROGRESS → COMPLETED` via `PATCH /trips/:id/status`), student manifest with body-less board/drop endpoints, stops & live ETA (`/trips/:id/eta`, `/progress`), and native GPS sharing. `src/features/driver` and `src/features/conductor` are thin re-exports of the same `src/features/crew` slice.
