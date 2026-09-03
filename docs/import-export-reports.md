@@ -146,5 +146,9 @@ apps/web/src/app/(authenticated)/imports/   # import history
 apps/web/src/app/(authenticated)/reports/   # reports area
 ```
 
-Mobile is intentionally untouched: bulk import/export and reporting are
-back-office desktop workflows, and the mobile app is a crew/parent client.
+Mobile is intentionally untouched by this feature: bulk import/export, the
+import-job history, and reporting are back-office desktop workflows and stay
+**web-only**. The mobile app already provides school-admin CRUD for students,
+buses, routes & stops, staff, guardians, assignments, and documents (see
+`docs/architecture.md` §5 and `docs/mobile-operations.md`); it simply does not
+expose the bulk Excel or reporting surfaces.
