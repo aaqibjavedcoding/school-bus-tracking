@@ -8,6 +8,14 @@ import { Student } from './student.model';
 import { Trip } from './trip.model';
 import { User } from './user.model';
 
+/**
+ * Delivery state of one external channel on a notification row.
+ *
+ * The API writes `push_status`; email/SMS columns exist for the same
+ * migration and stay `not_configured` until those providers are wired.
+ */
+export type ExternalDeliveryStatus = 'pending' | 'sent' | 'failed' | 'not_configured';
+
 export interface NotificationAttributes extends BaseModelAttributes {
   school_id: string;
   /** The recipient parent account's User.id. */
@@ -25,11 +33,31 @@ export interface NotificationAttributes extends BaseModelAttributes {
   payload: Record<string, unknown> | null;
   is_read: boolean;
   read_at: Date | null;
+  /** Push (FCM) delivery state; see migration 20260901140000. */
+  push_status: ExternalDeliveryStatus;
+  email_status: ExternalDeliveryStatus;
+  sms_status: ExternalDeliveryStatus;
+  /** How many push attempts have failed so far. */
+  delivery_retry_count: number;
+  last_delivery_attempt_at: Date | null;
+  delivery_failure_reason: string | null;
 }
 
 export type NotificationCreationAttributes = Optional<
   NotificationAttributes,
-  BaseModelManagedFields | 'trip_id' | 'student_id' | 'stop_id' | 'payload' | 'is_read' | 'read_at'
+  | BaseModelManagedFields
+  | 'trip_id'
+  | 'student_id'
+  | 'stop_id'
+  | 'payload'
+  | 'is_read'
+  | 'read_at'
+  | 'push_status'
+  | 'email_status'
+  | 'sms_status'
+  | 'delivery_retry_count'
+  | 'last_delivery_attempt_at'
+  | 'delivery_failure_reason'
 >;
 
 /**
@@ -115,6 +143,24 @@ export class Notification extends BaseModel<
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare read_at: Date | null;
+
+  @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: 'pending' })
+  declare push_status: ExternalDeliveryStatus;
+
+  @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: 'not_configured' })
+  declare email_status: ExternalDeliveryStatus;
+
+  @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: 'not_configured' })
+  declare sms_status: ExternalDeliveryStatus;
+
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 0 })
+  declare delivery_retry_count: number;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare last_delivery_attempt_at: Date | null;
+
+  @Column({ type: DataType.STRING(500), allowNull: true })
+  declare delivery_failure_reason: string | null;
 
   @BelongsTo(() => School, { foreignKey: 'school_id', as: 'school' })
   declare school?: School;

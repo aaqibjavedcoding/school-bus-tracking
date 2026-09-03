@@ -39,6 +39,12 @@
           "locationAlwaysAndWhenInUsePermission": "Allow background location so the school keeps seeing the live bus position while the screen is off.",
           "isAndroidBackgroundLocationEnabled": true
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0F172A"
+        }
       ]
     ],
     "scheme": "schoolbustracking"

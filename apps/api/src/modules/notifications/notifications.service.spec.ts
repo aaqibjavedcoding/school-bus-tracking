@@ -13,7 +13,13 @@ import {
 import { Notification, Stop, Student, StudentGuardian, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { NotificationsService } from './notifications.service';
-import { NOTIFICATION_NOT_FOUND_MESSAGE } from './notifications.constants';
+import type {
+  PushDeliveryResult,
+  PushNotificationPayload,
+  PushNotificationProvider,
+} from './providers';
+import { NOTIFICATION_NOT_FOUND_MESSAGE, PUSH_NO_DEVICE_REASON } from './notifications.constants';
+import { DeviceTokensService } from './device-tokens.service';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -62,6 +68,10 @@ interface StubNotification {
   payload: Record<string, unknown> | null;
   is_read: boolean;
   read_at: Date | null;
+  push_status: string;
+  delivery_retry_count: number;
+  last_delivery_attempt_at: Date | null;
+  delivery_failure_reason: string | null;
   created_at: Date;
   updated_at: Date;
   update: (values: Record<string, unknown>) => Promise<StubNotification>;
@@ -127,6 +137,10 @@ function makeNotificationRow(overrides: Partial<StubNotification> = {}): StubNot
     payload: { student_name: 'Aarav Sharma' },
     is_read: false,
     read_at: null,
+    push_status: 'pending',
+    delivery_retry_count: 0,
+    last_delivery_attempt_at: null,
+    delivery_failure_reason: null,
     created_at: new Date('2026-09-01T06:31:00.000Z'),
     updated_at: new Date('2026-09-01T06:31:00.000Z'),
     update: async (values) => {
@@ -241,13 +255,61 @@ interface BroadcastCapture {
   calls: Array<{ room: string; event: string; payload: unknown }>;
 }
 
-function makeService(options: { createError?: Error; initialRows?: StubNotification[] } = {}) {
+/** Records every send; `name` drives the provider-selection branch. */
+class FakePushProvider implements PushNotificationProvider {
+  readonly isConfigured = true;
+  readonly calls: PushNotificationPayload[] = [];
+  sendResult: PushDeliveryResult;
+  throwOnSend = false;
+
+  constructor(public readonly name: 'noop-push' | 'fcm') {
+    this.sendResult = {
+      success: true,
+      provider: name,
+      messageId: `fake-${name}`,
+      retryable: false,
+    };
+  }
+
+  async send(payload: PushNotificationPayload): Promise<PushDeliveryResult> {
+    if (this.throwOnSend) {
+      throw new Error('provider unavailable');
+    }
+    this.calls.push(payload);
+    return this.sendResult;
+  }
+
+  async sendBatch(payloads: PushNotificationPayload[]): Promise<PushDeliveryResult[]> {
+    const results: PushDeliveryResult[] = [];
+    for (const payload of payloads) {
+      results.push(await this.send(payload));
+    }
+    return results;
+  }
+}
+
+interface DeviceTokenStubRow {
+  school_id: string;
+  user_id: string;
+  token: string;
+}
+
+function makeService(
+  options: {
+    createError?: Error;
+    initialRows?: StubNotification[];
+    activeTokens?: DeviceTokenStubRow[];
+    pushProvider?: FakePushProvider;
+  } = {},
+) {
   const rows = [...(options.initialRows ?? [])];
   const users = defaultUsers();
   const guardians = defaultGuardians();
   const students = defaultStudents();
   const stops = defaultStops();
   const trips = defaultTrips();
+  const activeTokens = [...(options.activeTokens ?? [])];
+  const deactivatedTokens: string[] = [];
 
   let idCounter = 0;
   const notificationRepo = {
@@ -350,7 +412,22 @@ function makeService(options: { createError?: Error; initialRows?: StubNotificat
       ) ?? null) as unknown as Trip,
   } as unknown as typeof Trip;
 
+  const deviceTokensService = {
+    findActiveTokenStrings: async (schoolId: string, userId: string) =>
+      activeTokens
+        .filter((row) => row.school_id === schoolId && row.user_id === userId)
+        .map((row) => row.token),
+    deactivateTokens: async (
+      _schoolId: string,
+      _userId: string,
+      tokens: string[],
+    ): Promise<void> => {
+      deactivatedTokens.push(...tokens);
+    },
+  } as unknown as DeviceTokensService;
+
   const broadcast: BroadcastCapture = { calls: [] };
+  const pushProvider = options.pushProvider ?? new FakePushProvider('noop-push');
   const service = new NotificationsService(
     notificationRepo,
     userRepo,
@@ -358,12 +435,14 @@ function makeService(options: { createError?: Error; initialRows?: StubNotificat
     studentRepo,
     stopRepo,
     tripRepo,
+    deviceTokensService,
+    pushProvider,
   );
   service.attachBroadcaster((room, event, payload) => {
     broadcast.calls.push({ room, event, payload });
   });
 
-  return { service, rows, broadcast };
+  return { service, rows, broadcast, push: pushProvider, deactivatedTokens };
 }
 
 beforeEach(() => {});
@@ -852,5 +931,144 @@ describe('NotificationsService stop arrivals (Task 22)', () => {
     });
 
     assert.equal(rows.length, 0);
+  });
+});
+
+describe('NotificationsService push delivery', () => {
+  const attendanceInput = {
+    school_id: SCHOOL_A,
+    trip_id: TRIP_A,
+    student: { id: STUDENT_A, first_name: 'Aarav', last_name: 'Sharma' },
+    action: 'boarded' as const,
+    occurred_at: new Date('2026-09-01T06:31:00.000Z'),
+  };
+
+  it('records not_configured when the NoOp provider is active', async () => {
+    const { service, rows, push } = makeService({
+      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
+    });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    assert.equal(push.calls.length, 0, 'NoOp must not be invoked');
+    const row = rows[0]!;
+    assert.equal(row.push_status, 'not_configured');
+    assert.equal(row.delivery_retry_count, 0);
+    assert.ok(row.last_delivery_attempt_at !== null);
+    assert.equal(row.delivery_failure_reason, null);
+  });
+
+  it('sends an FCM notification message to every active token and records sent', async () => {
+    const push = new FakePushProvider('fcm');
+    const {
+      service,
+      rows,
+      push: used,
+    } = makeService({
+      pushProvider: push,
+      activeTokens: [
+        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-a' },
+        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-b' },
+        { school_id: SCHOOL_A, user_id: PARENT_B, token: 'tok-other' },
+      ],
+    });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    assert.equal(used, push);
+    const sent = push.calls.find((call) => call.deviceTokens.includes('tok-a'))!;
+    assert.deepEqual(sent.deviceTokens, ['tok-a', 'tok-b']);
+    assert.equal(sent.title, 'Aarav boarded');
+    assert.equal(sent.body, 'Aarav Sharma boarded the school bus.');
+    assert.equal(sent.recipientId, PARENT_A);
+    assert.equal(sent.priority, 'high');
+    // data payload: deep-link keys, all strings.
+    const data = sent.data as Record<string, string>;
+    assert.equal(data.school_id, SCHOOL_A);
+    assert.equal(data.user_id, PARENT_A);
+    assert.equal(data.type, NotificationType.STUDENT_BOARDED);
+    assert.equal(data.trip_id, TRIP_A);
+    assert.equal(data.student_id, STUDENT_A);
+    assert.ok(typeof data.id === 'string' && data.id.length > 0);
+
+    const row = rows.find((r) => r.user_id === PARENT_A)!;
+    assert.equal(row.push_status, 'sent');
+    assert.equal(row.delivery_retry_count, 0);
+    assert.ok(row.last_delivery_attempt_at !== null);
+    assert.equal(row.delivery_failure_reason, null);
+  });
+
+  it('records a failed push with the retry count and reason', async () => {
+    const push = new FakePushProvider('fcm');
+    push.sendResult = {
+      success: false,
+      provider: 'fcm',
+      error: 'messaging/third-party-auth-error',
+      retryable: true,
+    };
+    const { service, rows } = makeService({
+      pushProvider: push,
+      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
+    });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    const row = rows.find((r) => r.user_id === PARENT_A)!;
+    assert.equal(row.push_status, 'failed');
+    assert.equal(row.delivery_retry_count, 1);
+    assert.equal(row.delivery_failure_reason, 'messaging/third-party-auth-error');
+  });
+
+  it('records failed + no-device when the recipient has no active token', async () => {
+    const push = new FakePushProvider('fcm');
+    const { service, rows } = makeService({ pushProvider: push });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    const row = rows.find((r) => r.user_id === PARENT_A)!;
+    assert.equal(row.push_status, 'failed');
+    assert.equal(row.delivery_retry_count, 1);
+    assert.equal(row.delivery_failure_reason, PUSH_NO_DEVICE_REASON);
+    assert.equal(push.calls.length, 0);
+  });
+
+  it('deactivates tokens FCM reported as unregistered/invalid', async () => {
+    const push = new FakePushProvider('fcm');
+    push.sendResult = {
+      success: true,
+      provider: 'fcm',
+      retryable: false,
+      invalidTokens: ['tok-stale'],
+    };
+    const { service, rows, deactivatedTokens } = makeService({
+      pushProvider: push,
+      activeTokens: [
+        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-live' },
+        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-stale' },
+      ],
+    });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    assert.deepEqual(deactivatedTokens, ['tok-stale']);
+    // The live token still delivered → the notification is sent.
+    const row = rows.find((r) => r.user_id === PARENT_A)!;
+    assert.equal(row.push_status, 'sent');
+  });
+
+  it('swallows provider failures so the notification flow never breaks', async () => {
+    const push = new FakePushProvider('fcm');
+    push.throwOnSend = true;
+    const { service, rows } = makeService({
+      pushProvider: push,
+      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
+    });
+
+    await assert.doesNotReject(service.notifyStudentAttendance(attendanceInput));
+
+    const row = rows.find((r) => r.user_id === PARENT_A)!;
+    assert.equal(row.push_status, 'failed');
+    assert.equal(row.delivery_retry_count, 1);
+    assert.equal(row.delivery_failure_reason, 'provider unavailable');
   });
 });

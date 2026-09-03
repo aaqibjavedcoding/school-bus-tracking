@@ -12,6 +12,28 @@ export const NOTIFICATIONS_GUARDIANS_REPOSITORY = 'NOTIFICATIONS_GUARDIANS_REPOS
 export const NOTIFICATIONS_STUDENTS_REPOSITORY = 'NOTIFICATIONS_STUDENTS_REPOSITORY';
 export const NOTIFICATIONS_STOPS_REPOSITORY = 'NOTIFICATIONS_STOPS_REPOSITORY';
 export const NOTIFICATIONS_TRIPS_REPOSITORY = 'NOTIFICATIONS_TRIPS_REPOSITORY';
+/** Device-token repository token (injected behind a token, like the others). */
+export const NOTIFICATIONS_DEVICE_TOKENS_REPOSITORY = 'NOTIFICATIONS_DEVICE_TOKENS_REPOSITORY';
+/** Active push provider (NoOp or FCM), selected by the Firebase env. */
+export const NOTIFICATIONS_PUSH_PROVIDER = 'NOTIFICATIONS_PUSH_PROVIDER';
+
+/** FCM/APNs token length cap (fits the STRING(1024) column with margin). */
+export const DEVICE_TOKEN_MAX_LENGTH = 1024;
+
+/** Provider name of the local no-op implementation (selection marker). */
+export const NOOP_PUSH_PROVIDER_NAME = 'noop-push';
+
+/** Delivery status written when the NoOp provider is active. */
+export const PUSH_STATUS_NOT_CONFIGURED = 'not_configured';
+/** Delivery status written when a real provider attempt succeeded. */
+export const PUSH_STATUS_SENT = 'sent';
+/** Delivery status written when a real provider attempt failed. */
+export const PUSH_STATUS_FAILED = 'failed';
+
+/** Reason recorded when no active device is registered for the recipient. */
+export const PUSH_NO_DEVICE_REASON = 'No active device tokens registered';
+/** Reason recorded when the push provider is the local no-op. */
+export const PUSH_NOT_CONFIGURED_REASON = 'Push provider is not configured (NoOp active)';
 
 /** Default page size of the parent notification list. */
 export const DEFAULT_NOTIFICATION_LIMIT = 20;

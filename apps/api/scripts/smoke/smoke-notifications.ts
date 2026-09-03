@@ -38,6 +38,7 @@ import { TransformInterceptor } from '../../src/common/interceptors/transform.in
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { SchoolAccessService } from '../../src/common/access/school-access.service';
 import { NotificationsService } from '../../src/modules/notifications/notifications.service';
+import { NoOpPushProvider } from '../../src/modules/notifications/providers/noop-push.provider';
 import { TripAttendanceService } from '../../src/modules/trip-attendance/trip-attendance.service';
 import { TripsService } from '../../src/modules/trips/trips.service';
 
@@ -367,6 +368,13 @@ async function main(): Promise<void> {
     students: tableRepo(students),
     stops: tableRepo(stops),
     trips: tableRepo(trips),
+    // Push delivery: stub the device registry and keep the local no-op
+    // provider, so the smoke flow stays deterministic without Firebase env.
+    deviceTokens: {
+      findActiveTokenStrings: async () => [],
+      deactivateTokens: async () => undefined,
+    },
+    pushProvider: new NoOpPushProvider(),
   });
 
   patchService(app.get(TripAttendanceService), {

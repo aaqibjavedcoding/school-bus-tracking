@@ -73,6 +73,9 @@ import {
   ParentTrackingResponse,
   RefreshResponse,
   NotificationResponse,
+  DeviceTokenRegisterRequest,
+  DeviceTokenResponse,
+  DeviceTokenUnregisterResponse,
   RouteCreateRequest,
   RouteDeleteResponse,
   RouteDetailResponse,
@@ -459,13 +462,9 @@ export class ApiClient {
         return readBrowserCookie(this.csrfCookieName);
       }
       const body = (await response.json()) as
-        | ApiResponse<CsrfTokenPayload>
-        | CsrfTokenPayload
-        | null;
+        ApiResponse<CsrfTokenPayload> | CsrfTokenPayload | null;
       const payload = (body && 'data' in body ? body.data : body) as
-        | CsrfTokenPayload
-        | null
-        | undefined;
+        CsrfTokenPayload | null | undefined;
       if (!this.csrfHeaderNamePinned && payload?.header_name) {
         // The header name is configurable server-side (`CSRF_HEADER_NAME`);
         // adopting the advertised one keeps the client correct without a
@@ -891,9 +890,7 @@ export class ApiClient {
   }
 
   public async activateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
-    return this.post<AdminPlanLifecycleResponse>(
-      `/admin/plans/${encodeURIComponent(id)}/activate`,
-    );
+    return this.post<AdminPlanLifecycleResponse>(`/admin/plans/${encodeURIComponent(id)}/activate`);
   }
 
   public async deactivateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
@@ -1220,6 +1217,26 @@ export class ApiClient {
   /** Marks all of the authenticated parent's unread notifications as read. */
   public async markAllParentNotificationsRead(): Promise<ApiResponse<NotificationReadAllResponse>> {
     return this.patch<NotificationReadAllResponse>('/parent/notifications/read-all');
+  }
+
+  /**
+   * Push device registration (Task 46) — reachable by any school role
+   * (parent and crew). The API derives the tenant and the user from the JWT,
+   * so the request body contains only the device's own native token.
+   */
+  public async registerDeviceToken(
+    body: DeviceTokenRegisterRequest,
+  ): Promise<ApiResponse<DeviceTokenResponse>> {
+    return this.post<DeviceTokenResponse>('/notifications/devices', body);
+  }
+
+  /** Unregisters the caller's own device token (logout). */
+  public async unregisterDeviceToken(
+    token: string,
+  ): Promise<ApiResponse<DeviceTokenUnregisterResponse>> {
+    return this.delete<DeviceTokenUnregisterResponse>(
+      `/notifications/devices/${encodeURIComponent(token)}`,
+    );
   }
 
   /**
@@ -1775,9 +1792,7 @@ export class ApiClient {
   ): Promise<ApiResponse<DocumentRequirementsResponse>> {
     const params = new URLSearchParams();
     params.set('owner_type', query.owner_type);
-    return this.get<DocumentRequirementsResponse>(
-      `/document-requirements?${params.toString()}`,
-    );
+    return this.get<DocumentRequirementsResponse>(`/document-requirements?${params.toString()}`);
   }
 
   /** Overrides the school's own required / optional configuration. */
@@ -1802,9 +1817,7 @@ export class ApiClient {
   public async listMyEmergencies(
     query: EmergencyListQuery = {},
   ): Promise<ApiResponse<EmergencyEventListResponse>> {
-    return this.get<EmergencyEventListResponse>(
-      `/emergencies/mine${emergencyQuerySuffix(query)}`,
-    );
+    return this.get<EmergencyEventListResponse>(`/emergencies/mine${emergencyQuerySuffix(query)}`);
   }
 
   /** Retracts an alarm the signed-in crew member raised by mistake. */
@@ -1964,9 +1977,7 @@ export class ApiClient {
     fileName?: string,
   ): Promise<ApiResponse<ImportCommitResponse>> {
     return this.request<ApiResponse<ImportCommitResponse>>(
-      `/imports/${encodeURIComponent(module)}/commit${querySuffix(
-        new URLSearchParams({ mode }),
-      )}`,
+      `/imports/${encodeURIComponent(module)}/commit${querySuffix(new URLSearchParams({ mode }))}`,
       { method: 'POST', body: toFormData(file, fileName) },
     );
   }
@@ -1993,9 +2004,7 @@ export class ApiClient {
     dataset: ExportDataset,
     query: ExportQuery = {},
   ): Promise<DownloadedFile> {
-    return this.downloadFile(
-      `/exports/${encodeURIComponent(dataset)}${exportQuerySuffix(query)}`,
-    );
+    return this.downloadFile(`/exports/${encodeURIComponent(dataset)}${exportQuerySuffix(query)}`);
   }
 
   /** Catalogue of available reports and the filters each one supports. */
@@ -2094,7 +2103,8 @@ export interface DownloadedFile {
  */
 function toFormData(file: File | Blob, fileName?: string): FormData {
   const form = new FormData();
-  const name = fileName ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'import.xlsx');
+  const name =
+    fileName ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'import.xlsx');
   form.append('file', file, name);
   return form;
 }

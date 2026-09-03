@@ -1031,6 +1031,51 @@ export interface NotificationRealtimeEvent {
 }
 
 /**
+ * Push device registration (Firebase Cloud Messaging).
+ *
+ * A mobile device registers its native push token against the authenticated
+ * user's `(school_id, user_id)` pair — the API derives both from the verified
+ * JWT and never accepts a tenant or user id from the client. Parent and crew
+ * accounts (everything except the platform SUPER_ADMIN, which has no tenant)
+ * may register devices so they receive OS-level notifications.
+ */
+
+/** Mobile platform a push token belongs to. */
+export type DevicePlatform = 'android' | 'ios';
+
+export const DEVICE_PLATFORM_VALUES: DevicePlatform[] = ['android', 'ios'];
+
+/** Body of `POST /api/v1/notifications/devices`. */
+export interface DeviceTokenRegisterRequest {
+  /** Native FCM/APNs token (Expo `getDevicePushTokenAsync().data`). */
+  token: string;
+  platform: DevicePlatform;
+}
+
+/** Public projection of one registered device token. */
+export interface DeviceTokenResponse {
+  id: string;
+  school_id: string;
+  /** The user the token is registered to — always the JWT subject. */
+  user_id: string;
+  platform: DevicePlatform;
+  token: string;
+  is_active: boolean;
+  /** ISO-8601 time the device last registered / refreshed the token. */
+  last_seen_at: string;
+}
+
+/** Successful payload of `DELETE /api/v1/notifications/devices/:token`. */
+export interface DeviceTokenUnregisterResponse {
+  /**
+   * True when the caller-owned token row was deactivated (or was already
+   * inactive). Deliberately always `true` for an owned token so a repeat
+   * logout is idempotent without revealing whether a row existed.
+   */
+  removed: boolean;
+}
+
+/**
  * Phase 3 — Driver & conductor staff management.
  *
  * Staff accounts reuse the existing `User` model with the fixed roles
@@ -2259,8 +2304,7 @@ export enum SubscriptionStatus {
   EXPIRED = 'expired',
 }
 
-export const SUBSCRIPTION_STATUS_VALUES: SubscriptionStatus[] =
-  Object.values(SubscriptionStatus);
+export const SUBSCRIPTION_STATUS_VALUES: SubscriptionStatus[] = Object.values(SubscriptionStatus);
 
 /** Statuses a persisted `school_subscriptions` row may hold (`none` excluded). */
 export type PersistedSubscriptionStatus = Exclude<SubscriptionStatus, SubscriptionStatus.NONE>;
@@ -2551,8 +2595,7 @@ export enum DriverDocumentType {
   OTHER = 'OTHER',
 }
 
-export const DRIVER_DOCUMENT_TYPE_VALUES: DriverDocumentType[] =
-  Object.values(DriverDocumentType);
+export const DRIVER_DOCUMENT_TYPE_VALUES: DriverDocumentType[] = Object.values(DriverDocumentType);
 
 export const DRIVER_DOCUMENT_TYPE_LABELS: Record<DriverDocumentType, string> = {
   [DriverDocumentType.DRIVING_LICENSE]: 'Driving licence',
@@ -2904,7 +2947,11 @@ export const TERMINAL_EMERGENCY_STATUS_VALUES: EmergencyStatus[] = [
 export const EMERGENCY_STATUS_TRANSITIONS: Readonly<
   Record<EmergencyStatus, readonly EmergencyStatus[]>
 > = Object.freeze({
-  [EmergencyStatus.OPEN]: [EmergencyStatus.ACKNOWLEDGED, EmergencyStatus.RESOLVED, EmergencyStatus.CANCELLED],
+  [EmergencyStatus.OPEN]: [
+    EmergencyStatus.ACKNOWLEDGED,
+    EmergencyStatus.RESOLVED,
+    EmergencyStatus.CANCELLED,
+  ],
   [EmergencyStatus.ACKNOWLEDGED]: [EmergencyStatus.RESOLVED, EmergencyStatus.CANCELLED],
   [EmergencyStatus.RESOLVED]: [],
   [EmergencyStatus.CANCELLED]: [],
@@ -3008,8 +3055,7 @@ export const EMERGENCY_EVENTS = {
   updated: 'emergency:updated',
 } as const;
 
-export type EmergencySocketEvent =
-  (typeof EMERGENCY_EVENTS)[keyof typeof EMERGENCY_EVENTS];
+export type EmergencySocketEvent = (typeof EMERGENCY_EVENTS)[keyof typeof EMERGENCY_EVENTS];
 
 /**
  * Server-owned room name of one tenant's emergency feed.
@@ -3017,8 +3063,7 @@ export type EmergencySocketEvent =
  * Sockets are placed in it by the gateway from the verified JWT tenant —
  * a client can never name or join another school's room.
  */
-export const emergencyRoomName = (schoolId: string): string =>
-  `emergency:school:${schoolId}`;
+export const emergencyRoomName = (schoolId: string): string => `emergency:school:${schoolId}`;
 
 /* ============================================================================
  * Import / Export / Reports (bulk data operations)

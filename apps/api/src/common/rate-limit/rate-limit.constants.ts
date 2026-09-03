@@ -17,6 +17,7 @@ export const RATE_LIMIT_POLICIES = [
   'attendance_write',
   'location_read',
   'read_heavy',
+  'device_register',
   'data_import',
   'data_export',
   'report_read',

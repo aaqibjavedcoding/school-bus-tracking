@@ -2,25 +2,173 @@
 
 ## Overview
 
-The notification system delivers real-time and persistent notifications to parents, drivers, conductors, and school admins.
+The notification system delivers real-time and persistent notifications to parents,
+drivers, conductors, and school admins across three surfaces:
 
-**No paid service/provider is included in this phase.**
+1. **Persistent in-app notifications** — stored in PostgreSQL (`notifications`),
+   read through the parent REST endpoint.
+2. **Real-time in-app delivery** — Socket.IO (`/notifications` namespace) pushes
+   `notification:new` to the recipient's private room while the app is open.
+3. **OS-level push (new)** — Firebase Cloud Messaging (FCM) via `firebase-admin`.
+   FCM is free; **no paid service is used anywhere** in the flow.
 
 ## Architecture
 
-### In-App Delivery (Implemented)
+### 1. Creation (always after the domain operation succeeds)
 
-- **Technology**: Socket.IO + PostgreSQL
-- **Delivery**: Real-time via WebSocket, persistent in database
-- **Status**: Fully functional
+`NotificationsService` is called by the attendance / trip / stop-arrival flows
+**only after** their own transactions committed. A failed boarding, an invalid
+trip transition or a delivery outage can never affect the underlying operation.
 
-### External Delivery (Provider Abstractions Only)
+### 2. In-app delivery (implemented, unchanged)
 
-- **Push**: `PushNotificationProvider` interface + `NoOpPushProvider`
-- **Email**: `EmailNotificationProvider` interface + `NoOpEmailProvider`
-- **SMS**: `SmsNotificationProvider` interface + `NoOpSmsProvider`
+- **Storage**: one row per recipient per event (`notifications`).
+- **Real-time**: Socket.IO namespace `/notifications`, room
+  `notification:user:<userId>`. Room membership is assigned server-side from the
+  verified JWT — a client never names a room.
+- **Reads**: `GET /api/v1/parent/notifications` (parent only), scoped strictly
+  to the JWT's `(school_id, user_id)`.
 
-External push provider integration is intentionally deferred because paid services are prohibited in the current phase.
+### 3. OS-level push (Firebase Cloud Messaging)
+
+- **Provider abstraction**: `PushNotificationProvider` (`providers/`).
+- **Selection by env** (module factory, never per-request):
+  - `FIREBASE_SERVICE_ACCOUNT_JSON` set **and** valid → `FcmPushProvider`
+    (`firebase-admin`, `sendEachForMulticast`).
+  - Otherwise → `NoOpPushProvider` (local dev / CI stay green without
+    credentials). The no-op logs that it "would send" and records
+    `push_status = 'not_configured'`.
+- **Message type**: a **notification message** (`notification.title` /
+  `notification.body`), so the OS shows it in the tray/notification shade even
+  when the app is killed. It also carries a string-only `data` payload:
+  `school_id`, `user_id`, `type`, `id`, plus `trip_id` / `student_id` /
+  `stop_id` when present — for future deep-linking. Android targets channel
+  `notifications` with high priority and the default sound; iOS sets
+  `aps.sound = default`.
+- **Delivery recording**: after the row is created and the in-app broadcast is
+  sent, `NotificationsService.deliverPush` resolves the recipient's active
+  device tokens and attempts the push, then writes:
+
+  | Column                     | Meaning                                          |
+  | -------------------------- | ------------------------------------------------ |
+  | `push_status`              | `pending` → `sent` / `failed` / `not_configured` |
+  | `delivery_retry_count`     | incremented on failure, reset on success         |
+  | `last_delivery_attempt_at` | server time of the attempt                       |
+  | `delivery_failure_reason`  | short reason (or `null`)                         |
+
+  A push failure is logged and **never** re-thrown: `notifyStudentAttendance`,
+  `notifyTripStatusChange` and `notifyStopArrival` always complete.
+
+- **Invalid token handling**: FCM `UNREGISTERED` / `INVALID_REGISTRATION`
+  (and the Admin-SDK spellings `messaging/registration-token-not-registered` /
+  `messaging/invalid-registration-token`) deactivate the offending
+  `device_tokens` rows, so a stale device is never targeted again.
+
+## Device registration
+
+`device_tokens` stores one row per push-capable device, pinned to the tenant:
+
+| Column                 | Notes                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| `school_id`, `user_id` | both derived from the **verified JWT**; composite FK to `users`  |
+| `platform`             | `android` \| `ios`                                               |
+| `token`                | native FCM / APNs token; unique (soft-delete aware)              |
+| `is_active`            | delivery switch; false after logout / invalidation / user change |
+| `last_seen_at`         | last register/refresh                                            |
+
+### Endpoints (any school role — parent **and** crew)
+
+- `POST /api/v1/notifications/devices` — register/refresh
+  `{ "token": "<native token>", "platform": "android" | "ios" }`.
+  Idempotent upsert: a re-login, app start or token refresh updates the row
+  (and moves ownership if the device signed in as a different user).
+- `DELETE /api/v1/notifications/devices/:token` — logout unregister.
+  Scoped to the caller's own `(school_id, user_id)`; idempotent.
+
+Both are JWT-protected (`JwtAuthGuard` + `RolesGuard`) and rate-limited by the
+`device_register` policy (`RATE_LIMIT_DEVICE_REGISTER_LIMIT`,
+default 30/minute). The platform `SUPER_ADMIN` (no tenant) is rejected.
+
+## Mobile wiring (Expo SDK 54)
+
+`apps/mobile/src/features/notifications/`:
+
+- `push-registration.ts` — pure, unit-tested decisions (platform mapping,
+  permission handling incl. Android 13+ `POST_NOTIFICATIONS` and iOS
+  `PROVISIONAL`/`EPHEMERAL`, request shaping).
+- `push-notifications.ts` — native wiring:
+  - `setNotificationHandler` → foreground banner (`shouldShowBanner` /
+    `shouldShowList`, sound on); background/killed pushes are rendered by the
+    OS automatically.
+  - after login / restored session (any role): create the Android channel
+    `notifications`, request permission, `getDevicePushTokenAsync()`, register
+    the token, and attach `addPushTokenListener` so refreshed tokens are
+    re-registered.
+  - logout: `unregisterPushDevice()` fire-and-forget — never blocks logout.
+
+`AuthProvider` calls setup on login, on session restore, and unregisters in
+`clearSession`.
+
+## Firebase project & credentials
+
+The Firebase project is already created by the user. To wire the API:
+
+1. In the Firebase console open **Project settings → Service accounts** and
+   generate a **new private key**. This downloads a service-account JSON.
+2. In `apps/api/.env` set:
+   - `FIREBASE_PROJECT_ID=<project id>`
+   - `FIREBASE_SERVICE_ACCOUNT_JSON=<entire JSON on ONE line>`
+3. Restart the API. Check the logs: watch for FCM sends (or
+   `push_status = 'sent'` in the database); **the API never logs the
+   credential**. `FIREBASE_SERVICE_ACCOUNT_JSON=` empty / absent keeps the
+   no-op provider.
+4. Keep real values out of Git — `.env` is git-ignored and `.env.example`
+   holds placeholders only.
+
+Security notes:
+
+- The service-account JSON is a **credential**. Never commit, print, log or
+  paste it into chats/tickets. Rotate/revoke it in the Firebase console if it
+  ever leaks.
+- The API reads the exact env names `FIREBASE_PROJECT_ID` and
+  `FIREBASE_SERVICE_ACCOUNT_JSON` (no other names are supported).
+
+## Building the mobile app for push (required — not Expo Go)
+
+**Remote push does NOT work in Expo Go on SDK 54.** You must build a
+development or production build with EAS:
+
+1. `npm install` in the repo (adds `expo-notifications`).
+2. Android:
+   - Download `google-services.json` from Firebase (**Project settings →
+     Your apps → Add app → Android**, package `com.schoolbustracking.app`) and
+     place it at `apps/mobile/google-services.json`.
+   - Build: `cd apps/mobile && npx eas build --profile development --platform android`
+     (or `npx expo run:android` for a local dev build).
+3. iOS (can be deferred — Android FCM works alone):
+   - Add an iOS app in Firebase and place `GoogleService-Info.plist` in
+     `apps/mobile`.
+   - In the Apple Developer portal configure **APNs** and upload the APNs key
+     (or certificate) to Firebase (Project settings → Cloud Messaging).
+   - Build with EAS (`--platform ios`); push has no effect on iOS without APNs
+     configured.
+4. The `expo-notifications` config plugin is already in
+   `apps/mobile/app.json` (notification color). A native rebuild is required
+   after changing `app.json` or adding `google-services.json`.
+
+Test on a physical device (or an Android emulator with Google Play services).
+In a dev build, register/login, then trigger an event (e.g. a boarding) and
+check the lock screen/tray with the app killed.
+
+## Delivery Status
+
+- **pending** — row created, delivery not attempted yet
+- **sent** — provider accepted the message (FCM multicast, ≥ 1 success)
+- **failed** — provider rejected it or no active device token exists
+- **not_configured** — NoOp provider active (no Firebase env)
+
+Retries are left to the next matching event; a worker-based retry loop is a
+deliberate follow-up. `email_status` / `sms_status` remain `not_configured`.
 
 ## Notification Events
 
@@ -32,7 +180,7 @@ External push provider integration is intentionally deferred because paid servic
 - Trip in progress
 - Trip completed
 - Trip cancelled
-- Bus arrived at stop
+- Bus arrived at stop (100 m geofence, Task 22)
 
 ### Driver/Conductor Notifications
 
@@ -98,71 +246,25 @@ membership is still assigned server-side from the verified JWT
 (`emergency:school:<schoolId>`), the client never names a room, and the alarm adds no
 endpoint, no payload field and no way to observe another tenant.
 
-### Mobile
+## Configuration
 
-The mobile school-admin app receives the same `emergency:new` broadcast on the same
-namespace and reacts **visually**: the dashboard shows an "active emergencies" alert card
-and the emergency console refreshes live. It plays **no sound** today, because the Expo app
-has no audio module (`expo-audio` / `expo-av` are not dependencies) and — with the push
-provider still `NoOpPushProvider` — there is no OS-level notification channel that could
-carry a sound either. Adding one is a deliberate follow-up: it needs a new native dependency
-(and a rebuild), which is why the alarm was implemented on the web console, where it needs
-neither.
+```text
+# Push (FCM, free) — empty = NoOp provider
+FIREBASE_PROJECT_ID=
+FIREBASE_SERVICE_ACCOUNT_JSON=
 
-## Notification Model
-
-```typescript
-{
-  id: string;
-  school_id: string;
-  user_id: string;
-  type: NotificationType;
-  trip_id: string | null;
-  student_id: string | null;
-  stop_id: string | null;
-  title: string;
-  message: string;
-  payload: Record<string, unknown> | null;
-  is_read: boolean;
-  read_at: Date | null;
-  // Delivery status (Phase 2)
-  push_status: 'pending' | 'sent' | 'failed' | 'not_configured';
-  email_status: 'pending' | 'sent' | 'failed' | 'not_configured';
-  sms_status: 'pending' | 'sent' | 'failed' | 'not_configured';
-  delivery_retry_count: number;
-  last_delivery_attempt_at: Date | null;
-  delivery_failure_reason: string | null;
-}
+# Rate limit for device register/unregister
+RATE_LIMIT_DEVICE_REGISTER_LIMIT=30
+RATE_LIMIT_DEVICE_REGISTER_WINDOW_MS=60000
 ```
 
-## Delivery Status
-
-- **pending**: Waiting to be sent
-- **sent**: Successfully delivered
-- **failed**: Delivery failed (will be retried)
-- **not_configured**: Provider not configured (no-op)
+Email (`EMAIL_PROVIDER`) and SMS (`SMS_PROVIDER`) providers remain no-op
+placeholders; web push is out of scope.
 
 ## Reliability
 
 - Notifications are created AFTER the underlying operation succeeds
 - Notification failures never break the operation
 - Duplicate protection: same event never notifies the same parent twice
-- Retry with exponential backoff for failed deliveries
-
-## Socket.IO Rooms
-
-- Parent notifications: `notification:user:<userId>`
-- Emergency notifications: `emergency:school:<schoolId>` (also drives the school-admin
-  alarm sound on the web console)
-
-## Configuration
-
-No external configuration needed for in-app notifications.
-
-For future external providers:
-
-```
-PUSH_PROVIDER=noop|firebase|apns
-EMAIL_PROVIDER=noop|sendgrid|ses
-SMS_PROVIDER=noop|twilio
-```
+- Push failures are logged and swallowed; FCM invalid tokens are deactivated
+- Logout never blocks on the unregister call (fire-and-forget, client side)

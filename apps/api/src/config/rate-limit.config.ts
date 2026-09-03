@@ -55,6 +55,12 @@ export default registerAs('rateLimit', () => ({
     /** Expensive list/search endpoints. */
     read_heavy: policy('READ_HEAVY', 300, 60_000),
     /**
+     * Push device token register/unregister — one per login/app start/token
+     * refresh. Tight enough to stop token spam, generous for a normal
+     * device lifecycle.
+     */
+    device_register: policy('DEVICE_REGISTER', 30, 60_000),
+    /**
      * Spreadsheet uploads (validate + commit). Deliberately tight: each request
      * parses a file, runs thousands of validations and can hash hundreds of
      * passwords, so it is by far the most expensive thing a tenant can ask for.
