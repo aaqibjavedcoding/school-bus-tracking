@@ -1197,6 +1197,130 @@ table.data tbody tr:hover {
   font-size: 0.75rem;
 }
 
+/* ---- Task 44: school-admin emergency alarm (top-bar siren control) ----- */
+
+.emergency-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.emergency-alarm-button,
+.emergency-alarm-mute {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-slate-700);
+  cursor: pointer;
+}
+
+.emergency-alarm-button {
+  width: 38px;
+  height: 38px;
+}
+
+.emergency-alarm-mute {
+  width: 32px;
+  height: 32px;
+  color: var(--color-slate-500);
+}
+
+.emergency-alarm-button:hover,
+.emergency-alarm-mute:hover {
+  border-color: var(--color-slate-300);
+  color: var(--color-slate-900);
+}
+
+/* An open SOS turns the control red — even while the sound is muted. */
+.emergency-alarm-button.active {
+  border-color: #fecaca;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.emergency-alarm-mute[aria-pressed='true'] {
+  border-color: #fecaca;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.emergency-alarm.sounding .emergency-alarm-button.active {
+  animation: emergency-alarm-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes emergency-alarm-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(220 38 38 / 0.55);
+    background: var(--color-danger-soft);
+  }
+
+  50% {
+    box-shadow: 0 0 0 8px rgb(220 38 38 / 0);
+    background: #fecaca;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emergency-alarm.sounding .emergency-alarm-button.active {
+    animation: none;
+    box-shadow: 0 0 0 3px rgb(220 38 38 / 0.45);
+  }
+}
+
+.emergency-alarm-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--color-danger, #dc2626);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Autoplay guard: a queued alarm the browser has not let through yet. */
+.emergency-alarm-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.34rem 0.7rem;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: var(--color-danger-soft);
+  color: #991b1b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: emergency-alarm-pulse 1.4s ease-in-out infinite;
+}
+
+.emergency-alarm-enable:hover {
+  background: #fecaca;
+}
+
+@media (max-width: 640px) {
+  /* Keep every control reachable on a narrow screen; just tighten the gaps. */
+  .emergency-alarm {
+    gap: 0.25rem;
+  }
+
+  .emergency-alarm-enable {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.72rem;
+  }
+}
+
 /* ---- Task 41: plan catalog forms/cards ------------------------------- */
 
 .card-grid {

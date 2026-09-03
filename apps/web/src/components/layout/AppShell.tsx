@@ -9,6 +9,7 @@ import { useAuth } from '../../features/auth/AuthProvider';
 import { ManagedSchoolBanner, useManagedSchool } from '../../features/managed';
 import { clearManagedSchool } from '../../features/managed/managed-school-store';
 import { NotificationBell } from '../../features/notifications/NotificationBell';
+import { EmergencyAlarmBell } from '../../features/emergencies/EmergencyAlarmBell';
 import { Button } from '../ui';
 import { NavIcon } from './icons';
 
@@ -100,6 +101,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {items.find((item) => item.href === activeHref)?.label ?? 'Workspace'}
           </div>
           <div className="topbar-end">
+            {/* Parents see their notification bell; a school admin sees the
+                emergency alarm control, which sounds a siren the moment a crew
+                member presses SOS — on any screen, not just the console. */}
+            <EmergencyAlarmBell />
             <NotificationBell />
             <div className="muted" style={{ fontSize: '0.8rem' }}>
               {fullName(user)}
