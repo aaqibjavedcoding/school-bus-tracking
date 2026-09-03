@@ -54,6 +54,8 @@ export const ROUTE_ASSIGNMENT_ROUTE_BUS_CONFLICT_MESSAGE =
   'This route already uses another bus during the selected period';
 export const ROUTE_ASSIGNMENT_BUS_CONFLICT_MESSAGE =
   'This bus is already assigned to another route during the selected period';
+export const ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE =
+  'This driver or conductor is already assigned to another route during the selected period';
 
 /** Confirmation returned after a soft delete. */
 export const ROUTE_ASSIGNMENT_DELETED_MESSAGE = 'Route assignment deleted successfully';

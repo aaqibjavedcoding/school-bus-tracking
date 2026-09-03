@@ -35,7 +35,8 @@ export type RouteAssignmentCreationAttributes = Optional<
  * - a route can carry a driver *and* a conductor (two rows),
  * - a route can rotate crews across terms by closing `effective_to` and
  *   opening a new row,
- * - the same driver can serve several routes.
+ * - the same driver can serve several routes sequentially — never two routes
+ *   with overlapping effective periods.
  *
  * Trips snapshot the crew they actually ran with (`trips.driver_id` /
  * `trips.conductor_id`), so editing or closing an assignment never rewrites

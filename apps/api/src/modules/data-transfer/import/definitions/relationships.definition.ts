@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import {
   ImportModule,
+  ImportRowIssue,
   PlanLimitResource,
   RouteAssignmentRole,
   UserRole,
@@ -12,12 +13,17 @@ import {
   type StudentGuardianImportRow,
 } from '@school-bus-tracking/validation';
 import {
+  findAssignmentConflict,
+  type AssignmentCandidate,
+} from '../../../assignments/assignment-conflicts';
+import {
   IMPORT_INSERT_CHUNK_SIZE,
   chunk,
   issue,
   type ImportDefinition,
   type ImportPersistResult,
   type ImportRepositories,
+  type ImportResolvedRow,
   type ImportRowResolution,
   type PreparedImport,
 } from '../import.types';
@@ -194,7 +200,8 @@ export const routeAssignmentsImportDefinition: ImportDefinition = {
   label: 'Route assignments',
   description:
     'Rosters existing drivers and conductors onto existing routes. One row per ' +
-    'person per role; add the bus registration to pin a vehicle to the roster.',
+    'person per role; add the bus registration to pin a vehicle to the roster. ' +
+    'The same person cannot cover two different routes with overlapping active periods.',
   naturalKeyLabel: 'Route code + crew email + role + effective from',
   maxRows: 5000,
   supportsUpsert: true,
@@ -297,9 +304,22 @@ export const routeAssignmentsImportDefinition: ImportDefinition = {
       buses.map((bus) => [bus.registration_number.toLowerCase(), bus]),
     );
 
-    const existingAssignments = routes.length
+    const routeIds = routes.map((route) => route.id);
+    const userIds = crew.map((user) => user.id);
+    const busIds = buses.map((bus) => bus.id);
+
+    // Every assignment that this file could overlap with: rows on the file's
+    // routes, rows already held by the file's crew members (they may be on
+    // routes not present in the file), and rows already using the file's
+    // buses. All are tenant-pinned to this school.
+    const overlapScope: Array<Record<PropertyKey, unknown>> = [
+      ...(routeIds.length ? [{ route_id: { [Op.in]: routeIds } }] : []),
+      ...(userIds.length ? [{ user_id: { [Op.in]: userIds } }] : []),
+      ...(busIds.length ? [{ bus_id: { [Op.in]: busIds } }] : []),
+    ];
+    const existingAssignments = overlapScope.length
       ? await repositories.assignments.findAll({
-          where: { school_id: schoolId, route_id: { [Op.in]: routes.map((route) => route.id) } },
+          where: { school_id: schoolId, [Op.or]: overlapScope },
         })
       : [];
     const assignmentByKey = new Map(
@@ -377,6 +397,60 @@ export const routeAssignmentsImportDefinition: ImportDefinition = {
         };
       },
 
+      async batchIssues(rows: ImportResolvedRow[]): Promise<ReadonlyMap<string, ImportRowIssue[]>> {
+        // Simulate the accepted writes in file order against the current
+        // tenant roster. A row that would double-book a crew member, a bus or
+        // a route role slot is reported and skipped; the conflict rules mirror
+        // RouteAssignmentsService so a spreadsheet cannot bypass them.
+        const roster = new Map<string, { id: string | null } & AssignmentCandidate>();
+        for (const assignment of existingAssignments) {
+          roster.set(assignment.id, {
+            id: assignment.id,
+            route_id: assignment.route_id,
+            bus_id: assignment.bus_id,
+            user_id: assignment.user_id,
+            role: assignment.role,
+            effective_from: assignment.effective_from,
+            effective_to: assignment.effective_to ?? null,
+            is_active: assignment.is_active,
+          });
+        }
+
+        const issuesByKey = new Map<string, ImportRowIssue[]>();
+
+        for (const resolved of rows) {
+          const payload = resolved.payload as unknown as AssignmentCandidate;
+          const id = resolved.existingId;
+          const previous = id ? roster.get(id) : undefined;
+          if (id) {
+            // An upsert replaces its own current row; the other rows stay.
+            roster.delete(id);
+          }
+
+          const conflict = findFirstRosterConflict(payload, roster);
+          if (conflict) {
+            issuesByKey.set(resolved.key, [{ column: null, message: conflict.message }]);
+            if (previous) {
+              roster.set(id as string, previous);
+            }
+            continue;
+          }
+
+          roster.set(id ?? `__file_row_${resolved.rowNumber}`, {
+            id,
+            route_id: payload.route_id,
+            bus_id: payload.bus_id ?? null,
+            user_id: payload.user_id,
+            role: payload.role,
+            effective_from: payload.effective_from,
+            effective_to: payload.effective_to ?? null,
+            is_active: payload.is_active ?? true,
+          });
+        }
+
+        return issuesByKey;
+      },
+
       async persist(accepted, transaction): Promise<ImportPersistResult> {
         const inserts = accepted.filter((row) => !row.existingId);
         const updates = accepted.filter((row) => row.existingId);
@@ -404,6 +478,20 @@ export const routeAssignmentsImportDefinition: ImportDefinition = {
 
 function unique(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+/** First active-overlap conflict between one candidate and a roster of rows. */
+function findFirstRosterConflict(
+  candidate: AssignmentCandidate,
+  roster: ReadonlyMap<string, { id: string | null } & AssignmentCandidate>,
+): { message: string } | null {
+  for (const other of roster.values()) {
+    const conflict = findAssignmentConflict(candidate, other);
+    if (conflict) {
+      return conflict;
+    }
+  }
+  return null;
 }
 
 /** Plan limits do not meter relationships, only the entities they connect. */

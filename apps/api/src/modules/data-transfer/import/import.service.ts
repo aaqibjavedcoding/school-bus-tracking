@@ -66,6 +66,7 @@ import type {
   ImportAcceptedRow,
   ImportDefinition,
   ImportRepositories,
+  ImportResolvedRow,
   PreparedImport,
 } from './import.types';
 
@@ -137,8 +138,9 @@ interface AnalysisResult {
  *    same schemas the single-record endpoints use, so an import can never write
  *    a value a form would have rejected.
  * 4. **Resolve** references (route codes, parent emails, …) with batched
- *    tenant-pinned lookups, and detect duplicates both inside the file and
- *    against the database.
+ *    tenant-pinned lookups, detect duplicates both inside the file and against
+ *    the database, and run the module's batch-level conflict checks (so a
+ *    spreadsheet cannot bypass the single-record endpoints' overlap rules).
  * 5. **Report** every row's outcome. Nothing is ever skipped silently.
  * 6. On commit only: **write** the accepted rows inside one transaction, after
  *    reserving the school's plan capacity for the whole batch.
@@ -454,6 +456,11 @@ export class ImportService {
 
     const seenKeys = new Map<string, number>();
     const rows: AnalyzedRow[] = [];
+    // Rows that cleared per-row resolution, kept for the optional batch-level
+    // validation pass (`PreparedImport.batchIssues`) that runs once the import
+    // mode and the full accepted set are known.
+    const resolvedCandidates: ImportResolvedRow[] = [];
+    const keyByRowNumber = new Map<number, string>();
 
     for (const candidate of candidates) {
       if (candidate.parsed === undefined) {
@@ -529,6 +536,36 @@ export class ImportService {
         payload: resolution.payload,
         existingId,
       });
+      resolvedCandidates.push({
+        rowNumber: candidate.rowNumber,
+        key,
+        parsed,
+        payload: resolution.payload as Record<string, unknown>,
+        existingId,
+      });
+      keyByRowNumber.set(candidate.rowNumber, key);
+    }
+
+    // Batch-level conflicts (e.g. overlapping route rosters) are only visible
+    // once every row has been resolved and the import mode is known. Modules
+    // that implement `batchIssues` can downgrade offending rows here, before
+    // the preview is shown or anything is written.
+    const batchIssues =
+      typeof prepared?.batchIssues === 'function'
+        ? await prepared.batchIssues(resolvedCandidates, mode)
+        : null;
+    if (batchIssues && batchIssues.size > 0) {
+      for (const row of rows) {
+        if (row.status !== ImportRowStatus.VALID && row.status !== ImportRowStatus.WILL_UPDATE) {
+          continue;
+        }
+        const key = keyByRowNumber.get(row.rowNumber);
+        const issues = key === undefined ? undefined : batchIssues.get(key);
+        if (issues && issues.length > 0) {
+          row.status = ImportRowStatus.INVALID;
+          row.issues = issues;
+        }
+      }
     }
 
     return {
