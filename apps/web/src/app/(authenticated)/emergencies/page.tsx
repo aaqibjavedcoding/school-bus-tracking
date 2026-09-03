@@ -32,6 +32,10 @@ import { formatDateTime, formatRelative } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 import { getEmergenciesSocket } from '../../../services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../../services/socket-auth';
+import {
+  describeEmergencyAlarm,
+  normalizeEmergencyEvent,
+} from '../../../features/emergencies/helpers';
 
 /**
  * School-admin emergency console (Task 44).
@@ -113,20 +117,33 @@ export default function EmergenciesPage() {
   // this school's room, so the console updates without a page reload.
   useEffect(() => {
     const socket = getEmergenciesSocket();
-    const refresh = () => {
+    const onConnect = () => setLive(true);
+    const onDisconnect = () => setLive(false);
+    // A new SOS is the alarm case. The top-bar siren
+    // (`features/emergencies`) sounds it wherever the admin is; here the
+    // console says *what* was raised instead of a generic "updated" line.
+    const onNew = (payload: unknown) => {
+      void reload();
+      const event = normalizeEmergencyEvent(payload);
+      toast.push(
+        event ? `SOS — ${describeEmergencyAlarm(event)}` : 'A new emergency was raised.',
+        'danger',
+      );
+    };
+    const onUpdated = () => {
       void reload();
       toast.push('An emergency event was updated.', 'info');
     };
     connectAuthenticatedSocket(socket);
-    socket.on('connect', () => setLive(true));
-    socket.on('disconnect', () => setLive(false));
-    socket.on(EMERGENCY_EVENTS.new, refresh);
-    socket.on(EMERGENCY_EVENTS.updated, refresh);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on(EMERGENCY_EVENTS.new, onNew);
+    socket.on(EMERGENCY_EVENTS.updated, onUpdated);
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off(EMERGENCY_EVENTS.new, refresh);
-      socket.off(EMERGENCY_EVENTS.updated, refresh);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off(EMERGENCY_EVENTS.new, onNew);
+      socket.off(EMERGENCY_EVENTS.updated, onUpdated);
     };
   }, [reload, toast]);
 
