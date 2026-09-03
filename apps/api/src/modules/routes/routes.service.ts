@@ -326,8 +326,9 @@ export class RoutesService {
    * The payload must list every active stop of the route exactly once
    * (unknown, duplicate or missing ids are rejected with 400). Renumbering
    * happens inside a transaction and first moves every stop to a temporary
-   * negative position so that swaps never collide with the per-route unique
-   * sequence constraint.
+   * unique *positive* position (current sequence plus an offset) so that
+   * swaps never collide with the per-route unique sequence constraint and
+   * never violate `ck_stops_sequence_positive` (`sequence_number >= 1`).
    */
   async reorderRouteStops(
     schoolId: string,
@@ -360,10 +361,13 @@ export class RoutesService {
     }
 
     await sequelize.transaction(async (transaction) => {
-      // Phase 1: move every stop to a temporary unique position so the final
-      // writes below can never collide on (route_id, sequence_number).
+      // Phase 1: park every stop at a unique positive sequence so the final
+      // writes below can never collide on (route_id, sequence_number) and
+      // never write 0 or a negative value.
+      const highest = stops.reduce((max, stop) => Math.max(max, stop.sequence_number), 0);
+      const offset = highest + stops.length;
       for (const stop of stops) {
-        await stop.update({ sequence_number: -stop.sequence_number }, { transaction });
+        await stop.update({ sequence_number: stop.sequence_number + offset }, { transaction });
       }
       // Phase 2: write the requested 1..N positions.
       for (let index = 0; index < ids.length; index += 1) {

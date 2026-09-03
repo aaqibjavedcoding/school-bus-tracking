@@ -654,16 +654,29 @@ describe('RoutesService.reorderRouteStops', () => {
     assert.equal(stop1.sequence_number, 2);
     assert.equal(stop2.sequence_number, 3);
 
-    // Two-phase writes: every stop first moved to a negative temporary
-    // position, then to its final 1..N position.
+    // Two-phase writes: every stop first parked at a unique *positive*
+    // temporary sequence (current + offset), then assigned 1..N. Intermediate
+    // values must stay >= 1 so `ck_stops_sequence_positive` is never violated.
     assert.equal(capture.updates?.length, 6);
-    assert.deepEqual(
-      capture.updates?.slice(0, 3).map((update) => update.sequence_number),
-      [-1, -2, -3],
-    );
+    const parking = capture.updates?.slice(0, 3).map((update) => update.sequence_number) ?? [];
+    assert.deepEqual(parking, [7, 8, 9]);
+    assert.ok(parking.every((sequence) => sequence >= 1));
     assert.deepEqual(
       capture.updates?.slice(3).map((update) => update.sequence_number),
       [1, 2, 3],
+    );
+  });
+
+  it('never writes a non-positive sequence_number while swapping two stops', async () => {
+    const { service, capture } = makeServiceWithStops();
+
+    await service.reorderRouteStops(SCHOOL_A, ROUTE_A, makeReorderDto([STOP_2, STOP_1, STOP_3]));
+
+    const sequences = capture.updates?.map((update) => update.sequence_number) ?? [];
+    assert.ok(sequences.length > 0);
+    assert.ok(
+      sequences.every((sequence) => Number.isInteger(sequence) && sequence >= 1),
+      `expected every written sequence to be >= 1, got ${JSON.stringify(sequences)}`,
     );
   });
 
