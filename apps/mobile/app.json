@@ -16,7 +16,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.schoolbustracking.app",
       "infoPlist": {
-        "UIBackgroundModes": ["location"]
+        "UIBackgroundModes": [
+          "location"
+        ]
       }
     },
     "android": {
@@ -24,7 +26,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0F172A"
       },
-      "package": "com.schoolbustracking.app"
+      "package": "com.schoolbustracking.app",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -47,6 +56,13 @@
         }
       ]
     ],
-    "scheme": "schoolbustracking"
+    "scheme": "schoolbustracking",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a0e55925-40d8-4226-b740-2f37dae87392"
+      }
+    },
+    "owner": "aaqibjaved"
   }
 }
