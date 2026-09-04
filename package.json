@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "npm run build:packages",
     "build:packages": "npm --prefix packages/shared-types run build && npm --prefix packages/design-tokens run build && npm --prefix packages/config run build && npm --prefix packages/validation run build && npm --prefix packages/api-client run build",
     "build:apps": "npm --prefix apps/api run build && npm --prefix apps/web run build && npm --prefix apps/mobile run build",
     "build": "npm run build:packages && npm run build:apps",
