@@ -145,13 +145,13 @@ describe('Buses endpoints (authorization)', () => {
 
       await callHandler(postBuses, { user, body: new CreateBusDto() });
       await callHandler(getBuses, { user, query: makeQuery() });
-      await callHandler(getBusesById, { user, params: { id: busId } });
+      await callHandler(getBusesById, { user, params: { busId: busId } });
       await callHandler(patchBusesById, {
         user,
-        params: { id: busId },
+        params: { busId: busId },
         body: new UpdateBusDto(),
       });
-      await callHandler(deleteBusesById, { user, params: { id: busId } });
+      await callHandler(deleteBusesById, { user, params: { busId: busId } });
     } finally {
       restore();
     }

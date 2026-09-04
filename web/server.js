@@ -23,7 +23,9 @@
  * 3. **Fail fast** if any Sequelize model class is still detached, turning a
  *    login-time `Model not initialized` 500 into a clear startup error.
  */
+const fs = require('node:fs');
 const http = require('node:http');
+const path = require('node:path');
 const next = require('next');
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -31,23 +33,31 @@ const port = Number(process.env.PORT ?? process.env.APP_PORT ?? 3001);
 const hostname = process.env.HOST ?? '0.0.0.0';
 
 async function main() {
-  // Registering ts-node lets the custom server require the TypeScript server
-  // sources directly (config factories, middleware) without a separate build.
-  require('ts-node/register/transpile-only');
   require('dotenv').config();
 
-  const { getContainer } = require('./src/server/container');
+  // The backend is compiled to CommonJS by `npm run build:server`; `next build`
+  // marks the same tree external and points at this output, so the custom
+  // server, the route handlers and the gateways all load one copy of every
+  // module — and therefore one Sequelize model registry.
+  const serverDist = path.join(__dirname, 'dist');
+  if (!fs.existsSync(serverDist)) {
+    throw new Error(
+      'web/dist is missing. Run `npm run build:server` (or `npm run build`) before starting the server.',
+    );
+  }
+
+  const { getContainer } = require(path.join(serverDist, 'container'));
   const {
     buildCorsOptions,
     createSecurityHeadersMiddleware,
     resolveCorsPolicy,
-  } = require('./src/server/common/security');
+  } = require(path.join(serverDist, 'common/security'));
   const {
     createCompressionMiddleware,
-  } = require('./src/server/common/middleware/compression.middleware');
-  const { RequestIdMiddleware } = require('./src/server/common/middleware/request-id.middleware');
-  const { parseOriginList } = require('./src/server/config');
-  const { Logger } = require('./src/server/framework');
+  } = require(path.join(serverDist, 'common/middleware/compression.middleware'));
+  const { RequestIdMiddleware } = require(path.join(serverDist, 'common/middleware/request-id.middleware'));
+  const { parseOriginList } = require(path.join(serverDist, 'config'));
+  const { Logger } = require(path.join(serverDist, 'framework'));
 
   const logger = new Logger('Bootstrap');
   const container = getContainer();
@@ -189,7 +199,7 @@ async function main() {
   // wiring is idempotent, so attaching here as well is safe and covers the
   // case where `register()` ran before the io server existed.
   try {
-    const { wireRealtimeGateways } = require('./src/server/realtime');
+    const { wireRealtimeGateways } = require(path.join(serverDist, 'realtime'));
     wireRealtimeGateways(io);
   } catch (error) {
     logger.warn(
@@ -198,8 +208,15 @@ async function main() {
   }
 
   // --- fail fast on detached models --------------------------------------
-  const { models } = require('./src/server/database/models');
-  const uninitialized = models.filter((model) => !model.isInitialized).map((model) => model.name);
+  // Turns what would otherwise be a login-time `Model not initialized` 500
+  // into a clear startup error. `DB_ALLOW_NO_CONNECT=true` is the same
+  // stubbed-bootstrap escape hatch the smoke scripts use and must never be
+  // set for a real deployment.
+  const { models } = require(path.join(serverDist, 'database/models'));
+  const uninitialized =
+    process.env.DB_ALLOW_NO_CONNECT === 'true'
+      ? []
+      : models.filter((model) => !model.isInitialized).map((model) => model.name);
   if (uninitialized.length > 0) {
     throw new Error(
       `Database models were not initialized (${uninitialized.join(

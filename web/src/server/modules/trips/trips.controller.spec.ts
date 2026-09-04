@@ -198,11 +198,11 @@ describe('TripsController authorization', () => {
 
       await callHandler(postTrips, { user: actor, body: tripDto() });
       await callHandler(getTrips, { user: actor, query: new ListTripsQueryDto() });
-      await callHandler(getTripsById, { user: actor, params: { id: TRIP_ID } });
-      await callHandler(patchTripsById, { user: actor, params: { id: TRIP_ID }, body: new UpdateTripDto() });
-      await callHandler(patchTripsByIdStatus, { user: actor, params: { id: TRIP_ID }, body: status });
-      await callHandler(postTripsByIdCancel, { user: actor, params: { id: TRIP_ID }, body: new CancelTripDto() });
-      await callHandler(deleteTripsById, { user: actor, params: { id: TRIP_ID } });
+      await callHandler(getTripsById, { user: actor, params: { tripId: TRIP_ID } });
+      await callHandler(patchTripsById, { user: actor, params: { tripId: TRIP_ID }, body: new UpdateTripDto() });
+      await callHandler(patchTripsByIdStatus, { user: actor, params: { tripId: TRIP_ID }, body: status });
+      await callHandler(postTripsByIdCancel, { user: actor, params: { tripId: TRIP_ID }, body: new CancelTripDto() });
+      await callHandler(deleteTripsById, { user: actor, params: { tripId: TRIP_ID } });
     } finally {
       restore();
     }

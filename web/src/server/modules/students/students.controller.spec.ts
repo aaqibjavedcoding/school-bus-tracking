@@ -157,9 +157,9 @@ describe('StudentsController (authorization)', () => {
         role: UserRole.SCHOOL_ADMIN,
       };
       await callHandler(getStudents, { user: ADMIN_USER, query: makeQuery() });
-      await callHandler(getStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
-      await callHandler(patchStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateStudentDto() });
-      await callHandler(deleteStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(getStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID } });
+      await callHandler(patchStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID }, body: new UpdateStudentDto() });
+      await callHandler(deleteStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID } });
     } finally {
       restore();
     }

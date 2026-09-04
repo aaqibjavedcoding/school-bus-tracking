@@ -162,13 +162,13 @@ describe('Parents endpoints authorization and tenant propagation', () => {
     try {
       await callHandler(postParents, { user: ADMIN_A, body: new CreateParentDto() });
       await callHandler(getParents, { user: ADMIN_A, query: new ListParentsQueryDto() });
-      await callHandler(getParentsById, { user: ADMIN_A, params: { id: USER_ID } });
+      await callHandler(getParentsById, { user: ADMIN_A, params: { parentId: USER_ID } });
       await callHandler(patchParentsById, {
         user: ADMIN_A,
-        params: { id: USER_ID },
+        params: { parentId: USER_ID },
         body: new UpdateParentDto(),
       });
-      await callHandler(deleteParentsById, { user: ADMIN_A, params: { id: USER_ID } });
+      await callHandler(deleteParentsById, { user: ADMIN_A, params: { parentId: USER_ID } });
     } finally {
       restore();
     }

@@ -28,6 +28,33 @@ import { LiveTrackingGateway } from '../modules/live-tracking/live-tracking.gate
 import { NotificationsGateway } from '../modules/notifications/notifications.gateway';
 import { EmergenciesGateway } from '../modules/emergencies/emergencies.gateway';
 
+/**
+ * Runs an async connection handler without letting a rejection escape.
+ *
+ * Nest awaited `handleConnection` inside its own gateway adapter and logged
+ * anything that threw. Here the Socket.IO `connection` listener is
+ * synchronous, so an unhandled rejection (for example the school lookup
+ * failing) would otherwise reach `process.on('unhandledRejection')` and, on
+ * newer Node versions, take the server down. The socket is disconnected
+ * instead — the same outcome as a failed handshake.
+ */
+function runConnection(
+  socket: Socket,
+  handler: (client: Socket) => Promise<void> | void,
+  logger: Logger,
+): void {
+  void Promise.resolve()
+    .then(() => handler(socket))
+    .catch((error: unknown) => {
+      logger.error(
+        `Socket connection handler failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      socket.disconnect(true);
+    });
+}
+
 /** Guard so repeated instrumentation runs (dev hot-reload) wire only once. */
 const WIRED_KEY = Symbol.for('school-bus-tracking.realtime-wired');
 type GlobalWithFlag = typeof globalThis & { [WIRED_KEY]?: boolean };
@@ -86,7 +113,7 @@ export function wireRealtimeGateways(io: Server): void {
   liveTracking.server = liveNamespace as unknown as Server;
   liveTracking.afterInit();
   liveNamespace.on('connection', (socket: Socket) => {
-    void liveTracking.handleConnection(socket);
+    runConnection(socket, (client) => liveTracking.handleConnection(client), logger);
     bindAckHandler(
       socket,
       LIVE_TRACKING_EVENTS.join,
@@ -114,7 +141,7 @@ export function wireRealtimeGateways(io: Server): void {
   notifications.server = notificationsNamespace as unknown as Server;
   notifications.afterInit();
   notificationsNamespace.on('connection', (socket: Socket) => {
-    void notifications.handleConnection(socket);
+    runConnection(socket, (client) => notifications.handleConnection(client), logger);
     socket.on('disconnect', () => notifications.handleDisconnect(socket));
   });
 
@@ -124,7 +151,7 @@ export function wireRealtimeGateways(io: Server): void {
   emergencies.server = emergenciesNamespace as unknown as Server;
   emergencies.afterInit();
   emergenciesNamespace.on('connection', (socket: Socket) => {
-    void emergencies.handleConnection(socket);
+    runConnection(socket, (client) => emergencies.handleConnection(client), logger);
     socket.on('disconnect', () => emergencies.handleDisconnect(socket));
   });
 

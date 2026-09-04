@@ -183,13 +183,13 @@ describe('staff endpoints authorization and tenant propagation', () => {
     try {
       await callHandler(postDrivers, { user: ADMIN_A, body: new CreateStaffDto() });
       await callHandler(getDrivers, { user: ADMIN_A, query: new ListStaffQueryDto() });
-      await callHandler(getDriversById, { user: ADMIN_A, params: { id: USER_ID } });
+      await callHandler(getDriversById, { user: ADMIN_A, params: { driverId: USER_ID } });
       await callHandler(patchDriversById, {
         user: ADMIN_A,
-        params: { id: USER_ID },
+        params: { driverId: USER_ID },
         body: new UpdateStaffDto(),
       });
-      await callHandler(deleteDriversById, { user: ADMIN_A, params: { id: USER_ID } });
+      await callHandler(deleteDriversById, { user: ADMIN_A, params: { driverId: USER_ID } });
     } finally {
       restore();
     }
