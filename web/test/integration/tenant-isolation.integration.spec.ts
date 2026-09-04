@@ -15,9 +15,9 @@ import {
   createTrip,
   createUser,
 } from '../support/fixtures';
-import { BusesService } from '../../src/modules/buses/buses.service';
-import { StudentsService } from '../../src/modules/students/students.service';
-import { PlanLimitsService } from '../../src/common/plan-limits';
+import { BusesService } from '../../src/server/modules/buses/buses.service';
+import { StudentsService } from '../../src/server/modules/students/students.service';
+import { PlanLimitsService } from '../../src/server/common/plan-limits';
 import {
   Bus,
   Plan,
@@ -29,7 +29,7 @@ import {
   StudentGuardian,
   Trip,
   User,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 
 /**
  * Tenant isolation verified against a real database.

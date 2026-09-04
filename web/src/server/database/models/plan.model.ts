@@ -1,7 +1,9 @@
 import { Column, DataType, HasMany, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
-import {
-  PlanBillingPeriod,
+import { PlanBillingPeriod } from '@school-bus-tracking/shared-types';
+// Types referenced in decorated signatures must be imported as types when
+// `isolatedModules` + `emitDecoratorMetadata` are on (the Next build).
+import type {
   PlanFeaturesConfig,
   PlanLimitsConfig,
 } from '@school-bus-tracking/shared-types';

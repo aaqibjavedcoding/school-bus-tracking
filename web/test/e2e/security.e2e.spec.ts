@@ -9,11 +9,11 @@ import { createBus, createSchool, createUser, TEST_PASSWORD } from '../support/f
 import { startTestApp, TestApp } from '../support/app';
 import { login } from '../support/auth';
 import { errorMessage, httpRequest, readCookie } from '../support/http';
-import { CSRF_INVALID_MESSAGE } from '../../src/common/security';
+import { CSRF_INVALID_MESSAGE } from '../../src/server/common/security';
 
 const CSRF_COOKIE_NAME = 'csrf_token';
 const CSRF_HEADER_NAME = 'x-csrf-token';
-import { School, User } from '../../src/database/models';
+import { School, User } from '../../src/server/database/models';
 
 const EVIL_ORIGIN = 'http://evil.example.com';
 

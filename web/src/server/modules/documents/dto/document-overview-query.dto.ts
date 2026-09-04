@@ -3,6 +3,10 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-
 import {
   DOCUMENT_OWNER_TYPE_VALUES,
   DocumentOverviewQuery,
+} from '@school-bus-tracking/shared-types';
+// Types referenced in decorated signatures must be imported as types when
+// `isolatedModules` + `emitDecoratorMetadata` are on (the Next build).
+import type {
   DocumentOwnerType,
 } from '@school-bus-tracking/shared-types';
 

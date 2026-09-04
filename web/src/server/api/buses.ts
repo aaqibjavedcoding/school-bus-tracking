@@ -37,36 +37,36 @@ export const getBuses: EndpointDefinition<unknown, ListBusesQueryDto> = {
     return container().buses().findAll(schoolId, query);
   },};
 
-/** `GET /api/v1/buses/:id` */
+/** `GET /api/v1/buses/:busId` */
 export const getBusesById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     return container().buses().findOne(schoolId, id);
   },
 };
 
-/** `PATCH /api/v1/buses/:id` */
+/** `PATCH /api/v1/buses/:busId` */
 export const patchBusesById: EndpointDefinition<UpdateBusDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateBusDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     const dto = body;
     return container().buses().update(schoolId, id, dto);
   },};
 
-/** `DELETE /api/v1/buses/:id` */
+/** `DELETE /api/v1/buses/:busId` */
 export const deleteBusesById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     return container().buses().remove(schoolId, id);
   },
 };

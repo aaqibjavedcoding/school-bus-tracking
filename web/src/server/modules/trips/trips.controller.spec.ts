@@ -1,13 +1,23 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  deleteTripsById,
+  getTrips,
+  getTripsById,
+  patchTripsById,
+  patchTripsByIdStatus,
+  postTrips,
+  postTripsByIdCancel,
+} from '../../api/trips';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { TripsController } from './trips.controller';
 import { TripsService } from './trips.service';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -40,30 +50,22 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => TripsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = TripsController.prototype.create as unknown as (...args: never[]) => unknown;
-const findAllHandler = TripsController.prototype.findAll as unknown as (
-  ...args: never[]
-) => unknown;
-const updateStatusHandler = TripsController.prototype.updateStatus as unknown as (
-  ...args: never[]
-) => unknown;
+const createHandler = postTrips as EndpointDefinition<never, never>;
+const findAllHandler = getTrips as EndpointDefinition<never, never>;
+const updateStatusHandler = patchTripsByIdStatus as EndpointDefinition<never, never>;
 
 function tripDto(): CreateTripDto {
   const dto = new CreateTripDto();
@@ -74,7 +76,7 @@ function tripDto(): CreateTripDto {
 
 describe('TripsController authorization', () => {
   it('restricts the controller to SCHOOL_ADMIN', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, TripsController), [UserRole.SCHOOL_ADMIN]);
+    assert.deepEqual(postTrips.roles, [UserRole.SCHOOL_ADMIN]);
   });
 
   it('allows an admin and rejects every other authenticated role on mutations', async () => {
@@ -188,18 +190,22 @@ describe('TripsController authorization', () => {
         return { id, message: 'deleted' };
       },
     } as unknown as TripsService;
-    const controller = new TripsController(service);
+    const restore = overrideContainer('trips', service);
+    try {
 
-    const status = new UpdateTripStatusDto();
-    status.status = TripStatus.IN_PROGRESS;
+      const status = new UpdateTripStatusDto();
+      status.status = TripStatus.IN_PROGRESS;
 
-    await controller.create(SCHOOL_B, tripDto());
-    await controller.findAll(actor, new ListTripsQueryDto());
-    await controller.findOne(actor, TRIP_ID);
-    await controller.update(SCHOOL_B, TRIP_ID, new UpdateTripDto());
-    await controller.updateStatus(actor, TRIP_ID, status);
-    await controller.cancel(SCHOOL_B, TRIP_ID, new CancelTripDto());
-    await controller.remove(SCHOOL_B, TRIP_ID);
+      await callHandler(postTrips, { user: actor, body: tripDto() });
+      await callHandler(getTrips, { user: actor, query: new ListTripsQueryDto() });
+      await callHandler(getTripsById, { user: actor, params: { id: TRIP_ID } });
+      await callHandler(patchTripsById, { user: actor, params: { id: TRIP_ID }, body: new UpdateTripDto() });
+      await callHandler(patchTripsByIdStatus, { user: actor, params: { id: TRIP_ID }, body: status });
+      await callHandler(postTripsByIdCancel, { user: actor, params: { id: TRIP_ID }, body: new CancelTripDto() });
+      await callHandler(deleteTripsById, { user: actor, params: { id: TRIP_ID } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       calls.map((call) => call.method),

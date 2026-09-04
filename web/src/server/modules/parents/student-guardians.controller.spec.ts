@@ -3,18 +3,29 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  deleteStudentsByStudentIdGuardiansByParentId,
+  getStudentsByStudentIdGuardians,
+  patchStudentsByStudentIdGuardiansByParentId,
+  postStudentsByStudentIdGuardians,
+} from '../../api/parents';
 import { ParentGuardiansService } from './parent-guardians.service';
-import { StudentGuardiansController } from './student-guardians.controller';
 import { CreateStudentGuardianDto } from './dto/create-student-guardian.dto';
 import { UpdateParentStudentRelationshipDto } from './dto/update-parent-student-relationship.dto';
 
 const SCHOOL_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const STUDENT_ID = '11111111-1111-4111-8111-111111111111';
 const PARENT_ID = '22222222-2222-4222-8222-222222222222';
+const ADMIN_ID = '33333333-3333-4333-8333-333333333333';
+/** Authenticated SCHOOL_ADMIN of the fixture school. */
+const ADMIN = { id: ADMIN_ID, school_id: SCHOOL_ID, role: UserRole.SCHOOL_ADMIN };
 
 describe('StudentGuardiansController', () => {
   it('restricts student-centred relationship management to SCHOOL_ADMIN', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, StudentGuardiansController), [
+    assert.deepEqual(postStudentsByStudentIdGuardians.roles, [
       UserRole.SCHOOL_ADMIN,
     ]);
   });
@@ -48,17 +59,29 @@ describe('StudentGuardiansController', () => {
         return { id: 'link-1', message: 'deleted' };
       },
     } as unknown as ParentGuardiansService;
-    const controller = new StudentGuardiansController(service);
-
-    await controller.create(SCHOOL_ID, STUDENT_ID, new CreateStudentGuardianDto());
-    await controller.findAll(SCHOOL_ID, STUDENT_ID);
-    await controller.update(
-      SCHOOL_ID,
-      STUDENT_ID,
-      PARENT_ID,
-      new UpdateParentStudentRelationshipDto(),
-    );
-    await controller.remove(SCHOOL_ID, STUDENT_ID, PARENT_ID);
+    const restore = overrideContainer('parentGuardians', service);
+    try {
+      await callHandler(postStudentsByStudentIdGuardians, {
+        user: ADMIN,
+        params: { studentId: STUDENT_ID },
+        body: new CreateStudentGuardianDto(),
+      });
+      await callHandler(getStudentsByStudentIdGuardians, {
+        user: ADMIN,
+        params: { studentId: STUDENT_ID },
+      });
+      await callHandler(patchStudentsByStudentIdGuardiansByParentId, {
+        user: ADMIN,
+        params: { studentId: STUDENT_ID, parentId: PARENT_ID },
+        body: new UpdateParentStudentRelationshipDto(),
+      });
+      await callHandler(deleteStudentsByStudentIdGuardiansByParentId, {
+        user: ADMIN,
+        params: { studentId: STUDENT_ID, parentId: PARENT_ID },
+      });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(seen, [
       { method: 'create', schoolId: SCHOOL_ID, studentId: STUDENT_ID },

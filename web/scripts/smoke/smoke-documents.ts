@@ -17,24 +17,18 @@
  */
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import * as cookieParser from 'cookie-parser';
+import { JwtService } from '../../src/server/framework';
 import {
   BusDocumentType,
   DriverDocumentType,
   JwtAccessTokenPayload,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { AppModule } from '../../src/app.module';
-import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
-import { TransformInterceptor } from '../../src/common/interceptors/transform.interceptor';
-import { SchoolAccessService } from '../../src/common/access/school-access.service';
-import { DocumentsService } from '../../src/modules/documents/documents.service';
-import { DocumentComplianceService } from '../../src/modules/documents/document-compliance.service';
-import { DocumentRequirementsService } from '../../src/modules/documents/document-requirements.service';
+import { createSmokeApp } from './support/smoke-app';
+import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
+import { DocumentsService } from '../../src/server/modules/documents/documents.service';
+import { DocumentComplianceService } from '../../src/server/modules/documents/document-compliance.service';
+import { DocumentRequirementsService } from '../../src/server/modules/documents/document-requirements.service';
 
 interface Row {
   [key: string]: unknown;
@@ -168,17 +162,7 @@ async function main(): Promise<void> {
   }
 
   // ---- App bootstrap --------------------------------------------------
-  const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(ConfigService);
-  app.use(cookieParser());
-  app.setGlobalPrefix(configService.get<string>('app.apiPrefix', 'api/v1'));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  await app.init();
+  const app = await createSmokeApp();
 
   const patchService = (service: unknown, stubs: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(stubs)) {
@@ -212,6 +196,10 @@ async function main(): Promise<void> {
       findOne: async ({ where }: { where: { id: string } }) =>
         ({ id: where.id, is_active: true }) as unknown as Row,
     },
+    // The container always wires the user repository; the in-memory table
+    // here has no `unscoped`, and this script does not exercise the
+    // account-active path, so the check is left disabled as before.
+    users: undefined,
   });
 
   await app.listen(0);

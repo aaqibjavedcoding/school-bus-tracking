@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import {
   JwtAccessTokenPayload,
@@ -9,9 +8,17 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  getTripsByTripIdStudents,
+  getTripsByTripIdStudentsByStudentId,
+  postTripsByTripIdStudentsByStudentIdBoard,
+  postTripsByTripIdStudentsByStudentIdDrop,
+} from '../../api/trip-attendance';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { TripAttendanceController } from './trip-attendance.controller';
 import { TripAttendanceService } from './trip-attendance.service';
 import { ListTripStudentsQueryDto } from './dto/list-trip-students-query.dto';
 
@@ -39,39 +46,27 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => TripAttendanceController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const findAllHandler = TripAttendanceController.prototype.findAll as unknown as (
-  ...args: never[]
-) => unknown;
-const findOneHandler = TripAttendanceController.prototype.findOne as unknown as (
-  ...args: never[]
-) => unknown;
-const boardHandler = TripAttendanceController.prototype.board as unknown as (
-  ...args: never[]
-) => unknown;
-const dropHandler = TripAttendanceController.prototype.drop as unknown as (
-  ...args: never[]
-) => unknown;
+const findAllHandler = getTripsByTripIdStudents as EndpointDefinition<never, never>;
+const findOneHandler = getTripsByTripIdStudentsByStudentId as EndpointDefinition<never, never>;
+const boardHandler = postTripsByTripIdStudentsByStudentIdBoard as EndpointDefinition<never, never>;
+const dropHandler = postTripsByTripIdStudentsByStudentIdDrop as EndpointDefinition<never, never>;
 
 describe('TripAttendanceController authorization', () => {
   it('opens reading to the admin, the crew and parents', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, TripAttendanceController), [
+    assert.deepEqual(getTripsByTripIdStudents.roles, [
       UserRole.SCHOOL_ADMIN,
       UserRole.DRIVER,
       UserRole.CONDUCTOR,
@@ -80,8 +75,8 @@ describe('TripAttendanceController authorization', () => {
   });
 
   it('restricts boarding and dropping to the crew and the admin', () => {
-    for (const handler of [boardHandler, dropHandler]) {
-      assert.deepEqual(Reflect.getMetadata(ROLES_KEY, handler), [
+    for (const definition of [boardHandler, dropHandler]) {
+      assert.deepEqual(definition.roles, [
         UserRole.SCHOOL_ADMIN,
         UserRole.DRIVER,
         UserRole.CONDUCTOR,
@@ -181,7 +176,6 @@ describe('TripAttendanceController delegation', () => {
       },
     } as unknown as TripAttendanceService;
 
-    const controller = new TripAttendanceController(service);
     const actor: AuthenticatedRequestUser = {
       id: USER_ID,
       school_id: SCHOOL_A,
@@ -191,10 +185,28 @@ describe('TripAttendanceController delegation', () => {
       status: TripAttendanceStatus.PENDING,
     });
 
-    await controller.findAll(actor, TRIP_ID, query);
-    await controller.findOne(actor, TRIP_ID, STUDENT_ID);
-    await controller.board(actor, TRIP_ID, STUDENT_ID);
-    await controller.drop(actor, TRIP_ID, STUDENT_ID);
+    const restore = overrideContainer('tripAttendance', service);
+    try {
+      await callHandler(getTripsByTripIdStudents, {
+        user: actor,
+        params: { tripId: TRIP_ID },
+        query,
+      });
+      await callHandler(getTripsByTripIdStudentsByStudentId, {
+        user: actor,
+        params: { tripId: TRIP_ID, studentId: STUDENT_ID },
+      });
+      await callHandler(postTripsByTripIdStudentsByStudentIdBoard, {
+        user: actor,
+        params: { tripId: TRIP_ID, studentId: STUDENT_ID },
+      });
+      await callHandler(postTripsByTripIdStudentsByStudentIdDrop, {
+        user: actor,
+        params: { tripId: TRIP_ID, studentId: STUDENT_ID },
+      });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       calls.map((call) => call.method),
@@ -214,20 +226,11 @@ describe('TripAttendanceController delegation', () => {
 
   it('declares no request body on any handler', () => {
     // Board and drop are deliberately body-less: the acting user comes from
-    // the JWT and the timestamp from the server clock. `3:<index>` is the
-    // Nest metadata key for an `@Body()` parameter.
-    for (const handler of ['findAll', 'findOne', 'board', 'drop']) {
-      const routeArguments = Reflect.getMetadata(
-        '__routeArguments__',
-        TripAttendanceController,
-        handler,
-      ) as Record<string, unknown> | undefined;
-
-      assert.ok(routeArguments, `${handler} must declare its route parameters`);
-      assert.ok(
-        Object.keys(routeArguments).every((key) => !key.startsWith('3:')),
-        `${handler} must not accept a request body`,
-      );
+    // the JWT and the timestamp from the server clock. A definition without a
+    // `bodyType` is the replacement for a handler without an `@Body()`
+    // parameter — the runtime never parses or validates a body for it.
+    for (const definition of [findAllHandler, findOneHandler, boardHandler, dropHandler]) {
+      assert.equal(definition.bodyType, undefined);
     }
   });
 });

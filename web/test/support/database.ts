@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import { resolve } from 'path';
 import { QueryTypes } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
-import { models } from '../../src/database/models';
+import { models } from '../../src/server/database/models';
 import { applyTestEnv, testDatabaseSettings } from './env';
 
 const API_ROOT = resolve(__dirname, '../..');

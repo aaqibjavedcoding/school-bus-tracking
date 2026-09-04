@@ -1,13 +1,21 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  getParentChildren,
+  getParentChildrenById,
+  getParentChildrenByIdToday,
+  getParentChildrenByIdTracking,
+  getParentDashboard,
+} from '../../api/parent-portal';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { ParentPortalController } from './parent-portal.controller';
 import { ParentPortalService } from './parent-portal.service';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -33,35 +41,29 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => ParentPortalController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
 describe('ParentPortalController authorization', () => {
   it('restricts every route to the PARENT role', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, ParentPortalController), [UserRole.PARENT]);
+    assert.deepEqual(getParentDashboard.roles, [UserRole.PARENT]);
   });
 
   it('allows a PARENT with a tenant and rejects other roles', async () => {
     const parentRequest: MockRequest = {
       headers: { authorization: `Bearer ${await signAccessToken(UserRole.PARENT)}` },
     };
-    const handler = ParentPortalController.prototype.listChildren as unknown as (
-      ...args: never[]
-    ) => unknown;
+    const handler = getParentChildren as EndpointDefinition<never, never>;
     await activateGuards(parentRequest, handler);
     assert.equal(parentRequest.user?.role, UserRole.PARENT);
     assert.equal(parentRequest.user?.school_id, SCHOOL_A);
@@ -108,18 +110,22 @@ describe('ParentPortalController authorization', () => {
       },
     } as unknown as ParentPortalService;
 
-    const controller = new ParentPortalController(service);
-    const actor: AuthenticatedRequestUser = {
-      id: USER_ID,
-      school_id: SCHOOL_A,
-      role: UserRole.PARENT,
-    };
+    const restore = overrideContainer('parentPortal', service);
+    try {
+      const actor: AuthenticatedRequestUser = {
+        id: USER_ID,
+        school_id: SCHOOL_A,
+        role: UserRole.PARENT,
+      };
 
-    await controller.getDashboard(actor);
-    await controller.listChildren(actor);
-    await controller.getChild(actor, STUDENT_ID);
-    await controller.getChildToday(actor, STUDENT_ID);
-    await controller.getChildTracking(actor, STUDENT_ID);
+      await callHandler(getParentDashboard, { user: actor });
+      await callHandler(getParentChildren, { user: actor });
+      await callHandler(getParentChildrenById, { user: actor, params: { id: STUDENT_ID } });
+      await callHandler(getParentChildrenByIdToday, { user: actor, params: { id: STUDENT_ID } });
+      await callHandler(getParentChildrenByIdTracking, { user: actor, params: { id: STUDENT_ID } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(calls, ['dashboard', 'children', 'child', 'today', 'tracking']);
   });

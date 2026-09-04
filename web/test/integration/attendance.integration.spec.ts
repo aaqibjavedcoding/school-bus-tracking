@@ -19,8 +19,8 @@ import {
   createTrip,
   createUser,
 } from '../support/fixtures';
-import { TripAttendanceService } from '../../src/modules/trip-attendance/trip-attendance.service';
-import type { NotificationsService } from '../../src/modules/notifications/notifications.service';
+import { TripAttendanceService } from '../../src/server/modules/trip-attendance/trip-attendance.service';
+import type { NotificationsService } from '../../src/server/modules/notifications/notifications.service';
 import {
   RouteAssignment,
   Stop,
@@ -28,7 +28,7 @@ import {
   StudentGuardian,
   Trip,
   TripStudentAttendance,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 
 const notificationsStub = {
   notifyStudentAttendance: async () => undefined,

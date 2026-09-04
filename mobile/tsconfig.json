@@ -6,9 +6,16 @@
     "paths": {
       "@/*": [
         "src/*"
+      ],
+      "react": [
+        "./node_modules/@types/react"
       ]
     },
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "typeRoots": [
+      "./node_modules/@types",
+      "../node_modules/@types"
+    ]
   },
   "include": [
     "**/*.ts",

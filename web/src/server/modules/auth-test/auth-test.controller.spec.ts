@@ -3,7 +3,15 @@ import * as assert from 'node:assert/strict';
 import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { AuthTestController, ADMIN_ONLY_MESSAGE, STAFF_ONLY_MESSAGE } from './auth-test.controller';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import {
+  ADMIN_ONLY_MESSAGE,
+  STAFF_ONLY_MESSAGE,
+  getAuthtestAdminonly,
+  getAuthtestMe,
+  getAuthtestStaffonly,
+} from '../../api/auth-test';
 import { ROLES_KEY } from '../../common/decorators';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 
@@ -14,7 +22,6 @@ const SECRET = 'unit-test-jwt-secret';
 const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
 const rolesGuard = new RolesGuard(new Reflector());
-const controller = new AuthTestController();
 
 async function signAccessToken(role: UserRole): Promise<string> {
   const payload: JwtAccessTokenPayload = {
@@ -31,40 +38,32 @@ interface MockRequest {
 }
 
 /**
- * Builds an ExecutionContext pointing at the *real* controller handler, so
- * the guard chain resolves the actual `@Roles(...)` decorator metadata.
+ * Builds an ExecutionContext carrying the endpoint's own guard metadata, so
+ * the chain resolves the real declared roles.
  */
 function makeContext(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): ExecutionContext {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => AuthTestController,
-  } as unknown as ExecutionContext;
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 /** Runs the guard chain exactly as declared on the endpoint. */
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
   useRolesGuard: boolean,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   if (useRolesGuard) {
     rolesGuard.canActivate(context);
   }
 }
 
-const meHandler = AuthTestController.prototype.getMe as unknown as (...args: never[]) => unknown;
-const adminOnlyHandler = AuthTestController.prototype.getAdminOnly as unknown as (
-  ...args: never[]
-) => unknown;
-const staffOnlyHandler = AuthTestController.prototype.getStaffOnly as unknown as (
-  ...args: never[]
-) => unknown;
+const meHandler = getAuthtestMe as EndpointDefinition<never, never>;
+const adminOnlyHandler = getAuthtestAdminonly as EndpointDefinition<never, never>;
+const staffOnlyHandler = getAuthtestStaffonly as EndpointDefinition<never, never>;
 
 describe('AuthTestController (protected verification endpoints)', () => {
   describe('GET /auth-test/me — authentication only', () => {
@@ -74,7 +73,9 @@ describe('AuthTestController (protected verification endpoints)', () => {
       };
 
       await activateGuards(request, meHandler, false);
-      const response = controller.getMe(request.user as AuthenticatedRequestUser);
+      const response = (await callHandler(getAuthtestMe, {
+        user: request.user as AuthenticatedRequestUser,
+      })) as { user: AuthenticatedRequestUser };
 
       assert.deepEqual(response.user, {
         id: USER_ID,
@@ -119,7 +120,7 @@ describe('AuthTestController (protected verification endpoints)', () => {
 
   describe('GET /auth-test/admin-only — SCHOOL_ADMIN role', () => {
     it('declares exactly the SCHOOL_ADMIN role in @Roles metadata', () => {
-      const metadata = Reflect.getMetadata(ROLES_KEY, AuthTestController.prototype.getAdminOnly);
+      const metadata = getAuthtestAdminonly.roles;
       assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN]);
     });
 
@@ -129,7 +130,9 @@ describe('AuthTestController (protected verification endpoints)', () => {
       };
 
       await activateGuards(request, adminOnlyHandler, true);
-      const response = controller.getAdminOnly((request.user as AuthenticatedRequestUser).role);
+      const response = await callHandler(getAuthtestAdminonly, {
+        user: request.user as AuthenticatedRequestUser,
+      });
 
       assert.deepEqual(response, { message: ADMIN_ONLY_MESSAGE, role: UserRole.SCHOOL_ADMIN });
     });
@@ -153,7 +156,7 @@ describe('AuthTestController (protected verification endpoints)', () => {
 
   describe('GET /auth-test/staff-only — multi-role check', () => {
     it('declares the staff roles in @Roles metadata', () => {
-      const metadata = Reflect.getMetadata(ROLES_KEY, AuthTestController.prototype.getStaffOnly);
+      const metadata = getAuthtestStaffonly.roles;
       assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR]);
     });
 
@@ -164,7 +167,9 @@ describe('AuthTestController (protected verification endpoints)', () => {
         };
 
         await activateGuards(request, staffOnlyHandler, true);
-        const response = controller.getStaffOnly((request.user as AuthenticatedRequestUser).role);
+        const response = await callHandler(getAuthtestStaffonly, {
+          user: request.user as AuthenticatedRequestUser,
+        });
         assert.deepEqual(response, { message: STAFF_ONLY_MESSAGE, role });
       }
     });

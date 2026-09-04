@@ -38,36 +38,36 @@ export const getStudents: EndpointDefinition<unknown, ListStudentsQueryDto> = {
     return container().students().findAll(schoolId, query);
   },};
 
-/** `GET /api/v1/students/:id` */
+/** `GET /api/v1/students/:studentId` */
 export const getStudentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN, UserRole.PARENT],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     return container().students().findOneForActor(actor, id);
   },
 };
 
-/** `PATCH /api/v1/students/:id` */
+/** `PATCH /api/v1/students/:studentId` */
 export const patchStudentsById: EndpointDefinition<UpdateStudentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateStudentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     const dto = body;
     return container().students().update(schoolId, id, dto);
   },};
 
-/** `DELETE /api/v1/students/:id` */
+/** `DELETE /api/v1/students/:studentId` */
 export const deleteStudentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     return container().students().remove(schoolId, id);
   },
 };

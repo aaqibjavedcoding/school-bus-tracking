@@ -556,3 +556,25 @@ export function getContainer(): Container {
 
 /** Convenience alias used by route handlers: `container().buses()`. */
 export const container = getContainer;
+
+/**
+ * Replaces one container accessor for the duration of a test.
+ *
+ * The controller specs used to construct a controller with a stub service.
+ * Route handlers resolve their services through {@link container} instead, so
+ * the equivalent seam is to swap the accessor and restore it afterwards.
+ *
+ * Returns a restore function; always call it in a `finally` so a failing
+ * assertion cannot leak a stub into the next test.
+ */
+export function overrideContainer<K extends keyof Container>(
+  key: K,
+  value: Container[K] extends () => infer R ? R : never,
+): () => void {
+  const c = getContainer() as unknown as Record<string, unknown>;
+  const original = c[key as string];
+  c[key as string] = () => value;
+  return () => {
+    c[key as string] = original;
+  };
+}

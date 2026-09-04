@@ -1,6 +1,7 @@
 import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
-import { PersistedSubscriptionStatus, SubscriptionStatus } from '@school-bus-tracking/shared-types';
+import { SubscriptionStatus } from '@school-bus-tracking/shared-types';
+import type { PersistedSubscriptionStatus } from '@school-bus-tracking/shared-types';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { Plan } from './plan.model';
 import { School } from './school.model';

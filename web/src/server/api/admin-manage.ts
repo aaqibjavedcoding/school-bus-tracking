@@ -155,19 +155,19 @@ export const getAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<unknown, L
     return container().buses().findAll(schoolId, query);
   },};
 
-/** `GET /api/v1/admin/schools/:schoolId/manage/buses/:id` */
+/** `GET /api/v1/admin/schools/:schoolId/manage/buses/:busId` */
 export const getAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     return container().buses().findOne(schoolId, id);
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:schoolId/manage/buses/:id` */
+/** `PATCH /api/v1/admin/schools/:schoolId/manage/buses/:busId` */
 export const patchAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition<UpdateBusDto> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
@@ -175,19 +175,19 @@ export const patchAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition<Upda
   bodyType: UpdateBusDto,
   handler: async ({ body, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     const dto = body;
     return container().buses().update(schoolId, id, dto);
   },};
 
-/** `DELETE /api/v1/admin/schools/:schoolId/manage/buses/:id` */
+/** `DELETE /api/v1/admin/schools/:schoolId/manage/buses/:busId` */
 export const deleteAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['busId']);
     return container().buses().remove(schoolId, id);
   },
 };
@@ -511,19 +511,19 @@ export const getAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<unknown,
     return container().staff().findAll(schoolId, UserRole.DRIVER, query);
   },};
 
-/** `GET /api/v1/admin/schools/:schoolId/manage/drivers/:id` */
+/** `GET /api/v1/admin/schools/:schoolId/manage/drivers/:driverId` */
 export const getAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     return container().staff().findOne(schoolId, UserRole.DRIVER, id);
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:schoolId/manage/drivers/:id` */
+/** `PATCH /api/v1/admin/schools/:schoolId/manage/drivers/:driverId` */
 export const patchAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition<UpdateStaffDto> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
@@ -531,19 +531,19 @@ export const patchAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition<Up
   bodyType: UpdateStaffDto,
   handler: async ({ body, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     const dto = body;
     return container().staff().update(schoolId, UserRole.DRIVER, id, dto);
   },};
 
-/** `DELETE /api/v1/admin/schools/:schoolId/manage/drivers/:id` */
+/** `DELETE /api/v1/admin/schools/:schoolId/manage/drivers/:driverId` */
 export const deleteAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     return container().staff().remove(schoolId, UserRole.DRIVER, id);
   },
 };
@@ -746,19 +746,19 @@ export const getAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<unknown
     return container().students().findAll(schoolId, query);
   },};
 
-/** `GET /api/v1/admin/schools/:schoolId/manage/students/:id` */
+/** `GET /api/v1/admin/schools/:schoolId/manage/students/:studentId` */
 export const getAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     return container().students().findOne(schoolId, id);
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:schoolId/manage/students/:id` */
+/** `PATCH /api/v1/admin/schools/:schoolId/manage/students/:studentId` */
 export const patchAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition<UpdateStudentDto> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
@@ -766,19 +766,19 @@ export const patchAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition<U
   bodyType: UpdateStudentDto,
   handler: async ({ body, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     const dto = body;
     return container().students().update(schoolId, id, dto);
   },};
 
-/** `DELETE /api/v1/admin/schools/:schoolId/manage/students/:id` */
+/** `DELETE /api/v1/admin/schools/:schoolId/manage/students/:studentId` */
 export const deleteAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['studentId']);
     return container().students().remove(schoolId, id);
   },
 };

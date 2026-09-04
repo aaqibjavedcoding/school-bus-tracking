@@ -9,7 +9,7 @@ import { createFullSchool, createStudent, createUser, SchoolFixture } from '../s
 import { startTestApp, TestApp } from '../support/app';
 import { login, TestSession } from '../support/auth';
 import { errorMessage, httpRequest } from '../support/http';
-import { Bus, Student, Trip } from '../../src/database/models';
+import { Bus, Student, Trip } from '../../src/server/database/models';
 
 /**
  * Cross-tenant security, end to end over real HTTP against a real database.

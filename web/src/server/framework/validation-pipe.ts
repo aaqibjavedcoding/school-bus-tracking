@@ -20,13 +20,13 @@
  */
 import 'reflect-metadata';
 import { validate, type ValidationError, type ValidatorOptions } from 'class-validator';
-import { plainToInstance, type ClassTransformOptions } from 'class-transformer';
+import { plainToInstance, type ClassConstructor, type ClassTransformOptions } from 'class-transformer';
 import { BadRequestException } from './http-exception';
 
 /** Mirrors Nest's `ArgumentMetadata`. */
-export interface ArgumentMetadata {
+export interface ArgumentMetadata<T = unknown> {
   type: 'body' | 'query' | 'param' | 'custom';
-  metatype?: new (...args: never[]) => unknown;
+  metatype?: new (...args: never[]) => T;
   data?: string;
 }
 
@@ -70,11 +70,20 @@ export class ValidationPipe {
     this.options = options;
   }
 
-  async transform(value: unknown, metadata: ArgumentMetadata): Promise<unknown> {
+  /**
+   * Validates and transforms one argument.
+   *
+   * The return type follows `metadata.metatype`, mirroring the inference
+   * `@nestjs/common`'s pipe gave callers, so specs can read DTO fields off the
+   * result without a cast.
+   */
+  async transform<T>(value: unknown, metadata: ArgumentMetadata<T>): Promise<T> {
     const { metatype } = metadata;
 
     if (!metatype || PRIMITIVE_TYPES.includes(metatype)) {
-      return value;
+      // No DTO class to validate against: the value passes through as-is,
+      // exactly as Nest did.
+      return value as T;
     }
 
     const {
@@ -87,7 +96,13 @@ export class ValidationPipe {
     // `plainToInstance` applies @Type coercion and property defaults; the
     // undefined-value guard matches Nest, which validates an empty object
     // rather than crashing when a body is absent.
-    const instance = plainToInstance(metatype, value ?? {}, transformOptions);
+    // `ClassConstructor` is `new (...args: any[])`; the metatype is declared
+    // with `never[]` so it accepts any DTO class, hence the widening here.
+    const instance = plainToInstance(
+      metatype as unknown as ClassConstructor<object>,
+      value ?? {},
+      transformOptions,
+    );
 
     const errors = await validate(instance as object, validatorOptions);
 
@@ -103,7 +118,7 @@ export class ValidationPipe {
     }
 
     // Without `transform`, Nest hands the original plain value to the handler.
-    return transform ? instance : value;
+    return (transform ? instance : value) as T;
   }
 }
 

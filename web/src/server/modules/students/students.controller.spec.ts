@@ -1,20 +1,32 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, StudentGender, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import {
+  deleteStudentsById,
+  getStudents,
+  getStudentsById,
+  patchStudentsById,
+  postStudents,
+} from '../../api/students';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const SECRET = 'unit-test-jwt-secret';
+/** Authenticated SCHOOL_ADMIN actor, as the guards would have populated it. */
+const ADMIN_USER = { id: USER_ID, school_id: SCHOOL_A, role: UserRole.SCHOOL_ADMIN };
+/** UUID-shaped route parameter (handlers run it through ParseUUIDPipe). */
+const ROUTE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
@@ -34,31 +46,25 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => StudentsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = StudentsController.prototype.create as unknown as (
-  ...args: never[]
-) => unknown;
+const createHandler = postStudents as EndpointDefinition<never, never>;
 
 describe('StudentsController (authorization)', () => {
   it('restricts the whole controller to SCHOOL_ADMIN via @Roles metadata', async () => {
     // @Roles is declared at controller level, so it applies to every endpoint.
-    const metadata = Reflect.getMetadata(ROLES_KEY, StudentsController);
+    const metadata = deleteStudentsById.roles;
     assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN]);
   });
 
@@ -111,9 +117,13 @@ describe('StudentsController (authorization)', () => {
         return { id: 'student-1' };
       },
     } as unknown as StudentsService;
-    const controller = new StudentsController(service);
+    const restore = overrideContainer('students', service);
+    try {
 
-    await controller.create(SCHOOL_A, new CreateStudentDto());
+      await callHandler(postStudents, { user: ADMIN_USER, body: new CreateStudentDto() });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(calls, [{ schoolId: SCHOOL_A }]);
   });
@@ -138,17 +148,21 @@ describe('StudentsController (authorization)', () => {
         return { id, message: 'deleted' };
       },
     } as unknown as StudentsService;
-    const controller = new StudentsController(service);
+    const restore = overrideContainer('students', service);
+    try {
 
-    const actor: AuthenticatedRequestUser = {
-      id: USER_ID,
-      school_id: SCHOOL_A,
-      role: UserRole.SCHOOL_ADMIN,
-    };
-    await controller.findAll(SCHOOL_A, makeQuery());
-    await controller.findOne(actor, 'student-1');
-    await controller.update(SCHOOL_A, 'student-1', new UpdateStudentDto());
-    await controller.remove(SCHOOL_A, 'student-1');
+      const actor: AuthenticatedRequestUser = {
+        id: USER_ID,
+        school_id: SCHOOL_A,
+        role: UserRole.SCHOOL_ADMIN,
+      };
+      await callHandler(getStudents, { user: ADMIN_USER, query: makeQuery() });
+      await callHandler(getStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(patchStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateStudentDto() });
+      await callHandler(deleteStudentsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       seen.map((call) => call.method),
@@ -165,15 +179,19 @@ describe('StudentsController (authorization)', () => {
         return { id: 'student-1' };
       },
     } as unknown as StudentsService;
-    const controller = new StudentsController(service);
+    const restore = overrideContainer('students', service);
+    try {
 
-    const dto = new CreateStudentDto();
-    dto.admission_number = 'STU-101';
-    dto.first_name = 'Alice';
-    dto.last_name = 'Adams';
-    dto.gender = StudentGender.FEMALE;
+      const dto = new CreateStudentDto();
+      dto.admission_number = 'STU-101';
+      dto.first_name = 'Alice';
+      dto.last_name = 'Adams';
+      dto.gender = StudentGender.FEMALE;
 
-    await controller.create(SCHOOL_A, dto);
+      await callHandler(postStudents, { user: ADMIN_USER, body: dto });
+    } finally {
+      restore();
+    }
 
     assert.equal(receivedDto?.admission_number, 'STU-101');
   });

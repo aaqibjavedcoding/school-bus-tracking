@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import {
   JwtAccessTokenPayload,
@@ -9,8 +8,17 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  deleteRouteassignmentsById,
+  getRouteassignments,
+  getRouteassignmentsById,
+  patchRouteassignmentsById,
+  postRouteassignments,
+} from '../../api/assignments';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { RouteAssignmentsController } from './assignments.controller';
 import { RouteAssignmentsService } from './assignments.service';
 import { CreateRouteAssignmentDto } from './dto/create-route-assignment.dto';
 import { ListRouteAssignmentsQueryDto } from './dto/list-route-assignments-query.dto';
@@ -19,6 +27,8 @@ import { UpdateRouteAssignmentDto } from './dto/update-route-assignment.dto';
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
+/** Authenticated SCHOOL_ADMIN of school B, as the guards would populate it. */
+const ADMIN_B = { id: USER_ID, school_id: SCHOOL_B, role: UserRole.SCHOOL_ADMIN };
 const ASSIGNMENT_ID = '33333333-3333-4333-8333-333333333333';
 const SECRET = 'unit-test-jwt-secret';
 
@@ -40,29 +50,21 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => RouteAssignmentsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = RouteAssignmentsController.prototype.create as unknown as (
-  ...args: never[]
-) => unknown;
-const findAllHandler = RouteAssignmentsController.prototype.findAll as unknown as (
-  ...args: never[]
-) => unknown;
+const createHandler = postRouteassignments as EndpointDefinition<never, never>;
+const findAllHandler = getRouteassignments as EndpointDefinition<never, never>;
 
 function assignmentDto(): CreateRouteAssignmentDto {
   const dto = new CreateRouteAssignmentDto();
@@ -76,7 +78,7 @@ function assignmentDto(): CreateRouteAssignmentDto {
 
 describe('RouteAssignmentsController authorization', () => {
   it('restricts the controller to SCHOOL_ADMIN', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, RouteAssignmentsController), [
+    assert.deepEqual(postRouteassignments.roles, [
       UserRole.SCHOOL_ADMIN,
     ]);
   });
@@ -141,13 +143,17 @@ describe('RouteAssignmentsController authorization', () => {
         return { id, message: 'deleted' };
       },
     } as unknown as RouteAssignmentsService;
-    const controller = new RouteAssignmentsController(service);
+    const restore = overrideContainer('routeAssignments', service);
+    try {
 
-    await controller.create(SCHOOL_B, assignmentDto());
-    await controller.findAll(SCHOOL_B, new ListRouteAssignmentsQueryDto());
-    await controller.findOne(SCHOOL_B, ASSIGNMENT_ID);
-    await controller.update(SCHOOL_B, ASSIGNMENT_ID, new UpdateRouteAssignmentDto());
-    await controller.remove(SCHOOL_B, ASSIGNMENT_ID);
+      await callHandler(postRouteassignments, { user: ADMIN_B, body: assignmentDto() });
+      await callHandler(getRouteassignments, { user: ADMIN_B, query: new ListRouteAssignmentsQueryDto() });
+      await callHandler(getRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID } });
+      await callHandler(patchRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID }, body: new UpdateRouteAssignmentDto() });
+      await callHandler(deleteRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       calls.map((call) => call.method),

@@ -12,27 +12,20 @@
  * Run: DB_AUTO_CONNECT=false node -r ts-node/register/transpile-only scripts/smoke/smoke-admin.ts
  */
 import 'reflect-metadata';
-import { INestApplication } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
 import { Op } from 'sequelize';
-import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
-import * as cookieParser from 'cookie-parser';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService } from '../../src/server/framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import * as bcrypt from 'bcryptjs';
-import { AppModule } from '../../src/app.module';
-import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
-import { TransformInterceptor } from '../../src/common/interceptors/transform.interceptor';
-import { School, User } from '../../src/database/models';
-import { AdminSchoolsService } from '../../src/modules/admin/admin-schools.service';
-import { AdminDashboardService } from '../../src/modules/admin/admin-dashboard.service';
-import { AdminSchoolAdminsService } from '../../src/modules/admin/admin-school-admins.service';
-import { AdminSubscriptionsService } from '../../src/modules/admin/admin-subscriptions.service';
-import { AdminGlobalSubscriptionsService } from '../../src/modules/admin/admin-global-subscriptions.service';
-import { SchoolsService } from '../../src/modules/schools/schools.service';
-import { AuthService } from '../../src/modules/auth/auth.service';
-import { SchoolAccessService } from '../../src/common/access/school-access.service';
+import { createSmokeApp } from './support/smoke-app';
+import { School, User } from '../../src/server/database/models';
+import { AdminSchoolsService } from '../../src/server/modules/admin/admin-schools.service';
+import { AdminDashboardService } from '../../src/server/modules/admin/admin-dashboard.service';
+import { AdminSchoolAdminsService } from '../../src/server/modules/admin/admin-school-admins.service';
+import { AdminSubscriptionsService } from '../../src/server/modules/admin/admin-subscriptions.service';
+import { AdminGlobalSubscriptionsService } from '../../src/server/modules/admin/admin-global-subscriptions.service';
+import { SchoolsService } from '../../src/server/modules/schools/schools.service';
+import { AuthService } from '../../src/server/modules/auth/auth.service';
+import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
 
 interface Row {
   [key: string]: unknown;
@@ -370,17 +363,7 @@ async function main(): Promise<void> {
   }
 
   // ---- App bootstrap --------------------------------------------------
-  const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(ConfigService);
-  app.use(cookieParser());
-  app.setGlobalPrefix(configService.get<string>('app.apiPrefix', 'api/v1'));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  await app.init();
+  const app = await createSmokeApp();
 
   const schoolsRepo = schoolStub();
   const usersRepo = userStub();
@@ -459,6 +442,9 @@ async function main(): Promise<void> {
           ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as School)
           : null,
     },
+    // The container always wires the user repository, so the
+    // account-active check needs a stub too.
+    users: undefined,
   });
 
   const server = app.getHttpServer();

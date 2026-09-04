@@ -1,11 +1,18 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { BusesController } from './buses.controller';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import {
+  deleteBusesById,
+  getBuses,
+  getBusesById,
+  patchBusesById,
+  postBuses,
+} from '../../api/buses';
 import { BusesService } from './buses.service';
 import { CreateBusDto } from './dto/create-bus.dto';
 import { ListBusesQueryDto } from './dto/list-buses-query.dto';
@@ -33,29 +40,35 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => BusesController,
-  } as unknown as ExecutionContext;
-}
-
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeGuardContext(definition, request as unknown as Record<string, unknown>);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = BusesController.prototype.create as unknown as (...args: never[]) => unknown;
+/** Every buses endpoint carries the same role restriction. */
+const ALL_ENDPOINTS = [postBuses, getBuses, getBusesById, patchBusesById, deleteBusesById];
 
-describe('BusesController (authorization)', () => {
-  it('restricts the whole controller to SCHOOL_ADMIN via @Roles metadata', async () => {
-    // @Roles is declared at controller level, so it applies to every endpoint.
-    const metadata = Reflect.getMetadata(ROLES_KEY, BusesController);
+describe('Buses endpoints (authorization)', () => {
+  it('restricts every endpoint to SCHOOL_ADMIN', () => {
+    // `@Roles` was declared at controller level, so it applied to every
+    // endpoint; each definition now carries the same restriction explicitly.
+    for (const definition of ALL_ENDPOINTS) {
+      assert.deepEqual(definition.roles, [UserRole.SCHOOL_ADMIN]);
+    }
+  });
+
+  it('exposes the roles through guard metadata', () => {
+    const context = makeGuardContext(postBuses as EndpointDefinition<never, never>, {
+      headers: {},
+    });
+    const metadata = new Reflector().getAllAndOverride<UserRole[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN]);
   });
 
@@ -63,7 +76,7 @@ describe('BusesController (authorization)', () => {
     const request: MockRequest = {
       headers: { authorization: `Bearer ${await signAccessToken(UserRole.SCHOOL_ADMIN)}` },
     };
-    await activateGuards(request, createHandler);
+    await activateGuards(request, postBuses as EndpointDefinition<never, never>);
 
     const user = request.user as AuthenticatedRequestUser;
     assert.equal(user.role, UserRole.SCHOOL_ADMIN);
@@ -81,7 +94,7 @@ describe('BusesController (authorization)', () => {
         headers: { authorization: `Bearer ${await signAccessToken(role)}` },
       };
       await assert.rejects(
-        activateGuards(request, createHandler),
+        activateGuards(request, postBuses as EndpointDefinition<never, never>),
         (error: { getStatus?: () => number }) => {
           assert.equal(error.getStatus?.(), 403);
           return true;
@@ -92,7 +105,7 @@ describe('BusesController (authorization)', () => {
 
   it('rejects an unauthenticated request with 401', async () => {
     await assert.rejects(
-      activateGuards({ headers: {} }, createHandler),
+      activateGuards({ headers: {} }, postBuses as EndpointDefinition<never, never>),
       (error: { getStatus?: () => number }) => {
         assert.equal(error.getStatus?.(), 401);
         return true;
@@ -124,13 +137,24 @@ describe('BusesController (authorization)', () => {
         return { id, message: 'deleted' };
       },
     } as unknown as BusesService;
-    const controller = new BusesController(service);
 
-    await controller.create(SCHOOL_A, new CreateBusDto());
-    await controller.findAll(SCHOOL_A, makeQuery());
-    await controller.findOne(SCHOOL_A, 'bus-1');
-    await controller.update(SCHOOL_A, 'bus-1', new UpdateBusDto());
-    await controller.remove(SCHOOL_A, 'bus-1');
+    const restore = overrideBuses(service);
+    try {
+      const user = { id: USER_ID, school_id: SCHOOL_A, role: UserRole.SCHOOL_ADMIN };
+      const busId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+      await callHandler(postBuses, { user, body: new CreateBusDto() });
+      await callHandler(getBuses, { user, query: makeQuery() });
+      await callHandler(getBusesById, { user, params: { id: busId } });
+      await callHandler(patchBusesById, {
+        user,
+        params: { id: busId },
+        body: new UpdateBusDto(),
+      });
+      await callHandler(deleteBusesById, { user, params: { id: busId } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       seen.map((call) => call.method),
@@ -147,17 +171,30 @@ describe('BusesController (authorization)', () => {
         return { id: 'bus-1' };
       },
     } as unknown as BusesService;
-    const controller = new BusesController(service);
 
-    const dto = new CreateBusDto();
-    dto.registration_number = 'ABC-1234';
-    dto.capacity = 48;
+    const restore = overrideBuses(service);
+    try {
+      const dto = new CreateBusDto();
+      dto.registration_number = 'ABC-1234';
+      dto.capacity = 48;
 
-    await controller.create(SCHOOL_A, dto);
+      await callHandler(postBuses, {
+        user: { id: USER_ID, school_id: SCHOOL_A, role: UserRole.SCHOOL_ADMIN },
+        body: dto,
+      });
+    } finally {
+      restore();
+    }
 
     assert.equal(receivedDto?.registration_number, 'ABC-1234');
   });
 });
+
+function overrideBuses(service: BusesService): () => void {
+  // Imported lazily so the container is only touched by the tests that stub it.
+  const { overrideContainer } = require('../../container') as typeof import('../../container');
+  return overrideContainer('buses', service);
+}
 
 function makeQuery(): ListBusesQueryDto {
   const dto = new ListBusesQueryDto();

@@ -11,9 +11,9 @@ import {
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import { createPlan, createSchool, createStudent, createSubscription } from '../support/fixtures';
-import { PlanLimitsService } from '../../src/common/plan-limits';
-import { SUBSCRIPTION_LAPSED_CODE } from '../../src/common/subscriptions';
-import { StudentsService } from '../../src/modules/students/students.service';
+import { PlanLimitsService } from '../../src/server/common/plan-limits';
+import { SUBSCRIPTION_LAPSED_CODE } from '../../src/server/common/subscriptions';
+import { StudentsService } from '../../src/server/modules/students/students.service';
 import {
   Bus,
   Plan,
@@ -25,7 +25,7 @@ import {
   StudentGuardian,
   Trip,
   User,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 
 function configStub(values: Record<string, unknown> = {}): ConfigService {
   return {

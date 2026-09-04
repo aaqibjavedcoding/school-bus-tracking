@@ -1,13 +1,18 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  getTripsByTripIdLocation,
+  getTripsByTripIdLocationHistory,
+} from '../../api/live-tracking';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { LiveTrackingController } from './live-tracking.controller';
 import { LiveTrackingService } from './live-tracking.service';
 import { ListTripLocationHistoryQueryDto } from './dto/list-trip-location-history-query.dto';
 
@@ -34,35 +39,27 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => LiveTrackingController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const getLatestHandler = LiveTrackingController.prototype.getLatest as unknown as (
-  ...args: never[]
-) => unknown;
-const getHistoryHandler = LiveTrackingController.prototype.getHistory as unknown as (
-  ...args: never[]
-) => unknown;
+const getLatestHandler = getTripsByTripIdLocation as EndpointDefinition<never, never>;
+const getHistoryHandler = getTripsByTripIdLocationHistory as EndpointDefinition<never, never>;
 
 const READ_ROLES = [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT];
 
 describe('LiveTrackingController authorization', () => {
   it('declares the read roles on the controller for both endpoints', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, LiveTrackingController), READ_ROLES);
+    assert.deepEqual(getTripsByTripIdLocation.roles, READ_ROLES);
     for (const handler of [getLatestHandler, getHistoryHandler]) {
       assert.equal(Reflect.getMetadata(ROLES_KEY, handler), undefined);
     }
@@ -133,19 +130,23 @@ describe('LiveTrackingController delegation', () => {
       },
     } as unknown as LiveTrackingService;
 
-    const controller = new LiveTrackingController(service);
-    const actor: AuthenticatedRequestUser = {
-      id: USER_ID,
-      school_id: SCHOOL_A,
-      role: UserRole.PARENT,
-    };
-    const query = Object.assign(new ListTripLocationHistoryQueryDto(), {
-      from: '2026-09-01T06:00:00.000Z',
-      limit: 50,
-    });
+    const restore = overrideContainer('liveTracking', service);
+    try {
+      const actor: AuthenticatedRequestUser = {
+        id: USER_ID,
+        school_id: SCHOOL_A,
+        role: UserRole.PARENT,
+      };
+      const query = Object.assign(new ListTripLocationHistoryQueryDto(), {
+        from: '2026-09-01T06:00:00.000Z',
+        limit: 50,
+      });
 
-    await controller.getLatest(actor, TRIP_ID);
-    await controller.getHistory(actor, TRIP_ID, query);
+      await callHandler(getTripsByTripIdLocation, { user: actor, params: { tripId: TRIP_ID } });
+      await callHandler(getTripsByTripIdLocationHistory, { user: actor, params: { tripId: TRIP_ID }, query: query });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       calls.map((call) => call.method),
@@ -162,20 +163,11 @@ describe('LiveTrackingController delegation', () => {
 
   it('declares no request body on any handler', () => {
     // Both endpoints are GETs: the acting user comes from the JWT and every
-    // filter comes from the query string. `3:<index>` is the Nest metadata
-    // key for an `@Body()` parameter.
-    for (const handler of ['getLatest', 'getHistory']) {
-      const routeArguments = Reflect.getMetadata(
-        '__routeArguments__',
-        LiveTrackingController,
-        handler,
-      ) as Record<string, unknown> | undefined;
-
-      assert.ok(routeArguments, `${handler} must declare its route parameters`);
-      assert.ok(
-        Object.keys(routeArguments).every((key) => !key.startsWith('3:')),
-        `${handler} must not accept a request body`,
-      );
+    // filter comes from the query string. A definition without a `bodyType`
+    // is the replacement for a handler without an `@Body()` parameter — the
+    // runtime never parses or validates a body for it.
+    for (const definition of [getLatestHandler, getHistoryHandler]) {
+      assert.equal(definition.bodyType, undefined);
     }
   });
 });

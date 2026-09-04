@@ -17,8 +17,8 @@ import {
   createStudent,
   createSubscription,
 } from '../support/fixtures';
-import { PlanLimitsService } from '../../src/common/plan-limits';
-import { SUBSCRIPTION_LAPSED_CODE } from '../../src/common/subscriptions';
+import { PlanLimitsService } from '../../src/server/common/plan-limits';
+import { SUBSCRIPTION_LAPSED_CODE } from '../../src/server/common/subscriptions';
 import {
   Bus,
   Plan,
@@ -29,7 +29,7 @@ import {
   Student,
   Trip,
   User,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 
 /**
  * Subscription and plan-limit edge cases against a real PostgreSQL server.

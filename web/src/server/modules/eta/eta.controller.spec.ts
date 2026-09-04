@@ -1,15 +1,21 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { NotFoundException, Reflector } from '../../framework';
 import { JwtService } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  getTripsByTripIdArrivals,
+  getTripsByTripIdEta,
+  getTripsByTripIdProgress,
+} from '../../api/eta';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
-import { EtaController } from './eta.controller';
 import { EtaService } from './eta.service';
 import { StopArrivalsService } from './stop-arrivals.service';
 import { ETA_TRIP_NOT_FOUND_MESSAGE } from './eta.constants';
@@ -44,30 +50,22 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => EtaController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const getEtaHandler = EtaController.prototype.getEta as unknown as (...args: never[]) => unknown;
-const listArrivalsHandler = EtaController.prototype.listArrivals as unknown as (
-  ...args: never[]
-) => unknown;
-const getProgressHandler = EtaController.prototype.getProgress as unknown as (
-  ...args: never[]
-) => unknown;
+const getEtaHandler = getTripsByTripIdEta as EndpointDefinition<never, never>;
+const listArrivalsHandler = getTripsByTripIdArrivals as EndpointDefinition<never, never>;
+const getProgressHandler = getTripsByTripIdProgress as EndpointDefinition<never, never>;
 
 const READ_ROLES = [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT];
 
@@ -114,10 +112,18 @@ function makeController(options: {
     },
   } as unknown as StopArrivalsService;
 
+  // The handlers resolve these three services through the container, so the
+  // doubles are installed there and removed by the returned `restore`.
+  const restores = [
+    overrideContainer('liveTracking', liveTracking),
+    overrideContainer('eta', eta),
+    overrideContainer('stopArrivals', arrivals),
+  ];
+
   return {
-    controller: new EtaController(liveTracking, eta, arrivals),
     etaCalls,
     arrivalCalls,
+    restore: () => restores.forEach((undo) => undo()),
   };
 }
 
@@ -125,9 +131,11 @@ const PARENT = { id: USER_ID, school_id: SCHOOL_A, role: UserRole.PARENT };
 
 describe('EtaController authorization', () => {
   it('declares the read roles on the controller for all three endpoints', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, EtaController), READ_ROLES);
-    for (const handler of [getEtaHandler, listArrivalsHandler, getProgressHandler]) {
-      assert.equal(Reflect.getMetadata(ROLES_KEY, handler), undefined);
+    assert.deepEqual(getTripsByTripIdEta.roles, READ_ROLES);
+    // The controller-level @Roles applied to all three endpoints; each
+    // definition now carries the identical set explicitly.
+    for (const definition of [getEtaHandler, listArrivalsHandler, getProgressHandler]) {
+      assert.deepEqual(definition.roles, READ_ROLES);
     }
   });
 
@@ -149,57 +157,86 @@ describe('EtaController authorization', () => {
   });
 
   it('computes the ETA only for an observable trip', async () => {
-    const { controller, etaCalls } = makeController({ observation: { ok: true } });
-    const response = await controller.getEta(PARENT, TRIP_A);
-    assert.equal(response.trip_id, TRIP_A);
-    assert.equal(etaCalls.length, 1);
+    const { etaCalls, restore } = makeController({ observation: { ok: true } });
+    try {
+      const response = (await callHandler(getTripsByTripIdEta, {
+        user: PARENT,
+        params: { tripId: TRIP_A },
+      })) as { trip_id: string };
+      assert.equal(response.trip_id, TRIP_A);
+      assert.equal(etaCalls.length, 1);
+    } finally {
+      restore();
+    }
   });
 
   it('collapses unauthorized observation into the generic 404', async () => {
-    const { controller, etaCalls } = makeController({
+    const { etaCalls, restore } = makeController({
       observation: { ok: false, reason: 'unauthorized' },
     });
-    await assert.rejects(controller.getEta(PARENT, TRIP_A), (error: unknown) => {
-      assert.ok(error instanceof NotFoundException);
-      assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
-      return true;
-    });
-    assert.equal(etaCalls.length, 0);
+    try {
+      await assert.rejects(callHandler(getTripsByTripIdEta, { user: PARENT, params: { tripId: TRIP_A } }), (error: unknown) => {
+        assert.ok(error instanceof NotFoundException);
+        assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
+        return true;
+      });
+      assert.equal(etaCalls.length, 0);
+    } finally {
+      restore();
+    }
   });
 
   it('collapses a cross-school trip into the same generic 404', async () => {
-    const { controller, etaCalls } = makeController({
+    const { etaCalls, restore } = makeController({
       observation: { ok: false, reason: 'trip_not_found' },
     });
-    const otherTenantParent = { id: USER_ID, school_id: SCHOOL_B, role: UserRole.PARENT };
-    await assert.rejects(controller.getEta(otherTenantParent, TRIP_A), (error: unknown) => {
-      assert.ok(error instanceof NotFoundException);
-      assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
-      return true;
-    });
-    assert.equal(etaCalls.length, 0);
+    try {
+      const otherTenantParent = { id: USER_ID, school_id: SCHOOL_B, role: UserRole.PARENT };
+      await assert.rejects(callHandler(getTripsByTripIdEta, { user: otherTenantParent, params: { tripId: TRIP_A } }), (error: unknown) => {
+        assert.ok(error instanceof NotFoundException);
+        assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
+        return true;
+      });
+      assert.equal(etaCalls.length, 0);
+    } finally {
+      restore();
+    }
   });
 
   it('delegates the arrivals and progress reads to the arrival service', async () => {
-    const { controller, arrivalCalls } = makeController({ observation: { ok: true } });
-    const arrivals = await controller.listArrivals(PARENT, TRIP_A);
-    assert.equal(arrivals.trip_id, TRIP_A);
-    const progress = await controller.getProgress(PARENT, TRIP_A);
-    assert.equal(progress.trip_id, TRIP_A);
-    assert.deepEqual(
-      arrivalCalls.map((call) => call.method),
-      ['listArrivals', 'getProgress'],
-    );
+    const { arrivalCalls, restore } = makeController({ observation: { ok: true } });
+    try {
+      const arrivals = (await callHandler(getTripsByTripIdArrivals, {
+        user: PARENT,
+        params: { tripId: TRIP_A },
+      })) as { trip_id: string };
+      assert.equal(arrivals.trip_id, TRIP_A);
+      const progress = (await callHandler(getTripsByTripIdProgress, {
+        user: PARENT,
+        params: { tripId: TRIP_A },
+      })) as { trip_id: string };
+      assert.equal(progress.trip_id, TRIP_A);
+      assert.deepEqual(
+        arrivalCalls.map((call) => call.method),
+        ['listArrivals', 'getProgress'],
+      );
+    } finally {
+      restore();
+    }
   });
 
   it('feeds the latest location into the ETA computation', async () => {
     const latest = makeFix();
-    const { controller, etaCalls } = makeController({
+    const { etaCalls, restore } = makeController({
       observation: { ok: true },
       latest,
     });
-    await controller.getEta(PARENT, TRIP_A);
-    const input = etaCalls[0] as { latest?: { id?: string } };
-    assert.equal(input.latest?.id, latest.id);
+    try {
+      await callHandler(getTripsByTripIdEta, { user: PARENT, params: { tripId: TRIP_A } });
+      const input = etaCalls[0] as { latest?: { id?: string } };
+      assert.equal(input.latest?.id, latest.id);
+    } finally {
+      restore();
+    }
   });
 });

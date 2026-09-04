@@ -24,26 +24,20 @@
  */
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
 import { Op } from 'sequelize';
-import * as cookieParser from 'cookie-parser';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService } from '../../src/server/framework';
 import {
   JwtAccessTokenPayload,
   NotificationType,
   TripStatus,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { AppModule } from '../../src/app.module';
-import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
-import { TransformInterceptor } from '../../src/common/interceptors/transform.interceptor';
-import { SchoolAccessService } from '../../src/common/access/school-access.service';
-import { NotificationsService } from '../../src/modules/notifications/notifications.service';
-import { EtaService } from '../../src/modules/eta/eta.service';
-import { StopArrivalsService } from '../../src/modules/eta/stop-arrivals.service';
-import { LiveTrackingService } from '../../src/modules/live-tracking/live-tracking.service';
+import { createSmokeApp } from './support/smoke-app';
+import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
+import { NotificationsService } from '../../src/server/modules/notifications/notifications.service';
+import { EtaService } from '../../src/server/modules/eta/eta.service';
+import { StopArrivalsService } from '../../src/server/modules/eta/stop-arrivals.service';
+import { LiveTrackingService } from '../../src/server/modules/live-tracking/live-tracking.service';
 
 interface Row {
   [key: string]: unknown;
@@ -244,17 +238,7 @@ async function main(): Promise<void> {
   );
 
   // ---- App bootstrap --------------------------------------------------
-  const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(ConfigService);
-  app.use(cookieParser());
-  app.setGlobalPrefix(configService.get<string>('app.apiPrefix', 'api/v1'));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  await app.init();
+  const app = await createSmokeApp();
 
   const patchService = (service: unknown, stubs: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(stubs)) {
@@ -375,6 +359,9 @@ async function main(): Promise<void> {
           ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as Row)
           : null,
     },
+    // The container always wires the user repository, so the
+    // account-active check needs a stub too.
+    users: undefined,
   });
 
   await app.listen(0);

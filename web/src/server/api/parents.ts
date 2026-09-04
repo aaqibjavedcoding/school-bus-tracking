@@ -100,36 +100,36 @@ export const deleteParentsByParentIdStudentsByStudentId: EndpointDefinition = {
   },
 };
 
-/** `GET /api/v1/parents/:id` */
+/** `GET /api/v1/parents/:parentId` */
 export const getParentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['parentId']);
     return container().parents().findOne(schoolId, id);
   },
 };
 
-/** `PATCH /api/v1/parents/:id` */
+/** `PATCH /api/v1/parents/:parentId` */
 export const patchParentsById: EndpointDefinition<UpdateParentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateParentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['parentId']);
     const dto = body;
     return container().parents().update(schoolId, id, dto);
   },};
 
-/** `DELETE /api/v1/parents/:id` */
+/** `DELETE /api/v1/parents/:parentId` */
 export const deleteParentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['parentId']);
     return container().parents().remove(schoolId, id);
   },
 };

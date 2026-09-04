@@ -13,7 +13,7 @@ import {
   createStudent,
   createUser,
 } from '../support/fixtures';
-import { Student, User } from '../../src/database/models';
+import { Student, User } from '../../src/server/database/models';
 
 /**
  * Schema-level guarantees, verified against the real database.

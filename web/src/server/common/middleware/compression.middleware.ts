@@ -1,11 +1,9 @@
 import type { RequestHandler } from 'express';
 // `compression` is a CommonJS module that exports a callable function via
-// `module.exports` (declared as `export =` in `@types/compression`). The API's
-// CommonJS tsc build runs without `esModuleInterop`, so the default-import
-// sugar would emit `require(...).default` (undefined). A namespace import
-// keeps the runtime call correct while remaining type-safe — same convention
-// as `cookie-parser` in `main.ts`.
-import * as compression from 'compression';
+// `module.exports` (declared as `export =` in `@types/compression`). The web
+// build runs with `esModuleInterop`, so the default import resolves to that
+// callable; the old namespace import is no longer callable under interop.
+import compression from 'compression';
 
 export interface CompressionOptions {
   /**

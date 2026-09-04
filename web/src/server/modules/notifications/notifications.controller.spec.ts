@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import {
   JwtAccessTokenPayload,
@@ -9,9 +8,16 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  getParentNotifications,
+  patchParentNotificationsByIdRead,
+  patchParentNotificationsReadall,
+} from '../../api/notifications';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { ListParentNotificationsQueryDto } from './dto/list-parent-notifications-query.dto';
 
@@ -38,32 +44,26 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => NotificationsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
 describe('NotificationsController authorization', () => {
   it('restricts every route to the PARENT role', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, NotificationsController), [UserRole.PARENT]);
+    assert.deepEqual(getParentNotifications.roles, [UserRole.PARENT]);
   });
 
   it('allows a PARENT with a tenant and rejects every other role', async () => {
-    const handler = NotificationsController.prototype.list as unknown as (
-      ...args: never[]
-    ) => unknown;
+    const handler = getParentNotifications as EndpointDefinition<never, never>;
 
     const parentRequest: MockRequest = {
       headers: { authorization: `Bearer ${await signAccessToken(UserRole.PARENT)}` },
@@ -90,9 +90,7 @@ describe('NotificationsController authorization', () => {
   });
 
   it('rejects an unauthenticated call with 401', async () => {
-    const handler = NotificationsController.prototype.list as unknown as (
-      ...args: never[]
-    ) => unknown;
+    const handler = getParentNotifications as EndpointDefinition<never, never>;
     const request: MockRequest = { headers: {} };
 
     await assert.rejects(() => activateGuards(request, handler));
@@ -116,19 +114,23 @@ describe('NotificationsController authorization', () => {
       },
     } as unknown as NotificationsService;
 
-    const controller = new NotificationsController(service);
-    const actor: AuthenticatedRequestUser = {
-      id: USER_ID,
-      school_id: SCHOOL_A,
-      role: UserRole.PARENT,
-    };
+    const restore = overrideContainer('notifications', service);
+    try {
+      const actor: AuthenticatedRequestUser = {
+        id: USER_ID,
+        school_id: SCHOOL_A,
+        role: UserRole.PARENT,
+      };
 
-    const query = new ListParentNotificationsQueryDto();
-    query.page = 2;
-    query.status = NotificationReadFilter.UNREAD;
-    await controller.list(actor, query);
-    await controller.markRead(actor, NOTIFICATION_ID);
-    await controller.markAllRead(actor);
+      const query = new ListParentNotificationsQueryDto();
+      query.page = 2;
+      query.status = NotificationReadFilter.UNREAD;
+      await callHandler(getParentNotifications, { user: actor, query: query });
+      await callHandler(patchParentNotificationsByIdRead, { user: actor, params: { id: NOTIFICATION_ID } });
+      await callHandler(patchParentNotificationsReadall, { user: actor });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       calls.map((call) => call.split(':')[0]),

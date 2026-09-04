@@ -1,23 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../../framework';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../../common/decorators';
 import { JwtAuthGuard, RolesGuard } from '../../../common/guards';
 import { JwtService, Reflector } from '../../../framework';
-import { AdminManageAssignmentsController } from './admin-manage-assignments.controller';
-import { AdminManageBusesController } from './admin-manage-buses.controller';
-import { AdminManageConductorsController } from './admin-manage-staff.controller';
-import { AdminManageDriversController } from './admin-manage-staff.controller';
-import { AdminManageExportsController } from './admin-manage-exports.controller';
-import { AdminManageImportsController } from './admin-manage-imports.controller';
-import { AdminManageParentsController } from './admin-manage-parents.controller';
-import { AdminManageReportsController } from './admin-manage-reports.controller';
-import { AdminManageRoutesController } from './admin-manage-routes.controller';
-import { AdminManageSessionsController } from './admin-manage-sessions.controller';
-import { AdminManageStudentGuardiansController } from './admin-manage-student-guardians.controller';
-import { AdminManageStudentsController } from './admin-manage-students.controller';
-import { AdminManageStopsController } from './admin-manage-stops.controller';
+import { makeGuardContext } from '../../../http/route-testing';
+import type { EndpointDefinition } from '../../../http/route-runtime';
+import * as manage from '../../../api/admin-manage';
 import { ManagedSchoolGuard } from './managed-school.guard';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
@@ -56,149 +44,70 @@ interface MockRequest {
   managedSchool?: unknown;
 }
 
-function makeContext(
-  request: MockRequest,
-  handler: (...args: never[]) => unknown,
-  controller: object,
-) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => controller.constructor,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
-/** Controllers of the assisted-management surface with every mutating handler. */
-const MANAGE_CONTROLLERS: Array<{ controller: object; methods: string[]; path: string }> = [
-  {
-    controller: new AdminManageSessionsController({} as never),
-    methods: ['start', 'current', 'end'],
-    path: `admin/schools/:${'schoolId'}/manage/session`,
-  },
-  {
-    controller: new AdminManageStudentsController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/students',
-  },
-  {
-    controller: new AdminManageStudentGuardiansController({} as never),
-    methods: ['create', 'list', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/students/:studentId/guardians',
-  },
-  {
-    controller: new AdminManageParentsController({} as never, {} as never),
-    methods: [
-      'create',
-      'findAll',
-      'findOne',
-      'update',
-      'remove',
-      'linkStudent',
-      'listStudents',
-      'updateStudentLink',
-      'unlinkStudent',
-    ],
-    path: 'admin/schools/:schoolId/manage/parents',
-  },
-  {
-    controller: new AdminManageBusesController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/buses',
-  },
-  {
-    controller: new AdminManageRoutesController({} as never),
-    methods: [
-      'create',
-      'findAll',
-      'findOne',
-      'getDetails',
-      'update',
-      'remove',
-      'findRouteStops',
-      'reorderRouteStops',
-    ],
-    path: 'admin/schools/:schoolId/manage/routes',
-  },
-  {
-    controller: new AdminManageStopsController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/stops',
-  },
-  {
-    controller: new AdminManageDriversController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/drivers',
-  },
-  {
-    controller: new AdminManageConductorsController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/conductors',
-  },
-  {
-    controller: new AdminManageAssignmentsController({} as never),
-    methods: ['create', 'findAll', 'findOne', 'update', 'remove'],
-    path: 'admin/schools/:schoolId/manage/route-assignments',
-  },
-  {
-    controller: new AdminManageImportsController({} as never, {} as never, {} as never, {} as never, {} as never),
-    methods: [
-      'listModules',
-      'listHistory',
-      'findOne',
-      'downloadErrorFile',
-      'downloadTemplate',
-      'validate',
-      'commit',
-    ],
-    path: 'admin/schools/:schoolId/manage/imports',
-  },
-  {
-    controller: new AdminManageExportsController({} as never, {} as never),
-    methods: ['listDatasets', 'download'],
-    path: 'admin/schools/:schoolId/manage/exports',
-  },
-  {
-    controller: new AdminManageReportsController({} as never, {} as never),
-    methods: ['catalogue', 'overview', 'exportReport', 'run'],
-    path: 'admin/schools/:schoolId/manage/reports',
-  },
-];
+/**
+ * Every endpoint of the assisted-management surface.
+ *
+ * The Nest version enumerated thirteen controllers and their methods; the
+ * definitions are exported from one module, so the whole surface is collected
+ * from its exports — which also means a newly added endpoint is covered
+ * automatically instead of silently escaping these checks.
+ */
+const MANAGE_ENDPOINTS: Array<{ name: string; definition: EndpointDefinition<never, never> }> =
+  Object.entries(manage)
+    .filter(
+      (entry): entry is [string, EndpointDefinition<never, never>] =>
+        typeof entry[1] === 'object' && entry[1] !== null && 'handler' in entry[1],
+    )
+    .map(([name, definition]) => ({ name, definition }));
 
-describe('assisted management controller surface', () => {
+const studentsFindAll =
+  manage.getAdminSchoolsBySchoolIdManageStudents as EndpointDefinition<never, never>;
+const studentsCreate =
+  manage.postAdminSchoolsBySchoolIdManageStudents as EndpointDefinition<never, never>;
+const sessionStart =
+  manage.postAdminSchoolsBySchoolIdManageSession as EndpointDefinition<never, never>;
+
+describe('assisted management endpoint surface', () => {
   const reflector = new Reflector();
 
+  it('covers the whole assisted-management surface', () => {
+    // Sanity check on the reflection above: the thirteen former controllers
+    // contributed 67 endpoints between them.
+    assert.equal(MANAGE_ENDPOINTS.length, 67);
+  });
+
   it('declares the SUPER_ADMIN-only role on every handler', () => {
-    for (const { controller, methods } of MANAGE_CONTROLLERS) {
-      for (const method of methods) {
-        const handler = (
-          controller.constructor.prototype as Record<string, (...args: never[]) => unknown>
-        )[method];
-        assert.ok(handler, `${controller.constructor.name}.${method} exists`);
-        // RolesGuard resolves handler-level metadata first, then class-level:
-        // the assisted controllers declare the role once at class level.
-        const roles = reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
-          handler,
-          controller.constructor,
-        ]);
-        assert.deepEqual(
-          roles,
-          [UserRole.SUPER_ADMIN],
-          `${controller.constructor.name}.${method} must be SUPER_ADMIN-only`,
-        );
-      }
+    for (const { name, definition } of MANAGE_ENDPOINTS) {
+      assert.deepEqual(
+        definition.roles,
+        [UserRole.SUPER_ADMIN],
+        `${name} must be SUPER_ADMIN-only`,
+      );
     }
   });
 
-  it('mounts every controller under admin/schools/:schoolId/manage/*', () => {
-    for (const { controller, path } of MANAGE_CONTROLLERS) {
-      const mount = Reflect.getMetadata('path', controller.constructor) as string | undefined;
-      assert.equal(mount, path, `${controller.constructor.name} route`);
+  it('routes every endpoint through the managed-school guard', () => {
+    // What `@UseGuards(..., ManagedSchoolGuard)` on each controller used to
+    // express: the school always comes from the verified route parameter.
+    for (const { name, definition } of MANAGE_ENDPOINTS) {
+      assert.equal(definition.managedSchool, true, `${name} must resolve the managed school`);
     }
+  });
+
+  it('exposes the roles to the guard chain as metadata', () => {
+    const context = makeContext({ headers: {} }, studentsFindAll);
+    const roles = reflector.getAllAndOverride<UserRole[]>('roles', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    assert.deepEqual(roles, [UserRole.SUPER_ADMIN]);
   });
 
   it('rejects a SCHOOL_ADMIN token with 403 before the managed-school guard runs', async () => {
-    const controller = new AdminManageStudentsController({} as never);
-    const handler = AdminManageStudentsController.prototype.findAll;
     const request: MockRequest = {
       headers: {
         authorization: `Bearer ${await signAccessToken(UserRole.SCHOOL_ADMIN, SCHOOL_ID)}`,
@@ -207,7 +116,7 @@ describe('assisted management controller surface', () => {
       params: { schoolId: SCHOOL_ID },
       user: { id: USER_ID, school_id: SCHOOL_ID, role: UserRole.SCHOOL_ADMIN },
     };
-    const context = makeContext(request, handler, controller);
+    const context = makeContext(request, studentsFindAll);
 
     // Authentication passes (the school admin is a valid user), but the role
     // check must refuse the assisted surface.
@@ -230,15 +139,13 @@ describe('assisted management controller surface', () => {
   });
 
   it('runs the full guard chain for a SUPER_ADMIN token and attaches the managed school', async () => {
-    const controller = new AdminManageStudentsController({} as never);
-    const handler = AdminManageStudentsController.prototype.findAll;
     const request: MockRequest = {
       headers: { authorization: `Bearer ${await signAccessToken(UserRole.SUPER_ADMIN, null)}` },
       method: 'GET',
       params: { schoolId: SCHOOL_ID },
       user: { id: USER_ID, school_id: null, role: UserRole.SUPER_ADMIN },
     };
-    const context = makeContext(request, handler, controller);
+    const context = makeContext(request, studentsFindAll);
 
     assert.equal(await jwtAuthGuard.canActivate(context), true);
     assert.equal(rolesGuard.canActivate(context), true);
@@ -257,8 +164,6 @@ describe('assisted management controller surface', () => {
 
 describe('ManagedSchoolGuard', () => {
   const reflector = new Reflector();
-  const handler = AdminManageStudentsController.prototype.findAll;
-  const controller = new AdminManageStudentsController({} as never);
 
   function requestFor(method: string, schoolId = SCHOOL_ID): MockRequest {
     return {
@@ -274,8 +179,7 @@ describe('ManagedSchoolGuard', () => {
 
     const unknown = makeContext(
       requestFor('GET', '99999999-1111-4111-8111-111111111111'),
-      handler,
-      controller,
+      studentsFindAll,
     );
     await assert.rejects(
       guard.canActivate(unknown),
@@ -286,7 +190,7 @@ describe('ManagedSchoolGuard', () => {
       },
     );
 
-    const malformed = makeContext(requestFor('GET', 'not-a-uuid'), handler, controller);
+    const malformed = makeContext(requestFor('GET', 'not-a-uuid'), studentsFindAll);
     await assert.rejects(guard.canActivate(malformed), (error: { status?: number }) => {
       assert.equal(error.status, 400);
       return true;
@@ -297,11 +201,10 @@ describe('ManagedSchoolGuard', () => {
     const guard = new ManagedSchoolGuard(reflector, schoolLookupStub(false) as never);
 
     const readRequest = requestFor('GET');
-    assert.equal(await guard.canActivate(makeContext(readRequest, handler, controller)), true);
+    assert.equal(await guard.canActivate(makeContext(readRequest, studentsFindAll)), true);
     assert.equal((readRequest.managedSchool as { is_active: boolean }).is_active, false);
 
-    const createHandler = AdminManageStudentsController.prototype.create;
-    const write = makeContext(requestFor('POST'), createHandler, controller);
+    const write = makeContext(requestFor('POST'), studentsCreate);
     await assert.rejects(
       guard.canActivate(write),
       (error: { status?: number; message?: string }) => {
@@ -314,10 +217,9 @@ describe('ManagedSchoolGuard', () => {
 
   it('permits session lifecycle handlers on a deactivated school (opt-in metadata)', async () => {
     const guard = new ManagedSchoolGuard(reflector, schoolLookupStub(false) as never);
-    const sessionController = new AdminManageSessionsController({} as never);
-    const startHandler = AdminManageSessionsController.prototype.start;
-    // The session controller class carries the opt-in metadata.
-    const context = makeContext(requestFor('POST'), startHandler, sessionController);
+    // The session definitions carry `allowWhenInactive`, which the runtime
+    // publishes as the same opt-in metadata the decorator used to set.
+    const context = makeContext(requestFor('POST'), sessionStart);
     assert.equal(await guard.canActivate(context), true);
   });
 });

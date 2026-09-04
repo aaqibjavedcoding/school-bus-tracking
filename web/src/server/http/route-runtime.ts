@@ -50,6 +50,10 @@ import { RATE_LIMIT_POLICY_KEY } from '../common/rate-limit/rate-limit.constants
 import { AdaptedResponse, adaptRequest, type AdaptedRequest } from './request-adapter';
 import { CookieJar } from './cookies';
 import { buildErrorEnvelope, wrapSuccess } from './response-envelope';
+import {
+  structuredLogger,
+  type LoggableRequest,
+} from '../common/interceptors/structured-logging.interceptor';
 
 /** Context handed to every endpoint handler. */
 export interface HandlerContext<TBody = unknown, TQuery = unknown> {
@@ -107,7 +111,7 @@ export interface EndpointDefinition<TBody = unknown, TQuery = unknown> {
  * target, so each endpoint gets a unique function to hang metadata on. This
  * keeps the guards completely unmodified.
  */
-function createMetadataTarget(definition: EndpointDefinition<never, never>): () => void {
+export function createMetadataTarget(definition: EndpointDefinition<never, never>): () => void {
   const target = function endpointMetadata() {};
   if (definition.roles && definition.roles.length > 0) {
     Reflect.defineMetadata(ROLES_KEY, definition.roles, target);
@@ -171,12 +175,15 @@ export function createRouteHandler<TBody, TQuery>(
   request: Request,
   segmentData?: { params: Promise<Record<string, string>> | Record<string, string> },
 ) => Promise<Response> {
-  const metadataTarget = createMetadataTarget(definition as EndpointDefinition<never, never>);
+  const metadataTarget = createMetadataTarget(
+    definition as unknown as EndpointDefinition<never, never>,
+  );
 
   return async function routeHandler(request, segmentData) {
     const adaptedResponse = new AdaptedResponse();
     const cookieJar = new CookieJar();
     let adapted: AdaptedRequest | undefined;
+    const startedAt = structuredLogger.start();
 
     try {
       const params = segmentData?.params ? await segmentData.params : {};
@@ -250,6 +257,11 @@ export function createRouteHandler<TBody, TQuery>(
       if (result instanceof Response) {
         adaptedResponse.applyTo(result.headers);
         cookieJar.applyTo(result.headers);
+        structuredLogger.logSuccess(
+          adapted as unknown as LoggableRequest,
+          result.status,
+          startedAt,
+        );
         return result;
       }
 
@@ -260,6 +272,8 @@ export function createRouteHandler<TBody, TQuery>(
       const status =
         definition.status ??
         (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK);
+
+      structuredLogger.logSuccess(adapted as unknown as LoggableRequest, status, startedAt);
 
       return new Response(JSON.stringify(wrapSuccess(result)), { status, headers });
     } catch (error) {
@@ -273,6 +287,17 @@ export function createRouteHandler<TBody, TQuery>(
       // the guard before it threw, so they must survive onto the error too.
       adaptedResponse.applyTo(headers);
       cookieJar.applyTo(headers);
+
+      structuredLogger.logError(
+        (adapted ?? {
+          method: request.method,
+          url: request.url,
+          headers: {},
+        }) as unknown as LoggableRequest,
+        envelope.status,
+        startedAt,
+        error instanceof Error ? error : new Error(String(error)),
+      );
 
       return new Response(JSON.stringify(envelope.body), {
         status: envelope.status,

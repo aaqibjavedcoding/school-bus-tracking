@@ -1,10 +1,10 @@
 import { describe, it, beforeEach } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { of } from 'rxjs';
-import type { CallHandler, ExecutionContext } from '../../../framework';
-import type { Request } from 'express';
 import { AUDIT_ACTIONS, AUDIT_CONTEXT_ASSISTED_MANAGEMENT } from '../../audit';
-import { AssistedMutationAuditInterceptor } from './assisted-mutation-audit.interceptor';
+import {
+  AssistedMutationAuditInterceptor,
+  type ManagedRequest,
+} from './assisted-mutation-audit.interceptor';
 import type { ManagedSchoolContext } from './admin-manage.constants';
 
 const SCHOOL: ManagedSchoolContext = {
@@ -37,26 +37,25 @@ function makeContext(options: {
     url: options.url,
     user: options.user === undefined ? { id: ACTOR_ID } : options.user,
     managedSchool: options.managedSchool,
-  } as unknown as Request & { managedSchool?: ManagedSchoolContext; user?: { id?: string } };
-  return {
-    request,
-    context: {
-      switchToHttp: () => ({ getRequest: () => request }),
-      getHandler: () => () => undefined,
-      getClass: () => Object,
-    } as unknown as ExecutionContext,
-  };
+  } as ManagedRequest;
+  return { request, context: request };
 }
 
-function intercept(
+/**
+ * Runs the audit recorder over a successful response.
+ *
+ * The interceptor used to wrap the handler in an rxjs `tap` and pass the
+ * payload straight through; it is now an async `record(...)` the route runtime
+ * awaits after the handler resolves. The payload is still returned so the
+ * "must not alter the response" assertions are unchanged.
+ */
+async function intercept(
   interceptor: AssistedMutationAuditInterceptor,
-  context: ExecutionContext,
+  context: ManagedRequest,
   payload: unknown,
 ) {
-  const downstream: CallHandler = { handle: () => of(payload) };
-  let observed: unknown;
-  interceptor.intercept(context, downstream).subscribe({ next: (value) => (observed = value) });
-  return observed;
+  await interceptor.record(context, payload as { success?: boolean; data?: unknown });
+  return payload;
 }
 
 describe('AssistedMutationAuditInterceptor', () => {
@@ -75,7 +74,7 @@ describe('AssistedMutationAuditInterceptor', () => {
       managedSchool: SCHOOL,
     });
 
-    const observed = intercept(interceptor, context, {
+    const observed = await intercept(interceptor, context, {
       success: true,
       data: { id: STUDENT_ID, first_name: 'Ayaan' },
     });
@@ -106,7 +105,7 @@ describe('AssistedMutationAuditInterceptor', () => {
       managedSchool: SCHOOL,
     });
 
-    intercept(interceptor, context, { success: true, data: { id: STUDENT_ID, deleted: true } });
+    await intercept(interceptor, context, { success: true, data: { id: STUDENT_ID, deleted: true } });
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(audit.events[0].entity_id, STUDENT_ID);
@@ -120,7 +119,7 @@ describe('AssistedMutationAuditInterceptor', () => {
         url: `/api/v1/admin/schools/${SCHOOL.id}/manage/students`,
         managedSchool: SCHOOL,
       });
-      intercept(interceptor, context, { success: true, data: [] });
+      await intercept(interceptor, context, { success: true, data: [] });
     }
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(audit.events.length, 0);
@@ -136,7 +135,7 @@ describe('AssistedMutationAuditInterceptor', () => {
         ),
         managedSchool: SCHOOL,
       });
-      intercept(interceptor, context, { success: true, data: { id: STUDENT_ID } });
+      await intercept(interceptor, context, { success: true, data: { id: STUDENT_ID } });
     }
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(audit.events.length, 0);
@@ -148,7 +147,7 @@ describe('AssistedMutationAuditInterceptor', () => {
       url: `/api/v1/admin/schools/${SCHOOL.id}/manage/students`,
       managedSchool: undefined,
     });
-    intercept(interceptor, context, { success: true, data: { id: STUDENT_ID } });
+    await intercept(interceptor, context, { success: true, data: { id: STUDENT_ID } });
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(audit.events.length, 0);
   });
@@ -165,7 +164,7 @@ describe('AssistedMutationAuditInterceptor', () => {
       managedSchool: SCHOOL,
     });
 
-    const observed = intercept(failingInterceptor, context, {
+    const observed = await intercept(failingInterceptor, context, {
       success: true,
       data: { id: STUDENT_ID },
     });

@@ -93,36 +93,36 @@ export const getDrivers: EndpointDefinition<unknown, ListStaffQueryDto> = {
     return container().staff().findAll(schoolId, UserRole.DRIVER, query);
   },};
 
-/** `GET /api/v1/drivers/:id` */
+/** `GET /api/v1/drivers/:driverId` */
 export const getDriversById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     return container().staff().findOne(schoolId, UserRole.DRIVER, id);
   },
 };
 
-/** `PATCH /api/v1/drivers/:id` */
+/** `PATCH /api/v1/drivers/:driverId` */
 export const patchDriversById: EndpointDefinition<UpdateStaffDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateStaffDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     const dto = body;
     return container().staff().update(schoolId, UserRole.DRIVER, id, dto);
   },};
 
-/** `DELETE /api/v1/drivers/:id` */
+/** `DELETE /api/v1/drivers/:driverId` */
 export const deleteDriversById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['driverId']);
     return container().staff().remove(schoolId, UserRole.DRIVER, id);
   },
 };

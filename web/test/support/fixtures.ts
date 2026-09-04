@@ -12,7 +12,7 @@ import {
   TripStatus,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { hashPassword } from '../../src/auth';
+import { hashPassword } from '../../src/server/auth';
 import {
   Bus,
   BusDocument,
@@ -28,7 +28,7 @@ import {
   StudentGuardian,
   Trip,
   User,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 
 /**
  * Fixture builders for the PostgreSQL-backed suites.

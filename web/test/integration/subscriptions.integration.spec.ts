@@ -7,9 +7,9 @@ import { QueryTypes } from 'sequelize';
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import { createPlan, createSchool, createSubscription } from '../support/fixtures';
-import { AdminSubscriptionsService } from '../../src/modules/admin/admin-subscriptions.service';
-import { resolveSubscriptionEntitlement } from '../../src/common/subscriptions';
-import { Plan, School, SchoolSubscription } from '../../src/database/models';
+import { AdminSubscriptionsService } from '../../src/server/modules/admin/admin-subscriptions.service';
+import { resolveSubscriptionEntitlement } from '../../src/server/common/subscriptions';
+import { Plan, School, SchoolSubscription } from '../../src/server/database/models';
 
 const DAY = 86_400_000;
 

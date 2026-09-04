@@ -104,6 +104,16 @@ export class CookieJar {
     this.mutations.push({ name, value: '', options, clear: true });
   }
 
+  /** The queued mutations, in order. Used by tests to assert on cookies. */
+  list(): readonly CookieMutation[] {
+    return this.mutations;
+  }
+
+  /** The last mutation queued for `name`, or undefined. */
+  find(name: string): CookieMutation | undefined {
+    return [...this.mutations].reverse().find((mutation) => mutation.name === name);
+  }
+
   /** Appends every queued `Set-Cookie` header onto the outgoing headers. */
   applyTo(headers: Headers): void {
     for (const mutation of this.mutations) {

@@ -16,17 +16,25 @@ export interface JwtModuleOptions {
   verifyOptions?: VerifyOptions;
 }
 
+/**
+ * Per-call options, matching `@nestjs/jwt`: the standard `jsonwebtoken`
+ * options plus a `secret` that overrides the configured one for this call.
+ */
+export type JwtSignOptions = SignOptions & { secret?: string };
+export type JwtVerifyOptions = VerifyOptions & { secret?: string };
+
 export class JwtService {
   constructor(private readonly options: JwtModuleOptions = {}) {}
 
   /** Signs a payload, merging per-call options over the configured defaults. */
-  sign(payload: string | object, options?: SignOptions): string {
+  sign(payload: string | object, options?: JwtSignOptions): string {
     const secret = this.resolveSecret(options);
-    const signOptions = { ...this.options.signOptions, ...options };
+    const { secret: _ignored, ...rest } = options ?? {};
+    const signOptions = { ...this.options.signOptions, ...rest };
     return jwt.sign(payload as object, secret, signOptions);
   }
 
-  async signAsync(payload: string | object, options?: SignOptions): Promise<string> {
+  async signAsync(payload: string | object, options?: JwtSignOptions): Promise<string> {
     return this.sign(payload, options);
   }
 
@@ -34,13 +42,14 @@ export class JwtService {
    * Verifies a token. Throws on an invalid signature, expiry, or malformed
    * token — callers translate that into a 401, exactly as before.
    */
-  verify<T = JwtPayload>(token: string, options?: VerifyOptions): T {
-    const secret = this.resolveSecret(options as SignOptions | undefined);
-    const verifyOptions = { ...this.options.verifyOptions, ...options };
+  verify<T = JwtPayload>(token: string, options?: JwtVerifyOptions): T {
+    const secret = this.resolveSecret(options);
+    const { secret: _ignored, ...rest } = options ?? {};
+    const verifyOptions = { ...this.options.verifyOptions, ...rest };
     return jwt.verify(token, secret, verifyOptions) as T;
   }
 
-  async verifyAsync<T = JwtPayload>(token: string, options?: VerifyOptions): Promise<T> {
+  async verifyAsync<T = JwtPayload>(token: string, options?: JwtVerifyOptions): Promise<T> {
     return this.verify<T>(token, options);
   }
 

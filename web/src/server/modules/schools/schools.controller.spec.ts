@@ -1,11 +1,15 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  postSchools,
+} from '../../api/schools';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { SchoolsController } from './schools.controller';
 import { SchoolsService } from './schools.service';
 import { OnboardSchoolDto } from './dto/onboard-school.dto';
 
@@ -31,30 +35,24 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => SchoolsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const onboardHandler = SchoolsController.prototype.onboard as unknown as (
-  ...args: never[]
-) => unknown;
+const onboardHandler = postSchools as EndpointDefinition<never, never>;
 
 describe('SchoolsController (onboarding)', () => {
   it('routes POST /schools through JWT + Roles guards restricted to SUPER_ADMIN', async () => {
-    const metadata = Reflect.getMetadata(ROLES_KEY, SchoolsController.prototype.onboard);
+    const metadata = postSchools.roles;
     assert.deepEqual(metadata, [UserRole.SUPER_ADMIN]);
   });
 
@@ -113,9 +111,13 @@ describe('SchoolsController (onboarding)', () => {
         return expected;
       },
     } as unknown as SchoolsService;
-    const controllerWithService = new SchoolsController(service);
-
-    const result = await controllerWithService.onboard(makeOnboardDto());
+    const restore = overrideContainer('schools', service);
+    let result: unknown;
+    try {
+      result = await callHandler(postSchools, { body: makeOnboardDto() });
+    } finally {
+      restore();
+    }
 
     assert.ok(receivedDto, 'service must receive the validated DTO');
     assert.deepEqual(result, expected);

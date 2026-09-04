@@ -96,69 +96,69 @@ export const postAdminPlansByIdDeactivate: EndpointDefinition = {
   },
 };
 
-/** `GET /api/v1/admin/schools/:id/admins` */
+/** `GET /api/v1/admin/schools/:schoolId/admins` */
 export const getAdminSchoolsByIdAdmins: EndpointDefinition<unknown, ListSchoolAdminsQueryDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   queryType: ListSchoolAdminsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     return container().adminSchoolAdmins().list(schoolId, query);
   },};
 
-/** `POST /api/v1/admin/schools/:id/admins` */
+/** `POST /api/v1/admin/schools/:schoolId/admins` */
 export const postAdminSchoolsByIdAdmins: EndpointDefinition<CreateSchoolAdminDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateSchoolAdminDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().adminSchoolAdmins().create(schoolId, dto);
   },};
 
-/** `PATCH /api/v1/admin/schools/:id/admins/:adminId` */
+/** `PATCH /api/v1/admin/schools/:schoolId/admins/:adminId` */
 export const patchAdminSchoolsByIdAdminsByAdminId: EndpointDefinition<UpdateSchoolAdminDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateSchoolAdminDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     const dto = body;
     return container().adminSchoolAdmins().update(schoolId, adminId, dto);
   },};
 
-/** `POST /api/v1/admin/schools/:id/admins/:adminId/activate` */
+/** `POST /api/v1/admin/schools/:schoolId/admins/:adminId/activate` */
 export const postAdminSchoolsByIdAdminsByAdminIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     return container().adminSchoolAdmins().setActive(schoolId, adminId, true);
   },
 };
 
-/** `POST /api/v1/admin/schools/:id/admins/:adminId/deactivate` */
+/** `POST /api/v1/admin/schools/:schoolId/admins/:adminId/deactivate` */
 export const postAdminSchoolsByIdAdminsByAdminIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     return container().adminSchoolAdmins().setActive(schoolId, adminId, false);
   },
 };
 
-/** `POST /api/v1/admin/schools/:id/admins/:adminId/reset-password` */
+/** `POST /api/v1/admin/schools/:schoolId/admins/:adminId/reset-password` */
 export const postAdminSchoolsByIdAdminsByAdminIdResetpassword: EndpointDefinition<ResetSchoolAdminPasswordDto> = {
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'password_reset',
   status: HttpStatus.OK,
   bodyType: ResetSchoolAdminPasswordDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     const dto = body;
     return container().adminSchoolAdmins().resetPassword(schoolId, adminId, dto);
@@ -184,43 +184,43 @@ export const getAdminSchools: EndpointDefinition<unknown, ListAdminSchoolsQueryD
     return container().adminSchools().findAll(query);
   },};
 
-/** `GET /api/v1/admin/schools/:id` */
+/** `GET /api/v1/admin/schools/:schoolId` */
 export const getAdminSchoolsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['schoolId']);
     return container().adminSchools().findOneOrThrow(id);
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:id` */
+/** `PATCH /api/v1/admin/schools/:schoolId` */
 export const patchAdminSchoolsById: EndpointDefinition<UpdateAdminSchoolDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateAdminSchoolDto,
   handler: async ({ body, params }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().adminSchools().update(id, dto as AdminSchoolUpdateRequest);
   },};
 
-/** `POST /api/v1/admin/schools/:id/activate` */
+/** `POST /api/v1/admin/schools/:schoolId/activate` */
 export const postAdminSchoolsByIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['schoolId']);
     return container().adminSchools().activate(id);
   },
 };
 
-/** `POST /api/v1/admin/schools/:id/deactivate` */
+/** `POST /api/v1/admin/schools/:schoolId/deactivate` */
 export const postAdminSchoolsByIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['schoolId']);
     return container().adminSchools().deactivate(id);
   },
 };

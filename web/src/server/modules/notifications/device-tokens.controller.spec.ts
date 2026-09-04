@@ -1,13 +1,18 @@
 import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
+import {
+  deleteNotificationsDevicesByToken,
+  postNotificationsDevices,
+} from '../../api/notifications';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { DeviceTokensController } from './device-tokens.controller';
 import { DeviceTokensService } from './device-tokens.service';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -31,19 +36,15 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => DeviceTokensController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
@@ -53,13 +54,11 @@ const ALLOWED_ROLES = [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTO
 
 describe('DeviceTokensController authorization', () => {
   it('restricts the controller to every school role (parents AND crew)', () => {
-    assert.deepEqual(Reflect.getMetadata(ROLES_KEY, DeviceTokensController), ALLOWED_ROLES);
+    assert.deepEqual(postNotificationsDevices.roles, ALLOWED_ROLES);
   });
 
   it('allows every school role and rejects the platform SUPER_ADMIN', async () => {
-    const handler = DeviceTokensController.prototype.register as unknown as (
-      ...args: never[]
-    ) => unknown;
+    const handler = postNotificationsDevices as EndpointDefinition<never, never>;
 
     for (const role of ALLOWED_ROLES) {
       const request: MockRequest = {
@@ -81,9 +80,8 @@ describe('DeviceTokensController authorization', () => {
   });
 
   it('rejects an unauthenticated call with 401', async () => {
-    const handler = DeviceTokensController.prototype.register as unknown as (
-      ...args: never[]
-    ) => unknown;
+    const handler = postNotificationsDevices as EndpointDefinition<never, never>;
+
     const request: MockRequest = { headers: {} };
 
     await assert.rejects(() => activateGuards(request, handler));
@@ -103,16 +101,23 @@ describe('DeviceTokensController authorization', () => {
       },
     } as unknown as DeviceTokensService;
 
-    const controller = new DeviceTokensController(service);
-    const actor: AuthenticatedRequestUser = {
-      id: USER_ID,
-      school_id: SCHOOL_A,
-      role: UserRole.DRIVER,
-    };
+    const restore = overrideContainer('deviceTokens', service);
+    try {
+      const actor: AuthenticatedRequestUser = {
+        id: USER_ID,
+        school_id: SCHOOL_A,
+        role: UserRole.DRIVER,
+      };
 
-    const dto = { token: 'fcm-123', platform: 'android' as const };
-    await controller.register(actor, dto);
-    await controller.unregister(actor, 'fcm-123');
+      const dto = { token: 'fcm-123', platform: 'android' as const };
+      await callHandler(postNotificationsDevices, { user: actor, body: dto });
+      await callHandler(deleteNotificationsDevicesByToken, {
+        user: actor,
+        params: { token: 'fcm-123' },
+      });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(calls, [
       'register:{"token":"fcm-123","platform":"android"}',

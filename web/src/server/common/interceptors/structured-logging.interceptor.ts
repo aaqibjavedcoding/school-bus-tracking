@@ -1,11 +1,8 @@
-import { NestInterceptor, ExecutionContext, CallHandler, Logger } from '../../framework';
-import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
-import type { Request, Response } from 'express';
+import { Logger } from '../../framework';
 import { REQUEST_ID_PROPERTY } from '../middleware/request-id.middleware';
 
 /**
- * Structured logging interceptor for production, human-friendly for development.
+ * Structured request logging for production, human-friendly for development.
  *
  * In production, emits JSON log lines with:
  * - request_id / correlation_id
@@ -19,72 +16,102 @@ import { REQUEST_ID_PROPERTY } from '../middleware/request-id.middleware';
  * In development, emits human-readable one-line summaries.
  *
  * Sensitive fields are redacted from logs.
+ *
+ * This was a Nest `NestInterceptor` wrapping the handler in an rxjs `tap`.
+ * The route runtime is plain async/await, so the same two outcomes — success
+ * and thrown error — are reported through {@link logSuccess} and
+ * {@link logError} instead, with identical fields and log levels.
  */
-export class StructuredLoggingInterceptor implements NestInterceptor {
+export interface LoggableRequest {
+  method: string;
+  url: string;
+  ip?: string | null;
+  headers: Record<string, string | string[] | undefined>;
+  user?: { id?: string | null; school_id?: string | null } | null;
+  [REQUEST_ID_PROPERTY]?: unknown;
+}
+
+export class StructuredLogger {
   private readonly logger = new Logger('HTTP');
   private readonly isProduction = process.env.NODE_ENV === 'production';
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = context.switchToHttp().getRequest<Request>();
-    const res = context.switchToHttp().getResponse<Response>();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const requestId = (req as any)[REQUEST_ID_PROPERTY] ?? null;
-    const { method, url, ip } = req;
-    const userAgent = (req.headers['user-agent'] ?? '').slice(0, 120);
-    const now = Date.now();
+  /** Milliseconds reference captured before the handler runs. */
+  start(): number {
+    return Date.now();
+  }
 
-    return next.handle().pipe(
-      tap({
-        next: () => {
-          const duration = Date.now() - now;
-          const statusCode = res.statusCode;
+  /** Successful response. */
+  logSuccess(request: LoggableRequest, statusCode: number, startedAt: number): void {
+    const duration = Date.now() - startedAt;
 
-          if (this.isProduction) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const user = (req as any).user;
-            this.logStructured({
-              requestId: requestId as string | null,
-              method,
-              url,
-              statusCode,
-              duration,
-              ip: ip ?? null,
-              userAgent,
-              userId: user?.id ?? null,
-              schoolId: user?.school_id ?? null,
-            });
-          } else {
-            this.logger.log(
-              `[${method}] ${url} ${statusCode} ${duration}ms${requestId ? ` rid=${requestId}` : ''}`,
-            );
-          }
-        },
-        error: (error: Error) => {
-          const duration = Date.now() - now;
-          const statusCode = res.statusCode;
+    if (this.isProduction) {
+      const user = request.user;
+      this.logStructured({
+        requestId: this.requestId(request),
+        method: request.method,
+        url: request.url,
+        statusCode,
+        duration,
+        ip: request.ip ?? null,
+        userAgent: this.userAgent(request),
+        userId: user?.id ?? null,
+        schoolId: user?.school_id ?? null,
+      });
+      return;
+    }
 
-          if (this.isProduction) {
-            this.logStructured({
-              requestId: requestId as string | null,
-              method,
-              url,
-              statusCode,
-              duration,
-              ip: ip ?? null,
-              userAgent,
-              error: error.message,
-              userId: null,
-              schoolId: null,
-            });
-          } else {
-            this.logger.warn(
-              `[${method}] ${url} ${statusCode} ${duration}ms${requestId ? ` rid=${requestId}` : ''} error=${error.message}`,
-            );
-          }
-        },
-      }),
+    const requestId = this.requestId(request);
+    this.logger.log(
+      `[${request.method}] ${request.url} ${statusCode} ${duration}ms${
+        requestId ? ` rid=${requestId}` : ''
+      }`,
     );
   }
+
+  /** Failed response; mirrors the interceptor's `error` branch exactly. */
+  logError(
+    request: LoggableRequest,
+    statusCode: number,
+    startedAt: number,
+    error: Error,
+  ): void {
+    const duration = Date.now() - startedAt;
+
+    if (this.isProduction) {
+      this.logStructured({
+        requestId: this.requestId(request),
+        method: request.method,
+        url: request.url,
+        statusCode,
+        duration,
+        ip: request.ip ?? null,
+        userAgent: this.userAgent(request),
+        error: error.message,
+        userId: null,
+        schoolId: null,
+      });
+      return;
+    }
+
+    const requestId = this.requestId(request);
+    this.logger.warn(
+      `[${request.method}] ${request.url} ${statusCode} ${duration}ms${
+        requestId ? ` rid=${requestId}` : ''
+      } error=${error.message}`,
+    );
+  }
+
+  private requestId(request: LoggableRequest): string | null {
+    const value = request[REQUEST_ID_PROPERTY];
+    return typeof value === 'string' ? value : null;
+  }
+
+  private userAgent(request: LoggableRequest): string {
+    const value = request.headers['user-agent'];
+    const raw = Array.isArray(value) ? value[0] : value;
+    return (raw ?? '').slice(0, 120);
+  }
+
   private logStructured(data: {
     requestId: string | null;
     method: string;
@@ -120,3 +147,6 @@ export class StructuredLoggingInterceptor implements NestInterceptor {
     }
   }
 }
+
+/** Process-wide logger; stateless, so a single instance is safe to share. */
+export const structuredLogger = new StructuredLogger();

@@ -1,18 +1,13 @@
 import { after, before, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ValidationPipe } from '../../framework';
-import type { INestApplication } from '../../framework';
-import type { AddressInfo } from 'net';
-import * as cookieParser from 'cookie-parser';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { ApiClient } from '@school-bus-tracking/api-client';
-import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LOGOUT_SUCCESS_MESSAGE } from './auth.constants';
-import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
-import { TransformInterceptor } from '../../common/interceptors/transform.interceptor';
-import { CSRF_INVALID_MESSAGE, CsrfGuard } from '../../common/security';
-import securityConfig from '../../config/security.config';
+import { CSRF_INVALID_MESSAGE } from '../../common/security';
+import { startTestServer, type RunningTestServer } from '../../http/test-server';
+import { overrideContainer } from '../../container';
+import { getAuthCsrf, postAuthLogin, postAuthLogout, postAuthRefresh } from '../../api/auth';
 
 /**
  * Web ⇄ API CSRF integration, without a database.
@@ -95,15 +90,6 @@ function makeMockAuthService(): AuthService {
   } as unknown as AuthService;
 }
 
-@Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true, load: [securityConfig] })],
-  controllers: [AuthController],
-  providers: [
-    { provide: AuthService, useValue: makeMockAuthService() },
-    { provide: APP_GUARD, useClass: CsrfGuard },
-  ],
-})
-class AuthCsrfTestModule {}
 
 interface JarCookie {
   value: string;
@@ -222,32 +208,32 @@ function installBrowser(session: BrowserSession, baseUrl: string): () => void {
   };
 }
 
-describe('web CSRF flow against the real auth controller and guard', () => {
-  let app: INestApplication;
-  let origin: string;
+describe('web CSRF flow against the real auth handlers and guard', () => {
+  let app: RunningTestServer;
   let baseUrl: string;
+  let restoreAuth: () => void;
 
   before(async () => {
     process.env.NODE_ENV = process.env.NODE_ENV || 'test';
     process.env.CORS_ORIGIN = WEB_ORIGIN;
 
-    app = await NestFactory.create(AuthCsrfTestModule, { logger: false });
-    app.use(cookieParser());
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-    );
-    app.useGlobalFilters(new HttpExceptionFilter());
-    app.useGlobalInterceptors(new TransformInterceptor());
-    await app.init();
-    await app.listen(0, '127.0.0.1');
+    // Only persistence is stubbed; the CSRF guard, validation and envelope
+    // all come from the real route runtime.
+    restoreAuth = overrideContainer('auth', makeMockAuthService());
 
-    const address = app.getHttpServer().address() as AddressInfo;
-    origin = `http://127.0.0.1:${address.port}`;
-    baseUrl = `${origin}/api/v1`;
+    app = await startTestServer({
+      routes: [
+        { method: 'POST', path: '/auth/login', definition: postAuthLogin },
+        { method: 'POST', path: '/auth/refresh', definition: postAuthRefresh },
+        { method: 'POST', path: '/auth/logout', definition: postAuthLogout },
+        { method: 'GET', path: '/auth/csrf', definition: getAuthCsrf },
+      ],
+    });
+    baseUrl = app.baseUrl;
   });
 
   after(async () => {
+    restoreAuth?.();
     await app?.close();
   });
 

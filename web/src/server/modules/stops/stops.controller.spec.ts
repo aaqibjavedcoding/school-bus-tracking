@@ -1,19 +1,31 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { StopsController } from './stops.controller';
 import { StopsService } from './stops.service';
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
+import {
+  deleteStopsById,
+  getStops,
+  getStopsById,
+  patchStopsById,
+  postStops,
+} from '../../api/stops';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const SECRET = 'unit-test-jwt-secret';
+/** Authenticated SCHOOL_ADMIN actor, as the guards would have populated it. */
+const ADMIN_USER = { id: USER_ID, school_id: SCHOOL_A, role: UserRole.SCHOOL_ADMIN };
+/** UUID-shaped route parameter (handlers run it through ParseUUIDPipe). */
+const ROUTE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
@@ -33,29 +45,25 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => StopsController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = StopsController.prototype.create as unknown as (...args: never[]) => unknown;
+const createHandler = postStops as EndpointDefinition<never, never>;
 
 describe('StopsController (authorization)', () => {
   it('restricts the whole controller to SCHOOL_ADMIN via @Roles metadata', async () => {
     // @Roles is declared at controller level, so it applies to every endpoint.
-    const metadata = Reflect.getMetadata(ROLES_KEY, StopsController);
+    const metadata = deleteStopsById.roles;
     assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN]);
   });
 
@@ -124,13 +132,17 @@ describe('StopsController (authorization)', () => {
         return { id, message: 'deleted' };
       },
     } as unknown as StopsService;
-    const controller = new StopsController(service);
+    const restore = overrideContainer('stops', service);
+    try {
 
-    await controller.create(SCHOOL_A, new CreateStopDto());
-    await controller.findAll(SCHOOL_A, makeQuery());
-    await controller.findOne(SCHOOL_A, 'stop-1');
-    await controller.update(SCHOOL_A, 'stop-1', new UpdateStopDto());
-    await controller.remove(SCHOOL_A, 'stop-1');
+      await callHandler(postStops, { user: ADMIN_USER, body: new CreateStopDto() });
+      await callHandler(getStops, { user: ADMIN_USER, query: makeQuery() });
+      await callHandler(getStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(patchStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateStopDto() });
+      await callHandler(deleteStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       seen.map((call) => call.method),
@@ -147,13 +159,17 @@ describe('StopsController (authorization)', () => {
         return { id: 'stop-1' };
       },
     } as unknown as StopsService;
-    const controller = new StopsController(service);
+    const restore = overrideContainer('stops', service);
+    try {
 
-    const dto = new CreateStopDto();
-    dto.route_id = '11111111-1111-4111-8111-111111111111';
-    dto.name = 'Main Gate';
+      const dto = new CreateStopDto();
+      dto.route_id = '11111111-1111-4111-8111-111111111111';
+      dto.name = 'Main Gate';
 
-    await controller.create(SCHOOL_A, dto);
+      await callHandler(postStops, { user: ADMIN_USER, body: dto });
+    } finally {
+      restore();
+    }
 
     assert.equal(receivedDto?.name, 'Main Gate');
   });

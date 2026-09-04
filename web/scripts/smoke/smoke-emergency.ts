@@ -21,11 +21,7 @@
  */
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import * as cookieParser from 'cookie-parser';
+import { JwtService } from '../../src/server/framework';
 import {
   EMERGENCY_EVENTS,
   EmergencyStatus,
@@ -35,11 +31,9 @@ import {
   UserRole,
   emergencyRoomName,
 } from '@school-bus-tracking/shared-types';
-import { AppModule } from '../../src/app.module';
-import { HttpExceptionFilter } from '../../src/common/filters/http-exception.filter';
-import { TransformInterceptor } from '../../src/common/interceptors/transform.interceptor';
-import { SchoolAccessService } from '../../src/common/access/school-access.service';
-import { EmergenciesService } from '../../src/modules/emergencies/emergencies.service';
+import { createSmokeApp } from './support/smoke-app';
+import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
+import { EmergenciesService } from '../../src/server/modules/emergencies/emergencies.service';
 
 interface Row {
   [key: string]: unknown;
@@ -202,17 +196,7 @@ async function main(): Promise<void> {
   }
 
   // ---- App bootstrap --------------------------------------------------
-  const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
-  const configService = app.get(ConfigService);
-  app.use(cookieParser());
-  app.setGlobalPrefix(configService.get<string>('app.apiPrefix', 'api/v1'));
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
-  );
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  await app.init();
+  const app = await createSmokeApp();
 
   const broadcasts: Array<{ room: string; event: string; id: string; status: string }> = [];
   const emergencies = app.get(EmergenciesService);
@@ -225,10 +209,14 @@ async function main(): Promise<void> {
   (emergencies as unknown as Record<string, unknown>).routes = tableRepo(routes);
   (emergencies as unknown as Record<string, unknown>).users = tableRepo(users);
 
-  (app.get(SchoolAccessService) as unknown as Record<string, unknown>).schools = {
+  const accessService = app.get(SchoolAccessService) as unknown as Record<string, unknown>;
+  accessService.schools = {
     findOne: async ({ where }: { where: { id: string } }) =>
       ({ id: where.id, is_active: true }) as unknown as Row,
   };
+  // The container always wires the user repository, so the account-active
+  // check needs a stub too.
+  accessService.users = undefined;
 
   await app.listen(0);
   const address = app.getHttpServer().address();

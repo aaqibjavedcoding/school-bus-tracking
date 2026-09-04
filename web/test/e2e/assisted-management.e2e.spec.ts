@@ -16,7 +16,7 @@ import {
   Stop,
   Student,
   User,
-} from '../../src/database/models';
+} from '../../src/server/database/models';
 import { prepareDatabase, truncateAll } from '../support/database';
 import {
   createFullSchool,

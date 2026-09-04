@@ -1,20 +1,35 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import type { ExecutionContext } from '../../framework';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { ROLES_KEY } from '../../common/decorators';
+import { callHandler, makeGuardContext } from '../../http/route-testing';
+import type { EndpointDefinition } from '../../http/route-runtime';
+import { overrideContainer } from '../../container';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
-import { RoutesController } from './routes.controller';
 import { RoutesService } from './routes.service';
 import { CreateRouteDto } from './dto/create-route.dto';
 import { ListRoutesQueryDto } from './dto/list-routes-query.dto';
 import { ReorderRouteStopsDto } from './dto/reorder-route-stops.dto';
 import { UpdateRouteDto } from './dto/update-route.dto';
+import {
+  deleteRoutesById,
+  getRoutes,
+  getRoutesById,
+  getRoutesByIdDetails,
+  getRoutesByIdStops,
+  patchRoutesById,
+  postRoutes,
+  putRoutesByIdStops,
+} from '../../api/routes';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const SECRET = 'unit-test-jwt-secret';
+/** Authenticated SCHOOL_ADMIN actor, as the guards would have populated it. */
+const ADMIN_USER = { id: USER_ID, school_id: SCHOOL_A, role: UserRole.SCHOOL_ADMIN };
+/** UUID-shaped route parameter (handlers run it through ParseUUIDPipe). */
+const ROUTE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
@@ -34,38 +49,28 @@ interface MockRequest {
   user?: AuthenticatedRequestUser;
 }
 
-function makeContext(request: MockRequest, handler: (...args: never[]) => unknown) {
-  return {
-    switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => handler,
-    getClass: () => RoutesController,
-  } as unknown as ExecutionContext;
+function makeContext(request: MockRequest, definition: EndpointDefinition<never, never>) {
+  return makeGuardContext(definition, request as unknown as Record<string, unknown>);
 }
 
 async function activateGuards(
   request: MockRequest,
-  handler: (...args: never[]) => unknown,
+  definition: EndpointDefinition<never, never>,
 ): Promise<void> {
-  const context = makeContext(request, handler);
+  const context = makeContext(request, definition);
   await jwtAuthGuard.canActivate(context);
   rolesGuard.canActivate(context);
 }
 
-const createHandler = RoutesController.prototype.create as unknown as (...args: never[]) => unknown;
-const findOneHandler = RoutesController.prototype.findOne as unknown as (
-  ...args: never[]
-) => unknown;
-const findStopsHandler = RoutesController.prototype.findRouteStops as unknown as (
-  ...args: never[]
-) => unknown;
-const reorderHandler = RoutesController.prototype.reorderRouteStops as unknown as (
-  ...args: never[]
-) => unknown;
+const createHandler = postRoutes as EndpointDefinition<never, never>;
+const findOneHandler = getRoutesById as EndpointDefinition<never, never>;
+const findStopsHandler = getRoutesByIdStops as EndpointDefinition<never, never>;
+const reorderHandler = putRoutesByIdStops as EndpointDefinition<never, never>;
 
 describe('RoutesController (authorization)', () => {
   it('restricts the whole controller to SCHOOL_ADMIN via @Roles metadata', async () => {
     // @Roles is declared at controller level, so it applies to every endpoint.
-    const metadata = Reflect.getMetadata(ROLES_KEY, RoutesController);
+    const metadata = deleteRoutesById.roles;
     assert.deepEqual(metadata, [UserRole.SCHOOL_ADMIN]);
   });
 
@@ -158,15 +163,19 @@ describe('RoutesController (authorization)', () => {
         return { items: [] };
       },
     } as unknown as RoutesService;
-    const controller = new RoutesController(service);
+    const restore = overrideContainer('routes', service);
+    try {
 
-    await controller.create(SCHOOL_A, new CreateRouteDto());
-    await controller.findAll(SCHOOL_A, makeQuery());
-    await controller.findOne(SCHOOL_A, 'route-1');
-    await controller.update(SCHOOL_A, 'route-1', new UpdateRouteDto());
-    await controller.remove(SCHOOL_A, 'route-1');
-    await controller.findRouteStops(SCHOOL_A, 'route-1');
-    await controller.reorderRouteStops(SCHOOL_A, 'route-1', new ReorderRouteStopsDto());
+      await callHandler(postRoutes, { user: ADMIN_USER, body: new CreateRouteDto() });
+      await callHandler(getRoutes, { user: ADMIN_USER, query: makeQuery() });
+      await callHandler(getRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(patchRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateRouteDto() });
+      await callHandler(deleteRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(getRoutesByIdStops, { user: ADMIN_USER, params: { id: ROUTE_ID } });
+      await callHandler(putRoutesByIdStops, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new ReorderRouteStopsDto() });
+    } finally {
+      restore();
+    }
 
     assert.deepEqual(
       seen.map((call) => call.method),
@@ -183,13 +192,17 @@ describe('RoutesController (authorization)', () => {
         return { id: 'route-1' };
       },
     } as unknown as RoutesService;
-    const controller = new RoutesController(service);
+    const restore = overrideContainer('routes', service);
+    try {
 
-    const dto = new CreateRouteDto();
-    dto.name = 'North Loop';
-    dto.code = 'NORTH-AM';
+      const dto = new CreateRouteDto();
+      dto.name = 'North Loop';
+      dto.code = 'NORTH-AM';
 
-    await controller.create(SCHOOL_A, dto);
+      await callHandler(postRoutes, { user: ADMIN_USER, body: dto });
+    } finally {
+      restore();
+    }
 
     assert.equal(receivedDto?.code, 'NORTH-AM');
   });
