@@ -190,7 +190,13 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   const options: QueryOptions & { ignoreDuplicates?: boolean } = { ignoreDuplicates: true }
 
   // 1. Insert schools
-  await queryInterface.bulkInsert('schools', SCHOOLS, options)
+  const now = new Date()
+  const schoolsWithTimestamps = SCHOOLS.map(school => ({
+    ...school,
+    created_at: now,
+    updated_at: now,
+  }))
+  await queryInterface.bulkInsert('schools', schoolsWithTimestamps, options)
 
   // 2. Attach hashed passwords to admin objects and insert users
   const adminsWithHash = ADMINS.map((admin, index) => {
@@ -198,6 +204,8 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     return {
       ...admin,
       password_hash: passwordHashes[schoolKey],
+      created_at: now,
+      updated_at: now,
     }
   })
 
