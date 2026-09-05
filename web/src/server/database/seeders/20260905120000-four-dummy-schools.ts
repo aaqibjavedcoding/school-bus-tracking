@@ -41,6 +41,11 @@ const ADMIN_USERS = {
   SCHOOL_D: '00000000-0000-4000-8000-000000000204',
 }
 
+// bulkInsert bypasses model timestamp hooks, so the seeder must provide these
+// non-null columns explicitly.
+const TIMESTAMP = new Date('2026-09-05T00:00:00.000Z')
+const timestamps = { created_at: TIMESTAMP, updated_at: TIMESTAMP }
+
 // School data payloads
 const SCHOOLS = [
   {
@@ -60,6 +65,7 @@ const SCHOOLS = [
     latitude: 19.0761,
     longitude: 72.8777,
     is_active: true,
+    ...timestamps,
   },
   {
     id: SCHOOL_IDS.SCHOOL_B,
@@ -78,6 +84,7 @@ const SCHOOLS = [
     latitude: 28.7041,
     longitude: 77.1025,
     is_active: true,
+    ...timestamps,
   },
   {
     id: SCHOOL_IDS.SCHOOL_C,
@@ -96,6 +103,7 @@ const SCHOOLS = [
     latitude: 12.9716,
     longitude: 77.5946,
     is_active: true,
+    ...timestamps,
   },
   {
     id: SCHOOL_IDS.SCHOOL_D,
@@ -114,6 +122,7 @@ const SCHOOLS = [
     latitude: 13.0827,
     longitude: 80.2700,
     is_active: true,
+    ...timestamps,
   },
 ]
 
@@ -130,6 +139,7 @@ const ADMINS = [
     email_verified_at: new Date('2026-09-05T00:00:00.000Z'),
     phone: '+91-9876543210',
     is_active: true,
+    ...timestamps,
   },
   {
     id: ADMIN_USERS.SCHOOL_B,
@@ -142,6 +152,7 @@ const ADMINS = [
     email_verified_at: new Date('2026-09-05T00:00:00.000Z'),
     phone: '+91-9876543211',
     is_active: true,
+    ...timestamps,
   },
   {
     id: ADMIN_USERS.SCHOOL_C,
@@ -154,6 +165,7 @@ const ADMINS = [
     email_verified_at: new Date('2026-09-05T00:00:00.000Z'),
     phone: '+91-9876543212',
     is_active: true,
+    ...timestamps,
   },
   {
     id: ADMIN_USERS.SCHOOL_D,
@@ -166,6 +178,7 @@ const ADMINS = [
     email_verified_at: new Date('2026-09-05T00:00:00.000Z'),
     phone: '+91-9876543213',
     is_active: true,
+    ...timestamps,
   },
 ]
 
