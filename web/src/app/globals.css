@@ -905,6 +905,48 @@ table.data tbody tr:hover {
   width: min(440px, 100%);
 }
 
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-input-wrapper .input {
+  width: 100%;
+  padding-right: 2.75rem;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  padding: 0.35rem;
+  cursor: pointer;
+  color: var(--color-slate-400);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  line-height: 1;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.password-toggle-btn:hover {
+  color: var(--color-slate-700);
+  background: var(--color-slate-100);
+}
+
+.password-toggle-btn:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 1px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
