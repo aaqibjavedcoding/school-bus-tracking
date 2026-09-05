@@ -8,12 +8,12 @@ namespaces. It contains **no backend logic of its own**.
 
 ## Roles & screens
 
-| Role | Route group | Experience |
-| --- | --- | --- |
-| DRIVER / CONDUCTOR | `(crew)` | Today's trip (status `BOARDING → IN_PROGRESS → COMPLETED`), student manifest with board/drop, stops & live ETA, native GPS sharing incl. background |
-| PARENT | `(parent)` | Dashboard & children, child detail, live bus map + ETA + stops, notification centre with unread badge |
-| SCHOOL_ADMIN | `(admin)` | Today's operations board, trip cockpit (lifecycle incl. cancel, live map, ETA, arrivals, manifest), student directory, dispatch-from-assignment operations |
-| SUPER_ADMIN | `/platform` | Notice screen — the platform console is a web workflow |
+| Role               | Route group | Experience                                                                                                                                                 |
+| ------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DRIVER / CONDUCTOR | `(crew)`    | Today's trip (status `BOARDING → IN_PROGRESS → COMPLETED`), student manifest with board/drop, stops & live ETA, native GPS sharing incl. background        |
+| PARENT             | `(parent)`  | Dashboard & children, child detail, live bus map + ETA + stops, notification centre with unread badge                                                      |
+| SCHOOL_ADMIN       | `(admin)`   | Today's operations board, trip cockpit (lifecycle incl. cancel, live map, ETA, arrivals, manifest), student directory, dispatch-from-assignment operations |
+| SUPER_ADMIN        | `/platform` | Notice screen — the platform console is a web workflow                                                                                                     |
 
 Driver and conductor deliberately share one crew implementation
 (`src/features/crew`); `src/features/driver` and `src/features/conductor` only
@@ -76,6 +76,48 @@ npm --prefix mobile run typecheck   # tsc --noEmit
 npm --prefix mobile test            # node --test unit specs
 cd mobile && npx expo export --platform android   # Metro bundle check
 cd mobile && npx expo export --platform ios       # Metro bundle check
+```
+
+## Troubleshooting
+
+### `TypeError: Cannot read property 'useId' of null` at startup
+
+The app builds but crashes the moment it opens, with a stack that ends in
+`useKeepAwake` → `expo/src/launch/withDevTools.tsx`:
+
+```
+ERROR  [TypeError: Cannot read property 'useId' of null]
+  useId (node_modules/react/cjs/react.development.js)
+  useKeepAwake (node_modules/expo-keep-awake/src/index.ts)
+  WithDevTools (node_modules/expo/src/launch/withDevTools.tsx)
+```
+
+This means **two copies of React ended up in one bundle**. The workspace
+installs two on purpose: `web` pins React 18.3.1 (Next 14) and npm hoists it to
+`<root>/node_modules/react`, while mobile needs React 19.1.0 (what
+`react-native` 0.81 peers on) so npm nests that copy in `mobile/node_modules`.
+Metro resolves bare imports hierarchically first, so `require('react')` from a
+hoisted package (`expo`, `expo-router`, `expo-keep-awake`, …) picks up React 18
+while `react-native` and `mobile/app/**` pick up React 19. The renderer installs
+its dispatcher on one copy and the hook reads it from the other — hence `null`.
+
+`metro.config.js` pins a single copy via `resolver.resolveRequest`, which is the
+only hook Metro consults before the hierarchical lookup. Check it is present,
+then restart with a cleared cache — a stale Metro cache keeps serving the
+two-React bundle:
+
+```bash
+cd mobile && npx expo start -c
+```
+
+To confirm the fix, grep the dev bundle for React's runtime. Exactly **one**
+path must appear (the `../node_modules/react` copy is the web app's React 18):
+
+```bash
+cd mobile && npx expo export --platform android --dev
+grep -o '[.a-zA-Z0-9_/\-]*node_modules/react/cjs/react\.development\.js' \
+  dist/_expo/static/js/android/entry-*.js | sort -u
+# expected: node_modules/react/cjs/react.development.js
 ```
 
 ## Layout
