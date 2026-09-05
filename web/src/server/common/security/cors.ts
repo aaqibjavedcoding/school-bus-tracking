@@ -31,9 +31,14 @@ export interface CorsPolicy {
  * 1. `CORS_ORIGIN` must be set to at least one explicit origin.
  * 2. `*` is rejected outright, and is also rejected when mixed into a list.
  *
- * Outside production a missing value falls back to the historical
- * `http://localhost:3000` default so local development keeps working, and an
- * explicit `*` is honoured for throwaway environments.
+ * Outside production a missing value falls back to `http://localhost:3001` so
+ * local development keeps working, and an explicit `*` is honoured for
+ * throwaway environments. That is the origin the unified Next.js server serves
+ * BOTH the web UI and the API from (`PORT`, default 3001) — before the NestJS
+ * migration the UI ran on its own :3000 dev server, so the fallback pointed
+ * there. A stale fallback is not cosmetic: `CsrfGuard` rejects every
+ * state-changing browser request whose `Origin` is not in this list with
+ * `403 Request origin is not allowed`, which would break login itself.
  */
 export function resolveCorsPolicy(input: CorsPolicyInput): CorsPolicy {
   const origins = input.corsOrigins;
@@ -56,7 +61,7 @@ export function resolveCorsPolicy(input: CorsPolicyInput): CorsPolicy {
     return { origins: [], allowAll: true, credentials: false };
   }
 
-  const fallback = origins.length > 0 ? origins : parseOriginList('http://localhost:3000');
+  const fallback = origins.length > 0 ? origins : parseOriginList('http://localhost:3001');
   return { origins: fallback, allowAll: false, credentials: input.credentials };
 }
 
