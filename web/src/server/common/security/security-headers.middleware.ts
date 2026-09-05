@@ -20,7 +20,7 @@ export interface SecurityHeadersOptions {
  * be maximally restrictive without any risk of breaking a page: everything is
  * denied and only `frame-ancestors` is configurable. The Next.js web
  * application ships its own, page-appropriate CSP (see
- * `apps/web/security-headers.js`).
+ * `web/security-headers.js`).
  */
 export function buildApiCspDirectives(frameAncestors: string): Record<string, string[]> {
   return {

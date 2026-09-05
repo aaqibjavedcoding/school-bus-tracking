@@ -21,7 +21,7 @@ import {
 } from './helpers.ts';
 
 /**
- * Mirrors `apps/web/src/features/documents/helpers.spec.ts` so the two clients
+ * Mirrors `web/src/features/documents/helpers.spec.ts` so the two clients
  * cannot drift: the same rules, expressed for the mobile kit.
  */
 

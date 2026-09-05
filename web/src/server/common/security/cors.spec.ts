@@ -62,7 +62,7 @@ describe('resolveCorsPolicy (production)', () => {
 describe('resolveCorsPolicy (development)', () => {
   it('defaults to the local web origin when unset', () => {
     const policy = resolveCorsPolicy({ isProduction: false, corsOrigins: [], credentials: true });
-    assert.deepEqual(policy.origins, ['http://localhost:3000']);
+    assert.deepEqual(policy.origins, ['http://localhost:3001']);
     assert.equal(policy.allowAll, false);
   });
 

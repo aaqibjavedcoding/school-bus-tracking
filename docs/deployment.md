@@ -90,7 +90,7 @@ npm run build
 
 ```bash
 # Run migrations
-cd apps/api
+cd web
 npm run db:migrate
 
 # Seed initial data (optional)
@@ -100,13 +100,18 @@ npm run db:seed
 ## Start
 
 ```bash
-# Production
-cd apps/api
-npm run start:prod
+# Production (serves the web UI and the /api/v1 API from one process, PORT default 3001)
+cd web
+npm run start
 
 # Development
-npm run start:dev
+npm run dev
 ```
+
+Both run the same custom server entrypoint (`web/server.js`), which bootstraps the
+database, mounts the API and Socket.IO under `/api/v1`, and hands everything else
+to Next.js. Build first with `npm run build` (compiles the server API into
+`web/dist` and the App Router bundle into `web/.next`).
 
 ## Docker Compose (Development)
 

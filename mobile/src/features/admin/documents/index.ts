@@ -2,7 +2,7 @@
  * Mobile compliance-document feature barrel (Task 44).
  *
  * The presentation helpers live next to their web counterparts in
- * `apps/web/src/features/documents/helpers.ts` conceptually, but each app
+ * `web/src/features/documents/helpers.ts` conceptually, but each app
  * carries its own copy so no React Native screen ever imports from the web
  * app. The two files are kept intentionally identical in behaviour: **validity
  * is always derived by the API from real dates, never entered or edited**.

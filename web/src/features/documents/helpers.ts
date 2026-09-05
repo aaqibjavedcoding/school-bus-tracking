@@ -11,7 +11,7 @@ import {
  * Pure presentation helpers for the compliance-document screens.
  *
  * Free of React and of relative imports so the Node test runner
- * (`npm --prefix apps/web test`) can execute them directly — the same
+ * (`npm --prefix web test`) can execute them directly — the same
  * convention as `lib/errors.spec.ts` and
  * `features/admin/subscriptions/helpers.ts`.
  *

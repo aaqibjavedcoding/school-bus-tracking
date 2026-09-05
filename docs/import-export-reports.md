@@ -13,7 +13,7 @@ no Redis.
 | Area                        | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Models**                  | `School`, `User` (role = SCHOOL_ADMIN/DRIVER/CONDUCTOR/PARENT), `Bus`, `Route`, `Stop`, `Student`, `StudentGuardian`, `RouteAssignment`, `Trip`, `TripStudentAttendance`, `TripStopArrival`, `TripLocation`, `Notification`, `BusDocument`, `DriverDocument`, `DocumentRequirement`, `EmergencyEvent`, `AuditLog`, `Plan`, `SchoolSubscription`, `IdempotencyKey`. Every tenant entity carries `school_id` and most tenant references are pinned by composite FKs `(school_id, x_id) → x(school_id, id)`. |
-| **Validation**              | Two consistent layers: `class-validator` DTOs in `apps/api/src/modules/*/dto` (request shape) and Zod schemas in `packages/validation` (shared with web/mobile: `studentCreateSchema`, `busCreateSchema`, `routeCreateSchema`, `stopCreateSchema`, `staffCreateSchema`, `parentCreateSchema`, `studentGuardianCreateSchema`, `routeAssignmentCreateSchema`, …).                                                                                                                                           |
+| **Validation**              | Two consistent layers: `class-validator` DTOs in `web/src/server/modules/*/dto` (request shape) and Zod schemas in `packages/validation` (shared with web/mobile: `studentCreateSchema`, `busCreateSchema`, `routeCreateSchema`, `stopCreateSchema`, `staffCreateSchema`, `parentCreateSchema`, `studentGuardianCreateSchema`, `routeAssignmentCreateSchema`, …).                                                                                                                                         |
 | **Tenant isolation**        | `school_id` is always taken from verified JWT claims via `@CurrentUser('school_id')`; services pin `where: { school_id }` and return generic 404s for cross-tenant probes. No endpoint accepts a client-supplied `school_id`.                                                                                                                                                                                                                                                                             |
 | **AuthZ**                   | `JwtAuthGuard` + `RolesGuard` + `@Roles(UserRole.SCHOOL_ADMIN)` on every school-admin controller; `RateLimitGuard` opt-in via `@RateLimit(policy)`; CSRF double-submit for cookie-authenticated browsers (bearer calls are exempt).                                                                                                                                                                                                                                                                       |
 | **Lists/UI**                | Next.js App Router, `usePagedResource` / `useLoad` hooks, `components/ui` primitives (`PageHeader`, `Modal`, `Button`, `Badge`, `Pagination`, `useToast`), `apiClient` from `packages/api-client` behind a same-origin `/api/v1` rewrite.                                                                                                                                                                                                                                                                 |
@@ -128,22 +128,22 @@ All report queries are tenant-pinned and `SCHOOL_ADMIN`-only.
 ## 5. Where the code lives
 
 ```
-apps/api/src/modules/data-transfer/
+web/src/server/modules/data-transfer/
   excel/excel.util.ts             # workbook build/stream/parse + CSV helpers
   import/import.service.ts        # parse → validate → preview / commit
   import/import-history.service.ts# import_jobs + error workbook
   import/import-template.service.ts
   import/definitions/*.ts         # per-module columns, validation, persistence
   export/export.service.ts        # dataset registry + streaming writers
-apps/api/src/modules/reports/     # report registry + controller
-apps/api/src/database/models/import-job.model.ts
-apps/api/src/database/migrations/20260902120000-create-import-jobs.ts
+web/src/server/modules/reports/     # report registry + controller
+web/src/server/database/models/import-job.model.ts
+web/src/server/database/migrations/20260902120000-create-import-jobs.ts
 packages/shared-types             # ImportModule / ExportDataset / ReportType contracts
 packages/validation               # shared import/export/report query schemas
 packages/api-client               # typed upload + blob download methods
-apps/web/src/features/data-transfer/  # ImportDialog, ExportMenu
-apps/web/src/app/(authenticated)/imports/   # import history
-apps/web/src/app/(authenticated)/reports/   # reports area
+web/src/features/data-transfer/  # ImportDialog, ExportMenu
+web/src/app/(authenticated)/imports/   # import history
+web/src/app/(authenticated)/reports/   # reports area
 ```
 
 Mobile is intentionally untouched by this feature: bulk import/export, the

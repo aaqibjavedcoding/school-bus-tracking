@@ -8,27 +8,27 @@ This document describes the testing strategy and how to run tests.
 
 ### 1. Unit Tests
 
-- **Location**: `apps/api/src/**/*.spec.ts`, `apps/web/src/**/*.spec.ts`, `apps/mobile/src/**/*.spec.ts`
+- **Location**: `web/src/server/**/*.spec.ts`, `web/src/**/*.spec.ts`, `mobile/src/**/*.spec.ts`
 - **Purpose**: Test individual functions, services, and components in isolation
 - **Run**: `npm test`
 
 ### 2. Integration Tests (Real PostgreSQL)
 
-- **Location**: `apps/api/test/integration/`
+- **Location**: `web/test/integration/`
 - **Purpose**: Test services against a real PostgreSQL database
-- **Run**: `npm run test:integration` (from `apps/api`)
+- **Run**: `npm run test:integration` (from `web`)
 - **Requirements**: PostgreSQL server running
 
 ### 3. E2E Tests (Real HTTP + PostgreSQL)
 
-- **Location**: `apps/api/test/e2e/`
+- **Location**: `web/test/e2e/`
 - **Purpose**: Test the full request pipeline (guards, middleware, services, SQL)
-- **Run**: `npm run test:e2e` (from `apps/api`)
+- **Run**: `npm run test:e2e` (from `web`)
 - **Requirements**: PostgreSQL server running
 
 ### 4. All Database Tests
 
-- **Run**: `npm run test:db` (from `apps/api`)
+- **Run**: `npm run test:db` (from `web`)
 - **Runs**: Integration tests + E2E tests
 
 ## Setting Up PostgreSQL for Tests

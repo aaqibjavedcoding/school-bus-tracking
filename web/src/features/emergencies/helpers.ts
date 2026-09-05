@@ -11,7 +11,7 @@ import {
  * Pure policy of the school-admin emergency alarm.
  *
  * Deliberately free of React, of the Web Audio API and of *runtime* relative
- * imports so the Node test runner (`npm --prefix apps/web test`) can execute it
+ * imports so the Node test runner (`npm --prefix web test`) can execute it
  * directly — the same convention as `features/documents/helpers.ts` and
  * `features/admin/subscriptions/helpers.ts`.
  *

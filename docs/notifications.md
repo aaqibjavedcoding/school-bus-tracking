@@ -91,7 +91,7 @@ default 30/minute). The platform `SUPER_ADMIN` (no tenant) is rejected.
 
 ## Mobile wiring (Expo SDK 54)
 
-`apps/mobile/src/features/notifications/`:
+`mobile/src/features/notifications/`:
 
 - `push-registration.ts` — pure, unit-tested decisions (platform mapping,
   permission handling incl. Android 13+ `POST_NOTIFICATIONS` and iOS
@@ -115,7 +115,7 @@ The Firebase project is already created by the user. To wire the API:
 
 1. In the Firebase console open **Project settings → Service accounts** and
    generate a **new private key**. This downloads a service-account JSON.
-2. In `apps/api/.env` set:
+2. In `web/.env` set:
    - `FIREBASE_PROJECT_ID=<project id>`
    - `FIREBASE_SERVICE_ACCOUNT_JSON=<entire JSON on ONE line>`
 3. Restart the API. Check the logs: watch for FCM sends (or
@@ -142,18 +142,18 @@ development or production build with EAS:
 2. Android:
    - Download `google-services.json` from Firebase (**Project settings →
      Your apps → Add app → Android**, package `com.schoolbustracking.app`) and
-     place it at `apps/mobile/google-services.json`.
-   - Build: `cd apps/mobile && npx eas build --profile development --platform android`
+     place it at `mobile/google-services.json`.
+   - Build: `cd mobile && npx eas build --profile development --platform android`
      (or `npx expo run:android` for a local dev build).
 3. iOS (can be deferred — Android FCM works alone):
    - Add an iOS app in Firebase and place `GoogleService-Info.plist` in
-     `apps/mobile`.
+     `mobile`.
    - In the Apple Developer portal configure **APNs** and upload the APNs key
      (or certificate) to Firebase (Project settings → Cloud Messaging).
    - Build with EAS (`--platform ios`); push has no effect on iOS without APNs
      configured.
 4. The `expo-notifications` config plugin is already in
-   `apps/mobile/app.json` (notification color). A native rebuild is required
+   `mobile/app.json` (notification color). A native rebuild is required
    after changing `app.json` or adding `google-services.json`.
 
 Test on a physical device (or an Android emulator with Google Play services).
@@ -215,7 +215,7 @@ emergency arrives — on any screen, not only on `/emergencies`.
   malformed payloads.
 - **Audience** — `SCHOOL_ADMIN` only. The gateway also joins crew sockets to the room, but
   the crew member who raised an SOS already knows about it, so their tab stays silent.
-- **Location** — `apps/web/src/features/emergencies/`: `helpers.ts` (policy + socket
+- **Location** — `web/src/features/emergencies/`: `helpers.ts` (policy + socket
   wiring), `emergency-alarm.ts` (synthesiser + state machine), `useEmergencyAlarm.ts`,
   `EmergencyAlarmBell.tsx` (top-bar control, mounted in `AppShell`).
 

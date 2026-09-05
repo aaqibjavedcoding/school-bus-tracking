@@ -15,7 +15,7 @@ The platform serves four primary stakeholder groups:
 
 ## 2. Monorepo Architecture & Workspace Structure
 
-The project is structured as an **npm workspaces** monorepo running on **Node.js 22 LTS**. This design maximizes code reuse across web, backend, and mobile applications while ensuring strict separation of concerns and independent versioning.
+The project is structured as an **npm workspaces** monorepo running on **Node.js 22 LTS**. This design maximizes code reuse between the web application (which now also hosts the entire backend API) and the mobile client, while keeping the shared domain contracts in `packages/` and ensuring strict separation of concerns and independent versioning.
 
 ### 2.1 Directory Tree
 
@@ -30,58 +30,64 @@ school-bus-tracking/
 ├── tsconfig.base.json              # Base TypeScript compiler settings
 ├── tsconfig.json                   # Root composite project references
 │
-├── apps/
-│   ├── web/                        # Next.js 14+ App Router Web Application
-│   │   ├── src/
-│   │   │   ├── app/                # App Router layouts, pages, and API routes
-│   │   │   ├── components/         # Reusable UI component library
-│   │   │   ├── features/           # Domain feature slices (fleet, routes, admin)
-│   │   │   ├── services/           # HTTP/WebSocket client wrappers
-│   │   │   └── types/              # Web-specific presentation types
-│   │   ├── next.config.js
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   ├── api/                        # NestJS Backend API Gateway & Engine
-│   │   ├── src/
-│   │   │   ├── common/             # Cross-cutting HTTP filters, guards, pipes, interceptors
-│   │   │   │   ├── decorators/     # Custom parameter and route decorators
-│   │   │   │   ├── filters/        # Global exception handling & error standardization
-│   │   │   │   ├── guards/         # RBAC and tenant authorization guards
-│   │   │   │   ├── interceptors/   # Response formatting and latency logging
-│   │   │   │   └── pipes/          # DTO transformation and validation pipes
-│   │   │   ├── config/             # ConfigService schema & environment definitions
-│   │   │   ├── database/           # Sequelize ORM infrastructure
-│   │   │   │   ├── models/         # Sequelize-typescript model declarations
-│   │   │   │   ├── migrations/     # Versioned SQL/Sequelize migrations
-│   │   │   │   └── seeders/        # Test & environment seed data
-│   │   │   ├── modules/            # Business & domain modules
-│   │   │   │   └── health/         # System heartbeat & readiness module
-│   │   │   ├── workers/            # BullMQ / telemetry queue background consumers
-│   │   │   ├── app.module.ts       # Root NestJS application module
-│   │   │   └── main.ts             # Application bootstrap & middleware pipeline
-│   │   ├── .env.example            # Environment configuration template
-│   │   ├── nest-cli.json
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   └── tsconfig.build.json
-│   │
-│   └── mobile/                     # React Native Expo Mobile App (expo-router)
-│       ├── app/                    # File-based navigation routes (_layout, index)
-│       ├── src/
-│       │   ├── components/         # Cross-platform native UI primitives
-│       │   ├── features/           # Feature slices by persona
-│       │   │   ├── driver/         # Telemetry broadcaster & turn guidance
-│       │   │   ├── conductor/      # Student manifest & barcode scanner
-│       │   │   └── parent/         # Live map tracking & push notifications
-│       │   ├── services/           # Mobile API & WebSocket connectors
-│       │   ├── theme/              # Mobile styling mapped to design tokens
-│       │   └── types/              # Mobile-specific navigation & device types
-│       ├── app.json
-│       ├── babel.config.js
-│       ├── metro.config.js
-│       ├── package.json
-│       └── tsconfig.json
+├── web/                            # Next.js 14 App Router — the web UI *and* the
+│   │                               # entire backend API, in one deployable server
+│   ├── server.js                   # Custom Node server: bootstraps the database,
+│   │                               # mounts the API under /api/v1 + Socket.IO,
+│   │                               # then hands the request off to next({ dev })
+│   ├── instrumentation.ts          # Next.js instrumentation hook (server startup)
+│   ├── next.config.js              # transpilePackages, security headers
+│   ├── security-headers.js         # Shared HTTP security header policy
+│   ├── .sequelizerc                # Points the Sequelize CLI at src/database
+│   ├── .env.example                # Environment configuration template
+│   ├── scripts/                    # db:migrate / db:seed / smoke scripts
+│   ├── test/                       # Server unit + integration suites (node:test)
+│   └── src/
+│       ├── app/                    # App Router layouts and pages
+│       │   └── api/v1/**/route.ts  # Every API endpoint as a Next.js route handler
+│       ├── components/             # Reusable UI component library
+│       ├── features/               # Domain feature slices (fleet, routes, admin)
+│       ├── hooks/                  # Shared React hooks
+│       ├── lib/                    # Client-side utilities
+│       ├── services/               # HTTP/WebSocket client wrappers
+│       ├── types/                  # Web-specific presentation types
+│       └── server/                 # ← the backend engine (formerly web)
+│           ├── container.ts        # DI container: constructs every service once
+│           ├── api/                # ApiServer: Express app wiring API + sockets
+│           ├── auth/               # Authentication, access/refresh token handling
+│           ├── common/             # Cross-cutting concerns
+│           │   ├── decorators/     # Route & parameter decorators (@Roles, @Tenant…)
+│           │   ├── guards/         # JWT auth, RBAC, tenant scoping, CSRF
+│           │   ├── pipes/          # DTO validation / parse pipes
+│           │   └── security/       # CSRF, CORS, security middleware
+│           ├── config/             # Typed configuration & environment readers
+│           ├── database/           # Sequelize ORM infrastructure
+│           │   ├── models/         # sequelize-typescript model declarations
+│           │   ├── migrations/     # Versioned Sequelize migrations
+│           │   └── seeders/        # Test & environment seed data
+│           ├── framework/          # NestJS-parity runtime kept after the migration:
+│           │                       # ExecutionContext, HttpException, ValidationPipe,
+│           │                       # ParseUUIDPipe, JwtService, Logger, ConfigService
+│           ├── http/               # Next Request ⇄ Express adapter, cookies,
+│           │                       # response envelope, route runtime, test server
+│           ├── modules/            # Business & domain services (admin, buses, trips,
+│           │                       # students, documents, emergencies, notifications…)
+│           ├── realtime/           # Socket.IO namespaces (/live-tracking, /notifications)
+│           └── workers/            # Background consumers (telemetry, notifications, PDFs)
+│
+├── mobile/                         # React Native Expo app (expo-router)
+│   ├── app/                        # File-based navigation routes (_layout, index)
+│   ├── src/
+│   │   ├── components/             # Cross-platform native UI primitives
+│   │   ├── features/               # Feature slices by persona (crew, parent, admin)
+│   │   ├── services/               # Mobile API & WebSocket connectors
+│   │   ├── theme/                  # Mobile styling mapped to design tokens
+│   │   └── types/                  # Mobile-specific navigation & device types
+│   ├── app.json
+│   ├── babel.config.js
+│   ├── metro.config.js             # Monorepo-aware resolver (watchFolders = repo root)
+│   ├── package.json
+│   └── tsconfig.json
 │
 ├── packages/
 │   ├── shared-types/               # Domain interfaces, enums, DTO contracts
@@ -102,7 +108,7 @@ school-bus-tracking/
 
 ---
 
-## 3. Web Application (`apps/web`)
+## 3. Web Frontend (`web/src/app`, `web/src/features`)
 
 The web frontend is engineered with **Next.js 14+ (App Router)** in **TypeScript**:
 
@@ -115,23 +121,56 @@ The web frontend is engineered with **Next.js 14+ (App Router)** in **TypeScript
 
 ---
 
-## 4. Backend API Application (`apps/api`)
+## 4. Backend API (`web/src/server` + `web/src/app/api/v1`)
 
-The backend is built with **NestJS** and **TypeScript**, providing an enterprise-grade modular architecture:
+The backend is **no longer a separate application**. It runs inside the same Next.js
+server as the web frontend, which removes one deployment, one port, and the
+browser CORS hop between them. The former NestJS service layer was ported intact —
+every domain module, guard, DTO and business rule is preserved.
 
-- **Global Interceptor & Filter Pipeline**:
-  - `HttpExceptionFilter`: Normalizes all HTTP exceptions into standard `ApiResponse<T>` envelopes.
-  - `LoggingInterceptor`: Measures and logs execution latency for every incoming HTTP and WebSocket transaction.
-  - `TransformInterceptor`: Automatically wraps handler return values into uniform response objects.
-  - `ValidationPipe`: Validates incoming payload shapes using `class-validator` and `class-transformer`.
-- **Health Subsystem (`/api/v1/health`)**: Exposes an unauthenticated endpoint reporting system operational status, uptime, service identifiers, and environment metadata.
-- **Worker Infrastructure (`src/workers`)**: Prepared for asynchronous message processing (telemetry stream ingestion, bulk notifications, PDF report generation).
+- **Single custom server (`web/server.js`)**: a Node entrypoint that (1) calls
+  `bootstrapDatabase()` to register the Sequelize models and authenticate the
+  connection, (2) creates the `ApiServer` and mounts it under `/api/v1` together
+  with the Socket.IO gateways, and (3) falls through to `next({ dev })` for every
+  other request so App Router pages are served by Next itself. In production the
+  same file is the entrypoint (`node server.js`), so dev and prod share one boot path.
+- **Route handlers (`src/app/api/v1/**/route.ts`)**: each endpoint is a Next.js
+  `route.ts` exporting `GET`/`POST`/`PATCH`/`PUT`/`DELETE`. The handler body is
+  one `runRoute(...)` call from `src/server/http/route-runtime.ts`, which adapts
+  the incoming `Request` into the Express-style context the services already
+  expect, runs the guard/decorator/pipe pipeline, and serializes the result back
+  into the standard `ApiResponse<T>` envelope.
+- **Framework parity layer (`src/server/framework`)**: the NestJS primitives the
+  services were written against — `ExecutionContext`, `HttpException`,
+  `ValidationPipe`, `ParseUUIDPipe`, `JwtService`, `Logger`, `ConfigService` — are
+  reimplemented here with identical signatures. This is what allowed the modules to
+  be ported without changing business logic.
+- **Guard & pipeline behaviour** (unchanged from the NestJS implementation):
+  - `HttpException` handling normalizes all errors into standard `ApiResponse<T>` envelopes.
+  - Request logging measures and logs execution latency for HTTP and WebSocket traffic.
+  - Response transformation wraps handler return values into uniform response objects.
+  - `ValidationPipe` validates incoming payload shapes with the shared Zod schemas.
+  - JWT authentication, `@Roles(...)` RBAC and tenant scoping run before the handler.
+  - `CsrfGuard` rejects state-changing requests whose `Origin` is not allowed by
+    the CORS policy (`CORS_ORIGIN`), so that value must match the origin the app
+    is actually opened from.
+- **Dependency injection (`src/server/container.ts`)**: a hand-rolled container
+  constructs each service exactly once and injects it into the route runtime,
+  replacing the Nest module graph. There is no per-request service construction.
+- **Health subsystem (`/api/v1/health`)**: still exposes an unauthenticated
+  endpoint reporting operational status, uptime, service identifiers, database
+  and realtime gateway state, and environment metadata.
+- **Realtime (`src/server/realtime`)**: Socket.IO is attached to the same HTTP
+  server, so `/live-tracking` and `/notifications` share the port and the
+  authentication middleware with the REST API.
+- **Worker infrastructure (`src/server/workers`)**: retained for asynchronous
+  processing (telemetry stream ingestion, bulk notifications, PDF report generation).
 
 ---
 
-## 5. Mobile Application (`apps/mobile`)
+## 5. Mobile Application (`mobile/`)
 
-The mobile client is a unified **React Native** application powered by **Expo (SDK 54)** and **expo-router**. It reuses the existing NestJS API, the shared `api-client`, `shared-types` and `validation` packages, and both Socket.IO namespaces (`/live-tracking`, `/notifications`) — it contains no backend logic of its own.
+The mobile client is a unified **React Native** application powered by **Expo (SDK 54)** and **expo-router**. It reuses the existing Next.js API, the shared `api-client`, `shared-types` and `validation` packages, and both Socket.IO namespaces (`/live-tracking`, `/notifications`) — it contains no backend logic of its own.
 
 - **Role-based navigation** (`src/lib/roles.ts` + `RoleGate`): every route group is guarded client-side exactly like the API guards it server-side.
   - `(crew)` — **one shared Driver + Conductor experience**: today's trip (`BOARDING → IN_PROGRESS → COMPLETED` via `PATCH /trips/:id/status`), student manifest with body-less board/drop endpoints, stops & live ETA (`/trips/:id/eta`, `/progress`), and native GPS sharing. `src/features/driver` and `src/features/conductor` are thin re-exports of the same `src/features/crew` slice.
@@ -139,7 +178,7 @@ The mobile client is a unified **React Native** application powered by **Expo (S
   - `(admin)` — the `SCHOOL_ADMIN` experience with feature parity for day-to-day management: operations dashboard, trip schedule and trip cockpit (dispatch lifecycle + live map + manifest), live tracking, attendance, emergencies, and a **Manage** hub exposing full CRUD (create / edit / delete) for students, buses, routes & stops, drivers & conductors, guardians, route assignments, and bus/driver compliance documents — all against the same API endpoints and shared Zod schemas the web console uses. **Web-only** back-office features are bulk Excel import/export, the import-job history, and the Reports area (see `docs/import-export-reports.md`). `SUPER_ADMIN` (platform console) still gets a "use the web console" notice screen.
 - **Driver/Conductor GPS (real device data only)**: `expo-location` foreground `watchPositionAsync` plus an opt-in background task (`startLocationUpdatesAsync` + `expo-task-manager`) with the location plugin permissions configured in `app.json`. Every fix is mapped to the shared `trip:location:update` Zod contract (km/h speed, normalized heading, device `recorded_at`), validated client-side with the same schema, and emitted over the existing socket — malformed or offline fixes are dropped, never queued or fabricated. Sharing auto-stops on terminal trip states and sign-out.
 - **Auth**: the same `/auth/login|refresh|logout` endpoints. The access token lives in JS memory only; the refresh cookie persists in the platform cookie jar so sessions survive app restarts.
-- **Metro Monorepo Resolution**: Configured via `metro.config.js` to seamlessly resolve shared packages (`@school-bus-tracking/*`) directly from the workspace root.
+- **Metro Monorepo Resolution**: Configured via `mobile/metro.config.js` — `watchFolders` points at the repository root and `nodeModulesPaths` lists `mobile/node_modules` first and the root second, so both the workspace packages (`@school-bus-tracking/*`) and hoisted dependencies resolve. Hierarchical (nested) `node_modules` lookup is deliberately left enabled: turning it off breaks transitive dependencies that ship their own nested copies.
 
 ---
 
@@ -165,7 +204,7 @@ Shared packages ensure zero type divergence and unified styling across the platf
 - **PostgreSQL 16 + PostGIS**: PostgreSQL is selected as the primary relational database, enhanced with PostGIS for native spatial computation (geofence boundaries, route line strings, distance queries).
 - **Sequelize ORM (`sequelize-typescript`)**:
   - Explicitly configured without `sequelize.sync()`.
-  - Schema changes are managed exclusively through version-controlled database migrations in `apps/api/src/database/migrations`.
+  - Schema changes are managed exclusively through version-controlled database migrations in `web/src/server/database/migrations`.
   - Strict connection pooling with configurable max/min limits, acquire timeout, and idle cleanup.
   - **Prisma is completely prohibited** from the project to maintain a unified Sequelize ORM foundation.
 
@@ -236,4 +275,4 @@ The monorepo enforces automated quality checks:
 - `npm run typecheck`: Strict TypeScript typechecking across all apps and packages.
 - `npm run lint`: ESLint rules enforcing code quality, no unused variables, and styling conventions.
 - `npm run format:check`: Prettier verification for consistent styling.
-- `npm run build`: Full compilation of all shared packages, backend NestJS app, and web application.
+- `npm run build`: Builds every workspace — the shared packages, the web application (App Router production bundle in `web/.next` plus the compiled server API in `web/dist`), and the mobile Expo bundle.

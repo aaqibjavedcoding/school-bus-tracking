@@ -58,12 +58,25 @@ async function main() {
   const { RequestIdMiddleware } = require(path.join(serverDist, 'common/middleware/request-id.middleware'));
   const { parseOriginList } = require(path.join(serverDist, 'config'));
   const { Logger } = require(path.join(serverDist, 'framework'));
+  const { bootstrapDatabase } = require(path.join(serverDist, 'database/bootstrap'));
 
   const logger = new Logger('Bootstrap');
   const container = getContainer();
   const configService = container.config();
 
   const apiPrefix = configService.get('app.apiPrefix') ?? 'api/v1';
+
+  // --- connect PostgreSQL and register every Sequelize model ----------------
+  // Nothing else in this file (nor any route handler, nor the realtime
+  // gateways wired further down) may touch a model before this resolves:
+  // Sequelize model classes are static, so until `addModels` runs they are
+  // detached and every query throws `Model not initialized`. The old Nest
+  // bootstrap did this inside `DatabaseModule.forRoot()`; the plain-TypeScript
+  // replacement exposes it as `bootstrapDatabase()`, which this entry point is
+  // responsible for awaiting.
+  //
+  // Idempotent — it reuses `container.sequelize` when already connected.
+  await bootstrapDatabase();
 
   // Explicit, allowlisted CORS. `resolveCorsPolicy` throws in production when
   // the allowlist is missing or wildcarded, so a misconfigured deployment

@@ -1,9 +1,10 @@
 # School Bus Tracking — Mobile App (Expo / React Native)
 
 One React Native app for **drivers**, **conductors**, **parents** and **school
-admins**. It talks to the existing NestJS API (`apps/api`) through the shared
-`@school-bus-tracking/api-client` and the existing Socket.IO namespaces — it
-contains **no backend logic of its own**.
+admins**. It talks to the existing API — now served by the `web` workspace as
+Next.js route handlers under `/api/v1`, on the same port as the web UI — through
+the shared `@school-bus-tracking/api-client` and the existing Socket.IO
+namespaces. It contains **no backend logic of its own**.
 
 ## Roles & screens
 
@@ -25,11 +26,12 @@ re-export it.
 npm install
 npm run build:packages
 
-# start the API first — the phone needs it running and reachable on port 3001
-npm --prefix apps/api start
+# start the server first — it serves BOTH the web UI and the API on port 3001,
+# and the phone needs it running and reachable
+npm --prefix web run dev
 
 # then start the app
-npm --prefix apps/mobile start
+npm --prefix mobile start
 ```
 
 The app auto-detects the API host from the Metro dev server, so a physical
@@ -38,12 +40,13 @@ machine's LAN IP, not `localhost`). Only override it when the API is not on
 the same machine/network as Metro:
 
 ```bash
-export EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api/v1   # optional override
-export EXPO_PUBLIC_API_PORT=3001                               # optional port override
-npm --prefix apps/mobile start
+# cross-env keeps this working in Windows CMD/PowerShell as well as bash
+npx cross-env EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api/v1 \
+              EXPO_PUBLIC_API_PORT=3001 \
+              npm --prefix mobile start
 ```
 
-Requirements for a physical device: the phone and the machine running the API
+Requirements for a physical device: the phone and the machine running the server
 must be on the same network, the API must be reachable from the phone
 (`http://<your-lan-ip>:3001/api/v1/health` in a phone browser should answer),
 and the OS firewall must allow inbound connections to port 3001.
@@ -69,9 +72,10 @@ in the platform cookie jar, so the session survives app restarts.
 ## Quality gates
 
 ```bash
-npm --prefix apps/mobile run typecheck   # tsc --noEmit
-npm --prefix apps/mobile test            # node --test unit specs
-cd apps/mobile && npx expo export --platform android   # Metro bundle check
+npm --prefix mobile run typecheck   # tsc --noEmit
+npm --prefix mobile test            # node --test unit specs
+cd mobile && npx expo export --platform android   # Metro bundle check
+cd mobile && npx expo export --platform ios       # Metro bundle check
 ```
 
 ## Layout

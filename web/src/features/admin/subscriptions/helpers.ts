@@ -11,7 +11,7 @@ import {
  * Pure presentation/form helpers for the Super Admin subscription console.
  *
  * Deliberately free of React and of relative imports so the Node test runner
- * (`npm --prefix apps/web test`) can execute them directly, the same way
+ * (`npm --prefix web test`) can execute them directly, the same way
  * `lib/errors.spec.ts` does. All business rules (assignable plans, one live
  * subscription, date ordering, history preservation) live in the backend —
  * these helpers only shape what is rendered and what is sent.
