@@ -30,7 +30,7 @@ export default tseslint.config(
   {
     // CommonJS tooling scripts (Sequelize CLI runner and migration/seeder
     // scaffolding). These intentionally use require()/module.exports.
-    files: ['apps/api/scripts/**/*.js'],
+    files: ['web/scripts/**/*.js'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
     },
