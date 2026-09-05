@@ -11,7 +11,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 1. Audit Logging
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/modules/audit/`
+- **Location**: `web/src/server/modules/audit/`
 - **Description**: Durable audit trail for security-relevant and operational mutations
 - **Coverage**: School lifecycle, student/guardian/staff/bus/route/trip/document/emergency operations, auth events
 - **Storage**: PostgreSQL `audit_logs` table (append-only)
@@ -20,7 +20,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 2. Request ID + Structured Logging
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/common/middleware/request-id.middleware.ts`, `apps/api/src/common/interceptors/structured-logging.interceptor.ts`
+- **Location**: `web/src/server/common/middleware/request-id.middleware.ts`, `web/src/server/common/interceptors/structured-logging.interceptor.ts`
 - **Description**: Every API request gets a correlation ID (client-supplied or server-generated)
 - **Production**: JSON structured logs with request_id, method, path, status, duration, user_id, school_id
 - **Development**: Human-readable one-line summaries
@@ -29,7 +29,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 3. Health / Readiness
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/modules/health/`
+- **Location**: `web/src/server/modules/health/`
 - **Endpoints**:
   - `GET /health` — Liveness (always 200 if process alive)
   - `GET /health/ready` — Readiness (503 when not ready)
@@ -38,7 +38,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 4. Idempotency for Critical Operations
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/common/idempotency/`
+- **Location**: `web/src/server/common/idempotency/`
 - **Operations**: Boarding, drop, SOS, trip status transitions
 - **Mechanism**: Client-generated `x-idempotency-key` header
 - **Storage**: PostgreSQL `idempotency_keys` table with TTL
@@ -47,7 +47,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 5. Notification Provider Architecture
 
 - **Status**: Implemented (abstractions + no-op providers)
-- **Location**: `apps/api/src/modules/notifications/providers/`
+- **Location**: `web/src/server/modules/notifications/providers/`
 - **Providers**:
   - `PushNotificationProvider` — No-op for development
   - `EmailNotificationProvider` — No-op for development
@@ -57,7 +57,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 6. Document Storage Abstraction
 
 - **Status**: Implemented (abstraction + local filesystem provider)
-- **Location**: `apps/api/src/modules/documents/storage/`
+- **Location**: `web/src/server/modules/documents/storage/`
 - **Provider**: `LocalStorageProvider` for development
 - **Validation**: File type allowlist, file size limits, filename sanitization
 - **Note**: Local filesystem is NOT a production storage solution.
@@ -65,7 +65,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 7. Data Retention
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/workers/retention.worker.ts`
+- **Location**: `web/src/server/workers/retention.worker.ts`
 - **Configuration**:
   - `LOCATION_RETENTION_DAYS` (default: 90)
   - `NOTIFICATION_RETENTION_DAYS` (default: 180)
@@ -78,7 +78,7 @@ This document describes the production-readiness improvements implemented in Pha
 ### 8. WebSocket Session Revalidation
 
 - **Status**: Implemented
-- **Location**: `apps/api/src/common/websocket/websocket-session-revalidation.ts`
+- **Location**: `web/src/server/common/websocket/websocket-session-revalidation.ts`
 - **Checks**: User deactivation, school deactivation
 - **Interval**: Configurable (default: 5 minutes)
 - **Note**: Single-instance deployment. Ready for future open-source Redis for multi-instance.
@@ -93,37 +93,37 @@ This document describes the production-readiness improvements implemented in Pha
 ### 10. Multi-School E2E Security Tests
 
 - **Status**: Implemented
-- **Location**: `apps/api/test/e2e/multi-school-security.e2e.spec.ts`
+- **Location**: `web/test/e2e/multi-school-security.e2e.spec.ts`
 - **Coverage**: All resource types, cross-tenant access, role restrictions, inactive school, deactivated user
 
 ### 11. Subscription Edge-Case Tests
 
 - **Status**: Implemented
-- **Location**: `apps/api/test/integration/subscription-edge-cases.integration.spec.ts`
+- **Location**: `web/test/integration/subscription-edge-cases.integration.spec.ts`
 - **Coverage**: Active, trialing, expired, past_due, grace period, cancelled, no subscription, limits, concurrent creation
 
 ### 12. Mobile Offline Attendance
 
 - **Status**: Implemented
-- **Location**: `apps/mobile/src/features/crew/offline/`
+- **Location**: `mobile/src/features/crew/offline/`
 - **Features**: Durable local queue, idempotency keys, exponential backoff, 409 conflict handling, sync state display
 
 ### 13. Mobile GPS Permission Recovery
 
 - **Status**: Implemented
-- **Location**: `apps/mobile/src/features/crew/GpsPermissionRecovery.tsx`
+- **Location**: `mobile/src/features/crew/GpsPermissionRecovery.tsx`
 - **Features**: Permission denied, permanently denied, location services disabled, background permission, settings link
 
 ### 14. Web Error/Session UX
 
 - **Status**: Implemented
-- **Location**: `apps/web/src/components/ui/ErrorBoundary.tsx`, `apps/web/src/components/ui/ApiErrorDisplay.tsx`
+- **Location**: `web/src/components/ui/ErrorBoundary.tsx`, `web/src/components/ui/ApiErrorDisplay.tsx`
 - **Handles**: 401, 403, 404, 409, 422, 429, 500, network failure
 
 ### 15. Web Audit Log UI
 
 - **Status**: Implemented
-- **Location**: `apps/web/src/app/(authenticated)/admin/audit-logs/page.tsx`
+- **Location**: `web/src/app/(authenticated)/admin/audit-logs/page.tsx`
 - **Features**: Action/entity filters, pagination, actor names, timestamps
 
 ### 16. Backup/Restore Workflow

@@ -24,7 +24,7 @@ full paid entitlements, forever, unless somebody manually edited the row.
 ## Entitlement rules
 
 `resolveSubscriptionEntitlement(subscription, now)` in
-`apps/api/src/common/subscriptions/subscription-access.ts` is the single source
+`web/src/server/common/subscriptions/subscription-access.ts` is the single source
 of truth. Boundaries are **end-exclusive**: access ends *at* the timestamp.
 
 | Stored status | Dates | Paid access | Effective status |
@@ -143,7 +143,7 @@ Because the key includes the school id and the resource, two different tenants
 There is no global mutex and no process-local state, so the fix holds across
 multiple API instances.
 
-Verified by `apps/api/test/integration/plan-limits.integration.spec.ts`:
+Verified by `web/test/integration/plan-limits.integration.spec.ts`:
 99 existing rows, limit 100, two concurrent creates → exactly one success, one
 `409 PLAN_LIMIT_REACHED`, final count exactly 100; plus an 8-way burst and a
 cross-tenant non-interference check.

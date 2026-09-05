@@ -12,7 +12,7 @@ import type { Tone } from '../../../lib/format';
  * Pure presentation helpers for the mobile compliance screens (Task 44).
  *
  * The web console carries an equivalent file
- * (`apps/web/src/features/documents/helpers.ts`) — each app keeps its own copy
+ * (`web/src/features/documents/helpers.ts`) — each app keeps its own copy
  * because there is no shared React package, and both are covered by the same
  * test cases so they cannot drift.
  *
