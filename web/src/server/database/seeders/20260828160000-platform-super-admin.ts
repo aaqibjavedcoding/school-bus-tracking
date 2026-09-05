@@ -6,26 +6,18 @@ import * as bcrypt from 'bcryptjs';
 /**
  * DEV SEED — platform SUPER_ADMIN bootstrap account.
  *
- * The Super Admin console (`/api/v1/admin/*`) is platform-level and its
- * account belongs to no school tenant (users.school_id is NULL — see the
- * accompanying migration). This seeder bootstraps exactly one such account
- * for local development and smoke testing.
+ * The Super Admin console (`/api/v1/admin/*` and `/admin`) is platform-level
+ * and its account belongs to no school tenant (users.school_id is NULL).
  *
  * Guarantees:
- * - **Idempotent**: fixed UUID + `ON CONFLICT DO NOTHING`, so re-running it
- *   never duplicates or fails.
- * - **No plaintext password at rest**: the password is bcrypt-hashed here
- *   before insert.
- * - **Refuses production** unless both SUPER_ADMIN_EMAIL and
- *   SUPER_ADMIN_PASSWORD are explicitly supplied through the environment
- *   (a platform account with a known default password must never reach
- *   production).
- * - **Reversible**: `down` deletes exactly the single seeded row.
+ * - Idempotent: fixed UUID + `ON CONFLICT DO NOTHING`, so re-running it never duplicates.
+ * - Password pattern: Password is identical to Email (`superadmin@gmail.com`).
+ * - Reversible: `down` deletes the seeded row.
  */
 
 const SUPER_ADMIN_ID = '00000000-0000-4000-8000-000000000099';
-const DEFAULT_DEV_EMAIL = 'superadmin@platform.test';
-const DEFAULT_DEV_PASSWORD = 'super-admin-password';
+const DEFAULT_DEV_EMAIL = 'superadmin@gmail.com';
+const DEFAULT_DEV_PASSWORD = 'superadmin@gmail.com';
 const TIMESTAMP = new Date('2026-08-28T00:00:00.000Z');
 
 const options: QueryOptions & { ignoreDuplicates?: boolean } = { ignoreDuplicates: true };
@@ -56,7 +48,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         email,
         password_hash: passwordHash,
         email_verified_at: TIMESTAMP,
-        phone: null,
+        phone: '+1-555-010-9999',
         is_active: true,
         created_at: TIMESTAMP,
         updated_at: TIMESTAMP,
@@ -64,6 +56,15 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     ],
     options,
   );
+
+  console.log('============================================================');
+  console.log('👑 PLATFORM SUPER ADMIN CREDENTIALS');
+  console.log('============================================================');
+  console.log('  Role:        SUPER_ADMIN');
+  console.log('  School Code: (Leave blank)');
+  console.log(`  Email:       ${email}`);
+  console.log(`  Password:    ${password}`);
+  console.log('============================================================');
 }
 
 export async function down(queryInterface: QueryInterface): Promise<void> {
