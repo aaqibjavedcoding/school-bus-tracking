@@ -5,6 +5,7 @@ import {
   TripStatus,
   type RouteAssignmentListResponse,
   type RouteAssignmentResponse,
+  type RunResponse,
   type TripResponse,
 } from '@school-bus-tracking/shared-types';
 import { tripCreateSchema } from '@school-bus-tracking/validation';
@@ -94,9 +95,35 @@ function statusFilterLabel(value: StatusFilter): string {
 
 const EMPTY_FORM = {
   route_assignment_id: '',
+  run_id: '',
   scheduled_start_at: '',
   scheduled_end_at: '',
 };
+
+/**
+ * Mirror of the web app's `dispatchableRuns`: active runs only, sorted by
+ * route code then run code so the picker reads like the route board. The
+ * server owns the real verdict (bus/crew/window checks); this list is only
+ * the set worth offering.
+ */
+function dispatchableRuns(runs: RunResponse[]): RunResponse[] {
+  return [...runs]
+    .filter((run) => run.is_active)
+    .sort((a, b) =>
+      `${a.route_code ?? ''}|${a.code}`.localeCompare(`${b.route_code ?? ''}|${b.code}`),
+    );
+}
+
+/** Web-identical run picker label (`R-02 · RT-1 — North Loop · 07:00–08:00 · Bus 7`). */
+function runLabel(run: RunResponse): string {
+  const route = `${run.route_code ?? 'Route'}${run.route_name ? ` — ${run.route_name}` : ''}`;
+  const window =
+    run.shift_start_time && run.shift_end_time
+      ? `${run.shift_start_time.slice(0, 5)}–${run.shift_end_time.slice(0, 5)}`
+      : null;
+  const bus = run.bus_number ?? run.bus_registration_number;
+  return [run.code, route, window, bus].filter(Boolean).join(' · ');
+}
 
 function shiftDay(day: string, days: number): string {
   return new Date(new Date(`${day}T00:00:00.000Z`).getTime() + days * 86_400_000)
@@ -139,6 +166,10 @@ export default function AdminTripsScreen() {
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  // Dispatch source (§8.4), same semantics as the web form: runs preferred,
+  // legacy assignments kept verbatim. A school without runs never sees the
+  // Run option active, so nothing changes for existing schedules.
+  const [source, setSource] = useState<'run' | 'legacy'>('run');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<TripResponse | null>(null);
@@ -182,15 +213,19 @@ export default function AdminTripsScreen() {
     [status, day],
   );
 
-  // Active assignments feed the schedule form — same lookup the web page uses.
-  const lookups = useLoad(async (): Promise<{ assignments: RouteAssignmentResponse[] }> => {
-    const assignments = await apiClient.listRouteAssignments({
-      page: 1,
-      limit: 100,
-      is_active: true,
-    });
-    return { assignments: unwrapEnvelope<RouteAssignmentListResponse>(assignments).items };
+  // Active assignments + runs feed the schedule form — same lookups as the web page.
+  const lookups = useLoad(async (): Promise<{ assignments: RouteAssignmentResponse[]; runs: RunResponse[] }> => {
+    const [assignments, runs] = await Promise.all([
+      apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true }),
+      apiClient.listRuns({ page: 1, limit: 100 }),
+    ]);
+    return {
+      assignments: unwrapEnvelope<RouteAssignmentListResponse>(assignments).items,
+      runs: dispatchableRuns(unwrapEnvelope(runs).items),
+    };
   }, []);
+  const runs = lookups.data?.runs ?? [];
+  const effectiveSource = source === 'run' && runs.length > 0 ? 'run' : 'legacy';
 
   const isToday = day === today;
   const filtersActive = Boolean(list.activeSearch) || Boolean(status) || !isToday;
@@ -233,7 +268,15 @@ export default function AdminTripsScreen() {
     // Same payload shaping as the web form: local datetime → ISO instant,
     // empty optional end → null, then the shared Zod schema.
     const payload = {
-      route_assignment_id: form.route_assignment_id,
+      // Exactly one source key survives — tripCreateSchema is strict and
+      // rejects payloads carrying both (mirrors the web form).
+      ...(effectiveSource === 'run'
+        ? form.run_id
+          ? { run_id: form.run_id }
+          : {}
+        : form.route_assignment_id
+          ? { route_assignment_id: form.route_assignment_id }
+          : {}),
       scheduled_start_at: form.scheduled_start_at
         ? fromDateTimeLocalValue(form.scheduled_start_at)
         : '',
@@ -322,6 +365,7 @@ export default function AdminTripsScreen() {
                 </Text>
                 <Text style={styles.cardMeta}>
                   {formatTime(trip.scheduled_start_at)} · Bus {busLabel(trip)}
+                  {trip.run_code ? ` · Run ${trip.run_code}` : ''}
                 </Text>
                 {trip.driver_name || trip.conductor_name ? (
                   <Text style={styles.cardMeta} numberOfLines={1}>
@@ -335,6 +379,7 @@ export default function AdminTripsScreen() {
             </View>
             <View style={styles.badgeRow}>
               <TripStatusBadge status={trip.status} />
+              {trip.run_code ? <Badge label={`Run ${trip.run_code}`} tone="info" /> : null}
               {trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS ? (
                 <Badge label="● Live" tone="success" />
               ) : null}
@@ -446,14 +491,39 @@ export default function AdminTripsScreen() {
           </>
         }
       >
-        <Select
-          label="Assignment"
-          value={form.route_assignment_id}
-          onChange={(value) => setForm({ ...form, route_assignment_id: value })}
-          options={assignmentOptions}
-          placeholder="Select assignment"
-          error={fieldErrors.route_assignment_id}
+        <FilterChips<'run' | 'legacy'>
+          options={[
+            { value: 'run', label: 'From a run' },
+            { value: 'legacy', label: 'From an assignment' },
+          ]}
+          value={source}
+          onChange={setSource}
         />
+        {source === 'run' && runs.length === 0 ? (
+          <Text style={styles.warn}>
+            No active runs yet — scheduling falls back to a legacy route
+            assignment. Manage runs from the web admin under Routes → Runs.
+          </Text>
+        ) : null}
+        {source === 'run' && runs.length > 0 ? (
+          <Select
+            label="Run"
+            value={form.run_id}
+            onChange={(value) => setForm({ ...form, run_id: value })}
+            options={runs.map((run) => ({ value: run.id, label: runLabel(run) }))}
+            placeholder="Select run"
+            error={fieldErrors.run_id}
+          />
+        ) : (
+          <Select
+            label="Assignment"
+            value={form.route_assignment_id}
+            onChange={(value) => setForm({ ...form, route_assignment_id: value })}
+            options={assignmentOptions}
+            placeholder="Select assignment"
+            error={fieldErrors.route_assignment_id}
+          />
+        )}
         <DateTimeField
           label="Scheduled start"
           value={form.scheduled_start_at}
@@ -470,7 +540,7 @@ export default function AdminTripsScreen() {
         />
         {lookups.loading ? (
           <Text style={styles.warn}>Loading active assignments…</Text>
-        ) : assignmentOptions.length === 0 ? (
+        ) : effectiveSource === 'legacy' && assignmentOptions.length === 0 ? (
           <Text style={styles.warn}>
             No active assignments yet. Create one under Manage → Assignments first.
           </Text>
