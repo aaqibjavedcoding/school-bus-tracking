@@ -522,3 +522,65 @@ describe('BusesService.remove', () => {
     await expectNotFound(service.remove(SCHOOL_A, 'bus-1'));
   });
 });
+
+describe('BusesService.findAll — include=minimal', () => {
+  it('returns the raw bus fields without firing a single enrichment query', async () => {
+    const { repo } = makeBusesRepository([
+      makeBusRecord({ id: 'bus-1', registration_number: 'REG-9001', capacity: 52 }),
+    ]);
+    // Every enrichment repository explodes if touched: minimal mode must
+    // answer from the bus rows alone.
+    const forbidden = {
+      findAll: async () => {
+        throw new Error('minimal mode must not run enrichment queries');
+      },
+    } as unknown as typeof RouteAssignment;
+    const service = new BusesService(
+      repo,
+      forbidden,
+      forbidden as unknown as typeof Route,
+      forbidden as unknown as typeof User,
+      forbidden as unknown as typeof Trip,
+      allowAllPlanLimits(),
+    );
+
+    const response = await service.findAll(SCHOOL_A, makeQuery({ include: 'minimal' }));
+
+    assert.equal(response.items.length, 1);
+    const item = response.items[0];
+    assert.deepEqual(Object.keys(item).sort(), [
+      'bus_number',
+      'capacity',
+      'id',
+      'is_active',
+      'registration_number',
+      'school_id',
+    ]);
+    assert.equal(item.registration_number, 'REG-9001');
+    assert.equal(item.capacity, 52);
+    const serialized = JSON.stringify(item);
+    assert.ok(!serialized.includes('assigned_route_name'), 'no roster enrichment leaks in');
+    assert.ok(!serialized.includes('current_trip_status'), 'no trip enrichment leaks in');
+  });
+});
+
+describe('BusesService.count', () => {
+  it('counts only the authenticated school with a single query', async () => {
+    const { repo: base } = makeBusesRepository([]);
+    const calls: Array<Record<string, unknown>> = [];
+    const repo = {
+      ...base,
+      count: async (options: { where?: Record<string, unknown> } = {}) => {
+        calls.push(options.where as Record<string, unknown>);
+        return 9;
+      },
+    } as unknown as typeof Bus;
+    const service = makeService(repo);
+
+    const total = await service.count(SCHOOL_A);
+
+    assert.equal(total, 9);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].school_id, SCHOOL_A);
+  });
+});

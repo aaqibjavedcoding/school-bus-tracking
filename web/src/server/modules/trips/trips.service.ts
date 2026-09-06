@@ -5,6 +5,8 @@ import {
   RouteAssignmentRole,
   TripDeleteResponse,
   TripListResponse,
+  TripMinimalListResponse,
+  TripMinimalResponse,
   TripResponse,
   TripStatus,
   UserRole,
@@ -171,12 +173,27 @@ export class TripsService {
     return emptyTripList(query);
   }
 
-  /** Lists trips of the authenticated school only. */
+  /**
+   * Lists trips of the authenticated school only.
+   *
+   * The overloads keep the return type honest: a `minimal` query is answered
+   * with raw trip rows, everything else with the enriched projection.
+   */
+  async findAll(
+    schoolId: string,
+    query: ListTripsQueryDto & { include: 'minimal' },
+    scope?: { routeIds?: string[] },
+  ): Promise<TripMinimalListResponse>;
   async findAll(
     schoolId: string,
     query: ListTripsQueryDto,
     scope?: { routeIds?: string[] },
-  ): Promise<TripListResponse> {
+  ): Promise<TripListResponse>;
+  async findAll(
+    schoolId: string,
+    query: ListTripsQueryDto,
+    scope?: { routeIds?: string[] },
+  ): Promise<TripListResponse | TripMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where: Record<PropertyKey, unknown> = { school_id: schoolId };
@@ -219,7 +236,29 @@ export class TripsService {
       hasPreviousPage: page > 1,
     };
 
+    // `include=minimal` skips the route/bus/crew name resolution entirely —
+    // the raw trip rows are enough for pickers and id-based callers.
+    if (query.include === 'minimal') {
+      return { items: rows.map((trip) => toTripMinimalResponse(trip)), meta };
+    }
+
     return { items: await this.toResponses(rows), meta };
+  }
+
+  /**
+   * Number of today's (UTC) trips currently `BOARDING` or `IN_PROGRESS`.
+   *
+   * One indexed `COUNT(*)`, no joins — the live-trips stat card used to pay
+   * for a whole enriched list response to learn this single number.
+   */
+  async countActiveToday(schoolId: string): Promise<number> {
+    return this.trips.count({
+      where: {
+        school_id: schoolId,
+        status: { [Op.in]: [TripStatus.BOARDING, TripStatus.IN_PROGRESS] },
+        scheduled_start_at: todayRange(),
+      } as WhereOptions,
+    });
   }
 
   /** Returns a trip only when its id and school both match. */
@@ -597,13 +636,21 @@ export class TripsService {
       routeIds.length
         ? this.routes.findAll({
             where: { school_id: schoolId, id: { [Op.in]: routeIds } },
+            // Names only — the projection below reads nothing else.
+            attributes: ['id', 'name', 'code'],
           })
         : Promise.resolve([] as Route[]),
       busIds.length
-        ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+        ? this.buses.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: busIds } },
+            attributes: ['id', 'bus_number', 'registration_number'],
+          })
         : Promise.resolve([] as Bus[]),
       userIds.length
-        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        ? this.users.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: userIds } },
+            attributes: ['id', 'first_name', 'last_name'],
+          })
         : Promise.resolve([] as User[]),
     ]);
 
@@ -798,6 +845,37 @@ function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/** Inclusive window covering the current UTC calendar day. */
+function todayRange(): Record<symbol, Date> {
+  const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
+}
+
+/**
+ * `include=minimal` projection of a trip — the raw `trips` row without the
+ * resolved display names. Pure and synchronous by design: any query here
+ * would defeat the point of the mode.
+ */
+function toTripMinimalResponse(trip: Trip): TripMinimalResponse {
+  return {
+    id: trip.id,
+    school_id: trip.school_id,
+    route_id: trip.route_id,
+    bus_id: trip.bus_id ?? null,
+    driver_id: trip.driver_id ?? null,
+    conductor_id: trip.conductor_id ?? null,
+    status: trip.status,
+    scheduled_start_at: toIsoString(trip.scheduled_start_at),
+    scheduled_end_at: toNullableIsoString(trip.scheduled_end_at),
+    actual_start_at: toNullableIsoString(trip.actual_start_at),
+    actual_end_at: toNullableIsoString(trip.actual_end_at),
+    cancelled_at: toNullableIsoString(trip.cancelled_at),
+    cancellation_reason: trip.cancellation_reason ?? null,
+    created_at: toIsoString(trip.created_at),
+    updated_at: toIsoString(trip.updated_at),
+  };
+}
+
 function toNullableIsoString(value: Date | string | null | undefined): string | null {
   return value == null ? null : toIsoString(value);
 }
@@ -824,6 +902,7 @@ function cloneTripListQuery(query: ListTripsQueryDto): ListTripsQueryDto {
   clone.date = query.date;
   clone.date_from = query.date_from;
   clone.date_to = query.date_to;
+  clone.include = query.include;
   return clone;
 }
 

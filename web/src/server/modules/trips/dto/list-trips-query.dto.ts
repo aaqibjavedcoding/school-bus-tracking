@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -11,7 +12,8 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { TripListQuery, TripStatus } from '@school-bus-tracking/shared-types';
+import type { ListInclude, TripListQuery } from '@school-bus-tracking/shared-types';
+import { TripStatus } from '@school-bus-tracking/shared-types';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -74,6 +76,12 @@ export class ListTripsQueryDto implements TripListQuery {
   @IsOptional()
   @IsStringDateOnly()
   date_to?: string;
+
+  @IsOptional()
+  @IsIn(['full', 'minimal'] satisfies ListInclude[], {
+    message: 'include must be either full or minimal',
+  })
+  include?: ListInclude;
 }
 
 /**

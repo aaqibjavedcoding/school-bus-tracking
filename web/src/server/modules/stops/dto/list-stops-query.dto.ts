@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import type { ListInclude } from '@school-bus-tracking/shared-types';
 
 /**
  * Query string of `GET /api/v1/stops`.
@@ -8,6 +9,10 @@ import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-
  * `@school-bus-tracking/validation`): page >= 1, limit 1..100, defaults 1/20.
  * `search` is an optional free-text filter applied to the stop name and
  * address; `route_id` narrows the list to one route of the school.
+ *
+ * `include` selects the response shape: `full` (default) returns every stop
+ * column; `minimal` returns only the picker/label fields (id, route link,
+ * name, order) for a smaller payload on the large stop lists.
  */
 export class ListStopsQueryDto {
   @IsOptional()
@@ -31,4 +36,10 @@ export class ListStopsQueryDto {
   @IsOptional()
   @IsUUID(undefined, { message: 'route_id must be a valid UUID' })
   route_id?: string;
+
+  @IsOptional()
+  @IsIn(['full', 'minimal'] satisfies ListInclude[], {
+    message: 'include must be either full or minimal',
+  })
+  include?: ListInclude;
 }

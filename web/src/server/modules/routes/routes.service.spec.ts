@@ -719,3 +719,79 @@ describe('RoutesService.reorderRouteStops', () => {
     await expectNotFound(service.reorderRouteStops(SCHOOL_A, ROUTE_A, makeReorderDto([STOP_1])));
   });
 });
+
+describe('RoutesService.findAll — include=minimal', () => {
+  it('returns the raw route fields without firing a single enrichment query', async () => {
+    const { repo } = makeRoutesRepository([
+      makeRouteRecord({ id: ROUTE_A, name: 'North Loop', code: 'NORTH-AM' }),
+    ]);
+    // Every enrichment repository explodes if touched: minimal mode must
+    // answer from the route rows alone.
+    const forbidden = {
+      findAll: async () => {
+        throw new Error('minimal mode must not run enrichment queries');
+      },
+    } as unknown as typeof RouteAssignment;
+    const empty = { findAll: async () => [] } as unknown as typeof Stop;
+    const service = new RoutesService(
+      repo,
+      empty,
+      forbidden,
+      forbidden as unknown as typeof User,
+      forbidden as unknown as typeof Bus,
+      forbidden as unknown as typeof Trip,
+      forbidden as unknown as typeof Student,
+      allowAllPlanLimits(),
+    );
+
+    const response = await service.findAll(SCHOOL_A, makeQuery({ include: 'minimal' }));
+
+    assert.equal(response.items.length, 1);
+    const item = response.items[0];
+    assert.deepEqual(Object.keys(item).sort(), ['code', 'id', 'is_active', 'name', 'school_id']);
+    assert.equal(item.id, ROUTE_A);
+    assert.equal(item.code, 'NORTH-AM');
+    const serialized = JSON.stringify(item);
+    assert.ok(!serialized.includes('driver_name'), 'no crew enrichment leaks in');
+    assert.ok(!serialized.includes('student_count'), 'no student enrichment leaks in');
+    assert.ok(!serialized.includes('current_trip_status'), 'no trip enrichment leaks in');
+  });
+
+  it('keeps pagination meta identical to the full mode', async () => {
+    const routes = [
+      makeRouteRecord({ code: 'R-1' }),
+      makeRouteRecord({ code: 'R-2' }),
+      makeRouteRecord({ code: 'R-3' }),
+    ];
+    const { repo } = makeRoutesRepository(routes);
+    const service = makeService(repo, makeStopsRepository().repo);
+
+    const response = await service.findAll(SCHOOL_A, makeQuery({ page: 1, limit: 2, include: 'minimal' }));
+
+    assert.equal(response.meta.total, 3);
+    assert.equal(response.meta.totalPages, 2);
+    assert.equal(response.meta.hasNextPage, true);
+    assert.equal(response.items.length, 2);
+  });
+});
+
+describe('RoutesService.count', () => {
+  it('counts only the authenticated school with a single query', async () => {
+    const { repo: base } = makeRoutesRepository([]);
+    const calls: Array<Record<string, unknown>> = [];
+    const repo = {
+      ...base,
+      count: async (options: { where?: Record<string, unknown> } = {}) => {
+        calls.push(options.where as Record<string, unknown>);
+        return 7;
+      },
+    } as unknown as typeof Route;
+    const service = makeService(repo, makeStopsRepository().repo);
+
+    const total = await service.count(SCHOOL_A);
+
+    assert.equal(total, 7);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].school_id, SCHOOL_A);
+  });
+});

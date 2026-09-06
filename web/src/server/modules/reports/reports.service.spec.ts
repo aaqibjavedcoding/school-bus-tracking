@@ -59,10 +59,43 @@ class StubModel {
   }
 
   async findAll(
-    options: { where?: Record<string, unknown>; offset?: number; limit?: number } = {},
+    options: {
+      where?: Record<string, unknown>;
+      offset?: number;
+      limit?: number;
+      group?: string[];
+      attributes?: Array<string | [unknown, unknown, string?]>;
+    } = {},
   ): Promise<Row[]> {
     this.queries.push(options);
     const matched = this.match(options.where);
+    if (options.group) {
+      // GROUP BY emulation: aggregate (COUNT) when a literal aggregate alias
+      // is requested, otherwise project the distinct group-key combinations.
+      const keys = options.group;
+      // A Sequelize "literal" attribute is `[fn(...), 'alias']`.
+      const aggregate = (options.attributes ?? []).find(
+        (attribute) =>
+          Array.isArray(attribute) &&
+          attribute.length === 2 &&
+          typeof attribute[1] === 'string',
+      ) as [unknown, string] | undefined;
+      const alias = aggregate?.[1];
+      const totals = new Map<string, Record<string, unknown>>();
+      for (const row of matched) {
+        const groupKey = keys.map((key) => String(row[key])).join('\u0000');
+        if (!totals.has(groupKey)) {
+          const projected: Record<string, unknown> = {};
+          for (const key of keys) projected[key] = row[key];
+          totals.set(groupKey, projected);
+        }
+        if (alias) {
+          const bucket = totals.get(groupKey) as { [k: string]: number };
+          bucket[alias] = (bucket[alias] ?? 0) + 1;
+        }
+      }
+      return [...totals.values()] as Row[];
+    }
     const offset = options.offset ?? 0;
     return options.limit === undefined
       ? matched.slice(offset)

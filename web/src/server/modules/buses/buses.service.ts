@@ -3,6 +3,8 @@ import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   BusDeleteResponse,
   BusListResponse,
+  BusMinimalListResponse,
+  BusMinimalResponse,
   BusResponse,
   PaginationMeta,
   PlanLimitResource,
@@ -95,12 +97,35 @@ export class BusesService {
   }
 
   /**
+   * Fleet size of the authenticated school.
+   *
+   * One `COUNT(*)` query, no enrichment — the dashboard stats endpoint uses
+   * it so the stat cards never pay for projections they do not render.
+   */
+  async count(schoolId: string): Promise<number> {
+    return this.buses.count({ where: { school_id: schoolId } as WhereOptions });
+  }
+
+  /**
    * Lists buses of the authenticated school only, with pagination and an
    * optional case-insensitive search over registration / fleet number. No
    * other tenant's rows can match because `school_id` is always part of the
    * where clause.
+   *
+   * `include: 'minimal'` skips `toBusResponses` entirely and returns the raw
+   * bus fields (id, registration_number, bus_number, capacity, is_active) —
+   * zero enrichment queries, the shape dropdowns need. The overloads keep
+   * the return type honest for both shapes.
    */
-  async findAll(schoolId: string, query: ListBusesQueryDto): Promise<BusListResponse> {
+  async findAll(
+    schoolId: string,
+    query: ListBusesQueryDto & { include: 'minimal' },
+  ): Promise<BusMinimalListResponse>;
+  async findAll(schoolId: string, query: ListBusesQueryDto): Promise<BusListResponse>;
+  async findAll(
+    schoolId: string,
+    query: ListBusesQueryDto,
+  ): Promise<BusListResponse | BusMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -133,6 +158,13 @@ export class BusesService {
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     };
+
+    if (query.include === 'minimal') {
+      return {
+        items: rows.map((bus) => toBusMinimalResponse(bus)),
+        meta,
+      };
+    }
 
     return {
       items: await this.toBusResponses(rows),
@@ -287,10 +319,17 @@ export class BusesService {
     const userIds = [...new Set(assignments.map((assignment) => assignment.user_id))];
     const [routes, users] = await Promise.all([
       routeIds.length
-        ? this.routes.findAll({ where: { school_id: schoolId, id: { [Op.in]: routeIds } } })
+        ? this.routes.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: routeIds } },
+            // Names only — the projection below reads nothing else.
+            attributes: ['id', 'name', 'code'],
+          })
         : Promise.resolve([] as Route[]),
       userIds.length
-        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        ? this.users.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: userIds } },
+            attributes: ['id', 'first_name', 'last_name'],
+          })
         : Promise.resolve([] as User[]),
     ]);
 
@@ -352,6 +391,21 @@ export class BusesService {
 function todayRange(): Record<symbol, Date> {
   const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
+}
+
+/**
+ * `include=minimal` projection of a bus — the raw row fields only. Pure and
+ * synchronous by design: any query here would defeat the point of the mode.
+ */
+function toBusMinimalResponse(bus: Bus): BusMinimalResponse {
+  return {
+    id: bus.id,
+    school_id: bus.school_id,
+    registration_number: bus.registration_number,
+    bus_number: bus.bus_number,
+    capacity: bus.capacity,
+    is_active: bus.is_active,
+  };
 }
 
 function nullableTrim(value: string | null | undefined): string | null {

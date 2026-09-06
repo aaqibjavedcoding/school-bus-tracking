@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import type { ListInclude } from '@school-bus-tracking/shared-types';
 
 /**
  * Query string of `GET /api/v1/students`.
@@ -7,6 +8,10 @@ import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validato
  * `page` and `limit` mirror the shared pagination rules (
  * `@school-bus-tracking/validation`): page >= 1, limit 1..100, defaults 1/20.
  * `search` is an optional free-text name filter applied to first/last name.
+ *
+ * `include` selects the response shape: `full` (default) resolves the home
+ * stop / route / bus enrichment; `minimal` returns the raw student fields
+ * only, skipping every enrichment query — the cheap shape for pickers.
  */
 export class ListStudentsQueryDto {
   @IsOptional()
@@ -26,4 +31,10 @@ export class ListStudentsQueryDto {
   @IsString({ message: 'search must be a string' })
   @MaxLength(100, { message: 'search must be at most 100 characters' })
   search?: string;
+
+  @IsOptional()
+  @IsIn(['full', 'minimal'] satisfies ListInclude[], {
+    message: 'include must be either full or minimal',
+  })
+  include?: ListInclude;
 }

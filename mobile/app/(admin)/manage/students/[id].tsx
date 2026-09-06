@@ -5,10 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type {
   ParentListResponse,
   ParentResponse,
-  RouteListResponse,
-  RouteResponse,
-  StopListResponse,
-  StopResponse,
+  RouteMinimalListResponse,
+  RouteMinimalResponse,
+  StopMinimalListResponse,
+  StopMinimalResponse,
   StudentGuardianListResponse,
   StudentGuardianResponse,
   StudentResponse,
@@ -56,23 +56,25 @@ export default function ManageStudentDetailScreen() {
     student: StudentResponse;
     guardians: StudentGuardianResponse[];
     parents: ParentResponse[];
-    stops: StopResponse[];
-    routes: RouteResponse[];
+    stops: StopMinimalResponse[];
+    routes: RouteMinimalResponse[];
   }> => {
     if (!usableId) throw new Error(invalidIdMessage('student'));
     const [student, guardians, parents, stops, routes] = await Promise.all([
       apiClient.getStudent(studentId),
       apiClient.listStudentGuardians(studentId),
       apiClient.listParents({ page: 1, limit: 100 }),
-      apiClient.listStops({ page: 1, limit: 100 }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
+      // Only the home-stop label (code + sequence + name) is rendered — the
+      // minimal projections skip fields this screen never reads.
+      apiClient.listStops({ page: 1, limit: 100, include: 'minimal' }),
+      apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
     ]);
     return {
       student: unwrapEnvelope<StudentResponse>(student),
       guardians: unwrapEnvelope<StudentGuardianListResponse>(guardians).items,
       parents: unwrapEnvelope<ParentListResponse>(parents).items,
-      stops: unwrapEnvelope<StopListResponse>(stops).items,
-      routes: unwrapEnvelope<RouteListResponse>(routes).items,
+      stops: unwrapEnvelope<StopMinimalListResponse>(stops).items,
+      routes: unwrapEnvelope<RouteMinimalListResponse>(routes).items,
     };
   }, [studentId, usableId]);
 

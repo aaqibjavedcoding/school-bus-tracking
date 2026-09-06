@@ -368,7 +368,11 @@ const RouteFilter: React.FC<{ value: string; onChange: (value: string) => void }
   onChange,
 }) => {
   const routes = useLoad(
-    async () => unwrapEnvelope(await apiClient.listRoutes({ page: 1, limit: 100 })).items,
+    async () =>
+      unwrapEnvelope(
+        // Only code + name are rendered — skip the enrichment.
+        await apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
+      ).items,
     [],
   );
   return (

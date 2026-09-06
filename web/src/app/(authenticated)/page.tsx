@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React from 'react';
-import { TripStatus, UserRole } from '@school-bus-tracking/shared-types';
+import { UserRole } from '@school-bus-tracking/shared-types';
 import { Badge, Button, Card, PageHeader, Skeleton, ErrorState } from '../../components/ui';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useLoad } from '../../hooks/useLoad';
@@ -18,28 +18,22 @@ export default function DashboardPage() {
     if (!isSchoolAdmin) {
       return null;
     }
-    const [students, buses, routes, trips] = await Promise.all([
-      apiClient.listStudents({ page: 1, limit: 1 }),
-      apiClient.listBuses({ page: 1, limit: 1 }),
-      apiClient.listRoutes({ page: 1, limit: 1 }),
+    // Headline counts come from the dedicated stats endpoint: one request,
+    // four server-side COUNT queries, no enrichment. The old shape fired
+    // listStudents/listBuses/listRoutes({limit:1}) — ~28 queries total once
+    // every enriched list projection had resolved its crew, stops, buses and
+    // trips just to read `meta.total`.
+    const [stats, trips] = await Promise.all([
+      apiClient.getDashboardStats(),
       apiClient.listTrips({ page: 1, limit: 8, date: today }),
     ]);
     const tripsData = unwrapEnvelope(trips);
-    // Fetch only the routes referenced by today's trips — avoids loading
-    // the entire route roster (enriched with assignments/crew) just to
-    // read their codes.
-    const routeIds = [...new Set(tripsData.items.map((t) => t.route_id))];
-    const routeLookup = routeIds.length
-      ? await apiClient.listRoutes({ page: 1, limit: routeIds.length })
-      : null;
     return {
-      studentCount: unwrapEnvelope(students).meta.total,
-      busCount: unwrapEnvelope(buses).meta.total,
-      routeCount: unwrapEnvelope(routes).meta.total,
+      studentCount: unwrapEnvelope(stats).students,
+      busCount: unwrapEnvelope(stats).buses,
+      routeCount: unwrapEnvelope(stats).routes,
+      liveTripCount: unwrapEnvelope(stats).active_trips,
       trips: tripsData,
-      routeById: new Map(
-        (routeLookup ? unwrapEnvelope(routeLookup).items : []).map((r) => [r.id, r]),
-      ),
     };
   }, [today, isSchoolAdmin]);
 
@@ -100,10 +94,6 @@ export default function DashboardPage() {
     );
   }
 
-  const live = data.trips.items.filter(
-    (trip) => trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS,
-  );
-
   return (
     <div className="page">
       <PageHeader
@@ -125,7 +115,9 @@ export default function DashboardPage() {
         </Card>
         <Card className="stat-card">
           <span className="label">Live trips</span>
-          <span className="value">{live.length}</span>
+          {/* Server-side count across ALL of today's trips — the old card
+              could only see the first page (8 rows) it had loaded. */}
+          <span className="value">{data.liveTripCount}</span>
         </Card>
       </div>
       <Card title="Today's trips" description={`Scheduled on ${today} (UTC)`}>
@@ -152,8 +144,9 @@ export default function DashboardPage() {
                     </td>
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
                     <td className="muted">
-                      {data.routeById.get(trip.route_id)?.code ??
-                        'Route unavailable'}
+                      {/* listTrips already resolves route_code through its
+                          routes join — no separate routes call needed. */}
+                      {trip.route_code ?? 'Route unavailable'}
                     </td>
                     <td>
                       <Link className="linkish" href={`/trips/${trip.id}`}>

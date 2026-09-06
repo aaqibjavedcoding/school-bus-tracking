@@ -5,6 +5,8 @@ import {
   PlanLimitResource,
   StudentDeleteResponse,
   StudentListResponse,
+  StudentMinimalListResponse,
+  StudentMinimalResponse,
   StudentResponse,
   UserRole,
 } from '@school-bus-tracking/shared-types';
@@ -108,11 +110,34 @@ export class StudentsService {
   }
 
   /**
+   * Roster size of the authenticated school.
+   *
+   * One `COUNT(*)` query, no enrichment — the dashboard stats endpoint uses
+   * it so the stat cards never pay for projections they do not render.
+   */
+  async count(schoolId: string): Promise<number> {
+    return this.students.count({ where: { school_id: schoolId } as WhereOptions });
+  }
+
+  /**
    * Lists students of the authenticated school only, with pagination and an
    * optional case-insensitive name search. No other tenant's rows can match
    * because `school_id` is always part of the where clause.
+   *
+   * `include: 'minimal'` skips `toStudentResponses` entirely and returns the
+   * raw student fields — zero stop/route/bus enrichment queries, the shape
+   * pickers and rosters need. The overloads keep the return type honest for
+   * both shapes.
    */
-  async findAll(schoolId: string, query: ListStudentsQueryDto): Promise<StudentListResponse> {
+  async findAll(
+    schoolId: string,
+    query: ListStudentsQueryDto & { include: 'minimal' },
+  ): Promise<StudentMinimalListResponse>;
+  async findAll(schoolId: string, query: ListStudentsQueryDto): Promise<StudentListResponse>;
+  async findAll(
+    schoolId: string,
+    query: ListStudentsQueryDto,
+  ): Promise<StudentListResponse | StudentMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -147,6 +172,13 @@ export class StudentsService {
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     };
+
+    if (query.include === 'minimal') {
+      return {
+        items: rows.map((student) => toStudentMinimalResponse(student)),
+        meta,
+      };
+    }
 
     return {
       items: await this.toStudentResponses(rows),
@@ -310,14 +342,21 @@ export class StudentsService {
     const stopIds = [...new Set(students.map((s) => s.home_stop_id).filter(isId))];
 
     const stops = stopIds.length
-      ? await this.stops.findAll({ where: { school_id: schoolId, id: { [Op.in]: stopIds } } })
+      ? await this.stops.findAll({
+          where: { school_id: schoolId, id: { [Op.in]: stopIds } },
+          // Only the stop → route link and the label are projected below.
+          attributes: ['id', 'route_id', 'name'],
+        })
       : [];
     const stopById = new Map(stops.map((stop) => [stop.id, stop]));
 
     const routeIds = [...new Set(stops.map((stop) => stop.route_id))];
     const [routes, assignments] = await Promise.all([
       routeIds.length
-        ? this.routes.findAll({ where: { school_id: schoolId, id: { [Op.in]: routeIds } } })
+        ? this.routes.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: routeIds } },
+            attributes: ['id', 'name', 'code'],
+          })
         : Promise.resolve([] as Route[]),
       routeIds.length
         ? this.assignments.findAll({
@@ -330,7 +369,10 @@ export class StudentsService {
 
     const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
     const buses = busIds.length
-      ? await this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+      ? await this.buses.findAll({
+          where: { school_id: schoolId, id: { [Op.in]: busIds } },
+          attributes: ['id', 'bus_number'],
+        })
       : [];
     const busById = new Map(buses.map((bus) => [bus.id, bus]));
     const busByRoute = new Map<string, Bus>();
@@ -373,6 +415,24 @@ export class StudentsService {
 
 function isId(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * `include=minimal` projection of a student — the raw row fields only. Pure
+ * and synchronous by design: any query here would defeat the point of the
+ * mode.
+ */
+function toStudentMinimalResponse(student: Student): StudentMinimalResponse {
+  return {
+    id: student.id,
+    school_id: student.school_id,
+    admission_number: student.admission_number,
+    first_name: student.first_name,
+    last_name: student.last_name,
+    grade_level: student.grade_level,
+    home_stop_id: student.home_stop_id,
+    is_active: student.is_active,
+  };
 }
 
 function nullableTrim(value: string | null | undefined): string | null {

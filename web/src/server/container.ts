@@ -76,7 +76,7 @@ import { createRateLimitStore } from './common/rate-limit/rate-limit.store-facto
 import type { RateLimitStore } from './common/rate-limit/rate-limit.store';
 
 import { AdminDashboardService } from './modules/admin/admin-dashboard.service';
-import { AdminGlobalSubscriptionsService } from './modules/admin/admin-global-subscriptions.service';
+import { DashboardService } from './modules/dashboard/dashboard.service';import { AdminGlobalSubscriptionsService } from './modules/admin/admin-global-subscriptions.service';
 import { AdminPlansService } from './modules/admin/admin-plans.service';
 import { AdminSchoolAdminsService } from './modules/admin/admin-school-admins.service';
 import { AdminSchoolsService } from './modules/admin/admin-schools.service';
@@ -293,6 +293,12 @@ export class Container {
   );
 
   readonly stops = lazy(() => new StopsService(Stop, Route, this.planLimits()));
+
+  /**
+   * Dashboard headline counts — four parallel COUNT queries, no enrichment.
+   * The stat cards read this instead of four enriched list endpoints.
+   */
+  readonly dashboard = lazy(() => new DashboardService(Student, Bus, Route, Trip));
 
   readonly routeAssignments = lazy(
     () => new RouteAssignmentsService(RouteAssignment, Route, Bus, User),

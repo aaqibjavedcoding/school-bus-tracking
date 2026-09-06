@@ -1,6 +1,8 @@
 import { createApiClient, type ApiClient } from '@school-bus-tracking/api-client';
+import type { ApiResponse } from '@school-bus-tracking/shared-types';
 import { APP_CONFIG } from '@school-bus-tracking/config';
 import { getAccessToken, notifyUnauthorized, setAccessToken } from './session.ts';
+import { apiCache, cacheKey, isCacheableGet } from './api-cache.ts';
 
 /**
  * The one API client for the whole mobile app — the exact same
@@ -46,12 +48,14 @@ export function registerApiEnv(env: ApiEnv): void {
   const next = resolveApiBaseUrl(env);
   if (next !== API_BASE_URL) {
     API_BASE_URL = next;
-    apiClient = createApiClient({
-      baseUrl: API_BASE_URL,
-      getAccessToken,
-      setAccessToken,
-      onUnauthorized: notifyUnauthorized,
-    });
+    apiClient = applyResponseCache(
+      createApiClient({
+        baseUrl: API_BASE_URL,
+        getAccessToken,
+        setAccessToken,
+        onUnauthorized: notifyUnauthorized,
+      }),
+    );
   }
 }
 
@@ -92,12 +96,116 @@ function isLoopbackHost(host: string): boolean {
 
 export let API_BASE_URL = resolveApiBaseUrl(DEFAULT_ENV);
 
-export let apiClient: ApiClient = createApiClient({
-  baseUrl: API_BASE_URL,
-  getAccessToken,
-  setAccessToken,
-  onUnauthorized: notifyUnauthorized,
-});
+/** Signature of the client's GET convenience method. */
+type GetFn = <T>(endpoint: string, options?: RequestInit) => Promise<ApiResponse<T>>;
+/** Signature of the client's body-carrying mutating convenience methods. */
+type MutateFn = <T>(
+  endpoint: string,
+  body?: unknown,
+  options?: RequestInit,
+) => Promise<ApiResponse<T>>;
+/** Signature of the client's DELETE convenience method. */
+type DeleteFn = <T>(endpoint: string, options?: RequestInit) => Promise<ApiResponse<T>>;
+
+/**
+ * Installs the 30s in-memory response cache (see `./api-cache.ts`) on a
+ * client instance — the mobile twin of the web app's `applyResponseCache`.
+ *
+ * Every list GET is cache-keyed by endpoint + query: a screen re-visit
+ * renders instantly from the cache (fresh within 30s, stale-while-revalidate
+ * for two minutes) instead of waiting on the network. Mutating verbs drop
+ * the whole cache on completion so a create/update/delete can never leave a
+ * stale list behind. The wrapper is idempotent per instance.
+ */
+export function applyResponseCache(client: ApiClient): ApiClient {
+  const originalGet: GetFn = client.get.bind(client);
+
+  client.get = async <T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> => {
+    // Only bare GETs (every list helper) are cached; anything with request
+    // options keeps its exact per-call behaviour.
+    if (options || !isCacheableGet(endpoint)) {
+      return originalGet<T>(endpoint, options);
+    }
+    const key = cacheKey('GET', endpoint);
+    const cached = apiCache.peek<ApiResponse<T>>(key);
+    if (cached.value !== null) {
+      const cachedValue: ApiResponse<T> = cached.value;
+      if (cached.isStale && !apiCache.inflightFor<ApiResponse<T>>(key)) {
+        // Stale-while-revalidate: the caller already got the cached value
+        // above; refresh in the background for the next visit.
+        apiCache.trackInflight<ApiResponse<T>>(
+          key,
+          originalGet<T>(endpoint).then((response) => {
+            apiCache.set(key, response);
+            return response;
+          }),
+        );
+      }
+      return cachedValue;
+    }
+    const shared = apiCache.inflightFor<ApiResponse<T>>(key);
+    if (shared) {
+      return shared;
+    }
+    const promise = originalGet<T>(endpoint).then((response) => {
+      apiCache.set(key, response);
+      return response;
+    });
+    return apiCache.trackInflight<ApiResponse<T>>(key, promise);
+  };
+
+  const originalPost: MutateFn = client.post.bind(client);
+  const originalPatch: MutateFn = client.patch.bind(client);
+  const originalPut: MutateFn = client.put.bind(client);
+  const originalDelete: DeleteFn = client.delete.bind(client);
+
+  const invalidateAfter = async <T>(
+    run: () => Promise<ApiResponse<T>>,
+  ): Promise<ApiResponse<T>> => {
+    try {
+      return await run();
+    } finally {
+      // Even a failed mutation clears the cache: an extra refetch is cheap,
+      // a stale row after a retried write is not.
+      apiCache.clear();
+    }
+  };
+
+  client.post = (async <T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<ApiResponse<T>> =>
+    invalidateAfter(() => originalPost<T>(endpoint, body, options))) as MutateFn;
+
+  client.patch = (async <T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<ApiResponse<T>> =>
+    invalidateAfter(() => originalPatch<T>(endpoint, body, options))) as MutateFn;
+
+  client.put = (async <T>(
+    endpoint: string,
+    body?: unknown,
+    options?: RequestInit,
+  ): Promise<ApiResponse<T>> =>
+    invalidateAfter(() => originalPut<T>(endpoint, body, options))) as MutateFn;
+
+  client.delete = (async <T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> =>
+    invalidateAfter(() => originalDelete<T>(endpoint, options))) as DeleteFn;
+
+  return client;
+}
+
+export let apiClient: ApiClient = applyResponseCache(
+  createApiClient({
+    baseUrl: API_BASE_URL,
+    getAccessToken,
+    setAccessToken,
+    onUnauthorized: notifyUnauthorized,
+  }),
+);
 
 /**
  * Socket.IO origin for the same API server. The client strips the REST prefix
