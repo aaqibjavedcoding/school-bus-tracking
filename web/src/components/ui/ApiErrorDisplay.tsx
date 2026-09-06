@@ -39,30 +39,24 @@ export function ApiErrorDisplay({
   const { icon, title, message, action } = getErrorDisplay(error);
 
   return (
-    <div className={`flex flex-col items-center justify-center p-6 ${className}`}>
-      <div className="text-center max-w-md">
-        <div className="text-4xl mb-3">{icon}</div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 mb-4">{message}</p>
+    <div className={`error-box ${className}`} style={{ textAlign: 'center', padding: '1.5rem' }}>
+      <div style={{ maxWidth: '28rem', margin: '0 auto' }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>{icon}</div>
+        <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: '0.5rem' }}>{title}</h3>
+        <p className="muted" style={{ marginBottom: '1rem' }}>{message}</p>
 
         {error.status === 422 && error.details != null && typeof error.details === 'object' && (
           <ValidationErrors details={error.details as Record<string, string[]>} />
         )}
 
-        <div className="flex gap-3 justify-center">
+        <div className="row" style={{ justifyContent: 'center', gap: '0.75rem' }}>
           {action === 'retry' && onRetry && (
-            <button
-              onClick={onRetry}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-            >
+            <button onClick={onRetry} className="btn btn-primary">
               Try Again
             </button>
           )}
           {action === 'login' && onLogin && (
-            <button
-              onClick={onLogin}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-            >
+            <button onClick={onLogin} className="btn btn-primary">
               Log In Again
             </button>
           )}
@@ -160,11 +154,17 @@ function ValidationErrors({ details }: { details: unknown }) {
   if (entries.length === 0) return null;
 
   return (
-    <div className="text-left bg-red-50 rounded p-3 mb-4">
-      <ul className="text-sm text-red-700 space-y-1">
+    <div style={{
+      textAlign: 'left',
+      background: 'var(--color-danger-soft)',
+      borderRadius: 'var(--radius-sm)',
+      padding: '0.75rem',
+      marginBottom: '1rem',
+    }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.875rem', color: '#991b1b' }}>
         {entries.map(([field, messages]) => (
-          <li key={field}>
-            <span className="font-medium">{field}:</span>{' '}
+          <li key={field} style={{ marginBottom: '0.25rem' }}>
+            <span style={{ fontWeight: 600 }}>{field}:</span>{' '}
             {Array.isArray(messages) ? messages.join(', ') : String(messages)}
           </li>
         ))}

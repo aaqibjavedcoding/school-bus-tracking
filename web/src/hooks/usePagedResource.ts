@@ -27,6 +27,15 @@ export function usePagedResource<T>(
   const [searching, setSearching] = useState(false);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
+  const requestId = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     setSearching(true);
@@ -37,27 +46,46 @@ export function usePagedResource<T>(
     return () => window.clearTimeout(handle);
   }, [search]);
 
+  // Reset page to 1 when search or filter deps change, BEFORE the reload
+  // effect fires. Using a ref guard prevents a duplicate fetch.
+  const lastQueryRef = useRef<{ search: string; deps: string } | null>(null);
+  const depsKey = JSON.stringify(deps);
+  useEffect(() => {
+    const next = { search: debouncedSearch, deps: depsKey };
+    if (
+      lastQueryRef.current &&
+      (lastQueryRef.current.search !== next.search || lastQueryRef.current.deps !== next.deps)
+    ) {
+      setPage(1);
+    }
+    lastQueryRef.current = next;
+  }, [debouncedSearch, depsKey]);
+
   const reload = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
       const result = await loaderRef.current(page, debouncedSearch);
+      // Stale-response guard: a slow request for an older term must never
+      // overwrite the results of the newest one.
+      if (!mounted.current || id !== requestId.current) return;
       setItems(result.items);
       setMeta(result.meta);
     } catch (caught) {
+      if (!mounted.current || id !== requestId.current) return;
+      setItems([]);
       setError(getApiErrorMessage(caught));
     } finally {
-      setLoading(false);
+      if (mounted.current && id === requestId.current) {
+        setLoading(false);
+      }
     }
   }, [page, debouncedSearch]);
 
   useEffect(() => {
     void reload();
   }, [reload, ...deps]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch]);
 
   return {
     items,

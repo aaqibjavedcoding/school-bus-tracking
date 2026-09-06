@@ -7,9 +7,10 @@ const LABELS: Record<ConnectionState, string> = {
   offline: 'Offline',
 };
 
-export const ConnectionIndicator: React.FC<{ state: ConnectionState }> = ({ state }) => (
+export const ConnectionIndicator: React.FC<{ state: ConnectionState }> = React.memo(({ state }) => (
   <span className={`connection ${state}`}>
     <span className="pulse" aria-hidden="true" />
     {LABELS[state]}
   </span>
-);
+));
+ConnectionIndicator.displayName = 'ConnectionIndicator';

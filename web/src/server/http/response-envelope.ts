@@ -70,13 +70,16 @@ export function buildErrorEnvelope(
     errorCode = (respObj['error'] as string) || `HTTP_${status}`;
     details = respObj['details'] || undefined;
   } else if (exception instanceof Error) {
-    errorMessage = exception.message;
+    // For 5xx errors (non-HttpException), never leak internal error messages
+    // (database errors, stack traces, connection strings) to the client.
+    // The real message is logged server-side below.
+    errorMessage = 'An unexpected error occurred. Please try again later.';
   }
 
   if (status >= 500) {
     logger.error(
       `[${request?.method ?? 'UNKNOWN'}] ${request?.url ?? ''} - Status: ${status} - Error: ${String(
-        errorMessage,
+        exception instanceof Error ? exception.message : errorMessage,
       )}`,
       exception instanceof Error ? exception.stack : undefined,
     );

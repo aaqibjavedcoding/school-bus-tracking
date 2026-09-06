@@ -83,6 +83,10 @@ export function ListScreen<T>({
       ]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
+      initialNumToRender={12}
+      maxToRenderPerBatch={10}
+      windowSize={7}
+      removeClippedSubviews
       refreshControl={
         refresh ? (
           <RefreshControl

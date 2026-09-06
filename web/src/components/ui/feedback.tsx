@@ -166,19 +166,21 @@ export const Pagination: React.FC<{
   hasNextPage: boolean;
   hasPreviousPage: boolean;
   onPage: (page: number) => void;
-}> = ({ page, totalPages, hasNextPage, hasPreviousPage, onPage }) => (
-  <div className="pagination">
-    <span>
-      Page {page}
-      {totalPages > 0 ? ` of ${totalPages}` : ''}
-    </span>
-    <div className="row">
-      <Button variant="secondary" disabled={!hasPreviousPage} onClick={() => onPage(page - 1)}>
-        Previous
-      </Button>
-      <Button variant="secondary" disabled={!hasNextPage} onClick={() => onPage(page + 1)}>
-        Next
-      </Button>
+}> = ({ page, totalPages, hasNextPage, hasPreviousPage, onPage }) => {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="pagination">
+      <span>
+        Page {page} of {totalPages}
+      </span>
+      <div className="row">
+        <Button variant="secondary" disabled={!hasPreviousPage} onClick={() => onPage(page - 1)}>
+          Previous
+        </Button>
+        <Button variant="secondary" disabled={!hasNextPage} onClick={() => onPage(page + 1)}>
+          Next
+        </Button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
