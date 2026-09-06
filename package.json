@@ -21,6 +21,9 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,scss,yml,yaml}\"",
     "clean": "rimraf dist build .next .expo web/.next web/dist mobile/.expo packages/*/dist",
     "db:seed": "npm --prefix web run db:seed",
+    "db:migrate": "npm --prefix web run db:migrate",
+    "db:setup": "npm --prefix web run db:setup",
+    "db:refresh": "npm --prefix web run db:refresh",
     "seed": "npm --prefix web run db:seed"
   },
   "devDependencies": {

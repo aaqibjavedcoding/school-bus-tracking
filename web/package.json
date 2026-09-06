@@ -25,6 +25,8 @@
     "db:migrate:undo:all": "node scripts/sequelize-cli.js db:migrate:undo:all",
     "db:seed": "node scripts/sequelize-cli.js db:seed:all",
     "db:seed:undo": "node scripts/sequelize-cli.js db:seed:undo:all",
+    "db:setup": "npm run db:migrate && npm run db:seed",
+    "db:refresh": "npm run db:migrate:undo:all && npm run db:setup",
     "migration:create": "node scripts/make-migration.js",
     "seeder:create": "node scripts/make-seeder.js",
     "smoke:manage-data": "cross-env NODE_ENV=test DB_AUTO_CONNECT=false DB_ALLOW_NO_CONNECT=true JWT_SECRET=verify-manage-data-secret TS_NODE_PROJECT=tsconfig.server.json node -r ts-node/register/transpile-only scripts/smoke/smoke-manage-data.ts",
