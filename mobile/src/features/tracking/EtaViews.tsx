@@ -21,7 +21,7 @@ import type { LiveFix } from './useLiveTripTracking';
 export const EtaSummaryCard: React.FC<{
   eta: TripEtaResponse | null;
   fix: LiveFix | null;
-}> = ({ eta, fix }) => {
+}> = React.memo(({ eta, fix }) => {
   if (!eta) {
     return (
       <View style={styles.card}>
@@ -63,10 +63,11 @@ export const EtaSummaryCard: React.FC<{
       ) : null}
     </View>
   );
-};
+});
+EtaSummaryCard.displayName = 'EtaSummaryCard';
 
 /** Full ordered stop list with per-stop ETA and arrival state. */
-export const StopsEtaList: React.FC<{ eta: TripEtaResponse | null }> = ({ eta }) => {
+export const StopsEtaList: React.FC<{ eta: TripEtaResponse | null }> = React.memo(({ eta }) => {
   if (!eta || eta.items.length === 0) {
     return <Text style={styles.muted}>No stops are configured for this route.</Text>;
   }
@@ -104,7 +105,8 @@ export const StopsEtaList: React.FC<{ eta: TripEtaResponse | null }> = ({ eta })
       })}
     </View>
   );
-};
+});
+StopsEtaList.displayName = 'StopsEtaList';
 
 export const TrackingSection: React.FC<{ title: string }> = ({ title }) => (
   <SectionTitle>{title}</SectionTitle>

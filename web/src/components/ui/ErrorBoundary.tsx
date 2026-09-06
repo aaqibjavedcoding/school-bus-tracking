@@ -53,26 +53,30 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="flex flex-col items-center justify-center min-h-[200px] p-6">
-          <div className="text-center">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">
-              Something went wrong
-            </h2>
-            <p className="text-sm text-gray-600 mb-4">
-              An unexpected error occurred. Please try again.
-            </p>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <pre className="text-xs text-red-600 bg-red-50 p-3 rounded mb-4 overflow-auto max-w-md">
-                {this.state.error.message}
-              </pre>
-            )}
-            <button
-              onClick={this.handleRetry}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        <div className="error-box" role="alert">
+          <h3>Something went wrong</h3>
+          <p className="muted">
+            An unexpected error occurred. Please try again.
+          </p>
+          {process.env.NODE_ENV === 'development' && this.state.error && (
+            <pre
+              style={{
+                fontSize: '0.75rem',
+                color: 'var(--color-danger)',
+                background: 'var(--color-danger-soft)',
+                padding: '0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                marginTop: '0.75rem',
+                overflow: 'auto',
+                maxWidth: '100%',
+              }}
             >
-              Try Again
-            </button>
-          </div>
+              {this.state.error.message}
+            </pre>
+          )}
+          <button onClick={this.handleRetry} className="btn btn-primary" style={{ marginTop: '1rem' }}>
+            Try Again
+          </button>
         </div>
       );
     }

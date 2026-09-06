@@ -8,7 +8,7 @@ import type { ConnectionState } from './useLiveTripTracking';
  * tracking surfaces. `live` mirrors the Socket.IO connection state, not a
  * heartbeat the client invents.
  */
-export const ConnectionIndicator: React.FC<{ connection: ConnectionState }> = ({ connection }) => {
+export const ConnectionIndicator: React.FC<{ connection: ConnectionState }> = React.memo(({ connection }) => {
   const tone =
     connection === 'live'
       ? { bg: '#dcfce7', text: colors.secondary[800] }
@@ -26,7 +26,8 @@ export const ConnectionIndicator: React.FC<{ connection: ConnectionState }> = ({
       </Text>
     </View>
   );
-};
+});
+ConnectionIndicator.displayName = 'ConnectionIndicator';
 
 const styles = StyleSheet.create({
   chip: {

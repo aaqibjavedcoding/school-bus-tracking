@@ -56,7 +56,7 @@ const EtaPanel: React.FC<{
   fix: LiveFix | null;
   eta: TripEtaResponse | null;
   lastArrival: TripStopArrivedEvent | null;
-}> = ({ fix, eta, lastArrival }) => {
+}> = React.memo(({ fix, eta, lastArrival }) => {
   const nextStop = eta?.next_stop ?? null;
   const currentStop = eta?.current_stop ?? null;
   const arrivedStopName = currentStop?.stop_name ?? lastArrival?.stop_name ?? null;
@@ -93,7 +93,9 @@ const EtaPanel: React.FC<{
       ) : null}
     </div>
   );
-};
+});
+
+EtaPanel.displayName = 'EtaPanel';
 
 export const TripTrackerView: React.FC<{
   tripId: string | null;

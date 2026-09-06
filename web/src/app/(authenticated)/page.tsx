@@ -21,15 +21,25 @@ export default function DashboardPage() {
     const [students, buses, routes, trips] = await Promise.all([
       apiClient.listStudents({ page: 1, limit: 1 }),
       apiClient.listBuses({ page: 1, limit: 1 }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
+      apiClient.listRoutes({ page: 1, limit: 1 }),
       apiClient.listTrips({ page: 1, limit: 8, date: today }),
     ]);
+    const tripsData = unwrapEnvelope(trips);
+    // Fetch only the routes referenced by today's trips — avoids loading
+    // the entire route roster (enriched with assignments/crew) just to
+    // read their codes.
+    const routeIds = [...new Set(tripsData.items.map((t) => t.route_id))];
+    const routeLookup = routeIds.length
+      ? await apiClient.listRoutes({ page: 1, limit: routeIds.length })
+      : null;
     return {
       studentCount: unwrapEnvelope(students).meta.total,
       busCount: unwrapEnvelope(buses).meta.total,
       routeCount: unwrapEnvelope(routes).meta.total,
-      routes: unwrapEnvelope(routes).items,
-      trips: unwrapEnvelope(trips),
+      trips: tripsData,
+      routeById: new Map(
+        (routeLookup ? unwrapEnvelope(routeLookup).items : []).map((r) => [r.id, r]),
+      ),
     };
   }, [today, isSchoolAdmin]);
 
@@ -142,7 +152,7 @@ export default function DashboardPage() {
                     </td>
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
                     <td className="muted">
-                      {data.routes.find((route) => route.id === trip.route_id)?.code ??
+                      {data.routeById.get(trip.route_id)?.code ??
                         'Route unavailable'}
                     </td>
                     <td>
