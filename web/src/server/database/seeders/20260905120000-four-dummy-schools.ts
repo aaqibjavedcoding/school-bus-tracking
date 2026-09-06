@@ -36,8 +36,49 @@ const BASE_TIMESTAMP = new Date('2026-09-05T00:00:00.000Z');
 const TODAY_STR = new Date().toISOString().slice(0, 10);
 const timestamps = { created_at: BASE_TIMESTAMP, updated_at: BASE_TIMESTAMP };
 
-/** Deterministic UUID generator: 00000000-0000-4000-SSTT-IIIIIIIIIIII */
-function makeUuid(schoolIdx: number, typeCode: number, itemIdx: number): string {
+/**
+ * Deterministic UUID generator: `00000000-0000-4000-8000-SSTTIIIIIIII`.
+ *
+ * Both RFC 4122 marker nibbles are fixed, and that is load-bearing:
+ *
+ * - the 13th hex digit is the **version** — `4` (random UUID);
+ * - the 17th hex digit is the **variant** — `8` (the `10xx` variant bits).
+ *
+ * PostgreSQL's `uuid` type only checks that a value is 32 hex digits, so an
+ * id with the wrong variant nibble stores and reads back perfectly happily —
+ * but the application rejects it everywhere ids cross a boundary:
+ * `BaseModel`'s `@IsUUID(4)` on the primary key, the `@IsUUID('4'|4)` DTO
+ * decorators, the zod `.uuid()` schemas and `parseUuidParam()` in the route
+ * handlers all require a *valid* v4 UUID. The previous scheme packed the
+ * school/type codes into the variant group (`…-4000-SSTT-…`, e.g.
+ * `00000000-0000-4000-0101-000000000001`), which produced a variant nibble of
+ * `0` and made every seeded row unusable — clicking "Manage data" on a seeded
+ * school failed with `Validation failed (uuid is expected)` because
+ * `POST /admin/schools/:schoolId/manage/session` re-parses `:schoolId` as a
+ * v4 UUID.
+ *
+ * The discriminators therefore live in the last group (which is free-form),
+ * exactly like the older `20260827120800-demo-core-domain-data` seeder does.
+ * The ids stay deterministic and collision-free: `(school, type, item)` is
+ * still encoded 1:1, just at a different offset.
+ */
+export function makeUuid(schoolIdx: number, typeCode: number, itemIdx: number): string {
+  const s = schoolIdx.toString(16).padStart(2, '0');
+  const t = typeCode.toString(16).padStart(2, '0');
+  const i = itemIdx.toString(16).padStart(8, '0');
+  return `00000000-0000-4000-8000-${s}${t}${i}`;
+}
+
+/**
+ * The pre-fix id scheme (invalid RFC 4122 variant).
+ *
+ * Kept for one reason only: a database seeded before the fix still holds
+ * those rows, and their unique keys (school `code`/`subdomain`, user `email`,
+ * plan `code`) would make the corrected inserts below silently no-op through
+ * `ON CONFLICT DO NOTHING`, leaving the unusable ids in place. The cleanup
+ * step purges them so a plain `npm run db:seed` heals an existing database.
+ */
+export function makeLegacyUuid(schoolIdx: number, typeCode: number, itemIdx: number): string {
   const s = schoolIdx.toString(16).padStart(2, '0');
   const t = typeCode.toString(16).padStart(2, '0');
   const i = itemIdx.toString(16).padStart(12, '0');
@@ -47,11 +88,19 @@ function makeUuid(schoolIdx: number, typeCode: number, itemIdx: number): string 
 // -----------------------------------------------------------------------------
 // 1. PLANS
 // -----------------------------------------------------------------------------
-const PLAN_IDS = {
-  BASIC: '00000000-0000-4000-0020-000000000001',
-  GROWTH: '00000000-0000-4000-0020-000000000002',
-  PRO: '00000000-0000-4000-0020-000000000003',
-  ENTERPRISE: '00000000-0000-4000-0020-000000000004',
+export const PLAN_IDS = {
+  BASIC: makeUuid(0, 0x20, 1),
+  GROWTH: makeUuid(0, 0x20, 2),
+  PRO: makeUuid(0, 0x20, 3),
+  ENTERPRISE: makeUuid(0, 0x20, 4),
+};
+
+/** Same plans as seeded by the pre-fix scheme, keyed identically to {@link PLAN_IDS}. */
+export const LEGACY_PLAN_IDS: Record<keyof typeof PLAN_IDS, string> = {
+  BASIC: makeLegacyUuid(0, 0x20, 1),
+  GROWTH: makeLegacyUuid(0, 0x20, 2),
+  PRO: makeLegacyUuid(0, 0x20, 3),
+  ENTERPRISE: makeLegacyUuid(0, 0x20, 4),
 };
 
 const PLANS = [
@@ -207,7 +256,7 @@ interface SchoolConfig {
   stateCode: string;
 }
 
-const SCHOOL_CONFIGS: SchoolConfig[] = [
+export const SCHOOL_CONFIGS: SchoolConfig[] = [
   {
     index: 1,
     id: makeUuid(1, 1, 1),
@@ -379,6 +428,57 @@ const LAST_NAMES = [
   'Kapoor',
 ];
 
+/**
+ * Deletes every row this seeder owns for one school id, children first.
+ *
+ * Called for the current ids *and* for the pre-fix ones, so re-seeding a
+ * database that still holds the invalid-variant rows replaces them instead of
+ * colliding with them on `code` / `subdomain` / `email`.
+ */
+async function purgeSchool(queryInterface: QueryInterface, schoolId: string): Promise<void> {
+  const scope = { school_id: schoolId };
+  await queryInterface.bulkDelete('import_jobs', scope, {});
+  await queryInterface.bulkDelete('notifications', scope, {});
+  await queryInterface.bulkDelete('emergency_events', scope, {});
+  await queryInterface.bulkDelete('document_requirements', scope, {});
+  await queryInterface.bulkDelete('driver_documents', scope, {});
+  await queryInterface.bulkDelete('bus_documents', scope, {});
+  await queryInterface.bulkDelete('trip_student_attendance', scope, {});
+  await queryInterface.bulkDelete('trip_stop_arrivals', scope, {});
+  await queryInterface.bulkDelete('trip_locations', scope, {});
+  await queryInterface.bulkDelete('trips', scope, {});
+  await queryInterface.bulkDelete('route_assignments', scope, {});
+  await queryInterface.bulkDelete('student_guardians', scope, {});
+  await queryInterface.bulkDelete('students', scope, {});
+  await queryInterface.bulkDelete('stops', scope, {});
+  await queryInterface.bulkDelete('routes', scope, {});
+  await queryInterface.bulkDelete('buses', scope, {});
+  await queryInterface.bulkDelete('users', scope, {});
+  await queryInterface.bulkDelete('school_subscriptions', scope, {});
+  await queryInterface.bulkDelete('schools', { id: schoolId }, {});
+}
+
+/**
+ * Moves a plan seeded with the pre-fix id onto its corrected id.
+ *
+ * `fk_school_subscriptions_plan` is `ON UPDATE CASCADE`, so any subscription
+ * still pointing at the old plan follows along — no subscription is dropped
+ * and no `ON DELETE RESTRICT` is tripped. Plan `code` is unique platform-wide,
+ * which is exactly why the row has to be *moved* rather than re-inserted:
+ * `bulkInsert(..., { ignoreDuplicates: true })` would silently skip it and
+ * leave `school_subscriptions.plan_id` pointing at a non-existent plan.
+ */
+async function migrateLegacyPlanIds(queryInterface: QueryInterface): Promise<void> {
+  for (const key of Object.keys(PLAN_IDS) as Array<keyof typeof PLAN_IDS>) {
+    await queryInterface.sequelize.query(
+      `UPDATE "plans" SET "id" = :next
+        WHERE "id" = :legacy
+          AND NOT EXISTS (SELECT 1 FROM "plans" WHERE "id" = :next)`,
+      { replacements: { next: PLAN_IDS[key], legacy: LEGACY_PLAN_IDS[key] } },
+    );
+  }
+}
+
 export async function up(queryInterface: QueryInterface): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Refusing to insert seed test data into a production database.');
@@ -389,26 +489,11 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   // ---------------------------------------------------------------------------
   console.log('🧹 Cleaning up any existing seed data...');
   for (const cfg of SCHOOL_CONFIGS) {
-    await queryInterface.bulkDelete('import_jobs', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('notifications', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('emergency_events', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('document_requirements', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('driver_documents', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('bus_documents', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('trip_student_attendance', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('trip_stop_arrivals', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('trip_locations', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('trips', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('route_assignments', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('student_guardians', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('students', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('stops', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('routes', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('buses', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('users', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('school_subscriptions', { school_id: cfg.id }, {});
-    await queryInterface.bulkDelete('schools', { id: cfg.id }, {});
+    await purgeSchool(queryInterface, cfg.id);
+    // Rows written before the UUID-variant fix live under a different id.
+    await purgeSchool(queryInterface, makeLegacyUuid(cfg.index, 1, 1));
   }
+  await migrateLegacyPlanIds(queryInterface);
   console.log('✅ Cleanup complete\n');
 
   // ---------------------------------------------------------------------------
@@ -1566,29 +1651,12 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
 
 export async function down(queryInterface: QueryInterface): Promise<void> {
   for (const cfg of SCHOOL_CONFIGS) {
-    const scope = { school_id: cfg.id };
-    await queryInterface.bulkDelete('import_jobs', scope, {});
-    await queryInterface.bulkDelete('notifications', scope, {});
-    await queryInterface.bulkDelete('emergency_events', scope, {});
-    await queryInterface.bulkDelete('document_requirements', scope, {});
-    await queryInterface.bulkDelete('driver_documents', scope, {});
-    await queryInterface.bulkDelete('bus_documents', scope, {});
-    await queryInterface.bulkDelete('trip_student_attendance', scope, {});
-    await queryInterface.bulkDelete('trip_stop_arrivals', scope, {});
-    await queryInterface.bulkDelete('trip_locations', scope, {});
-    await queryInterface.bulkDelete('trips', scope, {});
-    await queryInterface.bulkDelete('route_assignments', scope, {});
-    await queryInterface.bulkDelete('student_guardians', scope, {});
-    await queryInterface.bulkDelete('students', scope, {});
-    await queryInterface.bulkDelete('stops', scope, {});
-    await queryInterface.bulkDelete('routes', scope, {});
-    await queryInterface.bulkDelete('buses', scope, {});
-    await queryInterface.bulkDelete('users', scope, {});
-    await queryInterface.bulkDelete('school_subscriptions', scope, {});
-    await queryInterface.bulkDelete('schools', { id: cfg.id }, {});
+    await purgeSchool(queryInterface, cfg.id);
+    // Also undo anything left behind by the pre-fix id scheme.
+    await purgeSchool(queryInterface, makeLegacyUuid(cfg.index, 1, 1));
   }
 
-  for (const planId of Object.values(PLAN_IDS)) {
+  for (const planId of [...Object.values(PLAN_IDS), ...Object.values(LEGACY_PLAN_IDS)]) {
     await queryInterface.bulkDelete('plans', { id: planId }, {});
   }
 }

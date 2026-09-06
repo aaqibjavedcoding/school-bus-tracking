@@ -97,6 +97,18 @@ npm run db:migrate
 npm run db:seed
 ```
 
+> **Seeded ids must be valid v4 UUIDs.** Every primary key in this system is a
+> v4 UUID (`BaseModel` declares `@IsUUID(4)` with a `UUIDV4` default, the DTOs
+> validate ids with `@IsUUID('4')`, and the route handlers re-check path
+> segments with `parseUuidParam()`). PostgreSQL's `uuid` type only checks that
+> a value is 32 hex digits, so a seeder can write ids the API then rejects —
+> which is how a demo tenant once ended up returning
+> `Validation failed (uuid is expected)` from Super Admin → Schools →
+> "Manage data". `npm run smoke:seed-uuids` dry-runs the demo seeder without a
+> database and fails if any generated id or foreign key breaks that contract.
+> If a database was seeded before this was fixed, re-running `npm run db:seed`
+> replaces the affected rows.
+
 ## Start
 
 ```bash

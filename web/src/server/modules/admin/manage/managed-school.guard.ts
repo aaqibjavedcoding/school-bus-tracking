@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, NotFoundException, Reflector, SetMetadata } from '../../../framework';
+import { CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, NotFoundException, Reflector, SetMetadata, isUuid } from '../../../framework';
 import { ADMIN_MANAGE_SCHOOLS_REPOSITORY } from './admin-manage.constants';
 import {
   MANAGED_SCHOOL_INACTIVE_MESSAGE,
@@ -36,7 +36,12 @@ export interface ManagedSchoolLookup {
   };
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Rejection message for a `:schoolId` segment that is not a UUID.
+ *
+ * Exported so the assisted-management specs can assert the exact contract.
+ */
+export const MANAGED_SCHOOL_ID_INVALID_MESSAGE = 'School id must be a UUID';
 
 /**
  * Resolves and validates the managed school for an assisted-management route.
@@ -71,8 +76,15 @@ export class ManagedSchoolGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<ManagedSchoolRequest>();
     const schoolId = request.params?.[MANAGED_SCHOOL_PARAM];
 
-    if (!schoolId || !UUID_PATTERN.test(schoolId)) {
-      throw new HttpException('School id must be a UUID', HttpStatus.BAD_REQUEST);
+    // The format check uses the framework's shared UUID contract — the same
+    // one `parseUuidParam()` applies inside the handlers and `BaseModel`'s
+    // `@IsUUID(4)` applies to every persisted primary key. Keeping the guard
+    // in step matters: a laxer guard would load the school, hand it to the
+    // handler and only then fail deep inside it with the opaque
+    // `Validation failed (uuid is expected)`, instead of rejecting the
+    // request up front with a message that names the offending segment.
+    if (!isUuid(schoolId, '4')) {
+      throw new HttpException(MANAGED_SCHOOL_ID_INVALID_MESSAGE, HttpStatus.BAD_REQUEST);
     }
 
     const school = await this.schools
