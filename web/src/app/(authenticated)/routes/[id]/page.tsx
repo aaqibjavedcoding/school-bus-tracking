@@ -10,6 +10,7 @@ import {
   type StopResponse,
   type StopUpdateRequest,
 } from '@school-bus-tracking/shared-types';
+import { RunsPanel } from '../../../../features/runs/RunsPanel';
 import { stopCreateSchema, stopUpdateSchema } from '@school-bus-tracking/validation';
 import {
   Badge,
@@ -50,11 +51,23 @@ export default function RouteDetailPage() {
   const params = useParams<{ id: string }>();
   const toast = useToast();
   const { data, loading, error, reload, setData } = useLoad(async () => {
-    const [route, stops] = await Promise.all([
+    const [route, stops, runs, shifts, buses] = await Promise.all([
       apiClient.getRoute(params.id),
       apiClient.listRouteStops(params.id),
+      // Runs management context: the route's runs plus the pickers' lookup
+      // data, all fetched together so the panel renders without extra waits.
+      apiClient.listRouteRuns(params.id, { limit: 100 }),
+      apiClient.listShifts({ limit: 100 }),
+      apiClient.listBuses({ limit: 100 }),
     ]);
-    return { route: unwrapEnvelope(route), stops: unwrapEnvelope(stops).items };
+    return {
+      route: unwrapEnvelope(route),
+      stops: unwrapEnvelope(stops).items,
+      runs: unwrapEnvelope(runs).items,
+      shifts: unwrapEnvelope(shifts).items,
+      // Inactive buses stay out of the run editor's picker.
+      buses: unwrapEnvelope(buses).items.filter((bus) => bus.is_active),
+    };
   }, [params.id]);
 
   const [open, setOpen] = useState(false);
@@ -260,6 +273,16 @@ export default function RouteDetailPage() {
           </div>
         )}
       </Card>
+
+      {data ? (
+        <RunsPanel
+          routeId={data.route.id}
+          runs={data.runs}
+          shifts={data.shifts}
+          buses={data.buses}
+          onChanged={reload}
+        />
+      ) : null}
 
       <Modal title={editing ? 'Edit stop' : 'Add stop'} open={open} onClose={() => setOpen(false)}>
         <form className="form-grid" onSubmit={(event) => void save(event)}>

@@ -20,7 +20,8 @@ export interface NavItem {
     | 'doc'
     | 'alert'
     | 'chart'
-    | 'upload';
+    | 'upload'
+    | 'clock';
 }
 
 /**
@@ -51,6 +52,11 @@ export const MANAGED_NAV_ITEMS: NavItem[] = [
   { href: '/routes', label: 'Routes', icon: 'route' },
   { href: '/staff', label: 'Drivers & conductors', icon: 'staff' },
   { href: '/assignments', label: 'Assignments', icon: 'assign' },
+  // 'Shifts & runs' is deliberately absent here even though the school-admin
+  // nav has it: the assisted-management surface exposes no shifts/runs
+  // endpoints yet (see MANAGED_TENANT_PATH_RULES in
+  // @school-bus-tracking/api-client), so opening the page from a managed
+  // session would only produce 403s. Add it when the managed surface grows.
   { href: '/reports', label: 'Reports', icon: 'chart' },
   { href: '/imports', label: 'Import data', icon: 'upload' },
 ];
@@ -79,6 +85,7 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
         { href: '/routes', label: 'Routes', icon: 'route' },
         { href: '/staff', label: 'Drivers & conductors', icon: 'staff' },
         { href: '/assignments', label: 'Assignments', icon: 'assign' },
+        { href: '/shifts', label: 'Shifts & runs', icon: 'clock' },
         { href: '/documents', label: 'Documents', icon: 'doc' },
         { href: '/emergencies', label: 'Emergencies', icon: 'alert' },
         { href: '/trips', label: 'Trips', icon: 'trip' },

@@ -5,6 +5,7 @@ import React from 'react';
 import { TripStatus } from '@school-bus-tracking/shared-types';
 import type { ParentChildSummary } from '@school-bus-tracking/shared-types';
 import { Badge, Card } from '../../components/ui';
+import { childRunHeadline } from '../runs/helpers';
 import {
   boardingStatusLabel,
   boardingStatusTone,
@@ -86,6 +87,9 @@ export const ChildCard: React.FC<{ child: ParentChildSummary }> = ({ child }) =>
       items={[
         ['Status', <TodayTripStatus key="s" child={child} />],
         ['Boarding', <BoardingStatus key="b" child={child} />],
+        // The run heading covers bus + bell window in one line; the plain
+        // Bus/Route rows below stay as the legacy (no-run) display path.
+        ['Run', child.run ? childRunHeadline(child) : null],
         [
           'Bus',
           child.today.bus

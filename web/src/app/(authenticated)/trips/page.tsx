@@ -23,6 +23,7 @@ import {
 import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
+import { dispatchableRuns, runLabel, tripRunBadge } from '../../../features/runs/helpers';
 import {
   emptyToNull,
   fieldErrorsFromUnknown,
@@ -44,13 +45,19 @@ export default function TripsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(utcDateOnly());
   const [open, setOpen] = useState(false);
-  // The assignment picker is only rendered inside the "Schedule trip"
+  // The assignment/run pickers are only rendered inside the "Schedule trip"
   // modal — gate the lookup on it instead of fetching on every page mount.
   // Data stays cached in the hook once fetched.
   const lookups = useLoad(
     async () => {
-      const assignments = await apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true });
-      return { assignments: unwrapEnvelope(assignments).items };
+      const [assignments, runs] = await Promise.all([
+        apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true }),
+        apiClient.listRuns({ page: 1, limit: 100 }),
+      ]);
+      return {
+        assignments: unwrapEnvelope(assignments).items,
+        runs: dispatchableRuns(unwrapEnvelope(runs).items),
+      };
     },
     [],
     { enabled: open },
@@ -70,17 +77,32 @@ export default function TripsPage() {
   );
   const [form, setForm] = useState({
     route_assignment_id: '',
+    run_id: '',
     scheduled_start_at: '',
     scheduled_end_at: '',
   });
+  // Dispatch source (§8.4): runs are the preferred path, legacy assignments
+  // remain available verbatim. A tenant without runs simply never sees the
+  // Run option enabled, so nothing changes for existing schedules.
+  const [source, setSource] = useState<'run' | 'legacy'>('run');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<TripResponse | null>(null);
+  const runs = lookups.data?.runs ?? [];
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
+    const effectiveSource = source === 'run' && runs.length > 0 ? 'run' : 'legacy';
     const payload = {
-      route_assignment_id: form.route_assignment_id,
+      // Exactly one source key survives — the create schema is strict and
+      // rejects payloads carrying both.
+      ...(effectiveSource === 'run'
+        ? form.run_id
+          ? { run_id: form.run_id }
+          : {}
+        : form.route_assignment_id
+          ? { route_assignment_id: form.route_assignment_id }
+          : {}),
       scheduled_start_at: form.scheduled_start_at
         ? fromDateTimeLocalValue(form.scheduled_start_at)
         : '',
@@ -221,7 +243,10 @@ export default function TripsPage() {
                       </Badge>
                     </td>
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
-                    <td>{routeName(trip)}</td>
+                    <td>
+                      {routeName(trip)}{' '}
+                      {tripRunBadge(trip) ? <Badge tone="neutral">{tripRunBadge(trip)}</Badge> : null}
+                    </td>
                     <td>{busLabel(trip)}</td>
                     <td>{crewLabel(trip.driver_name, trip.conductor_name)}</td>
                     <td>
@@ -250,22 +275,57 @@ export default function TripsPage() {
       )}
       <Modal title="Schedule trip" open={open} onClose={() => setOpen(false)}>
         <form className="form-grid" onSubmit={(event) => void save(event)}>
-          <Field
-            id="route_assignment_id"
-            label="Assignment"
-            error={fieldErrors.route_assignment_id}
-          >
-            <Select
+          <div className="table-actions" role="radiogroup" aria-label="Dispatch source">
+            <Button
+              variant={source === 'run' ? 'primary' : 'secondary'}
+              type="button"
+              disabled={runs.length === 0}
+              onClick={() => setSource('run')}
+            >
+              From a run
+            </Button>
+            <Button
+              variant={source === 'legacy' ? 'primary' : 'secondary'}
+              type="button"
+              onClick={() => setSource('legacy')}
+            >
+              From an assignment (legacy)
+            </Button>
+          </div>
+          {source === 'run' && runs.length === 0 ? (
+            <p className="muted" role="status">
+              This school has no active runs yet, so scheduling falls back to a legacy
+              route assignment.
+            </p>
+          ) : null}
+          {source === 'run' && runs.length > 0 ? (
+            <Field id="run_id" label="Run" error={fieldErrors.run_id}>
+              <Select
+                id="run_id"
+                placeholder="Select run"
+                value={form.run_id}
+                onChange={(event) => setForm({ ...form, run_id: event.target.value })}
+                options={runs.map((run) => ({ value: run.id, label: runLabel(run) }))}
+              />
+            </Field>
+          ) : (
+            <Field
               id="route_assignment_id"
-              placeholder="Select assignment"
-              value={form.route_assignment_id}
-              onChange={(event) => setForm({ ...form, route_assignment_id: event.target.value })}
-              options={(lookups.data?.assignments ?? []).map((assignment) => ({
-                value: assignment.id,
-                label: `${assignment.route_code ?? 'Route'} — ${assignment.route_name ?? ''} · ${assignment.bus_number ?? assignment.bus_registration_number ?? 'No bus'} · ${assignment.role.toLowerCase()}`,
-              }))}
-            />
-          </Field>
+              label="Assignment"
+              error={fieldErrors.route_assignment_id}
+            >
+              <Select
+                id="route_assignment_id"
+                placeholder="Select assignment"
+                value={form.route_assignment_id}
+                onChange={(event) => setForm({ ...form, route_assignment_id: event.target.value })}
+                options={(lookups.data?.assignments ?? []).map((assignment) => ({
+                  value: assignment.id,
+                  label: `${assignment.route_code ?? 'Route'} — ${assignment.route_name ?? ''} · ${assignment.bus_number ?? assignment.bus_registration_number ?? 'No bus'} · ${assignment.role.toLowerCase()}`,
+                }))}
+              />
+            </Field>
+          )}
           <Field
             id="scheduled_start_at"
             label="Scheduled start"
