@@ -79,7 +79,8 @@ import { createRateLimitStore } from './common/rate-limit/rate-limit.store-facto
 import type { RateLimitStore } from './common/rate-limit/rate-limit.store';
 
 import { AdminDashboardService } from './modules/admin/admin-dashboard.service';
-import { DashboardService } from './modules/dashboard/dashboard.service';import { AdminGlobalSubscriptionsService } from './modules/admin/admin-global-subscriptions.service';
+import { DashboardService } from './modules/dashboard/dashboard.service';
+import { AdminGlobalSubscriptionsService } from './modules/admin/admin-global-subscriptions.service';
 import { AdminPlansService } from './modules/admin/admin-plans.service';
 import { AdminSchoolAdminsService } from './modules/admin/admin-school-admins.service';
 import { AdminSchoolsService } from './modules/admin/admin-schools.service';
@@ -113,7 +114,10 @@ import { ParentGuardiansService } from './modules/parents/parent-guardians.servi
 import { ParentsService } from './modules/parents/parents.service';
 import { ReportsService } from './modules/reports/reports.service';
 import { RoutesService } from './modules/routes/routes.service';
+import { RunCrewService } from './modules/run-crew/run-crew.service';
+import { RunsService } from './modules/runs/runs.service';
 import { SchoolsService } from './modules/schools/schools.service';
+import { ShiftsService } from './modules/shifts/shifts.service';
 import { StaffService } from './modules/staff/staff.service';
 import { StopsService } from './modules/stops/stops.service';
 import { StudentsService } from './modules/students/students.service';
@@ -182,21 +186,17 @@ export class Container {
 
   // ------------------------------------------------------- config-derived
 
-  readonly etaConfig = lazy(
-    (): EtaConfig => ({
-      fallbackSpeedKmh: this.config().get<number>('eta.fallbackSpeedKmh') ?? 25,
-      minSpeedKmh: this.config().get<number>('eta.minSpeedKmh') ?? 5,
-      maxSpeedKmh: this.config().get<number>('eta.maxSpeedKmh') ?? 90,
-    }),
-  );
+  readonly etaConfig = lazy((): EtaConfig => ({
+    fallbackSpeedKmh: this.config().get<number>('eta.fallbackSpeedKmh') ?? 25,
+    minSpeedKmh: this.config().get<number>('eta.minSpeedKmh') ?? 5,
+    maxSpeedKmh: this.config().get<number>('eta.maxSpeedKmh') ?? 90,
+  }));
 
-  readonly liveTrackingConfig = lazy(
-    (): LiveTrackingConfig => ({
-      gpsMinIntervalMs: this.config().get<number>('liveTracking.gpsMinIntervalMs') ?? 2500,
-      maxFutureSkewMs: this.config().get<number>('liveTracking.maxFutureSkewMs') ?? 300_000,
-      maxPastSkewMs: this.config().get<number>('liveTracking.maxPastSkewMs') ?? 86_400_000,
-    }),
-  );
+  readonly liveTrackingConfig = lazy((): LiveTrackingConfig => ({
+    gpsMinIntervalMs: this.config().get<number>('liveTracking.gpsMinIntervalMs') ?? 2500,
+    maxFutureSkewMs: this.config().get<number>('liveTracking.maxFutureSkewMs') ?? 300_000,
+    maxPastSkewMs: this.config().get<number>('liveTracking.maxPastSkewMs') ?? 86_400_000,
+  }));
 
   /** Shared metadata reader for the guards (replaces Nest's Reflector). */
   readonly reflector = lazy(() => new Reflector());
@@ -243,14 +243,7 @@ export class Container {
 
   readonly auth = lazy(
     () =>
-      new AuthService(
-        User,
-        RefreshToken,
-        this.jwt(),
-        this.config(),
-        this.schoolAccess(),
-        School,
-      ),
+      new AuthService(User, RefreshToken, this.jwt(), this.config(), this.schoolAccess(), School),
   );
 
   readonly schools = lazy(() => new SchoolsService(School, User));
@@ -270,9 +263,7 @@ export class Container {
 
   readonly parents = lazy(() => new ParentsService(User, this.planLimits()));
 
-  readonly parentGuardians = lazy(
-    () => new ParentGuardiansService(User, Student, StudentGuardian),
-  );
+  readonly parentGuardians = lazy(() => new ParentGuardiansService(User, Student, StudentGuardian));
 
   readonly staff = lazy(
     () => new StaffService(User, RouteAssignment, Route, Bus, Trip, this.planLimits()),
@@ -293,8 +284,17 @@ export class Container {
         Trip,
         Student,
         this.planLimits(),
+        this.runs(),
       ),
   );
+
+  readonly shifts = lazy(() => new ShiftsService(Shift, Run));
+
+  readonly runs = lazy(
+    () => new RunsService(Run, Route, Shift, Bus, RunCrew, User, Student, this.planLimits()),
+  );
+
+  readonly runCrew = lazy(() => new RunCrewService(RunCrew, Run, Route, User));
 
   readonly stops = lazy(() => new StopsService(Stop, Route, this.planLimits()));
 
@@ -388,23 +388,14 @@ export class Container {
       ),
   );
 
-  readonly emergencies = lazy(
-    () => new EmergenciesService(EmergencyEvent, Trip, Bus, Route, User),
-  );
+  readonly emergencies = lazy(() => new EmergenciesService(EmergencyEvent, Trip, Bus, Route, User));
 
   readonly documentRequirements = lazy(
     () => new DocumentRequirementsService(DocumentRequirementModel),
   );
 
   readonly documents = lazy(
-    () =>
-      new DocumentsService(
-        BusDocument,
-        DriverDocument,
-        Bus,
-        User,
-        this.documentRequirements(),
-      ),
+    () => new DocumentsService(BusDocument, DriverDocument, Bus, User, this.documentRequirements()),
   );
 
   readonly documentCompliance = lazy(
@@ -445,16 +436,7 @@ export class Container {
 
   readonly adminDashboard = lazy(
     () =>
-      new AdminDashboardService(
-        School,
-        User,
-        Student,
-        Bus,
-        Route,
-        Trip,
-        SchoolSubscription,
-        Plan,
-      ),
+      new AdminDashboardService(School, User, Student, Bus, Route, Trip, SchoolSubscription, Plan),
   );
 
   readonly adminSchoolAdmins = lazy(() => new AdminSchoolAdminsService(School, User));
@@ -485,9 +467,7 @@ export class Container {
 
   readonly importTemplates = lazy(() => new ImportTemplateService());
 
-  readonly importHistory = lazy(
-    () => new ImportHistoryService(ImportJob, User, this.audit()),
-  );
+  readonly importHistory = lazy(() => new ImportHistoryService(ImportJob, User, this.audit()));
 
   readonly imports = lazy(
     () =>
