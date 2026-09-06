@@ -109,6 +109,10 @@ export function undoAllMigrations(): string {
  * Needed by suites that have to observe a migration's *effect* on data that
  * already exists: the sequence is migrate → seed → undo the data migration →
  * migrate again. `undoAllMigrations()` cannot express that.
+ *
+ * **Prefer `undoThroughMigration`** in new code: it calls this internally and
+ * then re-applies every migration so the database is in a clean, reproducible
+ * state, not stuck at "one migration undone".
  */
 export function undoLastMigration(): string {
   const settings = testDatabaseSettings();
@@ -126,6 +130,23 @@ export function undoLastMigration(): string {
       DB_NAME_TEST: settings.database,
     },
   });
+}
+
+/**
+ * Undoes the most recently applied migration and then re-applies every migration.
+ *
+ * This restores a clean migration state — equivalent to `runMigrations()` on a
+ * freshly-migrated database — while exercising the `down()` of the migration
+ * that was just undone.
+ *
+ * The canonical use is: migrate → seed → `undoThroughMigration()` → verify the
+ * `down()` removed exactly what `up()` added (e.g. the backfill's default runs).
+ * Calling `undoLastMigration()` alone leaves the database at "one migration
+ * behind" which is hard to reason about in subsequent tests.
+ */
+export function undoThroughMigration(): void {
+  undoLastMigration();
+  runMigrations();
 }
 
 /** A Sequelize instance bound to the test database with every model attached. */
