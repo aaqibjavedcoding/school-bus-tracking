@@ -4,6 +4,7 @@ import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.m
 import { School } from './school.model';
 import { Stop } from './stop.model';
 import { RouteAssignment } from './route-assignment.model';
+import { Run } from './run.model';
 import { Trip } from './trip.model';
 
 export interface RouteAttributes extends BaseModelAttributes {
@@ -24,9 +25,13 @@ export type RouteCreationAttributes = Optional<
 /**
  * Named bus route inside a school.
  *
- * A route is the *plan* (ordered stops + crew + vehicle through
- * {@link RouteAssignment}); a {@link Trip} is one concrete execution of that
- * plan on a given day.
+ * A route is the *path*: ordered stops, and nothing else that is time- or
+ * vehicle-bound. Which bus drives it, when, and with which crew lives on
+ * {@link Run} (one route may have several runs — that is tiering); the crew is
+ * rostered per run in `RunCrew`. {@link RouteAssignment} is the pre-refactor
+ * route-level roster, still readable but no longer authoritative.
+ *
+ * A {@link Trip} is one concrete execution of a run on a given day.
  */
 @Table({
   tableName: 'routes',
@@ -72,6 +77,12 @@ export class Route extends BaseModel<RouteAttributes, RouteCreationAttributes> {
 
   @HasMany(() => RouteAssignment, { foreignKey: 'route_id', as: 'routeAssignments' })
   declare routeAssignments?: RouteAssignment[];
+
+  // The operating model splits the path (this route) from the vehicle passes
+  // over it (`runs`); a route may have several. See
+  // `docs/operating-model.md` §2.
+  @HasMany(() => Run, { foreignKey: 'route_id', as: 'runs' })
+  declare runs?: Run[];
 
   @HasMany(() => Trip, { foreignKey: 'route_id', as: 'trips' })
   declare trips?: Trip[];

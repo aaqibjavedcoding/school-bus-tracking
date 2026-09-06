@@ -1,15 +1,26 @@
 import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
-import { Optional } from 'sequelize';
+import { Op, Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { TRIP_STATUS_VALUES, TripStatus } from './enums';
 import { School } from './school.model';
 import { Route } from './route.model';
+import { Run } from './run.model';
 import { Bus } from './bus.model';
 import { User } from './user.model';
 
 export interface TripAttributes extends BaseModelAttributes {
   school_id: string;
   route_id: string;
+  /**
+   * The run this trip executes — one vehicle's timed pass over the route.
+   *
+   * Nullable: it is populated by the default-run backfill for every trip that
+   * existed before the operating-model refactor, and Session 2 makes the
+   * service layer derive `bus_id` / `driver_id` / `conductor_id` from the run's
+   * crew. Pinned by `(school_id, run_id) → runs(school_id, id)` with
+   * `ON DELETE SET NULL`. See `docs/operating-model.md` §3.5.
+   */
+  run_id: string | null;
   /** Vehicle that runs the trip; null until dispatch assigns one. */
   bus_id: string | null;
   /**
@@ -35,6 +46,7 @@ export interface TripAttributes extends BaseModelAttributes {
 export type TripCreationAttributes = Optional<
   TripAttributes,
   | BaseModelManagedFields
+  | 'run_id'
   | 'bus_id'
   | 'driver_id'
   | 'conductor_id'
@@ -67,6 +79,15 @@ export type TripCreationAttributes = Optional<
     // Referenced by tenant-pinned foreign keys from attendance and live
     // tracking. This must be a non-partial unique index.
     { name: 'uq_trips_school_id', unique: true, fields: ['school_id', 'id'] },
+    // The run-level successor to `uq_trips_route_scheduled_start`: one open
+    // trip per run per scheduled departure. The route-level index below is
+    // kept — see `docs/operating-model.md` §3.5.
+    {
+      name: 'uq_trips_run_scheduled_start',
+      unique: true,
+      fields: ['run_id', 'scheduled_start_at'],
+      where: { deleted_at: null, run_id: { [Op.ne]: null } },
+    },
     {
       name: 'uq_trips_route_scheduled_start',
       unique: true,
@@ -92,6 +113,10 @@ export class Trip extends BaseModel<TripAttributes, TripCreationAttributes> {
   @ForeignKey(() => Route)
   @Column({ type: DataType.UUID, allowNull: false })
   declare route_id: string;
+
+  @ForeignKey(() => Run)
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare run_id: string | null;
 
   @ForeignKey(() => Bus)
   @Column({ type: DataType.UUID, allowNull: true })
@@ -135,6 +160,9 @@ export class Trip extends BaseModel<TripAttributes, TripCreationAttributes> {
 
   @BelongsTo(() => Route, { foreignKey: 'route_id', as: 'route' })
   declare route?: Route;
+
+  @BelongsTo(() => Run, { foreignKey: 'run_id', as: 'run' })
+  declare run?: Run;
 
   @BelongsTo(() => Bus, { foreignKey: 'bus_id', as: 'bus' })
   declare bus?: Bus;

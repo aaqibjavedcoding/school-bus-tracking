@@ -4,6 +4,7 @@ import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.m
 import { USER_ROLE_VALUES, UserRole } from './enums';
 import { School } from './school.model';
 import { RouteAssignment } from './route-assignment.model';
+import { RunCrew } from './run-crew.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
@@ -143,6 +144,10 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
 
   @HasMany(() => RouteAssignment, { foreignKey: 'user_id', as: 'routeAssignments' })
   declare routeAssignments?: RouteAssignment[];
+
+  // Per-run roster — the crew day view ("which runs am I on?").
+  @HasMany(() => RunCrew, { foreignKey: 'user_id', as: 'runCrew' })
+  declare runCrew?: RunCrew[];
 
   @HasMany(() => Trip, { foreignKey: 'driver_id', as: 'drivenTrips' })
   declare drivenTrips?: Trip[];

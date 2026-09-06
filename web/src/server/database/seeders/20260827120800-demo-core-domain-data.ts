@@ -7,8 +7,13 @@ import type { QueryInterface, QueryOptions } from 'sequelize';
  *
  * Seeds one throwaway tenant ("Demo School") with the minimum graph needed to
  * exercise the Phase 2 Task 2/3 schema end to end:
- * school → users (one per role) → buses → routes → stops → students →
- * route assignments → one scheduled trip.
+ * school → users (one per role) → buses → routes → stops → shifts → runs →
+ * students → route assignments → run crew → one scheduled trip.
+ *
+ * Every route gets exactly one **default run**, the same invariant the
+ * `20260906120400-backfill-default-runs` migration establishes for routes that
+ * already existed. Seeders run *after* migrations, so without this the demo
+ * tenant would hold routes with no run at all. See `docs/operating-model.md` §7.
  *
  * Guarantees:
  * - **Idempotent**: every row uses a fixed UUID and `ON CONFLICT DO NOTHING`
@@ -61,6 +66,24 @@ const ASSIGNMENTS = {
 };
 
 const TRIP = '00000000-0000-4000-8000-000000000701';
+
+/** Bell windows. Disjoint, so one bus could legally hold a run in each. */
+const SHIFTS = {
+  MORNING: '00000000-0000-4000-8000-000000000801',
+  AFTERNOON: '00000000-0000-4000-8000-000000000802',
+};
+
+/** One default run per route (`is_default = true`). */
+const RUNS = {
+  MORNING: '00000000-0000-4000-8000-000000000901',
+  AFTERNOON: '00000000-0000-4000-8000-000000000902',
+};
+
+/** The same crew as {@link ASSIGNMENTS}, rostered on the run instead of the route. */
+const RUN_CREW = {
+  DRIVER: '00000000-0000-4000-8000-000000001001',
+  CONDUCTOR: '00000000-0000-4000-8000-000000001002',
+};
 
 // Fixed values keep the seed deterministic across environments.
 const TIMESTAMP = new Date('2026-01-05T00:00:00.000Z');
@@ -201,6 +224,64 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   );
 
   await queryInterface.bulkInsert(
+    'shifts',
+    [
+      {
+        id: SHIFTS.MORNING,
+        school_id: DEMO_SCHOOL_ID,
+        name: 'Morning',
+        start_time: '07:00:00',
+        end_time: '11:00:00',
+        is_active: true,
+        ...timestamps,
+      },
+      {
+        id: SHIFTS.AFTERNOON,
+        school_id: DEMO_SCHOOL_ID,
+        name: 'Afternoon',
+        start_time: '12:00:00',
+        end_time: '16:00:00',
+        is_active: true,
+        ...timestamps,
+      },
+    ],
+    options,
+  );
+
+  // One default run per route. Unlike the backfill — which only copies a bus
+  // when the route's roster is unambiguous about it — seed data states the
+  // fleet explicitly, so the afternoon run gets bus TWO even though no crew is
+  // rostered on it yet.
+  await queryInterface.bulkInsert(
+    'runs',
+    [
+      {
+        id: RUNS.MORNING,
+        school_id: DEMO_SCHOOL_ID,
+        route_id: ROUTES.MORNING,
+        shift_id: SHIFTS.MORNING,
+        bus_id: BUSES.ONE,
+        code: 'DEMO-N1',
+        is_default: true,
+        is_active: true,
+        ...timestamps,
+      },
+      {
+        id: RUNS.AFTERNOON,
+        school_id: DEMO_SCHOOL_ID,
+        route_id: ROUTES.AFTERNOON,
+        shift_id: SHIFTS.AFTERNOON,
+        bus_id: BUSES.TWO,
+        code: 'DEMO-N2',
+        is_default: true,
+        is_active: true,
+        ...timestamps,
+      },
+    ],
+    options,
+  );
+
+  await queryInterface.bulkInsert(
     'stops',
     [
       {
@@ -269,6 +350,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       {
         id: STUDENTS.ONE,
         school_id: DEMO_SCHOOL_ID,
+        run_id: RUNS.MORNING,
         home_stop_id: STOPS.FIRST,
         admission_number: 'DEMO-0001',
         first_name: 'Alex',
@@ -284,6 +366,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       {
         id: STUDENTS.TWO,
         school_id: DEMO_SCHOOL_ID,
+        run_id: RUNS.MORNING,
         home_stop_id: STOPS.FIRST,
         admission_number: 'DEMO-0002',
         first_name: 'Bella',
@@ -299,6 +382,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       {
         id: STUDENTS.THREE,
         school_id: DEMO_SCHOOL_ID,
+        run_id: RUNS.MORNING,
         home_stop_id: STOPS.SECOND,
         admission_number: 'DEMO-0003',
         first_name: 'Chris',
@@ -356,12 +440,42 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   );
 
   await queryInterface.bulkInsert(
+    'run_crew',
+    [
+      {
+        id: RUN_CREW.DRIVER,
+        school_id: DEMO_SCHOOL_ID,
+        run_id: RUNS.MORNING,
+        user_id: USERS.DRIVER,
+        role: 'DRIVER',
+        effective_from: '2026-01-05',
+        effective_to: null,
+        is_active: true,
+        ...timestamps,
+      },
+      {
+        id: RUN_CREW.CONDUCTOR,
+        school_id: DEMO_SCHOOL_ID,
+        run_id: RUNS.MORNING,
+        user_id: USERS.CONDUCTOR,
+        role: 'CONDUCTOR',
+        effective_from: '2026-01-05',
+        effective_to: null,
+        is_active: true,
+        ...timestamps,
+      },
+    ],
+    options,
+  );
+
+  await queryInterface.bulkInsert(
     'trips',
     [
       {
         id: TRIP,
         school_id: DEMO_SCHOOL_ID,
         route_id: ROUTES.MORNING,
+        run_id: RUNS.MORNING,
         bus_id: BUSES.ONE,
         driver_id: USERS.DRIVER,
         conductor_id: USERS.CONDUCTOR,
@@ -383,6 +497,13 @@ export async function down(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.bulkDelete('trips', scope, {});
   await queryInterface.bulkDelete('route_assignments', scope, {});
   await queryInterface.bulkDelete('students', scope, {});
+  // `runs` after its referrers (`trips`, `students`, `run_crew`): its
+  // composite `ON DELETE SET NULL` keys would otherwise try to null
+  // `school_id` too, which is NOT NULL — see the note in the four-dummy-schools
+  // seeder's `purgeSchool`.
+  await queryInterface.bulkDelete('run_crew', scope, {});
+  await queryInterface.bulkDelete('runs', scope, {});
+  await queryInterface.bulkDelete('shifts', scope, {});
   await queryInterface.bulkDelete('stops', scope, {});
   await queryInterface.bulkDelete('routes', scope, {});
   await queryInterface.bulkDelete('buses', scope, {});
