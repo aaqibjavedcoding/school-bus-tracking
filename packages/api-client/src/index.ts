@@ -53,6 +53,25 @@ import {
   RouteAssignmentListResponse,
   RouteAssignmentResponse,
   RouteAssignmentUpdateRequest,
+  RouteRunCreateRequest,
+  RunCreateRequest,
+  RunCrewCreateRequest,
+  RunCrewDeleteResponse,
+  RunCrewListQuery,
+  RunCrewListResponse,
+  RunCrewResponse,
+  RunCrewUpdateRequest,
+  RunDeleteResponse,
+  RunListQuery,
+  RunListResponse,
+  RunResponse,
+  RunUpdateRequest,
+  ShiftCreateRequest,
+  ShiftDeleteResponse,
+  ShiftListQuery,
+  ShiftListResponse,
+  ShiftResponse,
+  ShiftUpdateRequest,
   HealthResponse,
   LoginRequest,
   LoginResponse,
@@ -238,6 +257,9 @@ const MANAGED_TENANT_PATH_RULES: RegExp[] = [
   /^\/stops(?:\/[0-9a-fA-F-]{36})?$/,
   /^\/(?:drivers|conductors)(?:\/[0-9a-fA-F-]{36})?$/,
   /^\/(?:route-assignments|assignments)(?:\/[0-9a-fA-F-]{36})?$/,
+  // Shifts / runs / run-crew are deliberately NOT listed yet: the assisted
+  // management surface for them lands with the Session 3 UI, and remapping a
+  // path to an endpoint that does not exist would turn a 403 into a 404.
   /^\/imports(?:\/(?:modules|history(?:\/[0-9a-fA-F-]{36}(?:\/error-file)?)?|[a-z-]+\/(?:template|validate|commit)))?$/,
   /^\/exports(?:\/[a-z-]+)?$/,
   /^\/reports(?:\/(?:overview|[a-z0-9_]+(?:\/export)?))?$/,
@@ -1569,6 +1591,131 @@ export class ApiClient {
   }
 
   /**
+   * Operating model — shifts, runs and run crew (`docs/operating-model.md`).
+   *
+   * A route is a path; a run is one vehicle's timed pass over it; a shift is
+   * the bell window that gives the run its clock; run crew is the per-run
+   * roster. The API derives `school_id` from the bearer token; these methods
+   * never accept a client tenant id.
+   */
+  public async createShift(body: ShiftCreateRequest): Promise<ApiResponse<ShiftResponse>> {
+    return this.post<ShiftResponse>('/shifts', body);
+  }
+
+  public async listShifts(query: ShiftListQuery = {}): Promise<ApiResponse<ShiftListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
+    return this.get<ShiftListResponse>(`/shifts${querySuffix(params)}`);
+  }
+
+  public async getShift(id: string): Promise<ApiResponse<ShiftResponse>> {
+    return this.get<ShiftResponse>(`/shifts/${encodeURIComponent(id)}`);
+  }
+
+  public async updateShift(
+    id: string,
+    body: ShiftUpdateRequest,
+  ): Promise<ApiResponse<ShiftResponse>> {
+    return this.patch<ShiftResponse>(`/shifts/${encodeURIComponent(id)}`, body);
+  }
+
+  /** Refused with 409 while the shift still has runs. */
+  public async deleteShift(id: string): Promise<ApiResponse<ShiftDeleteResponse>> {
+    return this.delete<ShiftDeleteResponse>(`/shifts/${encodeURIComponent(id)}`);
+  }
+
+  /** `POST /runs` — reserves the `runs` plan quota; `is_default` is never accepted. */
+  public async createRun(body: RunCreateRequest): Promise<ApiResponse<RunResponse>> {
+    return this.post<RunResponse>('/runs', body);
+  }
+
+  /** Nested create: `POST /routes/:routeId/runs`. */
+  public async createRouteRun(
+    routeId: string,
+    body: RouteRunCreateRequest,
+  ): Promise<ApiResponse<RunResponse>> {
+    return this.post<RunResponse>(`/routes/${encodeURIComponent(routeId)}/runs`, body);
+  }
+
+  public async listRuns(query: RunListQuery = {}): Promise<ApiResponse<RunListResponse>> {
+    return this.get<RunListResponse>(`/runs${runListQuerySuffix(query)}`);
+  }
+
+  /** `GET /routes/:routeId/runs` — every run of one route. */
+  public async listRouteRuns(
+    routeId: string,
+    query: Omit<RunListQuery, 'route_id'> = {},
+  ): Promise<ApiResponse<RunListResponse>> {
+    return this.get<RunListResponse>(
+      `/routes/${encodeURIComponent(routeId)}/runs${runListQuerySuffix(query)}`,
+    );
+  }
+
+  /** `GET /buses/:busId/runs` — the tiering / bus day view. */
+  public async listBusRuns(
+    busId: string,
+    query: Omit<RunListQuery, 'bus_id'> = {},
+  ): Promise<ApiResponse<RunListResponse>> {
+    return this.get<RunListResponse>(
+      `/buses/${encodeURIComponent(busId)}/runs${runListQuerySuffix(query)}`,
+    );
+  }
+
+  public async getRun(id: string): Promise<ApiResponse<RunResponse>> {
+    return this.get<RunResponse>(`/runs/${encodeURIComponent(id)}`);
+  }
+
+  public async updateRun(id: string, body: RunUpdateRequest): Promise<ApiResponse<RunResponse>> {
+    return this.patch<RunResponse>(`/runs/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteRun(id: string): Promise<ApiResponse<RunDeleteResponse>> {
+    return this.delete<RunDeleteResponse>(`/runs/${encodeURIComponent(id)}`);
+  }
+
+  /** `GET /runs/:runId/crew` — the roster of one run. */
+  public async listRunCrew(
+    runId: string,
+    query: RunCrewListQuery = {},
+  ): Promise<ApiResponse<RunCrewListResponse>> {
+    return this.get<RunCrewListResponse>(
+      `/runs/${encodeURIComponent(runId)}/crew${runCrewListQuerySuffix(query)}`,
+    );
+  }
+
+  /** `POST /runs/:runId/crew` — roster one person, one role, one period. */
+  public async createRunCrew(
+    runId: string,
+    body: RunCrewCreateRequest,
+  ): Promise<ApiResponse<RunCrewResponse>> {
+    return this.post<RunCrewResponse>(`/runs/${encodeURIComponent(runId)}/crew`, body);
+  }
+
+  public async updateRunCrew(
+    id: string,
+    body: RunCrewUpdateRequest,
+  ): Promise<ApiResponse<RunCrewResponse>> {
+    return this.patch<RunCrewResponse>(`/run-crew/${encodeURIComponent(id)}`, body);
+  }
+
+  public async deleteRunCrew(id: string): Promise<ApiResponse<RunCrewDeleteResponse>> {
+    return this.delete<RunCrewDeleteResponse>(`/run-crew/${encodeURIComponent(id)}`);
+  }
+
+  /** `GET /users/:userId/run-crew` — "this driver's roster". */
+  public async listUserRunCrew(
+    userId: string,
+    query: RunCrewListQuery = {},
+  ): Promise<ApiResponse<RunCrewListResponse>> {
+    return this.get<RunCrewListResponse>(
+      `/users/${encodeURIComponent(userId)}/run-crew${runCrewListQuerySuffix(query)}`,
+    );
+  }
+
+  /**
    * Trip management. A trip is dispatched from an active route assignment and
    * the API derives school, route, bus, driver and conductor from it, so these
    * methods never send a tenant id or crew ids.
@@ -2150,6 +2297,29 @@ export const createApiClient = (config: ApiClientConfig): ApiClient => {
 export function querySuffix(params: URLSearchParams): string {
   const serialised = params.toString();
   return serialised.length > 0 ? `?${serialised}` : '';
+}
+
+/** Query string of the run list endpoints (`/runs`, `/routes/:id/runs`, `/buses/:id/runs`). */
+function runListQuerySuffix(query: RunListQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.search) params.set('search', query.search);
+  if (query.route_id) params.set('route_id', query.route_id);
+  if (query.shift_id) params.set('shift_id', query.shift_id);
+  if (query.bus_id) params.set('bus_id', query.bus_id);
+  if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
+  return querySuffix(params);
+}
+
+/** Query string of the run-crew list endpoints. */
+function runCrewListQuerySuffix(query: RunCrewListQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  if (query.role) params.set('role', query.role);
+  if (query.is_active !== undefined) params.set('is_active', String(query.is_active));
+  return querySuffix(params);
 }
 
 /** Query string of the bus/driver document list endpoints. */
