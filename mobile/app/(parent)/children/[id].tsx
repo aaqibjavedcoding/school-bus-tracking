@@ -22,6 +22,7 @@ import {
   TripStatusBadge,
 } from '../../../src/components';
 import { formatTime, fullName } from '../../../src/lib/format';
+import { runSummaryLine } from '../../../src/features/parent/run-summary';
 
 /**
  * Child detail: profile, home stop, today's run with crew and bus, and the
@@ -112,6 +113,9 @@ export default function ParentChildDetailScreen() {
                 ? `Route ${homeStop.route_code}${homeStop.route_name ? ` · ${homeStop.route_name}` : ''} · Stop ${homeStop.sequence_number ?? '—'}`
                 : 'Route details unavailable'}
             </Text>
+            {child.run ? (
+              <Text style={styles.muted}>{runSummaryLine(child.run)}</Text>
+            ) : null}
           </>
         ) : (
           <Text style={styles.muted}>No home stop assigned yet.</Text>
@@ -129,7 +133,12 @@ export default function ParentChildDetailScreen() {
             <KeyValue label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
             <KeyValue
               label="Bus"
-              value={childToday.bus ? childToday.bus.registration_number : '—'}
+              value={
+                childToday.bus?.registration_number ??
+                child.run?.bus_number ??
+                child.run?.registration_number ??
+                '—'
+              }
             />
             <KeyValue
               label="Driver"
@@ -138,7 +147,7 @@ export default function ParentChildDetailScreen() {
                   ? fullName(today.driver)
                   : data.detail.driver
                     ? fullName(data.detail.driver)
-                    : '—'
+                    : (child.run?.driver_name ?? '—')
               }
             />
             <KeyValue
@@ -148,7 +157,7 @@ export default function ParentChildDetailScreen() {
                   ? fullName(today.conductor)
                   : data.detail.conductor
                     ? fullName(data.detail.conductor)
-                    : '—'
+                    : (child.run?.conductor_name ?? '—')
               }
             />
           </View>
@@ -165,7 +174,12 @@ export default function ParentChildDetailScreen() {
           />
         </Card>
       ) : (
-        <Text style={styles.muted}>No trip is scheduled for this child today.</Text>
+        <View>
+          <Text style={styles.muted}>No trip is scheduled for this child today.</Text>
+          {child.run ? (
+            <Text style={styles.muted}>Standing run: {runSummaryLine(child.run)}</Text>
+          ) : null}
+        </View>
       )}
     </Screen>
   );

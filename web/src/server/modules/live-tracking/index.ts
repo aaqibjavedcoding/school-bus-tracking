@@ -2,6 +2,7 @@ export { LiveTrackingService } from './live-tracking.service';
 export type {
   LiveTrackingConfig,
   LiveTrackingBroadcaster,
+  ParentTripScope,
   RecordLocationResult,
   TripObservationAuthorization,
   TripTrackingTransitionResult,

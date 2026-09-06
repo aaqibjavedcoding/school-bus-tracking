@@ -24,6 +24,7 @@ import {
 } from '@school-bus-tracking/validation';
 import {
   RouteAssignment,
+  Run,
   Stop,
   Student,
   StudentGuardian,
@@ -79,6 +80,30 @@ interface ThrottleEntry {
 export type TripObservationAuthorization =
   { ok: true; trip: Trip } | { ok: false; reason: 'trip_not_found' | 'unauthorized' };
 
+/**
+ * Run-level visibility restriction for one parent's trip list.
+ *
+ * `routeIds` reproduces the legacy route-level view; routes whose children
+ * are run-allocated additionally appear in `runScopedRouteIds` and are then
+ * narrowed to the ids in `runIds`. A child without a `run_id` resolves to
+ * their route's **default run**, so for every pre-refactor tenant the scope
+ * selects exactly the trips they already saw (`docs/operating-model.md` §6).
+ */
+export interface ParentTripScope {
+  /** Routes carrying at least one active linked child. */
+  routeIds: string[];
+  /** Subset of `routeIds` where the parent must be narrowed to one run. */
+  runScopedRouteIds: string[];
+  /** Run ids the parent may observe (their children's resolved runs). */
+  runIds: string[];
+  /**
+   * Run-scoped routes on which some child rides the route's **default** run
+   * — explicitly or implicitly (unallocated). Legacy `NULL`-run trips on
+   * these routes belong to that default run and stay visible there.
+   */
+  defaultRiderRouteIds: string[];
+}
+
 /** Result of one `trip:location:update` handling. */
 export interface RecordLocationResult {
   ack: TripLocationUpdateAck;
@@ -130,6 +155,8 @@ export class LiveTrackingService {
     private readonly config: LiveTrackingConfig,
     // Task 22: geofence arrival evaluation after every accepted latest fix.
     private readonly arrivals: StopArrivalsService,
+    // Phase 3: run-scoped parent visibility (`docs/operating-model.md` §8.4).
+    private readonly runs: typeof Run,
   ) {}
   private readonly logger = new Logger(LiveTrackingService.name);
 
@@ -291,12 +318,127 @@ export class LiveTrackingService {
         is_active: true,
         home_stop_id: { [Op.in]: stops.map((stop) => stop.id) },
       },
+      attributes: ['id', 'run_id'],
+    });
+    const riders = students.filter((student) => ownStudentIds.has(student.id));
+    if (riders.length === 0) {
+      return false;
+    }
+
+    // Run-level narrowing (Phase 3): a trip dispatched onto a specific run
+    // belongs to that run only. A legacy `NULL`-run trip belongs to its
+    // route's default run — and a child without a `run_id` rides that default
+    // run — so every pre-refactor parent keeps seeing exactly what they saw
+    // before, and nothing that a *different* run's riders should see.
+    const defaultRun = await this.runs.findOne({
+      where: { school_id: trip.school_id, route_id: trip.route_id, is_default: true },
       attributes: ['id'],
     });
-
-    return students.some((student) => ownStudentIds.has(student.id));
+    // The run a trip executes: explicit when dispatched from a run, otherwise
+    // the route default (a pre-refactor dispatch), otherwise `null` when the
+    // route has no runs at all.
+    const tripRunId = trip.run_id ?? defaultRun?.id ?? null;
+    return riders.some((student) => {
+      if (tripRunId === null) {
+        return true; // route without any runs: nothing to narrow on
+      }
+      if (student.run_id) {
+        return student.run_id === tripRunId;
+      }
+      // Unallocated child → rides the default run.
+      return tripRunId === defaultRun?.id;
+    });
   }
 
+  /**
+   * Builds the trip-list scope for a parent: route-level where children have
+   * no allocation, run-level where any child rides a specific run or the
+   * route splits into several runs (tiering). Consulted by
+   * `TripsService.findAllForActor`.
+   */
+  async getParentTripScope(user: RequestUser): Promise<ParentTripScope> {
+    const empty: ParentTripScope = {
+      routeIds: [],
+      runScopedRouteIds: [],
+      runIds: [],
+      defaultRiderRouteIds: [],
+    };
+    if (user.role !== UserRole.PARENT) {
+      return empty;
+    }
+
+    const links = await this.guardians.findAll({
+      where: { school_id: user.school_id, user_id: user.id, is_active: true },
+    });
+    if (links.length === 0) {
+      return empty;
+    }
+
+    const students = await this.students.findAll({
+      where: {
+        school_id: user.school_id,
+        is_active: true,
+        id: { [Op.in]: links.map((link) => link.student_id) },
+      },
+      attributes: ['id', 'home_stop_id', 'run_id'],
+    });
+    const stopIds = students
+      .map((student) => student.home_stop_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (stopIds.length === 0) {
+      return empty;
+    }
+
+    const stops = await this.stops.findAll({
+      where: { school_id: user.school_id, id: { [Op.in]: stopIds } },
+      attributes: ['id', 'route_id'],
+    });
+    const routeByStop = new Map(stops.map((stop) => [stop.id, stop.route_id]));
+    const routeIds = [...new Set([...routeByStop.values()])];
+    if (routeIds.length === 0) {
+      return empty;
+    }
+
+    // One batch over every run of the parent's routes: per-route counts and
+    // the default-run id per route.
+    const runs = await this.runs.findAll({
+      where: { school_id: user.school_id, route_id: { [Op.in]: routeIds } },
+      attributes: ['id', 'route_id', 'is_default'],
+    });
+    const runsByRoute = new Map<string, number>();
+    const defaultRunByRoute = new Map<string, string>();
+    for (const run of runs) {
+      runsByRoute.set(run.route_id, (runsByRoute.get(run.route_id) ?? 0) + 1);
+      if (run.is_default) defaultRunByRoute.set(run.route_id, run.id);
+    }
+
+    const runScopedRouteIds = new Set<string>();
+    const runIds = new Set<string>();
+    const defaultRiderRouteIds = new Set<string>();
+    for (const student of students) {
+      const routeId = student.home_stop_id ? routeByStop.get(student.home_stop_id) : undefined;
+      if (!routeId) continue;
+      const allocated = student.run_id ?? null;
+      const defaultRunId = defaultRunByRoute.get(routeId) ?? null;
+      const multiRunRoute = (runsByRoute.get(routeId) ?? 0) > 1;
+      if (allocated === null && !multiRunRoute) {
+        continue; // legacy view: whole route visible
+      }
+      runScopedRouteIds.add(routeId);
+      if (allocated !== null) runIds.add(allocated);
+      if (allocated === null && defaultRunId !== null) runIds.add(defaultRunId);
+      if ((allocated === null || allocated === defaultRunId) && defaultRunId !== null) {
+        defaultRiderRouteIds.add(routeId);
+      }
+    }
+
+    return {
+      routeIds,
+      runScopedRouteIds: [...runScopedRouteIds],
+      runIds: [...runIds],
+      defaultRiderRouteIds: [...defaultRiderRouteIds],
+    };
+  }
   // ---------------------------------------------------------------------
   // REST reads
   // ---------------------------------------------------------------------

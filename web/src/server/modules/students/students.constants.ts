@@ -11,6 +11,7 @@ export const STUDENTS_GUARDIANS_REPOSITORY = 'STUDENTS_GUARDIANS_REPOSITORY';
 export const STUDENTS_ROUTES_REPOSITORY = 'STUDENTS_ROUTES_REPOSITORY';
 export const STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY = 'STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY';
 export const STUDENTS_BUSES_REPOSITORY = 'STUDENTS_BUSES_REPOSITORY';
+export const STUDENTS_RUNS_REPOSITORY = 'STUDENTS_RUNS_REPOSITORY';
 
 /**
  * Generic not-found message. It deliberately does not distinguish "does not
@@ -26,6 +27,26 @@ export const STUDENT_NOT_FOUND_MESSAGE = 'Student not found';
  */
 export const STUDENT_HOME_STOP_INVALID_MESSAGE =
   'Referenced home stop does not belong to this school';
+
+/**
+ * Message returned when a referenced `run_id` does not belong to the
+ * authenticated school (or has been deleted). Generic on purpose — a run of
+ * another tenant must be indistinguishable from one that does not exist.
+ */
+export const STUDENT_RUN_INVALID_MESSAGE =
+  'Referenced run does not belong to this school';
+
+/**
+ * Message returned when the allocated run's route does not serve the
+ * student's home stop (`docs/operating-model.md` §3.4: "the assigned run's
+ * route actually serves the student's home stop").
+ */
+export const STUDENT_RUN_ROUTE_MISMATCH_MESSAGE =
+  'The assigned run does not serve the student\'s home stop route';
+
+/** Message returned when a referenced run exists but is inactive. */
+export const STUDENT_RUN_INACTIVE_MESSAGE =
+  'The assigned run is not active';
 
 /** Message returned on an admission-number conflict inside the same school. */
 export const STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE =

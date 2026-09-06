@@ -629,6 +629,12 @@ export interface StudentCreateRequest {
   gender?: StudentGender | null;
   grade_level?: string | null;
   home_stop_id?: string | null;
+  /**
+   * Run (vehicle) the pupil rides. Optional — a pupil can be enrolled before
+   * transport is allocated. The API validates that the run's route actually
+   * serves `home_stop_id` (`docs/operating-model.md` §8.4).
+   */
+  run_id?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   medical_notes?: string | null;
@@ -644,6 +650,8 @@ export interface StudentUpdateRequest {
   gender?: StudentGender | null;
   grade_level?: string | null;
   home_stop_id?: string | null;
+  /** Explicit `null` unassigns the pupil from their run. */
+  run_id?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   medical_notes?: string | null;
@@ -666,6 +674,8 @@ export interface StudentResponse {
   gender: StudentGender | null;
   grade_level: string | null;
   home_stop_id: string | null;
+  /** Run (vehicle) the pupil rides; `null` while transport is unallocated. */
+  run_id: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   medical_notes: string | null;
@@ -679,7 +689,13 @@ export interface StudentResponse {
   route_id?: string | null;
   route_name?: string | null;
   route_code?: string | null;
-  /** Fleet number of the bus currently rostered to the student's route. */
+  /** Code of the allocated run, e.g. `R-02`. */
+  run_code?: string | null;
+  /**
+   * Fleet number of the bus the pupil actually rides: the run's bus when a
+   * run is allocated, otherwise the bus rostered to the student's route
+   * (legacy route-assignment view) — a zero-change fallback.
+   */
   bus_number?: string | null;
 }
 
@@ -710,6 +726,7 @@ export interface StudentMinimalResponse {
   last_name: string;
   grade_level: string | null;
   home_stop_id: string | null;
+  run_id: string | null;
   is_active: boolean;
 }
 
@@ -724,6 +741,8 @@ export interface StudentListQuery {
   page?: number;
   limit?: number;
   search?: string;
+  /** Restrict to pupils allocated to one run (riders list of a run). */
+  run_id?: string;
   /**
    * Response shape: `full` (default) resolves stop/route/bus enrichment,
    * `minimal` returns the raw student fields only (dropdown-friendly).
@@ -886,6 +905,39 @@ export interface ParentCrewSummary {
   last_name: string;
 }
 
+/**
+ * The run a child rides — the parent app's single source of truth for
+ * "which bus" (`docs/operating-model.md` §2).
+ *
+ * `run_id` on the student decides it; a child without a `run_id` resolves to
+ * their route's default run, which reproduces the pre-refactor route-level
+ * behaviour exactly. The bus and standing crew come from the run (code,
+ * fleet number, registration, names); the trip's own dispatch snapshot
+ * remains authoritative for *today* (see `today.trip` and the detail-level
+ * `driver` / `conductor`).
+ */
+export interface ParentChildRunSummary {
+  id: string;
+  /** Parent-facing sign code, e.g. `R-01` or `R-02`. */
+  code: string;
+  /** True when resolved through the route's default run (no direct allocation). */
+  is_default: boolean;
+  /** Route the run drives — always the child's home-stop route. */
+  route_id: string;
+  route_code: string | null;
+  route_name: string | null;
+  /** Bell window of the run; `null` when the run has no shift (whole day). */
+  shift_name: string | null;
+  shift_start_time: string | null;
+  shift_end_time: string | null;
+  bus_id: string | null;
+  bus_number: string | null;
+  registration_number: string | null;
+  /** Standing crew rostered on the run (names only, active rows). */
+  driver_name: string | null;
+  conductor_name: string | null;
+}
+
 /** Home stop of a child with the route it belongs to. */
 export interface ParentHomeStopSummary {
   id: string | null;
@@ -914,12 +966,22 @@ export interface ParentChildSummary {
   can_pick_up: boolean;
   is_primary: boolean;
   home_stop: ParentHomeStopSummary;
+  /**
+   * The child's run — source of truth for bus + crew. `null` only when the
+   * child has no home-stop route (the route default run lookup then has
+   * nothing to key on).
+   */
+  run: ParentChildRunSummary | null;
   today: ParentChildToday;
 }
 
 /** Today's trip + attendance + bus for one child. `trip` is null on rest days. */
 export interface ParentChildToday {
-  /** The child's trip today (on their home-stop route) or `null`. */
+  /**
+   * The child's trip today: only trips of **their run** qualify — legacy
+   * run-less trips on their route still count while their run is the route
+   * default (zero behaviour change for pre-refactor data). `null` otherwise.
+   */
   trip: TripResponse | null;
   /** The child's attendance on that trip, or `null` while PENDING. */
   attendance: TripStudentAttendanceResponse | null;
@@ -1584,10 +1646,23 @@ export interface RunCrewListQuery {
  * `school_id` is never accepted in a request body.
  */
 
-/** Body of `POST /api/v1/trips`. */
+/**
+ * Body of `POST /api/v1/trips`.
+ *
+ * Exactly one dispatch source must be supplied:
+ * - `run_id` (preferred) — the run's route, bus and crew become the trip's
+ *   dispatch snapshot (`docs/operating-model.md` §8.4);
+ * - `route_assignment_id` — **deprecated**, kept so every pre-refactor
+ *   caller keeps working byte-for-byte.
+ */
 export interface TripCreateRequest {
-  /** Active roster row the trip is dispatched from. */
-  route_assignment_id: string;
+  /** Run whose route/bus/crew the trip is dispatched from. */
+  run_id?: string;
+  /**
+   * Active roster row the trip is dispatched from.
+   * @deprecated Prefer `run_id`; route-level rosters cannot express tiering.
+   */
+  route_assignment_id?: string;
   /** Planned departure as an ISO-8601 date-time string (stored in UTC). */
   scheduled_start_at: string;
   /** Planned completion; omitted/null means open ended. */
@@ -1602,6 +1677,12 @@ export interface TripCreateRequest {
  * `PATCH /api/v1/trips/:id/status` so the transition rules stay explicit.
  */
 export interface TripUpdateRequest {
+  /** Re-dispatch onto this run (preferred). */
+  run_id?: string;
+  /**
+   * Re-dispatch from this roster row.
+   * @deprecated Prefer `run_id`.
+   */
   route_assignment_id?: string;
   scheduled_start_at?: string;
   scheduled_end_at?: string | null;
@@ -1628,6 +1709,8 @@ export interface TripResponse {
   id: string;
   school_id: string;
   route_id: string;
+  /** Run this trip executes (`null` for a legacy route-level dispatch). */
+  run_id: string | null;
   bus_id: string | null;
   driver_id: string | null;
   conductor_id: string | null;
@@ -1643,6 +1726,8 @@ export interface TripResponse {
   // --- Human-readable display fields (populated by the API) ---
   route_name?: string | null;
   route_code?: string | null;
+  /** Code of the dispatched run (`null` while legacy route-level dispatch). */
+  run_code?: string | null;
   bus_number?: string | null;
   registration_number?: string | null;
   driver_name?: string | null;
@@ -1696,6 +1781,8 @@ export interface TripListQuery {
   search?: string;
   status?: TripStatus;
   route_id?: string;
+  /** Restrict to one run's trips (the run detail "trips" tab). */
+  run_id?: string;
   bus_id?: string;
   driver_id?: string;
   conductor_id?: string;

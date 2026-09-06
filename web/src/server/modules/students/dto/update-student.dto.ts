@@ -64,6 +64,11 @@ export class UpdateStudentDto implements StudentUpdateRequest {
   @IsUUID(undefined, { message: 'home_stop_id must be a valid UUID' })
   declare home_stop_id?: string | null;
 
+  /** Explicit `null` unassigns the pupil from their run. */
+  @IsOptional()
+  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  declare run_id?: string | null;
+
   @IsOptional()
   @IsString({ message: 'emergency_contact_name must be a string' })
   @MaxLength(150, {

@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { StudentGender } from '@school-bus-tracking/shared-types';
-import { Bus, Route, RouteAssignment, Student, StudentGuardian, Stop } from '../../database/models';
+import { Bus, Route, RouteAssignment, Run, Student, StudentGuardian, Stop } from '../../database/models';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { StudentsService } from './students.service';
 import {
@@ -12,6 +12,9 @@ import {
   STUDENT_DELETED_MESSAGE,
   STUDENT_HOME_STOP_INVALID_MESSAGE,
   STUDENT_NOT_FOUND_MESSAGE,
+  STUDENT_RUN_INACTIVE_MESSAGE,
+  STUDENT_RUN_INVALID_MESSAGE,
+  STUDENT_RUN_ROUTE_MISMATCH_MESSAGE,
 } from './students.constants';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
@@ -199,6 +202,8 @@ function makeService(
     empty as unknown as typeof RouteAssignment,
     empty as unknown as typeof Bus,
     allowAllPlanLimits(),
+    // No runs in the fixture set: run validation and enrichment are inert.
+    { findOne: async () => null, findAll: async () => [] } as never,
   );
 }
 
@@ -222,6 +227,175 @@ function makeQuery(overrides: Partial<ListStudentsQueryDto> = {}): ListStudentsQ
   const dto = new ListStudentsQueryDto();
   return Object.assign(dto, overrides);
 }
+
+// ---------------------------------------------------------------------------
+// Run allocation (`docs/operating-model.md` §3.4 / §8.4)
+// ---------------------------------------------------------------------------
+
+const RUN_A = '33333333-3333-4333-8333-333333333333';
+const RUN_OTHER_ROUTE = '44444444-4444-4444-8444-444444444444';
+const RUN_INACTIVE = '55555555-5555-5555-8555-555555555555';
+const ROUTE_A = '60000000-0000-4000-8000-000000000001';
+const ROUTE_B = '60000000-0000-4000-8000-000000000002';
+const BUS_A = '70000000-0000-4000-8000-000000000001';
+
+interface StubRun {
+  id: string;
+  school_id: string;
+  route_id: string;
+  bus_id: string | null;
+  code: string;
+  is_active: boolean;
+}
+
+function stubRuns(rows: StubRun[]) {
+  return {
+    findOne: async (options: { where: Record<string, unknown> }) =>
+      (rows.find(
+        (row) => row.id === options.where.id && row.school_id === options.where.school_id,
+      ) ?? null) as unknown as Run,
+    findAll: async (options: { where: Record<string, unknown> }) => {
+      const inIds = options.where.id as { [key: symbol]: unknown[] } | undefined;
+      const ids = inIds?.[Op.in] as string[] | undefined;
+      return rows.filter(
+        (row) => row.school_id === options.where.school_id && (!ids || ids.includes(row.id)),
+      ) as unknown as Run[];
+    },
+  } as unknown as typeof Run;
+}
+
+/** Stops with `route_id`, as the run cross-check reads them. */
+function stubStops(rows: Array<{ id: string; school_id: string; route_id: string; name?: string }>) {
+  return {
+    findOne: async (options: { where: Record<string, unknown> }) =>
+      (rows.find(
+        (row) =>
+          row.id === options.where.id &&
+          row.school_id === options.where.school_id &&
+          (!options.where.attributes || true),
+      ) ?? null) as unknown as Stop,
+    findAll: async (options: { where: Record<string, unknown> }) =>
+      rows.filter((row) => row.school_id === options.where.school_id) as unknown as Stop[],
+  } as unknown as typeof Stop;
+}
+
+function makeRunService(
+  students: typeof Student,
+  options: {
+    runs?: StubRun[];
+    stops?: Array<{ id: string; school_id: string; route_id: string; name?: string }>;
+    buses?: Array<{ id: string; bus_number: string }>;
+  } = {},
+) {
+  const empty = { findAll: async () => [] } as unknown as typeof Route;
+  return new StudentsService(
+    students,
+    stubStops(options.stops ?? []),
+    emptyGuardians(),
+    empty,
+    empty as unknown as typeof RouteAssignment,
+    {
+      findAll: async () => (options.buses ?? []) as unknown as Bus[],
+    } as unknown as typeof Bus,
+    allowAllPlanLimits(),
+    stubRuns(options.runs ?? []),
+  );
+}
+
+describe('StudentsService — run allocation', () => {
+  const runs: StubRun[] = [
+    { id: RUN_A, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: BUS_A, code: 'R-01', is_active: true },
+    { id: RUN_OTHER_ROUTE, school_id: SCHOOL_A, route_id: ROUTE_B, bus_id: null, code: 'R-02', is_active: true },
+    { id: RUN_INACTIVE, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: null, code: 'R-03', is_active: false },
+  ];
+  const stops = [
+    { id: STOP_A, school_id: SCHOOL_A, route_id: ROUTE_A, name: 'Maple & 5th' },
+    { id: STOP_B, school_id: SCHOOL_A, route_id: ROUTE_B, name: 'Oak & 9th' },
+  ];
+
+  function repoWithCapture() {
+    const capture: { createPayload?: Record<string, unknown> } = {};
+    const { repo } = makeStudentsRepository([], capture as never);
+    return { repo, capture };
+  }
+
+  it('persists a run whose route serves the home stop', async () => {
+    const { repo, capture } = repoWithCapture();
+    const service = makeRunService(repo, { runs, stops });
+    await service.create(
+      SCHOOL_A,
+      makeCreateDto({ home_stop_id: STOP_A, run_id: RUN_A }),
+    );
+    assert.equal((capture.createPayload as Record<string, unknown>).run_id, RUN_A);
+  });
+
+  it('rejects a run from another tenant like a missing one', async () => {
+    const { repo } = repoWithCapture();
+    const service = makeRunService(repo, { runs, stops });
+    await expectBadRequest(
+      service.create(SCHOOL_B, makeCreateDto({ run_id: RUN_A })),
+      STUDENT_RUN_INVALID_MESSAGE,
+    );
+  });
+
+  it('rejects a run whose route does not serve the home stop', async () => {
+    const { repo } = repoWithCapture();
+    const service = makeRunService(repo, { runs, stops });
+    await expectBadRequest(
+      service.create(SCHOOL_A, makeCreateDto({ home_stop_id: STOP_A, run_id: RUN_OTHER_ROUTE })),
+      STUDENT_RUN_ROUTE_MISMATCH_MESSAGE,
+    );
+  });
+
+  it('rejects allocating an inactive run', async () => {
+    const { repo } = repoWithCapture();
+    const service = makeRunService(repo, { runs, stops });
+    await expectBadRequest(
+      service.create(SCHOOL_A, makeCreateDto({ home_stop_id: STOP_A, run_id: RUN_INACTIVE })),
+      STUDENT_RUN_INACTIVE_MESSAGE,
+    );
+  });
+
+  it('allows a run without a home stop yet (enrolment before allocation)', async () => {
+    const { repo, capture } = repoWithCapture();
+    const service = makeRunService(repo, { runs, stops });
+    await service.create(SCHOOL_A, makeCreateDto({ run_id: RUN_A }));
+    assert.equal((capture.createPayload as Record<string, unknown>).run_id, RUN_A);
+  });
+
+  it('re-validates the cross-check when the home stop moves off the run route', async () => {
+    const student = makeStudentRecord({ home_stop_id: STOP_A, run_id: RUN_A } as never);
+    const { repo } = makeStudentsRepository([student]);
+    const service = makeRunService(repo, { runs, stops });
+    await expectBadRequest(
+      service.update(SCHOOL_A, student.id, makeUpdateDto({ home_stop_id: STOP_B })),
+      STUDENT_RUN_ROUTE_MISMATCH_MESSAGE,
+    );
+  });
+
+  it('clears the run with an explicit null', async () => {
+    const student = makeStudentRecord({ home_stop_id: STOP_A, run_id: RUN_A } as never);
+    const { repo } = makeStudentsRepository([student]);
+    const service = makeRunService(repo, { runs, stops });
+    const result = await service.update(SCHOOL_A, student.id, makeUpdateDto({ run_id: null }));
+    assert.equal(result.run_id, null);
+    assert.equal(result.run_code ?? null, null);
+  });
+
+  it('shows the run code and prefers the run bus for display', async () => {
+    const student = makeStudentRecord({ home_stop_id: STOP_A, run_id: RUN_A } as never);
+    const { repo } = makeStudentsRepository([student]);
+    const service = makeRunService(repo, {
+      runs,
+      stops,
+      buses: [{ id: BUS_A, bus_number: 'B-01' }],
+    });
+    const result = await service.findOne(SCHOOL_A, student.id);
+    assert.equal(result.run_id, RUN_A);
+    assert.equal(result.run_code, 'R-01');
+    assert.equal(result.bus_number, 'B-01');
+  });
+});
 
 async function expectNotFound(promise: Promise<unknown>): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
@@ -442,6 +616,7 @@ describe('StudentsService.findAll', () => {
       assignments,
       buses,
       allowAllPlanLimits(),
+      { findOne: async () => null, findAll: async () => [] } as never,
     );
 
     const response = await service.findAll(SCHOOL_A, makeQuery());
@@ -621,6 +796,7 @@ describe('StudentsService.findAll — include=minimal', () => {
       forbidden as unknown as typeof RouteAssignment,
       forbidden as unknown as typeof Bus,
       allowAllPlanLimits(),
+      { findOne: async () => null, findAll: async () => [] } as never,
     );
 
     const response = await service.findAll(SCHOOL_A, makeQuery({ include: 'minimal' }));

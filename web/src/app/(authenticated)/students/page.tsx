@@ -30,6 +30,7 @@ import {
 import { ListActions } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
 import { usePagedResource } from '../../../hooks/usePagedResource';
+import { runLabel, runStaleForRoute, runsForHomeStop, studentRunLabel } from '../../../features/runs/helpers';
 import {
   emptyToNull,
   fieldErrorsFromUnknown,
@@ -54,6 +55,7 @@ const emptyForm = {
   gender: '',
   grade_level: '',
   home_stop_id: '',
+  run_id: '',
   emergency_contact_name: '',
   emergency_contact_phone: '',
   medical_notes: '',
@@ -71,6 +73,9 @@ function toPayload(form: FormState): StudentCreateRequest {
     gender: form.gender ? (form.gender as StudentGender) : null,
     grade_level: emptyToNull(form.grade_level),
     home_stop_id: emptyToNull(form.home_stop_id),
+    // Empty means "no run": the server keeps the route's default run (legacy
+    // behaviour) for a fresh allocation and detaches the student otherwise.
+    run_id: emptyToNull(form.run_id),
     emergency_contact_name: emptyToNull(form.emergency_contact_name),
     emergency_contact_phone: emptyToNull(form.emergency_contact_phone),
     medical_notes: emptyToNull(form.medical_notes),
@@ -87,13 +92,15 @@ export default function StudentsPage() {
   // the modal is closed; the 30s client cache keeps a quick reopen cheap.
   const stopLookups = useLoad(
     async () => {
-      const [stops, routes] = await Promise.all([
+      const [stops, routes, runs] = await Promise.all([
         apiClient.listStops({ page: 1, limit: 100, include: 'minimal' }),
         apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
+        apiClient.listRuns({ page: 1, limit: 100 }),
       ]);
       return {
         stops: unwrapEnvelope(stops).items,
         routes: unwrapEnvelope(routes).items,
+        runs: unwrapEnvelope(runs).items,
       };
     },
     [],
@@ -127,6 +134,7 @@ export default function StudentsPage() {
       gender: student.gender ?? '',
       grade_level: student.grade_level ?? '',
       home_stop_id: student.home_stop_id ?? '',
+      run_id: student.run_id ?? '',
       emergency_contact_name: student.emergency_contact_name ?? '',
       emergency_contact_phone: student.emergency_contact_phone ?? '',
       medical_notes: student.medical_notes ?? '',
@@ -224,6 +232,7 @@ export default function StudentsPage() {
                   <th>Name</th>
                   <th>Admission</th>
                   <th>Grade</th>
+                  <th>Run</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -238,6 +247,7 @@ export default function StudentsPage() {
                     </td>
                     <td>{student.admission_number}</td>
                     <td>{student.grade_level || '—'}</td>
+                    <td>{studentRunLabel(student)}</td>
                     <td>
                       <Badge tone={student.is_active ? 'success' : 'neutral'}>
                         {student.is_active ? 'Active' : 'Inactive'}
@@ -338,7 +348,22 @@ export default function StudentsPage() {
               placeholder={stopLookups.loading ? 'Loading stops…' : 'Not assigned'}
               value={form.home_stop_id}
               disabled={stopLookups.loading || Boolean(stopLookups.error)}
-              onChange={(event) => setForm({ ...form, home_stop_id: event.target.value })}
+              onChange={(event) => {
+                const nextStopId = event.target.value;
+                const nextRouteId =
+                  stopLookups.data?.stops.find((stop) => stop.id === nextStopId)?.route_id ?? null;
+                // Keep the two selects coherent: a run that belongs to the old
+                // stop's route must not linger on a student who just moved.
+                const clearRun = runStaleForRoute(
+                  (stopLookups.data?.runs ?? []).find((run) => run.id === form.run_id),
+                  nextRouteId,
+                );
+                setForm({
+                  ...form,
+                  home_stop_id: nextStopId,
+                  ...(clearRun ? { run_id: '' } : {}),
+                });
+              }}
               options={(stopLookups.data?.stops ?? []).map((stop) => {
                 const route = stopLookups.data?.routes.find((item) => item.id === stop.route_id);
                 const code = route ? stopCode(route.code, stop.sequence_number) : 'Stop';
@@ -347,6 +372,25 @@ export default function StudentsPage() {
                   label: `${code} — ${stop.name}`,
                 };
               })}
+            />
+          </Field>
+          <Field
+            id="run_id"
+            label="Run"
+            error={fieldErrors.run_id}
+            hint="Pick the vehicle this student rides. Left empty, they follow the route's default run."
+          >
+            <Select
+              id="run_id"
+              placeholder="Route default"
+              value={form.run_id}
+              disabled={!form.home_stop_id || stopLookups.loading}
+              onChange={(event) => setForm({ ...form, run_id: event.target.value })}
+              options={runsForHomeStop(
+                stopLookups.data?.runs ?? [],
+                stopLookups.data?.stops.find((stop) => stop.id === form.home_stop_id)?.route_id ??
+                  null,
+              ).map((run) => ({ value: run.id, label: runLabel(run) }))}
             />
           </Field>
           <Field

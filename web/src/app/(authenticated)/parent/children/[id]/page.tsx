@@ -14,6 +14,7 @@ import {
 } from '../../../../../components/ui';
 import { TripTracker } from '../../../../../features/tracking/TripTracker';
 import { ChildFacts, TodayTripStatus } from '../../../../../features/parent/ChildCard';
+import { childRunHeadline } from '../../../../../features/runs/helpers';
 import { useLoad } from '../../../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../../../lib/errors';
 import { formatDateTime, formatTime, fullName } from '../../../../../lib/format';
@@ -69,6 +70,7 @@ export default function ParentChildDetailPage() {
         <Card title="Assigned transport">
           <ChildFacts
             items={[
+              ['Run', child.run ? childRunHeadline(child) : null],
               ['Route', child.home_stop.route_code ?? child.home_stop.route_name ?? null],
               [
                 'Home stop',

@@ -68,6 +68,7 @@ describe('tenant isolation (real PostgreSQL)', () => {
       RouteAssignment,
       Bus,
       planLimits,
+      Run,
     );
   });
 

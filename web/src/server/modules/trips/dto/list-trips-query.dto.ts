@@ -54,6 +54,10 @@ export class ListTripsQueryDto implements TripListQuery {
   route_id?: string;
 
   @IsOptional()
+  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  run_id?: string;
+
+  @IsOptional()
   @IsUUID(undefined, { message: 'bus_id must be a valid UUID' })
   bus_id?: string;
 

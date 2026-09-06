@@ -5,6 +5,7 @@ import {
   AuthenticatedUser,
   ParentChildDetailResponse,
   ParentChildListResponse,
+  ParentChildRunSummary,
   ParentChildSummary,
   ParentChildTodayResponse,
   ParentCrewSummary,
@@ -18,7 +19,11 @@ import {
 import {
   Bus,
   Route,
+  RouteAssignmentRole,
+  Run,
+  RunCrew,
   School,
+  Shift,
   Stop,
   Student,
   StudentGuardian,
@@ -79,6 +84,7 @@ function toTripResponse(trip: Trip): TripResponse {
     id: trip.id,
     school_id: trip.school_id,
     route_id: trip.route_id,
+    run_id: trip.run_id ?? null,
     bus_id: trip.bus_id ?? null,
     driver_id: trip.driver_id ?? null,
     conductor_id: trip.conductor_id ?? null,
@@ -124,7 +130,14 @@ export class ParentPortalService {
     // Task 22: approximate ETA re-used from the same service the trip ETA
     // endpoint uses — no duplicate ETA logic exists in the parent portal.
     private readonly eta: EtaService,
+    // Phase 3: the child's run is the source of truth for bus + crew
+    // (`docs/operating-model.md` §2, §8.4).
+    private readonly runs: typeof Run,
+    private readonly runCrew: typeof RunCrew,
+    private readonly shifts: typeof Shift,
   ) {}
+
+  /** The (run, route-default-run) context needed by all parent reads. */
 
   /** `GET /api/v1/parent/dashboard` */
   async getDashboard(user: TenantRequestUser): Promise<ParentDashboardResponse> {
@@ -169,8 +182,9 @@ export class ParentPortalService {
       })
       .filter((pair): pair is { student: Student; link: StudentGuardian } => pair !== null);
 
+    const { summaries } = await this.buildSummaries(user, pairs);
     return {
-      items: await this.buildSummaries(user, pairs),
+      items: summaries,
       count: pairs.length,
     };
   }
@@ -178,11 +192,15 @@ export class ParentPortalService {
   /** `GET /api/v1/parent/children/:studentId` */
   async getChild(user: TenantRequestUser, studentId: string): Promise<ParentChildDetailResponse> {
     const { student, link } = await this.loadLinkedStudent(user, studentId);
-    const [summary] = await this.buildSummaries(user, [{ student, link }]);
+    const { summaries, standingCrewByStudent } = await this.buildSummaries(user, [
+      { student, link },
+    ]);
+    const [summary] = summaries;
+    const standing = standingCrewByStudent.get(student.id);
     const [driver, conductor] = await this.loadCrew(
       user.school_id,
-      summary.today.trip?.driver_id ?? null,
-      summary.today.trip?.conductor_id ?? null,
+      summary.today.trip?.driver_id ?? standing?.driverId ?? null,
+      summary.today.trip?.conductor_id ?? standing?.conductorId ?? null,
     );
     return { ...summary, driver, conductor };
   }
@@ -193,11 +211,15 @@ export class ParentPortalService {
     studentId: string,
   ): Promise<ParentChildTodayResponse> {
     const { student, link } = await this.loadLinkedStudent(user, studentId);
-    const [summary] = await this.buildSummaries(user, [{ student, link }]);
+    const { summaries, standingCrewByStudent } = await this.buildSummaries(user, [
+      { student, link },
+    ]);
+    const [summary] = summaries;
+    const standing = standingCrewByStudent.get(student.id);
     const [driver, conductor] = await this.loadCrew(
       user.school_id,
-      summary.today.trip?.driver_id ?? null,
-      summary.today.trip?.conductor_id ?? null,
+      summary.today.trip?.driver_id ?? standing?.driverId ?? null,
+      summary.today.trip?.conductor_id ?? standing?.conductorId ?? null,
     );
     return {
       child: summary,
@@ -213,11 +235,15 @@ export class ParentPortalService {
     studentId: string,
   ): Promise<ParentTrackingResponse> {
     const { student, link } = await this.loadLinkedStudent(user, studentId);
-    const [summary] = await this.buildSummaries(user, [{ student, link }]);
+    const { summaries, standingCrewByStudent } = await this.buildSummaries(user, [
+      { student, link },
+    ]);
+    const [summary] = summaries;
+    const standing = standingCrewByStudent.get(student.id);
     const [driver, conductor] = await this.loadCrew(
       user.school_id,
-      summary.today.trip?.driver_id ?? null,
-      summary.today.trip?.conductor_id ?? null,
+      summary.today.trip?.driver_id ?? standing?.driverId ?? null,
+      summary.today.trip?.conductor_id ?? standing?.conductorId ?? null,
     );
 
     let latest: ParentTrackingResponse['latest'] = null;
@@ -287,13 +313,23 @@ export class ParentPortalService {
 
   /**
    * Builds child summaries for the given (student, link) pairs with batched
-   * lookups for stops / routes / buses / trips, plus per-child read-only
-   * attendance re-used from the trip-attendance service.
+   * lookups for stops / routes / runs / buses / trips, plus per-child
+   * read-only attendance re-used from the trip-attendance service.
+   *
+   * Phase 3 made the child's **run** the source of truth:
+   *
+   * - each child's run is `students.run_id`, falling back to the route's
+   *   default run — so a pre-refactor child resolves to exactly the route
+   *   view they had before (zero behaviour change, §6.1);
+   * - "today" only considers trips of that run: `trips.run_id` equal to the
+   *   resolved run, or `NULL` (a legacy route-level dispatch), which *is* the
+   *   default run's execution when the resolved run is the default;
+   * - the run's bus and standing crew are shown even on days without a trip.
    */
   private async buildSummaries(
     user: TenantRequestUser,
     pairs: Array<{ student: Student; link: StudentGuardian }>,
-  ): Promise<ParentChildSummary[]> {
+  ): Promise<{ summaries: ParentChildSummary[]; standingCrewByStudent: Map<string, { driverId: string | null; conductorId: string | null }> }> {
     const students = pairs.map((pair) => pair.student);
     const linkByStudent = new Map(pairs.map((pair) => [pair.student.id, pair.link]));
 
@@ -311,41 +347,203 @@ export class ParentPortalService {
       : [];
     const routeById = new Map(routes.map((route) => [route.id, route]));
 
-    const tripByRoute = await this.loadTodayTripByRoute(user.school_id, routeIds);
-    const trips = [...tripByRoute.values()];
-    const busIds = [...new Set(trips.map((trip) => trip.bus_id).filter(isNonEmptyString))];
+    // Runs: the explicitly allocated ones plus every route's default, in one
+    // batch. `defaultByRoute` powers both the run fallback and the legacy
+    // NULL-run trip matching below.
+    const allocatedRunIds = [...new Set(students.map((s) => s.run_id).filter(isNonEmptyString))];
+    const runs =
+      allocatedRunIds.length || routeIds.length
+        ? await this.runs.findAll({
+            where: {
+              school_id: user.school_id,
+              [Op.or]: [
+                ...(allocatedRunIds.length ? [{ id: { [Op.in]: allocatedRunIds } }] : []),
+                ...(routeIds.length ? [{ route_id: { [Op.in]: routeIds }, is_default: true }] : []),
+              ],
+            },
+          })
+        : [];
+    const runById = new Map(runs.map((run) => [run.id, run]));
+    const defaultByRoute = new Map(runs.filter((run) => run.is_default).map((run) => [run.route_id, run]));
+
+    const resolveRun = (student: Student, routeId: string | null): Run | null => {
+      if (student.run_id) {
+        const allocated = runById.get(student.run_id);
+        if (allocated) return allocated;
+        // `run_id` pointed at a retired run — fall through to the default.
+      }
+      return routeId ? defaultByRoute.get(routeId) ?? null : null;
+    };
+
+    const tripListsByRoute = await this.loadTodayTripsByRoute(user.school_id, routeIds);
+    const busIds = [
+      ...new Set(
+        [
+          ...[...tripListsByRoute.values()].flat().map((trip) => trip.bus_id),
+          ...runs.map((run) => run.bus_id),
+        ].filter(isNonEmptyString),
+      ),
+    ];
     const buses = busIds.length
       ? await this.buses.findAll({ where: { school_id: user.school_id, id: { [Op.in]: busIds } } })
       : [];
     const busById = new Map(buses.map((bus) => [bus.id, bus]));
 
-    const attendance = await this.loadAttendance(user, students, stopById, tripByRoute);
+    const { shiftById, crewByRun, crewUserById } = await this.loadRunDetails(user.school_id, runs);
 
-    return students.map((student) => {
+    const tripByChild = new Map<string, Trip>();
+    for (const student of students) {
+      const routeId = student.home_stop_id
+        ? stopById.get(student.home_stop_id)?.route_id
+        : undefined;
+      const candidates = routeId ? tripListsByRoute.get(routeId) ?? [] : [];
+      const run = resolveRun(student, routeId ?? null);
+      const matched = run
+        ? candidates.filter((trip) => (trip.run_id ?? defaultByRoute.get(trip.route_id)?.id ?? null) === run.id)
+        : candidates;
+      if (matched.length > 0) tripByChild.set(student.id, pickTodayTrip(matched));
+    }
+    const trips = [...tripByChild.values()];
+
+    const attendance = await this.loadAttendance(user, students, tripByChild);
+
+    const standingCrewByStudent = new Map<
+      string,
+      { driverId: string | null; conductorId: string | null }
+    >();
+    const summaries = students.map((student) => {
       const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
-      const routeId = stop?.route_id;
-      const trip = routeId ? tripByRoute.get(routeId) : undefined;
+      const routeId = stop?.route_id ?? null;
+      const route = routeId ? routeById.get(routeId) ?? null : null;
+      const trip = tripByChild.get(student.id) ?? null;
+      const run = resolveRun(student, routeId);
       const tripBus = trip?.bus_id ? busById.get(trip.bus_id) : undefined;
+      const crew = run ? crewByRun.get(run.id) : undefined;
+      if (run) {
+        standingCrewByStudent.set(student.id, {
+          driverId: crew?.driver?.user_id ?? null,
+          conductorId: crew?.conductor?.user_id ?? null,
+        });
+      }
       return this.toChildSummary(
         student,
         linkByStudent.get(student.id) ?? null,
         stop ?? null,
-        routeId ? (routeById.get(routeId) ?? null) : null,
-        trip ?? null,
-        tripBus ?? null,
+        route,
+        trip,
+        tripBus ?? (run?.bus_id ? busById.get(run.bus_id) ?? null : null),
         trip && attendance.get(`${trip.id}:${student.id}`)
           ? attendance.get(`${trip.id}:${student.id}`)!
           : null,
+        run ? this.toRunSummary(run, route, shiftById, crewByRun, crewUserById, busById) : null,
       );
     });
+    return { summaries, standingCrewByStudent };
   }
 
-  /** Batches the trip lookup for a set of route ids into a route → trip map. */
-  private async loadTodayTripByRoute(
+  /**
+   * Batched shift + roster enrichment for a set of runs (one query per
+   * dimension — a parent dashboard never pays per-child).
+   */
+  private async loadRunDetails(
+    schoolId: string,
+    runs: Run[],
+  ): Promise<{
+    shiftById: Map<string, Shift>;
+    crewByRun: Map<
+      string,
+      { driver?: RunCrew; conductor?: RunCrew }
+    >;
+    crewUserById: Map<string, User>;
+  }> {
+    const shiftById = new Map<string, Shift>();
+    const crewByRun = new Map<string, { driver?: RunCrew; conductor?: RunCrew }>();
+    const crewUserById = new Map<string, User>();
+    if (runs.length === 0) return { shiftById, crewByRun, crewUserById };
+
+    const shiftIds = [...new Set(runs.map((run) => run.shift_id).filter(isNonEmptyString))];
+    const shifts = shiftIds.length
+      ? await this.shifts.findAll({
+          where: { school_id: schoolId, id: { [Op.in]: shiftIds } },
+        })
+      : [];
+    for (const shift of shifts) shiftById.set(shift.id, shift);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const crewRows = await this.runCrew.findAll({
+      where: {
+        school_id: schoolId,
+        run_id: { [Op.in]: runs.map((run) => run.id) },
+        is_active: true,
+        effective_from: { [Op.lte]: today },
+        [Op.or]: [{ effective_to: null }, { effective_to: { [Op.gte]: today } }],
+      },
+      order: [['effective_from', 'ASC']],
+    });
+    for (const row of crewRows) {
+      // `effective_from ASC` — the latest roster row per (run, role) wins,
+      // mirroring the dispatch resolution in `TripsService`.
+      const seat = row.role === RouteAssignmentRole.DRIVER ? 'driver' : 'conductor';
+      const entry = crewByRun.get(row.run_id) ?? {};
+      entry[seat] = row;
+      crewByRun.set(row.run_id, entry);
+    }
+
+    const crewUserIds = [
+      ...new Set(
+        [...crewByRun.values()].flatMap((seat) => [seat.driver?.user_id, seat.conductor?.user_id]),
+      ),
+    ].filter(isNonEmptyString);
+    if (crewUserIds.length) {
+      const users = await this.users.findAll({
+        where: { school_id: schoolId, id: { [Op.in]: crewUserIds } },
+        attributes: ['id', 'first_name', 'last_name'],
+      });
+      for (const user of users) crewUserById.set(user.id, user);
+    }
+    return { shiftById, crewByRun, crewUserById };
+  }
+
+  /** The run block of a child summary (source of truth for bus + crew). */
+  private toRunSummary(
+    run: Run,
+    route: Route | null,
+    shiftById: Map<string, Shift>,
+    crewByRun: Map<string, { driver?: RunCrew; conductor?: RunCrew }>,
+    crewUserById: Map<string, User>,
+    busById: Map<string, Bus>,
+  ): ParentChildRunSummary {
+    const shift = run.shift_id ? shiftById.get(run.shift_id) : undefined;
+    const seat = crewByRun.get(run.id) ?? {};
+    const nameOf = (userId?: string): string | null => {
+      const user = userId ? crewUserById.get(userId) : undefined;
+      return user ? `${user.first_name} ${user.last_name}`.trim() : null;
+    };
+    const bus = run.bus_id ? busById.get(run.bus_id) : undefined;
+    return {
+      id: run.id,
+      code: run.code,
+      is_default: run.is_default,
+      route_id: run.route_id,
+      route_code: route?.code ?? null,
+      route_name: route?.name ?? null,
+      shift_name: shift?.name ?? null,
+      shift_start_time: shift?.start_time ?? null,
+      shift_end_time: shift?.end_time ?? null,
+      bus_id: run.bus_id ?? null,
+      bus_number: bus?.bus_number ?? null,
+      registration_number: bus?.registration_number ?? null,
+      driver_name: nameOf(seat.driver?.user_id),
+      conductor_name: nameOf(seat.conductor?.user_id),
+    };
+  }
+
+  /** Batches today's trips for a set of route ids into route → trip lists. */
+  private async loadTodayTripsByRoute(
     schoolId: string,
     routeIds: string[],
-  ): Promise<Map<string, Trip>> {
-    const result = new Map<string, Trip>();
+  ): Promise<Map<string, Trip[]>> {
+    const result = new Map<string, Trip[]>();
     if (routeIds.length === 0) return result;
 
     const trips = await this.trips.findAll({
@@ -357,14 +555,10 @@ export class ParentPortalService {
       order: [['scheduled_start_at', 'ASC']],
     });
 
-    const byRoute = new Map<string, Trip[]>();
     for (const trip of trips) {
-      const list = byRoute.get(trip.route_id) ?? [];
+      const list = result.get(trip.route_id) ?? [];
       list.push(trip);
-      byRoute.set(trip.route_id, list);
-    }
-    for (const [routeId, list] of byRoute) {
-      result.set(routeId, pickTodayTrip(list));
+      result.set(trip.route_id, list);
     }
     return result;
   }
@@ -373,13 +567,11 @@ export class ParentPortalService {
   private async loadAttendance(
     user: TenantRequestUser,
     students: Student[],
-    stopById: Map<string, Stop>,
-    tripByRoute: Map<string, Trip>,
+    tripByChild: Map<string, Trip>,
   ): Promise<Map<string, unknown>> {
     const result = new Map<string, unknown>();
     for (const student of students) {
-      const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
-      const trip = stop ? tripByRoute.get(stop.route_id) : undefined;
+      const trip = tripByChild.get(student.id);
       if (!trip) continue;
       try {
         const attendance = await this.tripAttendance.getStudent(user, trip.id, student.id);
@@ -447,6 +639,7 @@ export class ParentPortalService {
     trip: Trip | null,
     bus: Bus | null,
     attendance: unknown,
+    run: ParentChildRunSummary | null = null,
   ): ParentChildSummary {
     return {
       id: student.id,
@@ -470,6 +663,7 @@ export class ParentPortalService {
         route_code: route?.code ?? null,
         route_name: route?.name ?? null,
       },
+      run,
       today: {
         trip: trip ? toTripResponse(trip) : null,
         attendance: (attendance as ParentChildSummary['today']['attendance']) ?? null,

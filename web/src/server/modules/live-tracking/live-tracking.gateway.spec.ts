@@ -106,6 +106,7 @@ function makeService() {
     } as unknown as typeof import('../../database/models').StudentGuardian,
     { gpsMinIntervalMs: 0, maxFutureSkewMs: 300_000, maxPastSkewMs: 86_400_000 },
     makeNoopArrivalsStub(),
+    { findOne: async () => null, findAll: async () => [] } as never,
   );
   service.attachBroadcaster(capture.fn);
   return { service, store, capture };

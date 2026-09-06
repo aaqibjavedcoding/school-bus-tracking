@@ -15,6 +15,7 @@ import {
   Bus,
   Route,
   RouteAssignment,
+  Run,
   Student,
   StudentAttributes,
   StudentGuardian,
@@ -27,6 +28,9 @@ import {
   STUDENT_DELETED_MESSAGE,
   STUDENT_HOME_STOP_INVALID_MESSAGE,
   STUDENT_NOT_FOUND_MESSAGE,
+  STUDENT_RUN_INVALID_MESSAGE,
+  STUDENT_RUN_INACTIVE_MESSAGE,
+  STUDENT_RUN_ROUTE_MISMATCH_MESSAGE,
   STUDENTS_BUSES_REPOSITORY,
   STUDENTS_GUARDIANS_REPOSITORY,
   STUDENTS_REPOSITORY,
@@ -61,6 +65,7 @@ export class StudentsService {
     private readonly assignments: typeof RouteAssignment,
     private readonly buses: typeof Bus,
     private readonly planLimits: PlanLimitsService,
+    private readonly runs: typeof Run,
   ) {}
 
   /**
@@ -79,6 +84,12 @@ export class StudentsService {
         if (homeStopId) {
           await this.assertHomeStopInSchool(schoolId, homeStopId);
         }
+        const runId = dto.run_id ?? null;
+        if (runId) {
+          await this.assertRunAllocation(schoolId, runId, homeStopId, {
+            requireActive: true,
+          });
+        }
 
         try {
           const student = await this.students.create(
@@ -88,6 +99,7 @@ export class StudentsService {
               first_name: dto.first_name.trim(),
               last_name: dto.last_name.trim(),
               home_stop_id: homeStopId,
+              run_id: runId,
               date_of_birth: this.toDate(dto.date_of_birth),
               gender: dto.gender ?? null,
               grade_level: nullableTrim(dto.grade_level),
@@ -142,6 +154,7 @@ export class StudentsService {
     const limit = query.limit ?? 20;
 
     const where: Record<PropertyKey, unknown> = { school_id: schoolId };
+    if (query.run_id !== undefined) where.run_id = query.run_id;
     const search = query.search?.trim();
     if (search) {
       const pattern = `%${escapeLikePattern(search)}%`;
@@ -253,6 +266,25 @@ export class StudentsService {
       }
       updates.home_stop_id = dto.home_stop_id;
     }
+    if (dto.run_id !== undefined) {
+      if (dto.run_id !== null) {
+        // Cross-check the *final* pair: a stop change alone can also break
+        // the invariant, so re-validate whenever either side moves.
+        const finalStopId =
+          dto.home_stop_id !== undefined ? dto.home_stop_id : student.home_stop_id;
+        await this.assertRunAllocation(schoolId, dto.run_id, finalStopId, {
+          requireActive: true,
+        });
+      }
+      updates.run_id = dto.run_id;
+    } else if (dto.home_stop_id !== undefined && student.run_id) {
+      const finalStopId = dto.home_stop_id;
+      if (finalStopId !== null) {
+        await this.assertRunAllocation(schoolId, student.run_id, finalStopId, {
+          requireActive: false,
+        });
+      }
+    }
     if (dto.emergency_contact_name !== undefined) {
       updates.emergency_contact_name = nullableTrim(dto.emergency_contact_name);
     }
@@ -311,6 +343,44 @@ export class StudentsService {
     }
   }
 
+  /**
+   * Validates a (run, home stop) allocation (`docs/operating-model.md` §3.4).
+   *
+   * The run must live in the caller's tenant — a cross-tenant or deleted run
+   * is the same generic 400 as a missing one. When the pupil already has a
+   * home stop, the run's route must be the stop's route: "which vehicle" may
+   * never contradict "where I board". `requireActive` guards fresh allocations
+   * only; re-checking an unchanged legacy allocation must not fail on a run
+   * that was deactivated after the fact.
+   */
+  private async assertRunAllocation(
+    schoolId: string,
+    runId: string,
+    homeStopId: string | null,
+    options: { requireActive: boolean },
+  ): Promise<void> {
+    const run = await this.runs.findOne({ where: { id: runId, school_id: schoolId } });
+    if (!run) {
+      throw new BadRequestException(STUDENT_RUN_INVALID_MESSAGE);
+    }
+    if (options.requireActive && run.is_active === false) {
+      throw new BadRequestException(STUDENT_RUN_INACTIVE_MESSAGE);
+    }
+    if (!homeStopId) {
+      return;
+    }
+    const stop = await this.stops.findOne({
+      where: { id: homeStopId, school_id: schoolId },
+      attributes: ['id', 'route_id'],
+    });
+    if (!stop) {
+      throw new BadRequestException(STUDENT_HOME_STOP_INVALID_MESSAGE);
+    }
+    if (stop.route_id !== run.route_id) {
+      throw new BadRequestException(STUDENT_RUN_ROUTE_MISMATCH_MESSAGE);
+    }
+  }
+
   /** Converts `YYYY-MM-DD` to a UTC Date; rejects invalid calendar dates. */
   private toDate(value: string | null | undefined): Date | null {
     if (value == null) {
@@ -351,7 +421,12 @@ export class StudentsService {
     const stopById = new Map(stops.map((stop) => [stop.id, stop]));
 
     const routeIds = [...new Set(stops.map((stop) => stop.route_id))];
-    const [routes, assignments] = await Promise.all([
+    // Runs allocated to pupils are resolved in the same batch: the run
+    // supplies the run code and the *actual* vehicle (the run's bus beats the
+    // legacy route-assignment bus). Soft-deleted runs resolve to `null` — the
+    // row keeps the id but the display falls back to the route view.
+    const runIds = [...new Set(students.map((s) => s.run_id).filter(isId))];
+    const [routes, assignments, runs] = await Promise.all([
       routeIds.length
         ? this.routes.findAll({
             where: { school_id: schoolId, id: { [Op.in]: routeIds } },
@@ -364,10 +439,22 @@ export class StudentsService {
             order: [['effective_from', 'ASC']],
           })
         : Promise.resolve([] as RouteAssignment[]),
+      runIds.length
+        ? this.runs.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: runIds } },
+            attributes: ['id', 'route_id', 'code', 'bus_id'],
+          })
+        : Promise.resolve([] as Run[]),
     ]);
     const routeById = new Map(routes.map((route) => [route.id, route]));
+    const runById = new Map(runs.map((run) => [run.id, run]));
 
-    const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
+    const busIds = [
+      ...new Set([
+        ...assignments.map((assignment) => assignment.bus_id),
+        ...runs.map((run) => run.bus_id),
+      ].filter(isId)),
+    ];
     const buses = busIds.length
       ? await this.buses.findAll({
           where: { school_id: schoolId, id: { [Op.in]: busIds } },
@@ -386,7 +473,9 @@ export class StudentsService {
     return students.map((student) => {
       const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
       const route = stop ? routeById.get(stop.route_id) : undefined;
-      const bus = route ? busByRoute.get(route.id) : undefined;
+      const run = student.run_id ? runById.get(student.run_id) : undefined;
+      const runBus = run?.bus_id ? busById.get(run.bus_id) : undefined;
+      const bus = runBus ?? (route ? busByRoute.get(route.id) : undefined);
       return {
         id: student.id,
         school_id: student.school_id,
@@ -397,6 +486,7 @@ export class StudentsService {
         gender: student.gender,
         grade_level: student.grade_level,
         home_stop_id: student.home_stop_id,
+        run_id: student.run_id,
         emergency_contact_name: student.emergency_contact_name,
         emergency_contact_phone: student.emergency_contact_phone,
         medical_notes: student.medical_notes,
@@ -407,6 +497,7 @@ export class StudentsService {
         route_id: route?.id ?? null,
         route_name: route?.name ?? null,
         route_code: route?.code ?? null,
+        run_code: run?.code ?? null,
         bus_number: bus?.bus_number ?? null,
       };
     });
@@ -431,6 +522,7 @@ function toStudentMinimalResponse(student: Student): StudentMinimalResponse {
     last_name: student.last_name,
     grade_level: student.grade_level,
     home_stop_id: student.home_stop_id,
+    run_id: student.run_id,
     is_active: student.is_active,
   };
 }

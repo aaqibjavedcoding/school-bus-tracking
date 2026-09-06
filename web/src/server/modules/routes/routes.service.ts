@@ -666,6 +666,7 @@ function toTripResponse(
     id: trip.id,
     school_id: trip.school_id,
     route_id: trip.route_id,
+    run_id: trip.run_id ?? null,
     bus_id: trip.bus_id ?? null,
     driver_id: trip.driver_id ?? null,
     conductor_id: trip.conductor_id ?? null,

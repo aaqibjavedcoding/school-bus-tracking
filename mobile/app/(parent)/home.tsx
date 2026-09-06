@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { ParentDashboardResponse } from '@school-bus-tracking/shared-types';
+import { runSummaryLine } from '../../src/features/parent/run-summary';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
@@ -42,6 +43,8 @@ export default function ParentHomeScreen() {
         child.grade_level,
         child.home_stop?.name,
         child.home_stop?.route_code,
+        child.run?.code,
+        child.run?.bus_number,
       ]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(term)),
@@ -95,6 +98,7 @@ export default function ParentHomeScreen() {
       ) : (
         visibleChildren.map((child) => {
           const trip = child.today?.trip ?? null;
+          const runLine = runSummaryLine(child.run);
           return (
             <Pressable
               key={child.id}
@@ -126,6 +130,11 @@ export default function ParentHomeScreen() {
                   ? `Stop: ${child.home_stop.name}${child.home_stop.route_code ? ` · Route ${child.home_stop.route_code}` : ''}`
                   : 'No home stop assigned'}
               </Text>
+              {runLine ? (
+                <Text style={styles.stopLine} numberOfLines={1}>
+                  {runLine}
+                </Text>
+              ) : null}
             </Pressable>
           );
         })

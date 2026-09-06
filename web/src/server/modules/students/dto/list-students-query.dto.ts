@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import type { ListInclude } from '@school-bus-tracking/shared-types';
 
 /**
@@ -31,6 +31,10 @@ export class ListStudentsQueryDto {
   @IsString({ message: 'search must be a string' })
   @MaxLength(100, { message: 'search must be at most 100 characters' })
   search?: string;
+
+  @IsOptional()
+  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  run_id?: string;
 
   @IsOptional()
   @IsIn(['full', 'minimal'] satisfies ListInclude[], {

@@ -258,6 +258,7 @@ export class Container {
         RouteAssignment,
         Bus,
         this.planLimits(),
+        Run,
       ),
   );
 
@@ -321,6 +322,8 @@ export class Container {
         this.liveTracking(),
         this.notifications(),
         this.planLimits(),
+        Run,
+        RunCrew,
       ),
   );
 
@@ -348,6 +351,7 @@ export class Container {
         StudentGuardian,
         this.liveTrackingConfig(),
         this.stopArrivals(),
+        Run,
       ),
   );
 
@@ -371,6 +375,9 @@ export class Container {
         this.liveTracking(),
         this.tripAttendance(),
         this.eta(),
+        Run,
+        RunCrew,
+        Shift,
       ),
   );
 
