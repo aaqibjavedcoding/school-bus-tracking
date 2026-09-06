@@ -31,6 +31,19 @@ export const RUN_INACTIVE_RESOURCE_MESSAGE =
 export const RUN_CODE_TAKEN_MESSAGE = 'A run with this code already exists in this school';
 
 /**
+ * §4.2 conflict messages (the run-based engine, `run-conflicts.ts`). The old
+ * `CREW_ROUTE` message in `modules/assignments/assignments.constants.ts` is
+ * superseded by `RUN_CREW_RUN_CONFLICT_MESSAGE`; the rule no longer mentions
+ * routes because it compares runs.
+ */
+export const RUN_ROLE_CONFLICT_MESSAGE =
+  'This run already has an active crew member for this role during the selected period';
+export const RUN_BUS_CONFLICT_MESSAGE =
+  'This bus is already assigned to another run during an overlapping shift window';
+export const RUN_CREW_RUN_CONFLICT_MESSAGE =
+  'This driver or conductor is already assigned to another run during an overlapping shift window';
+
+/**
  * Derived-code exhaustion. Only reachable when every `<route code>-N` suffix
  * up to {@link RUN_CODE_MAX_SUFFIX} is taken by a live run of the school.
  */
