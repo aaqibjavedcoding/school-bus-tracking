@@ -23,6 +23,7 @@ import {
   Bus,
   Plan,
   Route,
+  Run,
   School,
   SchoolSubscription,
   Stop,
@@ -66,6 +67,7 @@ describe('subscription and plan edge cases (real PostgreSQL)', () => {
       Stop,
       User,
       Trip,
+      Run,
       sequelize,
     );
   });

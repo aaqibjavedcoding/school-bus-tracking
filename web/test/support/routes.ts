@@ -238,8 +238,33 @@ import {
   putRoutesByIdStops,
 } from '../../src/server/api/routes';
 import {
+  deleteRunCrewById,
+  getRunCrewById,
+  getRunsByIdCrew,
+  getUsersByIdRunCrew,
+  patchRunCrewById,
+  postRunsByIdCrew,
+} from '../../src/server/api/run-crew';
+import {
+  deleteRunsById,
+  getBusesByIdRuns,
+  getRoutesByIdRuns,
+  getRuns,
+  getRunsById,
+  patchRunsById,
+  postRoutesByIdRuns,
+  postRuns,
+} from '../../src/server/api/runs';
+import {
   postSchools,
 } from '../../src/server/api/schools';
+import {
+  deleteShiftsById,
+  getShifts,
+  getShiftsById,
+  patchShiftsById,
+  postShifts,
+} from '../../src/server/api/shifts';
 import {
   deleteConductorsById,
   deleteDriversById,
@@ -397,6 +422,7 @@ export const ALL_ROUTES: TestRoute[] = [
   { method: 'DELETE', path: '/buses/:busId', definition: deleteBusesById },
   { method: 'GET', path: '/buses/:busId', definition: getBusesById },
   { method: 'PATCH', path: '/buses/:busId', definition: patchBusesById },
+  { method: 'GET', path: '/buses/:busId/runs', definition: getBusesByIdRuns },
   { method: 'GET', path: '/buses/:busId/documents', definition: getBusesByBusIdDocuments },
   { method: 'POST', path: '/buses/:busId/documents', definition: postBusesByBusIdDocuments },
   { method: 'DELETE', path: '/buses/:busId/documents/:id', definition: deleteBusesByBusIdDocumentsById },
@@ -477,7 +503,24 @@ export const ALL_ROUTES: TestRoute[] = [
   { method: 'GET', path: '/routes/:id/details', definition: getRoutesByIdDetails },
   { method: 'GET', path: '/routes/:id/stops', definition: getRoutesByIdStops },
   { method: 'PUT', path: '/routes/:id/stops', definition: putRoutesByIdStops },
+  { method: 'GET', path: '/routes/:id/runs', definition: getRoutesByIdRuns },
+  { method: 'POST', path: '/routes/:id/runs', definition: postRoutesByIdRuns },
+  { method: 'DELETE', path: '/run-crew/:id', definition: deleteRunCrewById },
+  { method: 'GET', path: '/run-crew/:id', definition: getRunCrewById },
+  { method: 'PATCH', path: '/run-crew/:id', definition: patchRunCrewById },
+  { method: 'GET', path: '/runs', definition: getRuns },
+  { method: 'POST', path: '/runs', definition: postRuns },
+  { method: 'DELETE', path: '/runs/:id', definition: deleteRunsById },
+  { method: 'GET', path: '/runs/:id', definition: getRunsById },
+  { method: 'PATCH', path: '/runs/:id', definition: patchRunsById },
+  { method: 'GET', path: '/runs/:id/crew', definition: getRunsByIdCrew },
+  { method: 'POST', path: '/runs/:id/crew', definition: postRunsByIdCrew },
   { method: 'POST', path: '/schools', definition: postSchools },
+  { method: 'GET', path: '/shifts', definition: getShifts },
+  { method: 'POST', path: '/shifts', definition: postShifts },
+  { method: 'DELETE', path: '/shifts/:id', definition: deleteShiftsById },
+  { method: 'GET', path: '/shifts/:id', definition: getShiftsById },
+  { method: 'PATCH', path: '/shifts/:id', definition: patchShiftsById },
   { method: 'GET', path: '/stops', definition: getStops },
   { method: 'POST', path: '/stops', definition: postStops },
   { method: 'DELETE', path: '/stops/:id', definition: deleteStopsById },
@@ -508,4 +551,5 @@ export const ALL_ROUTES: TestRoute[] = [
   { method: 'GET', path: '/trips/:tripId/students/:studentId', definition: getTripsByTripIdStudentsByStudentId },
   { method: 'POST', path: '/trips/:tripId/students/:studentId/board', definition: postTripsByTripIdStudentsByStudentIdBoard },
   { method: 'POST', path: '/trips/:tripId/students/:studentId/drop', definition: postTripsByTripIdStudentsByStudentIdDrop },
+  { method: 'GET', path: '/users/:userId/run-crew', definition: getUsersByIdRunCrew },
 ];

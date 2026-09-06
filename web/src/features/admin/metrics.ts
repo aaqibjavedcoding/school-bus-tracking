@@ -242,6 +242,9 @@ export function schoolUsageRows(
     [PlanLimitResource.STAFF]: stats.driver_count + stats.conductor_count,
     [PlanLimitResource.PARENTS]: stats.parent_count,
     [PlanLimitResource.TRIPS]: stats.trip_count,
+    // Older API payloads predate the operating-model refactor and carry no
+    // run counts; show 0 rather than NaN until the tenant reports one.
+    [PlanLimitResource.RUNS]: stats.run_count ?? 0,
   };
 
   const order: PlanLimitResource[] = [
@@ -254,6 +257,7 @@ export function schoolUsageRows(
     PlanLimitResource.STAFF,
     PlanLimitResource.PARENTS,
     PlanLimitResource.TRIPS,
+    PlanLimitResource.RUNS,
   ];
 
   return order.map((resource) => {

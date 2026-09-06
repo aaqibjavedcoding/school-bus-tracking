@@ -5,7 +5,17 @@ import { PlanLimitResource, SubscriptionStatus } from '@school-bus-tracking/shar
 import { PlanLimitsService } from './plan-limits.service';
 import { PlanLimitReachedException } from './plan-limit-reached.exception';
 import { SUBSCRIPTION_LAPSED_CODE } from '../subscriptions';
-import type { Bus, Plan, Route, SchoolSubscription, Stop, Student, Trip, User } from '../../database/models';
+import type {
+  Bus,
+  Plan,
+  Route,
+  Run,
+  SchoolSubscription,
+  Stop,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 
 const SCHOOL = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const PLAN_ID = '11111111-1111-4111-8111-111111111111';
@@ -54,6 +64,7 @@ function makeService(options: {
     counting(0),
     counting(0) as unknown as typeof User,
     counting(0) as unknown as typeof Trip,
+    counting(0) as unknown as typeof Run,
     null,
     configService,
   );

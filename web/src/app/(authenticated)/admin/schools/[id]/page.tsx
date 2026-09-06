@@ -203,6 +203,11 @@ export default function AdminSchoolDetailsPage() {
           />
           <KpiCard label="Stops" value={number(stats.stop_count)} />
           <KpiCard
+            label="Runs"
+            value={number(stats.run_count ?? 0)}
+            hint={`${number(stats.active_run_count ?? 0)} active`}
+          />
+          <KpiCard
             label="Assignments"
             value={number(stats.assignment_count)}
             hint={`${number(stats.active_assignment_count)} active`}

@@ -34,6 +34,7 @@ const NOUNS: Record<
     title: 'Parent/Guardian',
   },
   [PlanLimitResource.TRIPS]: { plural: 'trips', singular: 'trip', title: 'Trip' },
+  [PlanLimitResource.RUNS]: { plural: 'runs', singular: 'run', title: 'Run' },
 };
 
 export function planLimitReachedMessage(resource: PlanLimitResource, limit: number): string {

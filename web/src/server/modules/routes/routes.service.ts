@@ -26,6 +26,7 @@ import {
   Trip,
   User,
 } from '../../database/models';
+import type { RunsService } from '../runs/runs.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
   ROUTE_DELETED_MESSAGE,
@@ -80,6 +81,12 @@ export class RoutesService {
     private readonly trips: typeof Trip,
     private readonly students: typeof Student,
     private readonly planLimits: PlanLimitsService,
+    /**
+     * Provisions the route's default run (`docs/operating-model.md` §6.1).
+     * Optional only so existing call sites keep compiling; the container
+     * always supplies it, and without it a route is created bare.
+     */
+    private readonly runs?: RunsService,
   ) {}
 
   /**
@@ -88,6 +95,12 @@ export class RoutesService {
    * `school_id` is forced to `schoolId` regardless of any (rejected) client
    * input. The route code is unique per tenant (soft-deleted rows release
    * their code).
+   *
+   * The route's **default run** (`docs/operating-model.md` §6.1 — same code,
+   * `is_default = true`, no shift, no bus) is provisioned inside the same
+   * transaction, so a route never exists without the run every legacy read
+   * path resolves through. The default run is not metered against the `runs`
+   * quota; only the `routes` reservation taken here applies.
    */
   async create(schoolId: string, dto: CreateRouteDto): Promise<RouteResponse> {
     return this.planLimits.runWithinLimit(
@@ -97,8 +110,9 @@ export class RoutesService {
         const code = dto.code.trim();
         await this.assertCodeFree(schoolId, code);
 
+        let route: Route;
         try {
-          const route = await this.routes.create(
+          route = await this.routes.create(
             {
               school_id: schoolId,
               name: dto.name.trim(),
@@ -108,14 +122,23 @@ export class RoutesService {
             },
             transaction ? { transaction } : {},
           );
-          const [response] = await this.toRouteResponses([route]);
-          return response;
         } catch (error) {
           if (error instanceof UniqueConstraintError) {
             throw new ConflictException(ROUTE_CODE_TAKEN_MESSAGE);
           }
           throw error;
         }
+
+        if (this.runs) {
+          await this.runs.provisionDefaultRun(
+            schoolId,
+            { id: route.id, code: route.code, is_active: route.is_active },
+            transaction,
+          );
+        }
+
+        const [response] = await this.toRouteResponses([route]);
+        return response;
       },
     );
   }
@@ -265,21 +288,19 @@ export class RoutesService {
     return {
       route,
       stops: stops.map((stop) => this.toStopResponse(stop)),
-      students: students.map(
-        (student): RouteStudentSummary => {
-          const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
-          return {
-            id: student.id,
-            admission_number: student.admission_number,
-            first_name: student.first_name,
-            last_name: student.last_name,
-            grade_level: student.grade_level,
-            stop_id: student.home_stop_id,
-            stop_name: stop?.name ?? null,
-            stop_sequence_number: stop?.sequence_number ?? null,
-          };
-        },
-      ),
+      students: students.map((student): RouteStudentSummary => {
+        const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
+        return {
+          id: student.id,
+          admission_number: student.admission_number,
+          first_name: student.first_name,
+          last_name: student.last_name,
+          grade_level: student.grade_level,
+          stop_id: student.home_stop_id,
+          stop_name: stop?.name ?? null,
+          stop_sequence_number: stop?.sequence_number ?? null,
+        };
+      }),
       active_trip: activeTripResponse,
     };
   }
@@ -325,9 +346,16 @@ export class RoutesService {
   /**
    * Soft deletes (paranoid model → sets `deleted_at`) a route of the
    * authenticated school. Records are never physically removed.
+   *
+   * The route's runs (default and hand-made) are soft deleted with it: a run
+   * is a pass over a route and would otherwise keep consuming `runs` quota
+   * with nothing to drive.
    */
   async remove(schoolId: string, id: string): Promise<RouteDeleteResponse> {
     const route = await this.findRouteOrThrow(schoolId, id);
+    if (this.runs) {
+      await this.runs.removeForRoute(schoolId, id);
+    }
     await route.destroy();
     return { id, message: ROUTE_DELETED_MESSAGE };
   }
@@ -462,7 +490,11 @@ export class RoutesService {
         attributes: ['id', 'route_id'],
       }),
       this.trips.findAll({
-        where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, scheduled_start_at: todayRange() },
+        where: {
+          school_id: schoolId,
+          route_id: { [Op.in]: routeIds },
+          scheduled_start_at: todayRange(),
+        },
         order: [['scheduled_start_at', 'ASC']],
       }),
     ]);
@@ -628,7 +660,8 @@ function toTripResponse(
   const bus = buses.find((candidate) => candidate.id === trip.bus_id);
   const driver = trip.driver_id ? userById.get(trip.driver_id) : undefined;
   const conductor = trip.conductor_id ? userById.get(trip.conductor_id) : undefined;
-  const iso = (value: Date | null | undefined): string | null => (value ? value.toISOString() : null);
+  const iso = (value: Date | null | undefined): string | null =>
+    value ? value.toISOString() : null;
   return {
     id: trip.id,
     school_id: trip.school_id,

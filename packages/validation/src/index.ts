@@ -16,6 +16,7 @@ import {
   PlanFeature,
   PlanLimitResource,
   RouteAssignmentRole,
+  RunCrewRole,
   StudentGender,
   SubscriptionStatus,
   TripAttendanceStatus,
@@ -595,6 +596,177 @@ export const assignmentListQuerySchema = routeAssignmentListQuerySchema;
 export type AssignmentCreateInput = RouteAssignmentCreateInput;
 export type AssignmentUpdateInput = RouteAssignmentUpdateInput;
 export type AssignmentListQueryInput = RouteAssignmentListQueryInput;
+
+/**
+ * Operating model — shifts, runs and run crew (`docs/operating-model.md`).
+ *
+ * Every schema is `.strict()` and carries no `school_id`: the API pins the
+ * tenant from the JWT claims. `is_default` on runs is server-only and is
+ * therefore rejected as an unknown key rather than silently ignored.
+ */
+
+/** `HH:MM` or `HH:MM:SS`, 24-hour wall clock. */
+export const TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
+/**
+ * Normalises a validated time-of-day string to `HH:MM:SS`, the form PostgreSQL
+ * returns for a `time` column, so `07:00` and `07:00:00` compare equal.
+ */
+export function normalizeTimeOfDay(value: string): string {
+  return value.length === 5 ? `${value}:00` : value;
+}
+
+const timeOfDaySchema = (field: string) =>
+  z.string().trim().regex(TIME_OF_DAY_PATTERN, `${field} must be in HH:MM or HH:MM:SS format`);
+
+const shiftNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'name is required')
+  .max(80, 'name must be at most 80 characters');
+
+/** Window must have positive length — mirrors `ck_shifts_window`. */
+function assertShiftWindow(
+  value: { start_time?: string; end_time?: string },
+  context: z.RefinementCtx,
+): void {
+  // Only compare well-formed times; a malformed one already has its own issue.
+  if (
+    value.start_time &&
+    value.end_time &&
+    TIME_OF_DAY_PATTERN.test(value.start_time) &&
+    TIME_OF_DAY_PATTERN.test(value.end_time) &&
+    normalizeTimeOfDay(value.end_time) <= normalizeTimeOfDay(value.start_time)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['end_time'],
+      message: 'end_time must be later than start_time',
+    });
+  }
+}
+
+export const shiftCreateSchema = z
+  .object({
+    name: shiftNameSchema,
+    start_time: timeOfDaySchema('start_time'),
+    end_time: timeOfDaySchema('end_time'),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine(assertShiftWindow);
+
+export type ShiftCreateInput = z.infer<typeof shiftCreateSchema>;
+
+export const shiftUpdateSchema = z
+  .object({
+    name: shiftNameSchema.optional(),
+    start_time: timeOfDaySchema('start_time').optional(),
+    end_time: timeOfDaySchema('end_time').optional(),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine(assertShiftWindow);
+
+export type ShiftUpdateInput = z.infer<typeof shiftUpdateSchema>;
+
+export const shiftListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+  is_active: assignmentBooleanQuerySchema.optional(),
+});
+
+export type ShiftListQueryInput = z.infer<typeof shiftListQuerySchema>;
+
+const runCodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'code cannot be empty')
+  .max(32, 'code must be at most 32 characters');
+
+export const runCreateSchema = z
+  .object({
+    route_id: z.string().uuid('route_id must be a valid UUID'),
+    shift_id: z.string().uuid('shift_id must be a valid UUID').nullish(),
+    bus_id: z.string().uuid('bus_id must be a valid UUID').nullish(),
+    code: runCodeSchema.optional(),
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type RunCreateInput = z.infer<typeof runCreateSchema>;
+
+/** Nested `POST /routes/:id/runs` body — the route comes from the path. */
+export const routeRunCreateSchema = runCreateSchema.omit({ route_id: true });
+
+export type RouteRunCreateInput = z.infer<typeof routeRunCreateSchema>;
+
+/** `route_id` is immutable and `is_default` is server-only: both are unknown keys here. */
+export const runUpdateSchema = z
+  .object({
+    shift_id: z.string().uuid('shift_id must be a valid UUID').nullish(),
+    bus_id: z.string().uuid('bus_id must be a valid UUID').nullish(),
+    code: runCodeSchema.optional(),
+    is_active: z.boolean().optional(),
+  })
+  .strict();
+
+export type RunUpdateInput = z.infer<typeof runUpdateSchema>;
+
+export const runListQuerySchema = paginationSchema.extend({
+  search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+  route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+  shift_id: z.string().uuid('shift_id must be a valid UUID').optional(),
+  bus_id: z.string().uuid('bus_id must be a valid UUID').optional(),
+  is_active: assignmentBooleanQuerySchema.optional(),
+});
+
+export type RunListQueryInput = z.infer<typeof runListQuerySchema>;
+
+function assertCrewDateRange(
+  value: { effective_from?: string; effective_to?: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (value.effective_from && value.effective_to && value.effective_to < value.effective_from) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['effective_to'],
+      message: 'effective_to must be on or after effective_from',
+    });
+  }
+}
+
+export const runCrewCreateSchema = z
+  .object({
+    user_id: z.string().uuid('user_id must be a valid UUID'),
+    role: z.nativeEnum(RunCrewRole),
+    effective_from: assignmentDateSchema,
+    effective_to: assignmentDateSchema.nullish(),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine(assertCrewDateRange);
+
+export type RunCrewCreateInput = z.infer<typeof runCrewCreateSchema>;
+
+export const runCrewUpdateSchema = z
+  .object({
+    user_id: z.string().uuid('user_id must be a valid UUID').optional(),
+    role: z.nativeEnum(RunCrewRole).optional(),
+    effective_from: assignmentDateSchema.optional(),
+    effective_to: assignmentDateSchema.nullish(),
+    is_active: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine(assertCrewDateRange);
+
+export type RunCrewUpdateInput = z.infer<typeof runCrewUpdateSchema>;
+
+export const runCrewListQuerySchema = paginationSchema.extend({
+  role: z.nativeEnum(RunCrewRole).optional(),
+  is_active: assignmentBooleanQuerySchema.optional(),
+});
+
+export type RunCrewListQueryInput = z.infer<typeof runCrewListQuerySchema>;
 
 /**
  * Phase 4 — Trip management.

@@ -205,6 +205,8 @@ describe('usage vs plan limits', () => {
     active_assignment_count: 8,
     trip_count: 100,
     active_trip_count: 2,
+    run_count: 14,
+    active_run_count: 13,
   };
 
   it('caps percentages and never goes negative', () => {
@@ -252,11 +254,21 @@ describe('usage vs plan limits', () => {
     assert.equal(rows.find((row) => row.resource === PlanLimitResource.STOPS)?.usage, 30);
     // Resources the plan does not constrain are still listed with no limit.
     assert.equal(rows.find((row) => row.resource === PlanLimitResource.TRIPS)?.limit, null);
+    // Runs are a billable resource since the operating-model refactor.
+    assert.equal(rows.find((row) => row.resource === PlanLimitResource.RUNS)?.usage, 14);
+  });
+
+  it('falls back to zero runs for a payload that predates run counts', () => {
+    const legacy = { ...stats } as Partial<typeof stats>;
+    delete legacy.run_count;
+    delete legacy.active_run_count;
+    const rows = schoolUsageRows(legacy as typeof stats, null);
+    assert.equal(rows.find((row) => row.resource === PlanLimitResource.RUNS)?.usage, 0);
   });
 
   it('works for a school without any plan at all', () => {
     const rows = schoolUsageRows(stats, null);
-    assert.equal(rows.length, 9);
+    assert.equal(rows.length, 10);
     assert.ok(rows.every((row) => row.limit === null && !row.unlimited));
   });
 });

@@ -10,7 +10,17 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { PlanLimitsService } from './plan-limits.service';
 import { PlanLimitReachedException, planLimitReachedMessage } from './plan-limit-reached.exception';
-import type { Bus, Plan, Route, SchoolSubscription, Stop, Student, Trip, User } from '../../database/models';
+import type {
+  Bus,
+  Plan,
+  Route,
+  Run,
+  SchoolSubscription,
+  Stop,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -78,6 +88,7 @@ function makeService(options: {
         },
       } as unknown as typeof User,
       countRepo(PlanLimitResource.TRIPS) as typeof Trip,
+      countRepo(PlanLimitResource.RUNS) as unknown as typeof Run,
     ),
   };
 }
@@ -180,13 +191,14 @@ describe('PlanLimitsService', () => {
     );
   });
 
-  it('enforces buses, routes, stops, parents, trips and staff', async () => {
+  it('enforces buses, routes, stops, parents, trips, runs and staff', async () => {
     const cases: Array<[PlanLimitResource, string]> = [
       [PlanLimitResource.BUSES, 'buses'],
       [PlanLimitResource.ROUTES, 'routes'],
       [PlanLimitResource.STOPS, 'stops'],
       [PlanLimitResource.PARENTS, 'parents'],
       [PlanLimitResource.TRIPS, 'trips'],
+      [PlanLimitResource.RUNS, 'runs'],
     ];
     for (const [resource, key] of cases) {
       const { service } = makeService({
@@ -205,6 +217,18 @@ describe('PlanLimitsService', () => {
       PlanLimitResource.STAFF,
       4,
     );
+  });
+
+  it('counts runs like routes — active rows of the authenticated school only', async () => {
+    const { service, countWheres } = makeService({
+      plan: makePlan({ runs: { unlimited: false, value: 3 } }),
+      counts: { [PlanLimitResource.RUNS]: 1 },
+    });
+    await service.assertWithinLimit(SCHOOL_A, PlanLimitResource.RUNS);
+    const runsWhere = countWheres.find((entry) => entry.resource === PlanLimitResource.RUNS);
+    assert.ok(runsWhere, 'expected the runs repository to be counted');
+    assert.deepEqual(runsWhere?.where, { school_id: SCHOOL_A, is_active: true });
+    assert.match(planLimitReachedMessage(PlanLimitResource.RUNS, 3), /3 runs/);
   });
 
   it('honours role-specific driver limits', async () => {

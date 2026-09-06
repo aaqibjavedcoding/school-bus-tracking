@@ -5,6 +5,7 @@ import { Op, UniqueConstraintError } from 'sequelize';
 import { Bus, Route, RouteAssignment, Stop, Student, Trip, User } from '../../database/models';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { RoutesService } from './routes.service';
+import type { DefaultRunSource, RunsService } from '../runs/runs.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
   ROUTE_DELETED_MESSAGE,
@@ -302,7 +303,7 @@ function allowAllPlanLimits(): PlanLimitsService {
   } as unknown as PlanLimitsService;
 }
 
-function makeService(routes: typeof Route, stops: typeof Stop): RoutesService {
+function makeService(routes: typeof Route, stops: typeof Stop, runs?: RunsService): RoutesService {
   const empty = { findAll: async () => [] } as unknown as typeof Stop;
   return new RoutesService(
     routes,
@@ -313,7 +314,34 @@ function makeService(routes: typeof Route, stops: typeof Stop): RoutesService {
     empty as unknown as typeof Trip,
     empty as unknown as typeof Student,
     allowAllPlanLimits(),
+    runs,
   );
+}
+
+/** Records the RunsService calls RoutesService makes for its default run. */
+function recordingRunsService(): {
+  runs: RunsService;
+  provisioned: Array<{ schoolId: string; route: DefaultRunSource; transaction: unknown }>;
+  removed: Array<{ schoolId: string; routeId: string }>;
+} {
+  const provisioned: Array<{ schoolId: string; route: DefaultRunSource; transaction: unknown }> =
+    [];
+  const removed: Array<{ schoolId: string; routeId: string }> = [];
+  const runs = {
+    provisionDefaultRun: async (
+      schoolId: string,
+      route: DefaultRunSource,
+      transaction: unknown,
+    ) => {
+      provisioned.push({ schoolId, route, transaction });
+      return { ...route, id: 'run', route_id: route.id, is_default: true };
+    },
+    removeForRoute: async (schoolId: string, routeId: string) => {
+      removed.push({ schoolId, routeId });
+      return 1;
+    },
+  } as unknown as RunsService;
+  return { runs, provisioned, removed };
 }
 
 async function expectNotFound(promise: Promise<unknown>): Promise<void> {
@@ -361,6 +389,31 @@ describe('RoutesService.create', () => {
 
     const serialized = JSON.stringify(response);
     assert.ok(!serialized.includes('deleted_at'), 'internal fields are not serialized');
+  });
+
+  it('provisions the default run of the new route inside the create', async () => {
+    const { repo } = makeRoutesRepository([]);
+    const { runs, provisioned } = recordingRunsService();
+    const service = makeService(repo, makeStopsRepository().repo, runs);
+
+    const response = await service.create(SCHOOL_A, makeCreateDto({ is_active: false }));
+
+    assert.equal(provisioned.length, 1);
+    assert.equal(provisioned[0].schoolId, SCHOOL_A);
+    assert.deepEqual(provisioned[0].route, {
+      id: response.id,
+      code: 'NORTH-AM',
+      is_active: false,
+    });
+  });
+
+  it('does not provision a default run when the route insert fails', async () => {
+    const { repo } = makeRoutesRepository([makeRouteRecord({ code: 'NORTH-AM' })]);
+    const { runs, provisioned } = recordingRunsService();
+    const service = makeService(repo, makeStopsRepository().repo, runs);
+
+    await expectConflict(service.create(SCHOOL_A, makeCreateDto()), ROUTE_CODE_TAKEN_MESSAGE);
+    assert.equal(provisioned.length, 0);
   });
 
   it('normalizes an empty description to null', async () => {
@@ -474,7 +527,13 @@ describe('RoutesService.findOne', () => {
     const stops = {
       findAll: async () =>
         [
-          { id: STOP_1, school_id: SCHOOL_A, route_id: ROUTE_A, name: 'Maple & 5th', sequence_number: 1 },
+          {
+            id: STOP_1,
+            school_id: SCHOOL_A,
+            route_id: ROUTE_A,
+            name: 'Maple & 5th',
+            sequence_number: 1,
+          },
         ] as unknown as Stop[],
     } as unknown as typeof Stop;
     const assignments = {
@@ -492,14 +551,14 @@ describe('RoutesService.findOne', () => {
         ] as unknown as User[],
     } as unknown as typeof User;
     const buses = {
-      findAll: async () => [{ id: 'bus-1', bus_number: 'B-01', registration_number: 'REG-A' }] as unknown as Bus[],
+      findAll: async () =>
+        [{ id: 'bus-1', bus_number: 'B-01', registration_number: 'REG-A' }] as unknown as Bus[],
     } as unknown as typeof Bus;
     const trips = {
       findAll: async () => [] as unknown as Trip[],
     } as unknown as typeof Trip;
     const students = {
-      findAll: async () =>
-        [{ home_stop_id: STOP_1, school_id: SCHOOL_A }] as unknown as Student[],
+      findAll: async () => [{ home_stop_id: STOP_1, school_id: SCHOOL_A }] as unknown as Student[],
     } as unknown as typeof Student;
 
     const service = new RoutesService(
@@ -583,12 +642,26 @@ describe('RoutesService.remove', () => {
     assert.notEqual(all[0].deleted_at, null);
   });
 
+  it('soft deletes the runs of the route with it', async () => {
+    const route = makeRouteRecord({ id: ROUTE_A });
+    const { repo, all } = makeRoutesRepository([route]);
+    const { runs, removed } = recordingRunsService();
+    const service = makeService(repo, makeStopsRepository().repo, runs);
+
+    await service.remove(SCHOOL_A, ROUTE_A);
+
+    assert.deepEqual(removed, [{ schoolId: SCHOOL_A, routeId: ROUTE_A }]);
+    assert.notEqual(all[0].deleted_at, null);
+  });
+
   it('returns the generic 404 when deleting another school route', async () => {
     const route = makeRouteRecord({ id: ROUTE_A, school_id: SCHOOL_B });
     const { repo } = makeRoutesRepository([route]);
-    const service = makeService(repo, makeStopsRepository().repo);
+    const { runs, removed } = recordingRunsService();
+    const service = makeService(repo, makeStopsRepository().repo, runs);
 
     await expectNotFound(service.remove(SCHOOL_A, ROUTE_A));
+    assert.equal(removed.length, 0);
   });
 });
 
@@ -766,7 +839,10 @@ describe('RoutesService.findAll — include=minimal', () => {
     const { repo } = makeRoutesRepository(routes);
     const service = makeService(repo, makeStopsRepository().repo);
 
-    const response = await service.findAll(SCHOOL_A, makeQuery({ page: 1, limit: 2, include: 'minimal' }));
+    const response = await service.findAll(
+      SCHOOL_A,
+      makeQuery({ page: 1, limit: 2, include: 'minimal' }),
+    );
 
     assert.equal(response.meta.total, 3);
     assert.equal(response.meta.totalPages, 2);
