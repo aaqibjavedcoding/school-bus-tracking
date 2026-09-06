@@ -7,6 +7,7 @@ import { Bus, Route, Run, RunCrew, Shift, Student, User } from '../../database/m
 import { PlanLimitsService } from '../../common/plan-limits';
 import { RunsService } from './runs.service';
 import {
+  RUN_BUS_CONFLICT_MESSAGE,
   RUN_BUS_INVALID_MESSAGE,
   RUN_CODE_TAKEN_MESSAGE,
   RUN_CODE_UNAVAILABLE_MESSAGE,
@@ -28,6 +29,7 @@ const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ROUTE_A = '11111111-1111-4111-8111-111111111111';
 const ROUTE_B = '22222222-2222-4222-8222-222222222222';
 const SHIFT_AM = '33333333-3333-4333-8333-333333333333';
+const SHIFT_PM = '33333333-3333-4333-8333-333333333334';
 const BUS_1 = '44444444-4444-4444-8444-444444444444';
 const RUN_DEFAULT = '55555555-5555-4555-8555-555555555555';
 const RUN_TIER = '66666666-6666-4666-8666-666666666666';
@@ -437,6 +439,99 @@ describe('RunsService.create', () => {
     );
     assert.equal(inactive.is_active, false);
   });
+
+  it('rejects the same bus in an overlapping shift window (BUS rule)', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({
+          id: RUN_TIER,
+          bus_id: BUS_1,
+          shift_id: SHIFT_AM,
+          is_default: false,
+        }),
+      ],
+    });
+
+    await expectRejects(
+      fixture.service.create(SCHOOL_A, createDto({ bus_id: BUS_1, shift_id: SHIFT_AM })),
+      ConflictException,
+      RUN_BUS_CONFLICT_MESSAGE,
+    );
+    assert.equal(fixture.runs.createCalls.length, 0);
+  });
+
+  it('allows the same bus in disjoint shift windows — tiering', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({
+          id: RUN_TIER,
+          bus_id: BUS_1,
+          shift_id: SHIFT_AM,
+          is_default: false,
+        }),
+      ],
+      shifts: [
+        {
+          id: SHIFT_AM,
+          school_id: SCHOOL_A,
+          name: 'Morning',
+          start_time: '06:30:00',
+          end_time: '09:00:00',
+          is_active: true,
+        },
+        {
+          id: SHIFT_PM,
+          school_id: SCHOOL_A,
+          name: 'Afternoon',
+          start_time: '12:00:00',
+          end_time: '17:00:00',
+          is_active: true,
+        },
+      ],
+    });
+
+    const response = await fixture.service.create(
+      SCHOOL_A,
+      createDto({ bus_id: BUS_1, shift_id: SHIFT_PM, code: 'R-01-PM' }),
+    );
+
+    assert.equal(response.bus_id, BUS_1);
+    assert.equal(response.shift_id, SHIFT_PM);
+  });
+
+  it('treats a NULL-shift run as whole day for the BUS rule', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({ id: RUN_TIER, bus_id: BUS_1, shift_id: null, is_default: false }),
+      ],
+    });
+
+    await expectRejects(
+      fixture.service.create(SCHOOL_A, createDto({ bus_id: BUS_1, shift_id: SHIFT_AM })),
+      ConflictException,
+      RUN_BUS_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('ignores inactive runs when checking the BUS window rule', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({
+          id: RUN_TIER,
+          bus_id: BUS_1,
+          shift_id: SHIFT_AM,
+          is_active: false,
+          is_default: false,
+        }),
+      ],
+    });
+
+    const response = await fixture.service.create(
+      SCHOOL_A,
+      createDto({ bus_id: BUS_1, shift_id: SHIFT_AM, code: 'R-01-AM' }),
+    );
+    assert.equal(response.code, 'R-01-AM');
+  });
 });
 
 describe('RunsService.createForRoute', () => {
@@ -733,6 +828,74 @@ describe('RunsService.update', () => {
       BadRequestException,
       RUN_INACTIVE_RESOURCE_MESSAGE,
     );
+  });
+
+  it('rejects assigning a bus that already covers an overlapping window', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({ id: RUN_TIER, bus_id: null, is_default: false }),
+        makeRunRecord({ id: RUN_DEFAULT, bus_id: BUS_1, shift_id: SHIFT_AM, is_default: false }),
+      ],
+    });
+
+    const clash = new UpdateRunDto();
+    clash.bus_id = BUS_1;
+    clash.shift_id = SHIFT_AM;
+    await expectRejects(
+      fixture.service.update(SCHOOL_A, RUN_TIER, clash),
+      ConflictException,
+      RUN_BUS_CONFLICT_MESSAGE,
+    );
+
+    // Clearing the candidate's own shift turns it whole-day — still a clash.
+    const wholeDay = new UpdateRunDto();
+    wholeDay.bus_id = BUS_1;
+    wholeDay.shift_id = null;
+    await expectRejects(
+      fixture.service.update(SCHOOL_A, RUN_TIER, wholeDay),
+      ConflictException,
+      RUN_BUS_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('allows tiering on update: moving a run into a disjoint window', async () => {
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({ id: RUN_TIER, bus_id: null, is_default: false }),
+        makeRunRecord({
+          id: RUN_DEFAULT,
+          bus_id: BUS_1,
+          shift_id: SHIFT_AM,
+          is_default: false,
+        }),
+      ],
+      shifts: [
+        {
+          id: SHIFT_AM,
+          school_id: SCHOOL_A,
+          name: 'Morning',
+          start_time: '06:30:00',
+          end_time: '09:00:00',
+          is_active: true,
+        },
+        {
+          id: SHIFT_PM,
+          school_id: SCHOOL_A,
+          name: 'Afternoon',
+          start_time: '12:00:00',
+          end_time: '17:00:00',
+          is_active: true,
+        },
+      ],
+    });
+
+    const dto = new UpdateRunDto();
+    dto.bus_id = BUS_1;
+    dto.shift_id = SHIFT_PM;
+    const response = await fixture.service.update(SCHOOL_A, RUN_TIER, dto);
+
+    assert.equal(response.bus_id, BUS_1);
+    assert.equal(response.shift_id, SHIFT_PM);
   });
 
   it('cannot update a run of another school', async () => {

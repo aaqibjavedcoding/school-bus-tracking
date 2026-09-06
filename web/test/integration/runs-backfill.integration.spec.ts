@@ -7,9 +7,11 @@ import type { Sequelize } from 'sequelize-typescript';
 import {
   prepareDatabase,
   runMigrations,
-  undoLastMigration,
+  undoMigration,
   undoThroughMigration,
 } from '../support/database';
+
+const BACKFILL_MIGRATION = '20260906120400-backfill-default-runs';
 import {
   createAssignment,
   createBus,
@@ -36,8 +38,9 @@ import {
  * key, and a route code reused by a soft-deleted sibling in the same tenant plus
  * a second tenant using the same codes again.
  *
- * The sequence is migrate → seed → `db:migrate:undo` (reverting only the
- * backfill) → `db:migrate`, using the project's own sequelize-cli runner, so
+ * The sequence is migrate → seed → `db:migrate:undo --name <backfill>`
+ * (reverting only the backfill, even though later migrations were applied on
+ * top of it) → `db:migrate`, using the project's own sequelize-cli runner, so
  * what is under test is the real migration file rather than a re-implementation
  * of it.
  */
@@ -153,7 +156,7 @@ describe('default-run backfill (real PostgreSQL)', () => {
     // The schema stays; only the backfilled data is removed. That is exactly the
     // state an existing production database is in the moment before the
     // migration runs.
-    undoLastMigration();
+    undoMigration(BACKFILL_MIGRATION);
   });
 
   after(async () => {
@@ -374,7 +377,7 @@ describe('default-run backfill (real PostgreSQL)', () => {
   });
 
   it('reverses exactly, leaving the original roster untouched', async () => {
-    undoLastMigration();
+    undoMigration(BACKFILL_MIGRATION);
 
     assert.equal(await count('SELECT count(*) c FROM runs'), 0);
     assert.equal(await count('SELECT count(*) c FROM run_crew'), 0);
@@ -409,33 +412,30 @@ describe('default-run backfill (real PostgreSQL)', () => {
   });
 
   /**
-   * Verifies `undoThroughMigration()` (undoLastMigration + runMigrations) correctly
-   * targets the backfill's down() and restores a clean migrated state. This is
-   * the canonical use of the helper: undo one migration and immediately re-apply
+   * Verifies `undoThroughMigration(name)` (undoMigration(name) + runMigrations)
+   * correctly targets the backfill's down() — even though later migrations now
+   * sit on top of it — and restores a clean migrated state. This is the
+   * canonical use of the helper: undo one migration and immediately re-apply
    * everything, ending up at the same state as a fresh `runMigrations()` call.
    */
-  it('undoThroughMigration reverses the backfill and re-applies it cleanly', async () => {
+  it('undoThroughMigration reverts and re-applies the backfill cleanly', async () => {
     // Apply the backfill on top of whatever state the database is in (it may
     // already be migrated from a previous test in this suite).
     runMigrations();
     assert.ok((await count('SELECT count(*) c FROM runs')) > 0, 'precondition: backfill applied');
 
-    // undoThroughMigration = undoLastMigration + runMigrations
-    undoThroughMigration();
+    // undoThroughMigration = undoMigration(name) + runMigrations. The
+    // `reverses exactly` test above observes the down() result in isolation;
+    // here the helper must leave the database fully migrated again.
+    undoThroughMigration(BACKFILL_MIGRATION);
 
-    // After undoing the last migration (the backfill), we should be back at the
-    // pre-backfill state: routes exist, runs and run_crew do not.
-    assert.equal(await count('SELECT count(*) c FROM runs'), 0);
-    assert.equal(await count('SELECT count(*) c FROM run_crew'), 0);
+    assert.equal(await count('SELECT count(*) c FROM runs'), 7);
+    assert.equal(await count('SELECT count(*) c FROM run_crew'), assignmentsBefore);
+    assert.equal(await count('SELECT count(*) c FROM routes'), 7);
     assert.equal(
       await count('SELECT count(*) c FROM route_assignments'),
       assignmentsBefore,
       'route_assignments is untouched',
     );
-
-    // runMigrations() was already called inside undoThroughMigration — verify the
-    // backfill was re-applied.
-    assert.equal(await count('SELECT count(*) c FROM runs'), 7);
-    assert.equal(await count('SELECT count(*) c FROM run_crew'), assignmentsBefore);
   });
 });

@@ -79,6 +79,10 @@ export type RunCrewCreationAttributes = Optional<
     { name: 'idx_run_crew_school_run', fields: ['school_id', 'run_id'] },
     // "Which runs is this driver rostered on?" — the crew day view.
     { name: 'idx_run_crew_school_user', fields: ['school_id', 'user_id'] },
+    // Backs run_crew's own composite FK key (route_assignments → run_crew)
+    // and matches the non-partial (school_id, id) convention used by every
+    // other tenant-pinned table.
+    { name: 'uq_run_crew_school_id', fields: ['school_id', 'id'], unique: true },
   ],
 })
 export class RunCrew extends BaseModel<RunCrewAttributes, RunCrewCreationAttributes> {

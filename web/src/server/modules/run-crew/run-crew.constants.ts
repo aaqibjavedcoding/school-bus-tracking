@@ -1,4 +1,8 @@
 import { UserRole } from '@school-bus-tracking/shared-types';
+import {
+  RUN_CREW_RUN_CONFLICT_MESSAGE,
+  RUN_ROLE_CONFLICT_MESSAGE,
+} from '../runs/runs.constants';
 
 /**
  * Injection tokens and user-facing messages for the run-crew (per-run roster)
@@ -40,11 +44,18 @@ export const RUN_CREW_DUPLICATE_MESSAGE =
 
 /**
  * `RUN_ROLE` (docs/operating-model.md §4.2): one run, one role, overlapping
- * roster windows. Checked here because it is a per-run fact; the cross-run
- * `BUS` / `CREW_RUN` window rules are the Session 2B conflict engine.
+ * roster windows. Enforced by the Session 2B conflict engine
+ * (`modules/runs/run-conflicts`) together with `CREW_RUN`; the message lives
+ * in `runs.constants` and is re-exported here so roster-feature consumers
+ * keep importing from this module.
  */
-export const RUN_CREW_ROLE_CONFLICT_MESSAGE =
-  'This run already has an active crew member for this role during the selected period';
+export const RUN_CREW_ROLE_CONFLICT_MESSAGE = RUN_ROLE_CONFLICT_MESSAGE;
+
+/**
+ * `CREW_RUN` (§4.2): one person cannot cover two runs whose shift windows
+ * overlap. Alias of the conflict-engine message.
+ */
+export const RUN_CREW_CREW_RUN_CONFLICT_MESSAGE = RUN_CREW_RUN_CONFLICT_MESSAGE;
 
 /** Confirmation returned after a soft delete. */
 export const RUN_CREW_DELETED_MESSAGE = 'Run crew entry deleted successfully';

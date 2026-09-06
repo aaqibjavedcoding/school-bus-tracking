@@ -19,6 +19,7 @@ import {
   User,
 } from '../../database/models';
 import { PlanLimitsService } from '../../common/plan-limits';
+import { findRunConflict, type RunCandidate } from './run-conflicts';
 import {
   RUN_BUS_INVALID_MESSAGE,
   RUN_CODE_MAX_SUFFIX,
@@ -100,7 +101,7 @@ export class RunsService {
       const shiftId = dto.shift_id ?? null;
       const busId = dto.bus_id ?? null;
 
-      const route = await this.assertRelatedResources(
+      const { route, shift } = await this.assertRelatedResources(
         schoolId,
         routeId,
         shiftId,
@@ -108,6 +109,10 @@ export class RunsService {
         isActive,
         transaction,
       );
+      // The §4 `BUS` window rule runs inside the same plan-limit transaction
+      // (advisory lock keyed by school + RUNS), so two concurrent creates of
+      // the same bus in the same window cannot both pass.
+      await this.assertNoBusConflict(schoolId, undefined, busId, shift, isActive, transaction);
 
       const code =
         dto.code !== undefined
@@ -298,7 +303,8 @@ export class RunsService {
     const busId = dto.bus_id === undefined ? run.bus_id : dto.bus_id;
     const isActive = dto.is_active ?? run.is_active;
 
-    await this.assertRelatedResources(schoolId, run.route_id, shiftId, busId, isActive);
+    const { shift } = await this.assertRelatedResources(schoolId, run.route_id, shiftId, busId, isActive);
+    await this.assertNoBusConflict(schoolId, id, busId, shift, isActive);
 
     if (dto.shift_id !== undefined) updates.shift_id = shiftId;
     if (dto.bus_id !== undefined) updates.bus_id = busId;
@@ -348,8 +354,9 @@ export class RunsService {
   /**
    * Validates every reference against the authenticated tenant. Related
    * records from another school intentionally produce the same generic 400 as
-   * missing records so their existence is not disclosed. Returns the route so
-   * callers can derive the run code from it.
+   * missing records so their existence is not disclosed. Returns the route
+   * (so callers can derive the run code) and the shift (so the window-based
+   * conflict check has the run's clock).
    */
   private async assertRelatedResources(
     schoolId: string,
@@ -358,7 +365,7 @@ export class RunsService {
     busId: string | null,
     isActive: boolean,
     transaction?: Transaction,
-  ): Promise<Route> {
+  ): Promise<{ route: Route; shift: Shift | null }> {
     const options = transaction ? { transaction } : {};
 
     const route = await this.routes.findOne({
@@ -398,7 +405,69 @@ export class RunsService {
       throw new BadRequestException(RUN_INACTIVE_RESOURCE_MESSAGE);
     }
 
-    return route;
+    return { route, shift };
+  }
+
+  /**
+   * `BUS` — one bus cannot serve two runs whose **shift windows** overlap
+   * (`docs/operating-model.md` §4.2). Two runs of the same route may share a
+   * bus only when their windows are disjoint (tiering), and a `NULL`-shift
+   * run occupies the whole day so it conflicts with every active run of that
+   * bus. Inactive runs are ignored.
+   */
+  private async assertNoBusConflict(
+    schoolId: string,
+    excludeRunId: string | undefined,
+    busId: string | null,
+    shift: Shift | null,
+    isActive: boolean,
+    transaction?: Transaction,
+  ): Promise<void> {
+    if (!isActive || busId === null) {
+      return;
+    }
+    const options = transaction ? { transaction } : {};
+    const others = await this.runs.findAll({
+      where: { school_id: schoolId, bus_id: busId, is_active: true } as WhereOptions,
+      attributes: ['id', 'shift_id'],
+      ...options,
+    });
+    const shiftIds = [...new Set(others.map((run) => run.shift_id).filter(isId))];
+    const shifts = shiftIds.length
+      ? await this.shifts.findAll({
+          where: { school_id: schoolId, id: { [Op.in]: shiftIds } },
+          attributes: ['id', 'start_time', 'end_time'],
+          ...options,
+        })
+      : [];
+    const shiftById = new Map(shifts.map((row) => [row.id, row]));
+
+    const candidate: RunCandidate = {
+      id: excludeRunId ?? 'pending',
+      bus_id: busId,
+      is_active: true,
+      shift: shift
+        ? { start_time: normalizeTime(shift.start_time), end_time: normalizeTime(shift.end_time) }
+        : null,
+    };
+
+    for (const other of others) {
+      const otherShift = other.shift_id ? shiftById.get(other.shift_id) : undefined;
+      const conflict = findRunConflict(candidate, {
+        id: other.id,
+        bus_id: busId,
+        is_active: true,
+        shift: otherShift
+          ? {
+              start_time: normalizeTime(otherShift.start_time),
+              end_time: normalizeTime(otherShift.end_time),
+            }
+          : null,
+      });
+      if (conflict) {
+        throw new ConflictException(conflict.message);
+      }
+    }
   }
 
   /**

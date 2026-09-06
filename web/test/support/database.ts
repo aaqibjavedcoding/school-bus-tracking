@@ -104,19 +104,29 @@ export function undoAllMigrations(): string {
 }
 
 /**
- * Rolls back exactly one migration — the most recently applied one.
+ * Rolls back exactly one migration — `name` when given (e.g.
+ * `20260906120400-backfill-default-runs`), otherwise the most recently applied
+ * one.
  *
  * Needed by suites that have to observe a migration's *effect* on data that
  * already exists: the sequence is migrate → seed → undo the data migration →
  * migrate again. `undoAllMigrations()` cannot express that.
  *
+ * Passing `name` keeps the helper targeted when later migrations are added on
+ * top of the migration under test; without it, only "the last one" is
+ * reverting.
+ *
  * **Prefer `undoThroughMigration`** in new code: it calls this internally and
  * then re-applies every migration so the database is in a clean, reproducible
  * state, not stuck at "one migration undone".
  */
-export function undoLastMigration(): string {
+export function undoMigration(name?: string): string {
   const settings = testDatabaseSettings();
-  return execFileSync(process.execPath, ['scripts/sequelize-cli.js', 'db:migrate:undo'], {
+  const args = ['scripts/sequelize-cli.js', 'db:migrate:undo'];
+  if (name) {
+    args.push('--name', name);
+  }
+  return execFileSync(process.execPath, args, {
     cwd: API_ROOT,
     encoding: 'utf8',
     env: {
@@ -132,8 +142,14 @@ export function undoLastMigration(): string {
   });
 }
 
+/** Back-compat alias: `undoMigration()` reverts the most recent migration. */
+export function undoLastMigration(): string {
+  return undoMigration();
+}
+
 /**
- * Undoes the most recently applied migration and then re-applies every migration.
+ * Undoes a migration (default: the most recently applied one) and then
+ * re-applies every migration.
  *
  * This restores a clean migration state — equivalent to `runMigrations()` on a
  * freshly-migrated database — while exercising the `down()` of the migration
@@ -141,11 +157,14 @@ export function undoLastMigration(): string {
  *
  * The canonical use is: migrate → seed → `undoThroughMigration()` → verify the
  * `down()` removed exactly what `up()` added (e.g. the backfill's default runs).
- * Calling `undoLastMigration()` alone leaves the database at "one migration
+ * Calling `undoMigration()` alone leaves the database at "one migration
  * behind" which is hard to reason about in subsequent tests.
+ *
+ * Pass the migration file name to target a specific migration rather than
+ * whatever happens to be newest.
  */
-export function undoThroughMigration(): void {
-  undoLastMigration();
+export function undoThroughMigration(name?: string): void {
+  undoMigration(name);
   runMigrations();
 }
 
