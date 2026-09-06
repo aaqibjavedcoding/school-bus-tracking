@@ -6,6 +6,9 @@ import { Route } from './route.model';
 import { Stop } from './stop.model';
 import { Student } from './student.model';
 import { RouteAssignment } from './route-assignment.model';
+import { Shift } from './shift.model';
+import { Run } from './run.model';
+import { RunCrew } from './run-crew.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
 import { StudentGuardian } from './student-guardian.model';
@@ -35,6 +38,7 @@ export {
   EMERGENCY_STATUS_VALUES,
   EMERGENCY_TYPE_VALUES,
   ROUTE_ASSIGNMENT_ROLE_VALUES,
+  RUN_CREW_ROLE_VALUES,
   STUDENT_GENDER_VALUES,
   TRIP_ATTENDANCE_STATUS_VALUES,
   TRIP_STATUS_VALUES,
@@ -68,6 +72,12 @@ export type {
   RouteAssignmentAttributes,
   RouteAssignmentCreationAttributes,
 } from './route-assignment.model';
+export { Shift } from './shift.model';
+export type { ShiftAttributes, ShiftCreationAttributes } from './shift.model';
+export { Run } from './run.model';
+export type { RunAttributes, RunCreationAttributes } from './run.model';
+export { RunCrew } from './run-crew.model';
+export type { RunCrewAttributes, RunCrewCreationAttributes } from './run-crew.model';
 export { Trip } from './trip.model';
 export type { TripAttributes, TripCreationAttributes } from './trip.model';
 export { RefreshToken } from './refresh-token.model';
@@ -147,8 +157,9 @@ export type {
  * (`@BelongsTo(() => School)`), which is what makes the mutual imports safe:
  * the target class is only resolved once the whole graph is registered. The
  * imports above are still ordered by dependency (tenant → users/fleet/routes →
- * stops → students → assignments → trips → refresh tokens → student guardians
- * → trip attendance → trip locations) to keep the graph easy to read.
+ * stops → students → assignments → shifts → runs → run crew → trips → refresh
+ * tokens → student guardians → trip attendance → trip locations) to keep the
+ * graph easy to read.
  */
 export const models: ModelCtor<Model>[] = [
   School,
@@ -158,6 +169,9 @@ export const models: ModelCtor<Model>[] = [
   Stop,
   Student,
   RouteAssignment,
+  Shift,
+  Run,
+  RunCrew,
   Trip,
   RefreshToken,
   StudentGuardian,

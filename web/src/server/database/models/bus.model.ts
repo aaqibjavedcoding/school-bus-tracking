@@ -3,6 +3,7 @@ import { Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { School } from './school.model';
 import { RouteAssignment } from './route-assignment.model';
+import { Run } from './run.model';
 import { Trip } from './trip.model';
 
 export interface BusAttributes extends BaseModelAttributes {
@@ -79,6 +80,9 @@ export class Bus extends BaseModel<BusAttributes, BusCreationAttributes> {
 
   @HasMany(() => RouteAssignment, { foreignKey: 'bus_id', as: 'routeAssignments' })
   declare routeAssignments?: RouteAssignment[];
+
+  @HasMany(() => Run, { foreignKey: 'bus_id', as: 'runs' })
+  declare runs?: Run[];
 
   @HasMany(() => Trip, { foreignKey: 'bus_id', as: 'trips' })
   declare trips?: Trip[];

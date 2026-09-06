@@ -15,6 +15,9 @@ import * as bcrypt from 'bcryptjs';
  * - 52 Students per school (208 total) with home stops, DOB, emergency contacts
  * - Student-Guardian relationships linking all students to parent accounts
  * - Route Assignments (Bus + Driver + Conductor rostered per route)
+ * - Shifts, Runs & Run Crew (operating model: 1 default run per route, so the
+ *   demo data satisfies the same invariant the default-run backfill establishes
+ *   for pre-existing routes — see `docs/operating-model.md` §7)
  * - Trips (Today's Completed, In-Progress, Scheduled runs)
  * - Trip Student Attendance (DROPPED, BOARDED, PENDING)
  * - Live Tracking GPS breadcrumbs (trip_locations)
@@ -450,6 +453,22 @@ async function purgeSchool(queryInterface: QueryInterface, schoolId: string): Pr
   await queryInterface.bulkDelete('route_assignments', scope, {});
   await queryInterface.bulkDelete('student_guardians', scope, {});
   await queryInterface.bulkDelete('students', scope, {});
+  // `runs` must go *after* every table that references it — `trips`,
+  // `students` and `run_crew` — and before its own parents (`routes`,
+  // `shifts`, `buses`).
+  //
+  // The order is load-bearing, not cosmetic: `fk_students_run` /
+  // `fk_trips_run` are composite `(school_id, run_id)` keys with
+  // `ON DELETE SET NULL`, and PostgreSQL nulls *every* referencing column of a
+  // composite key, `school_id` included. Since `school_id` is NOT NULL that
+  // surfaces as a constraint violation rather than as a silently orphaned row
+  // (fail-safe, and the same is already true of the pre-existing
+  // `fk_students_home_stop`), but it means a hard delete of a run while a
+  // student still points at it simply refuses. Deleting the children first is
+  // what keeps the purge working.
+  await queryInterface.bulkDelete('run_crew', scope, {});
+  await queryInterface.bulkDelete('runs', scope, {});
+  await queryInterface.bulkDelete('shifts', scope, {});
   await queryInterface.bulkDelete('stops', scope, {});
   await queryInterface.bulkDelete('routes', scope, {});
   await queryInterface.bulkDelete('buses', scope, {});
@@ -796,12 +815,91 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.bulkInsert('stops', allStops, options);
 
   // ---------------------------------------------------------------------------
+  // 5b. SHIFTS & DEFAULT RUNS (operating model)
+  //
+  // One default run per route — exactly what the
+  // `20260906120400-backfill-default-runs` migration creates for routes that
+  // already existed. The seeder has to do it too, because it runs *after* the
+  // migrations: without this, a fresh `npm run db:setup` would leave 12 routes
+  // with no run at all and break the "every route has exactly one default run"
+  // invariant (`uq_runs_route_default`) that the rest of the platform relies on.
+  //
+  // Unlike the backfill these runs *do* get a `shift_id`: a fresh demo school
+  // should show the tiering model working, not the legacy NULL-shift state.
+  // Windows are deliberately disjoint so the same bus could legally hold a run
+  // in each of them.
+  // ---------------------------------------------------------------------------
+  const SHIFT_TEMPLATES = [
+    { name: 'Morning', start_time: '07:00:00', end_time: '11:00:00' },
+    { name: 'Afternoon', start_time: '12:00:00', end_time: '16:00:00' },
+    { name: 'Late Bus', start_time: '16:30:00', end_time: '19:00:00' },
+  ];
+
+  const allShifts: Array<{
+    id: string;
+    school_id: string;
+    name: string;
+    start_time: string;
+    end_time: string;
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }> = [];
+
+  const allRuns: Array<{
+    id: string;
+    school_id: string;
+    route_id: string;
+    shift_id: string;
+    bus_id: string;
+    code: string;
+    is_default: boolean;
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }> = [];
+
+  for (const cfg of SCHOOL_CONFIGS) {
+    const sIdx = cfg.index;
+    SHIFT_TEMPLATES.forEach((tpl, i) => {
+      allShifts.push({
+        id: makeUuid(sIdx, 23, i + 1),
+        school_id: cfg.id,
+        name: tpl.name,
+        start_time: tpl.start_time,
+        end_time: tpl.end_time,
+        is_active: true,
+        ...timestamps,
+      });
+    });
+
+    for (let r = 1; r <= 3; r++) {
+      allRuns.push({
+        id: makeUuid(sIdx, 24, r),
+        school_id: cfg.id,
+        route_id: makeUuid(sIdx, 7, r),
+        shift_id: makeUuid(sIdx, 23, r),
+        bus_id: makeUuid(sIdx, 6, r),
+        // Verbatim route code — the same rule the backfill uses, so "bus
+        // <code>" means the same thing to a parent before and after.
+        code: `${cfg.busPrefix}-${ROUTE_TEMPLATES[r - 1].code}`,
+        is_default: true,
+        is_active: true,
+        ...timestamps,
+      });
+    }
+  }
+  await queryInterface.bulkInsert('shifts', allShifts, options);
+  await queryInterface.bulkInsert('runs', allRuns, options);
+
+  // ---------------------------------------------------------------------------
   // 6. STUDENTS (52 per school) & GUARDIAN LINKS
   // ---------------------------------------------------------------------------
   const allStudents: Array<{
     id: string;
     school_id: string;
     home_stop_id: string;
+    run_id: string;
     admission_number: string;
     first_name: string;
     last_name: string;
@@ -870,6 +968,9 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         id: studentId,
         school_id: cfg.id,
         home_stop_id: homeStopId,
+        // The default run of the route the home stop belongs to — the same link
+        // the backfill derives for existing pupils.
+        run_id: makeUuid(sIdx, 24, routeIdx + 1),
         admission_number: `${cfg.busPrefix}-2026-${(stu + 1).toString().padStart(3, '0')}`,
         first_name: firstName,
         last_name: lastName,
@@ -962,12 +1063,63 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.bulkInsert('route_assignments', allAssignments, options);
 
   // ---------------------------------------------------------------------------
+  // 7b. RUN CREW — the same roster, attached to the run instead of the route
+  //
+  // This is the copy the backfill makes for pre-existing routes. From Session 2
+  // `run_crew` is the authoritative roster and `route_assignments` becomes a
+  // mirror; both are seeded so either read path returns the same crew.
+  // ---------------------------------------------------------------------------
+  const allRunCrew: Array<{
+    id: string;
+    school_id: string;
+    run_id: string;
+    user_id: string;
+    role: 'DRIVER' | 'CONDUCTOR';
+    effective_from: string;
+    effective_to: string | null;
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }> = [];
+
+  for (const cfg of SCHOOL_CONFIGS) {
+    const sIdx = cfg.index;
+    for (let r = 1; r <= 3; r++) {
+      const runId = makeUuid(sIdx, 24, r);
+      allRunCrew.push({
+        id: makeUuid(sIdx, 25, (r - 1) * 2 + 1),
+        school_id: cfg.id,
+        run_id: runId,
+        user_id: makeUuid(sIdx, 3, r),
+        role: 'DRIVER',
+        effective_from: '2026-01-01',
+        effective_to: null,
+        is_active: true,
+        ...timestamps,
+      });
+      allRunCrew.push({
+        id: makeUuid(sIdx, 25, (r - 1) * 2 + 2),
+        school_id: cfg.id,
+        run_id: runId,
+        user_id: makeUuid(sIdx, 4, r),
+        role: 'CONDUCTOR',
+        effective_from: '2026-01-01',
+        effective_to: null,
+        is_active: true,
+        ...timestamps,
+      });
+    }
+  }
+  await queryInterface.bulkInsert('run_crew', allRunCrew, options);
+
+  // ---------------------------------------------------------------------------
   // 8. TRIPS (3 trips per school scheduled today: Completed, In-Progress, Scheduled)
   // ---------------------------------------------------------------------------
   const allTrips: Array<{
     id: string;
     school_id: string;
     route_id: string;
+    run_id: string;
     bus_id: string;
     driver_id: string;
     conductor_id: string;
@@ -990,6 +1142,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       id: makeUuid(sIdx, 11, 1),
       school_id: cfg.id,
       route_id: makeUuid(sIdx, 7, 1),
+      run_id: makeUuid(sIdx, 24, 1),
       bus_id: makeUuid(sIdx, 6, 1),
       driver_id: makeUuid(sIdx, 3, 1),
       conductor_id: makeUuid(sIdx, 4, 1),
@@ -1008,6 +1161,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       id: makeUuid(sIdx, 11, 2),
       school_id: cfg.id,
       route_id: makeUuid(sIdx, 7, 2),
+      run_id: makeUuid(sIdx, 24, 2),
       bus_id: makeUuid(sIdx, 6, 2),
       driver_id: makeUuid(sIdx, 3, 2),
       conductor_id: makeUuid(sIdx, 4, 2),
@@ -1026,6 +1180,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       id: makeUuid(sIdx, 11, 3),
       school_id: cfg.id,
       route_id: makeUuid(sIdx, 7, 3),
+      run_id: makeUuid(sIdx, 24, 3),
       bus_id: makeUuid(sIdx, 6, 3),
       driver_id: makeUuid(sIdx, 3, 3),
       conductor_id: makeUuid(sIdx, 4, 3),
@@ -1631,7 +1786,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       `   City / Plan : ${cfg.city}, ${cfg.state} (${cfg.planId === PLAN_IDS.ENTERPRISE ? 'Enterprise' : cfg.planId === PLAN_IDS.PRO ? 'Pro' : cfg.planId === PLAN_IDS.GROWTH ? 'Growth' : 'Basic'})`,
     );
     console.log(
-      `   Data Seeded : 52 Students | 3 Buses | 3 Routes | 15 Stops | 3 Drivers | 3 Conductors | 26 Parents | 3 Trips | Attendance & GPS`,
+      `   Data Seeded : 52 Students | 3 Buses | 3 Routes | 3 Runs | 3 Shifts | 15 Stops | 3 Drivers | 3 Conductors | 26 Parents | 3 Trips | Attendance & GPS`,
     );
   });
 

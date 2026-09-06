@@ -21,7 +21,10 @@ import {
   Plan,
   Route,
   RouteAssignment,
+  Run,
+  RunCrew,
   School,
+  Shift,
   SchoolSubscription,
   Stop,
   Student,
@@ -116,14 +119,24 @@ export async function createBus(schoolId: string): Promise<Bus> {
   } as never);
 }
 
-export async function createRoute(schoolId: string): Promise<Route> {
+/**
+ * A route. `overrides` exists so the operating-model suites can build the
+ * awkward shapes the default-run backfill has to survive: an inactive route, a
+ * soft-deleted route, and two routes sharing a code because one of them is
+ * soft-deleted (legal under the partial `uq_routes_school_code`).
+ */
+export async function createRoute(
+  schoolId: string,
+  overrides: Partial<{ name: string; code: string; is_active: boolean; deleted_at: Date }> = {},
+): Promise<Route> {
   return Route.create({
     id: randomUUID(),
     school_id: schoolId,
-    name: 'Test Route',
-    code: unique('rt'),
+    name: overrides.name ?? 'Test Route',
+    code: overrides.code ?? unique('rt'),
     description: null,
-    is_active: true,
+    is_active: overrides.is_active ?? true,
+    ...(overrides.deleted_at ? { deleted_at: overrides.deleted_at } : {}),
   } as never);
 }
 
@@ -169,12 +182,25 @@ export async function createStudent(
   } as never);
 }
 
+/**
+ * A roster row. `overrides` lets a caller build the shapes the default-run
+ * backfill has to copy faithfully: a row on a route that disagrees about its
+ * bus, and soft-deleted history (including two soft-deleted rows that share a
+ * natural key, which the partial unique index allows).
+ */
 export async function createAssignment(
   schoolId: string,
   routeId: string,
   busId: string,
   userId: string,
   role: RouteAssignmentRole = RouteAssignmentRole.DRIVER,
+  overrides: Partial<{
+    effective_from: string;
+    effective_to: string | null;
+    is_active: boolean;
+    deleted_at: Date;
+    updated_at: Date;
+  }> = {},
 ): Promise<RouteAssignment> {
   return RouteAssignment.create({
     id: randomUUID(),
@@ -183,12 +209,19 @@ export async function createAssignment(
     bus_id: busId,
     user_id: userId,
     role,
-    effective_from: '2026-01-01',
-    effective_to: null,
-    is_active: true,
+    effective_from: overrides.effective_from ?? '2026-01-01',
+    effective_to: overrides.effective_to ?? null,
+    is_active: overrides.is_active ?? true,
+    ...(overrides.deleted_at ? { deleted_at: overrides.deleted_at } : {}),
+    ...(overrides.updated_at ? { updated_at: overrides.updated_at } : {}),
   } as never);
 }
 
+/**
+ * A trip. `scheduledStartAt` is settable because the run-level departure
+ * uniqueness (`uq_trips_run_scheduled_start`) is only testable when two trips
+ * are pinned to the same instant.
+ */
 export async function createTrip(
   schoolId: string,
   routeId: string,
@@ -196,21 +229,88 @@ export async function createTrip(
   driverId: string,
   conductorId: string | null = null,
   status: TripStatus = TripStatus.SCHEDULED,
+  scheduledStartAt: Date = new Date(),
+  runId: string | null = null,
 ): Promise<Trip> {
   return Trip.create({
     id: randomUUID(),
     school_id: schoolId,
     route_id: routeId,
+    run_id: runId,
     bus_id: busId,
     driver_id: driverId,
     conductor_id: conductorId,
     status,
-    scheduled_start_at: new Date(),
+    scheduled_start_at: scheduledStartAt,
     scheduled_end_at: null,
     actual_start_at: status === TripStatus.SCHEDULED ? null : new Date(),
     actual_end_at: null,
     cancelled_at: null,
     cancellation_reason: null,
+  } as never);
+}
+
+/** A bell window. Windows must be disjoint for tiering to be meaningful. */
+export async function createShift(
+  schoolId: string,
+  overrides: Partial<{ name: string; start_time: string; end_time: string }> = {},
+): Promise<Shift> {
+  return Shift.create({
+    id: randomUUID(),
+    school_id: schoolId,
+    name: overrides.name ?? unique('shift'),
+    start_time: overrides.start_time ?? '07:00:00',
+    end_time: overrides.end_time ?? '11:00:00',
+    is_active: true,
+  } as never);
+}
+
+/**
+ * One vehicle's timed pass over a route.
+ *
+ * `is_default` is settable only because the suites have to prove the database
+ * refuses a *second* default run on a route; application code never sets it.
+ */
+export async function createRun(
+  schoolId: string,
+  routeId: string,
+  overrides: Partial<{
+    shift_id: string | null;
+    bus_id: string | null;
+    code: string;
+    is_default: boolean;
+    is_active: boolean;
+  }> = {},
+): Promise<Run> {
+  return Run.create({
+    id: randomUUID(),
+    school_id: schoolId,
+    route_id: routeId,
+    shift_id: overrides.shift_id ?? null,
+    bus_id: overrides.bus_id ?? null,
+    code: overrides.code ?? unique('run'),
+    is_default: overrides.is_default ?? false,
+    is_active: overrides.is_active ?? true,
+  } as never);
+}
+
+/** A crew member rostered onto a run. */
+export async function createRunCrew(
+  schoolId: string,
+  runId: string,
+  userId: string,
+  role: RouteAssignmentRole = RouteAssignmentRole.DRIVER,
+  overrides: Partial<{ effective_from: string }> = {},
+): Promise<RunCrew> {
+  return RunCrew.create({
+    id: randomUUID(),
+    school_id: schoolId,
+    run_id: runId,
+    user_id: userId,
+    role,
+    effective_from: overrides.effective_from ?? '2026-01-01',
+    effective_to: null,
+    is_active: true,
   } as never);
 }
 

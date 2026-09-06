@@ -4,6 +4,7 @@ import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.m
 import { STUDENT_GENDER_VALUES, StudentGender } from './enums';
 import { School } from './school.model';
 import { Stop } from './stop.model';
+import { Run } from './run.model';
 import { StudentGuardian } from './student-guardian.model';
 
 export interface StudentAttributes extends BaseModelAttributes {
@@ -15,6 +16,23 @@ export interface StudentAttributes extends BaseModelAttributes {
    * student can never be attached to a stop of another tenant.
    */
   home_stop_id: string | null;
+  /**
+   * The run — one vehicle's timed pass over a route — this pupil rides.
+   *
+   * This is what makes the parent-facing promise ("your child is on bus B-02,
+   * driver Ramesh") exact instead of inferred from a stop. Nullable for the
+   * same reason `home_stop_id` is: a pupil can be enrolled before transport is
+   * allocated. Pinned by the composite foreign key
+   * `(school_id, run_id) → runs(school_id, id)`, and `ON DELETE SET NULL`, so
+   * retiring a run unassigns its riders instead of deleting or blocking them.
+   *
+   * `home_stop_id` is *not* replaced by this: the stop is where the child is
+   * physically picked up and the ETA/geofence machinery is built on it.
+   * `run_id` answers a different question — *which vehicle*. Session 2 adds the
+   * cross-check that the assigned run's route actually serves the home stop.
+   * See `docs/operating-model.md` §3.4.
+   */
+  run_id: string | null;
   /** School issued enrolment number — unique inside a tenant. */
   admission_number: string;
   first_name: string;
@@ -35,6 +53,7 @@ export type StudentCreationAttributes = Optional<
   StudentAttributes,
   | BaseModelManagedFields
   | 'home_stop_id'
+  | 'run_id'
   | 'date_of_birth'
   | 'gender'
   | 'grade_level'
@@ -74,6 +93,9 @@ export type StudentCreationAttributes = Optional<
     // Stop manifest lookup. Its leftmost prefix covers plain tenant-scoped
     // lookups.
     { name: 'idx_students_school_stop', fields: ['school_id', 'home_stop_id'] },
+    // "Who rides this run?" — the manifest, and the basis for the parent view
+    // that shows an exact bus number.
+    { name: 'idx_students_school_run', fields: ['school_id', 'run_id'] },
     { name: 'idx_students_school_name', fields: ['school_id', 'last_name', 'first_name'] },
   ],
 })
@@ -121,6 +143,13 @@ export class Student extends BaseModel<StudentAttributes, StudentCreationAttribu
 
   @BelongsTo(() => Stop, { foreignKey: 'home_stop_id', as: 'homeStop' })
   declare homeStop?: Stop;
+
+  @ForeignKey(() => Run)
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare run_id: string | null;
+
+  @BelongsTo(() => Run, { foreignKey: 'run_id', as: 'run' })
+  declare run?: Run;
 
   @HasMany(() => StudentGuardian, { foreignKey: 'student_id', as: 'guardians' })
   declare guardians?: StudentGuardian[];

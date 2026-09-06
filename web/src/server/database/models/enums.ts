@@ -44,6 +44,30 @@ export const ROUTE_ASSIGNMENT_ROLE_VALUES: RouteAssignmentRole[] =
   Object.values(RouteAssignmentRole);
 
 /**
+ * Operational role a user performs on a **run** (`run_crew.role`).
+ *
+ * The value set is identical to {@link RouteAssignmentRole} today, so the
+ * model types the column with that enum directly rather than introducing a
+ * second name for the same two strings. (A bare `type RunCrewRole =
+ * RouteAssignmentRole` alias is not an option either: `isolatedModules` +
+ * `emitDecoratorMetadata` forbid a type-only import in a decorated signature,
+ * which is exactly where it would be used.) There is nothing to keep in sync
+ * and no way for the two to drift inside this codebase.
+ *
+ * The *database* type is nevertheless a separate `enum_run_crew_role`:
+ * `run_crew` is the roster that will grow (a bus attendant/escort is a live
+ * requirement), while `route_assignments` is frozen and on its way out, and
+ * sharing one PostgreSQL type would make a value added for one silently legal
+ * in the other. See `docs/operating-model.md` §3.3.
+ *
+ * A distinct `RunCrewRole` member in `@school-bus-tracking/shared-types`
+ * belongs to Session 2, alongside the API contracts — Session 1 ships the
+ * database layer only. This array is the single source of truth for the
+ * PostgreSQL enum the migration creates.
+ */
+export const RUN_CREW_ROLE_VALUES: RouteAssignmentRole[] = ROUTE_ASSIGNMENT_ROLE_VALUES;
+
+/**
  * Lifecycle of a single scheduled bus run.
  *
  * SCHEDULED  → trip exists on the calendar, nothing has happened yet
