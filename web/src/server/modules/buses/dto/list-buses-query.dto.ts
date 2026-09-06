@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import type { ListInclude } from '@school-bus-tracking/shared-types';
 
 /**
  * Query string of `GET /api/v1/buses`.
@@ -8,6 +9,10 @@ import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validato
  * `@school-bus-tracking/validation`): page >= 1, limit 1..100, defaults 1/20.
  * `search` is an optional free-text filter applied to the registration number
  * and the fleet bus number.
+ *
+ * `include` selects the response shape: `full` (default) resolves the roster,
+ * crew and today's-trip enrichment; `minimal` returns the raw bus fields
+ * only, skipping every enrichment query — the cheap shape for dropdowns.
  */
 export class ListBusesQueryDto {
   @IsOptional()
@@ -27,4 +32,10 @@ export class ListBusesQueryDto {
   @IsString({ message: 'search must be a string' })
   @MaxLength(100, { message: 'search must be at most 100 characters' })
   search?: string;
+
+  @IsOptional()
+  @IsIn(['full', 'minimal'] satisfies ListInclude[], {
+    message: 'include must be either full or minimal',
+  })
+  include?: ListInclude;
 }

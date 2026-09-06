@@ -43,10 +43,18 @@ export default function TripsPage() {
   const toast = useToast();
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(utcDateOnly());
-  const lookups = useLoad(async () => {
-    const assignments = await apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true });
-    return { assignments: unwrapEnvelope(assignments).items };
-  }, []);
+  const [open, setOpen] = useState(false);
+  // The assignment picker is only rendered inside the "Schedule trip"
+  // modal — gate the lookup on it instead of fetching on every page mount.
+  // Data stays cached in the hook once fetched.
+  const lookups = useLoad(
+    async () => {
+      const assignments = await apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true });
+      return { assignments: unwrapEnvelope(assignments).items };
+    },
+    [],
+    { enabled: open },
+  );
   const list = usePagedResource(
     async (page, search) =>
       unwrapEnvelope(
@@ -60,7 +68,6 @@ export default function TripsPage() {
       ),
     [statusFilter, dateFilter],
   );
-  const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     route_assignment_id: '',
     scheduled_start_at: '',

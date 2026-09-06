@@ -5,11 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   EMERGENCY_TYPE_LABELS,
   TripStatus,
-  type BusListResponse,
+  type DashboardStatsResponse,
   type EmergencyActiveListResponse,
   type EmergencyEventResponse,
-  type RouteListResponse,
-  type StudentListResponse,
   type TripListResponse,
   type TripResponse,
 } from '@school-bus-tracking/shared-types';
@@ -51,19 +49,22 @@ export default function AdminDashboardScreen() {
      */
     activeEmergencies: EmergencyEventResponse[] | null;
   }> => {
-    const [tripsEnvelope, studentsEnvelope, busesEnvelope, routesEnvelope, emergenciesEnvelope] =
-      await Promise.all([
-        apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
-        apiClient.listStudents({ page: 1, limit: 1 }),
-        apiClient.listBuses({ page: 1, limit: 1 }),
-        apiClient.listRoutes({ page: 1, limit: 1 }),
-        apiClient.listActiveEmergencies().catch(() => null),
-      ]);
+    // Headline counts come from the dedicated stats endpoint: one request,
+    // four server-side COUNT queries, no enrichment. The old shape fired
+    // listStudents/listBuses/listRoutes({limit:1}) — ~28 queries total once
+    // every enriched list projection had resolved its crew, stops, buses and
+    // trips just to read `meta.total`.
+    const [tripsEnvelope, statsEnvelope, emergenciesEnvelope] = await Promise.all([
+      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+      apiClient.getDashboardStats(),
+      apiClient.listActiveEmergencies().catch(() => null),
+    ]);
+    const stats = unwrapEnvelope<DashboardStatsResponse>(statsEnvelope);
     return {
       trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items,
-      studentCount: unwrapEnvelope<StudentListResponse>(studentsEnvelope).meta.total,
-      busCount: unwrapEnvelope<BusListResponse>(busesEnvelope).meta.total,
-      routeCount: unwrapEnvelope<RouteListResponse>(routesEnvelope).meta.total,
+      studentCount: stats.students,
+      busCount: stats.buses,
+      routeCount: stats.routes,
       activeEmergencies: emergenciesEnvelope
         ? unwrapEnvelope<EmergencyActiveListResponse>(emergenciesEnvelope).items
         : null,

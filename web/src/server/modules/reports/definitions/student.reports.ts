@@ -1,4 +1,4 @@
-import { Op, type WhereOptions } from 'sequelize';
+import { Op, col, fn, type WhereOptions } from 'sequelize';
 import { ReportType, RouteAssignmentRole } from '@school-bus-tracking/shared-types';
 import {
   card,
@@ -53,6 +53,8 @@ export const studentsByRouteReport: ReportDefinition = {
     });
 
     const routeIds = routes.map((route) => route.id);
+    // Only the stop → route link is needed for the per-route grouping; the
+    // two-column projection keeps this query off the wide stops row shape.
     const stops = routeIds.length
       ? await repositories.stops.findAll({
           where: { school_id: schoolId, route_id: { [Op.in]: routeIds } },
@@ -60,28 +62,42 @@ export const studentsByRouteReport: ReportDefinition = {
         })
       : [];
 
-    const routeByStop = new Map(stops.map((stop) => [stop.id, stop.route_id]));
+    const routeByStop = new Map(
+      stops.map((stop) => [String(readColumn(stop, 'id')), String(readColumn(stop, 'route_id'))]),
+    );
     const stopCount = new Map<string, number>();
     for (const stop of stops) {
-      stopCount.set(stop.route_id, (stopCount.get(stop.route_id) ?? 0) + 1);
+      const routeId = String(readColumn(stop, 'route_id'));
+      stopCount.set(routeId, (stopCount.get(routeId) ?? 0) + 1);
     }
 
-    const students = stops.length
-      ? await repositories.students.findAll({
-          where: {
-            school_id: schoolId,
-            is_active: true,
-            home_stop_id: { [Op.in]: stops.map((stop) => stop.id) },
-          },
-          attributes: ['home_stop_id'],
-        })
-      : [];
+    // Per-stop student totals are aggregated by the database (`COUNT(*) …
+    // GROUP BY home_stop_id`): one tiny row per stop instead of dragging the
+    // whole student table into JS memory.
+    const studentsByStop = new Map<string, number>();
+    if (stops.length) {
+      const grouped = await repositories.students.findAll({
+        where: {
+          school_id: schoolId,
+          is_active: true,
+          home_stop_id: { [Op.in]: stops.map((stop) => String(readColumn(stop, 'id'))) },
+        },
+        attributes: ['home_stop_id', [fn('COUNT', col('id')), 'total']],
+        group: ['home_stop_id'],
+      });
+      for (const row of grouped) {
+        const stopId = readColumn(row, 'home_stop_id');
+        if (stopId != null) {
+          studentsByStop.set(String(stopId), Number(readColumn(row, 'total') ?? 0));
+        }
+      }
+    }
 
     const studentCount = new Map<string, number>();
-    for (const student of students) {
-      const routeId = student.home_stop_id ? routeByStop.get(student.home_stop_id) : undefined;
+    for (const [stopId, total] of studentsByStop) {
+      const routeId = routeByStop.get(stopId);
       if (!routeId) continue;
-      studentCount.set(routeId, (studentCount.get(routeId) ?? 0) + 1);
+      studentCount.set(routeId, (studentCount.get(routeId) ?? 0) + total);
     }
 
     // Seats available on a route = capacity of the buses currently rostered on
@@ -606,7 +622,9 @@ async function seatsByRoute(
     return new Map();
   }
 
-  const assignments = await repositories.assignments.findAll({
+  // Distinct (route, bus) pairs are computed by the database (`GROUP BY`):
+  // one tiny row per rostered vehicle instead of one row per assignment.
+  const pairs = await repositories.assignments.findAll({
     where: {
       school_id: schoolId,
       route_id: { [Op.in]: routeIds },
@@ -615,44 +633,51 @@ async function seatsByRoute(
       bus_id: { [Op.ne]: null },
     },
     attributes: ['route_id', 'bus_id'],
+    group: ['route_id', 'bus_id'],
   });
-  if (assignments.length === 0) {
+  if (pairs.length === 0) {
     return new Map();
   }
 
+  const busIds = [
+    ...new Set(pairs.map((item) => readColumn(item, 'bus_id')).filter((id): id is string => Boolean(id) && typeof id === 'string')),
+  ];
   const buses = await repositories.buses.findAll({
     where: {
       school_id: schoolId,
-      id: {
-        [Op.in]: [
-          ...new Set(
-            assignments.map((item) => item.bus_id).filter((id): id is string => Boolean(id)),
-          ),
-        ],
-      },
+      id: { [Op.in]: busIds },
     },
     attributes: ['id', 'capacity'],
   });
-  const capacityById = new Map(buses.map((bus) => [bus.id, bus.capacity]));
+  const capacityById = new Map<string, number>(
+    buses.map((bus) => [String(readColumn(bus, 'id')), Number(readColumn(bus, 'capacity') ?? 0)]),
+  );
 
-  // A bus rostered twice on the same route contributes its seats once.
-  const busesByRoute = new Map<string, Set<string>>();
-  for (const assignment of assignments) {
-    if (!assignment.bus_id) continue;
-    const set = busesByRoute.get(assignment.route_id) ?? new Set<string>();
-    set.add(assignment.bus_id);
-    busesByRoute.set(assignment.route_id, set);
-  }
-
+  // A bus rostered twice on the same route contributes its seats once — the
+  // GROUP BY above already guarantees the pair is distinct.
   const seats = new Map<string, number>();
-  for (const [routeId, busIds] of busesByRoute) {
-    let total = 0;
-    for (const busId of busIds) {
-      total += capacityById.get(busId) ?? 0;
-    }
-    seats.set(routeId, total);
+  for (const pair of pairs) {
+    const routeId = readColumn(pair, 'route_id');
+    const busId = readColumn(pair, 'bus_id');
+    if (typeof routeId !== 'string' || typeof busId !== 'string') continue;
+    seats.set(routeId, (seats.get(routeId) ?? 0) + (capacityById.get(busId) ?? 0));
   }
   return seats;
+}
+
+/**
+ * Reads a column off a query result row.
+ *
+ * Real Sequelize grouped rows are Model instances (`row.get(key)`), while
+ * values on normal rows are plain properties. Supporting both keeps the
+ * report definitions honest against the in-memory stubs the tests use.
+ */
+function readColumn(row: unknown, key: string): unknown {
+  const maybeModel = row as { get?: (k: string) => unknown } | null;
+  if (maybeModel && typeof maybeModel.get === 'function') {
+    return maybeModel.get(key);
+  }
+  return (row as Record<string, unknown>)[key];
 }
 
 /** Primary (or first active) guardian of each student. */

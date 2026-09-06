@@ -36,8 +36,10 @@ export default function StudentDetailPage() {
       apiClient.getStudent(params.id),
       apiClient.listStudentGuardians(params.id),
       apiClient.listParents({ page: 1, limit: 100 }),
-      apiClient.listStops({ page: 1, limit: 100 }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
+      // The page only renders the stop label (route code + sequence + name)
+      // — the minimal projections skip fields it never reads.
+      apiClient.listStops({ page: 1, limit: 100, include: 'minimal' }),
+      apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
     ]);
     return {
       student: unwrapEnvelope(student),

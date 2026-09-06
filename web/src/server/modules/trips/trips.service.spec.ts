@@ -290,6 +290,12 @@ function makeRepositories(
         count: rows.length,
       };
     },
+    count: async (options: { where?: Record<PropertyKey, unknown> } = {}) =>
+      trips.filter(
+        (trip) =>
+          trip.deleted_at === null &&
+          matchesWhere(trip as unknown as Record<string, unknown>, options.where ?? {}),
+      ).length,
     create: async (payload: Record<string, unknown>) => {
       capture.createPayload = payload;
       const trip = makeTrip({
@@ -1330,5 +1336,52 @@ describe('TripsService.remove', () => {
   it('hides trips of another school behind the generic 404', async () => {
     const service = makeService(makeRepositories([makeTrip()]));
     await expectNotFound(service.remove(SCHOOL_B, TRIP_A));
+  });
+});
+
+describe('TripsService.findAll — include=minimal', () => {
+  it('returns raw trip rows without resolving route, bus or crew names', async () => {
+    const repos = makeRepositories([makeTrip()]);
+    const service = makeService(repos);
+
+    const query = new ListTripsQueryDto();
+    query.include = 'minimal';
+    const result = await service.findAll(SCHOOL_A, query);
+
+    assert.equal(result.items.length, 1);
+    const item = result.items[0] as unknown as Record<string, unknown>;
+    assert.equal(item.status, TripStatus.SCHEDULED);
+    assert.equal(item.route_id, makeTrip().route_id);
+    const serialized = JSON.stringify(result.items);
+    assert.ok(!serialized.includes('route_name'), 'no route name resolution in minimal mode');
+    assert.ok(!serialized.includes('route_code'), 'no route code resolution in minimal mode');
+    assert.ok(!serialized.includes('driver_name'), 'no crew resolution in minimal mode');
+    assert.ok(!serialized.includes('bus_number'), 'no bus resolution in minimal mode');
+  });
+
+  it('keeps pagination meta identical to the full mode', async () => {
+    const trips = [makeTrip(), makeTrip({ id: TRIP_B })];
+    const service = makeService(makeRepositories(trips));
+
+    const query = new ListTripsQueryDto();
+    query.page = 1;
+    query.limit = 1;
+    query.include = 'minimal';
+    const result = await service.findAll(SCHOOL_A, query);
+
+    assert.equal(result.meta.total, 2);
+    assert.equal(result.meta.hasNextPage, true);
+    assert.equal(result.items.length, 1);
+  });
+});
+
+describe('TripsService.countActiveToday', () => {
+  it("counts only today's live trips of the authenticated school", async () => {
+    const repos = makeRepositories([makeTrip()]);
+    const service = makeService(repos);
+
+    const total = await service.countActiveToday(SCHOOL_A);
+
+    assert.equal(total, 0, 'scheduled-only trips are not live');
   });
 });

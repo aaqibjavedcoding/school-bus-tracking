@@ -577,6 +577,31 @@ export interface AdminDashboardResponse {
   generated_at: string;
 }
 
+/**
+ * Successful payload of `GET /api/v1/dashboard/stats` — the school-admin
+ * operations dashboard headline counts.
+ *
+ * One endpoint, four parallel `COUNT` queries, zero enrichment: the dashboard
+ * cards only need totals, so this is an order of magnitude cheaper than the
+ * enriched list endpoints it replaces (`listStudents({limit:1})` and friends
+ * used to run 4–6 extra queries each).
+ */
+export interface DashboardStatsResponse {
+  /** Active students of the authenticated school. */
+  students: number;
+  /** Buses of the authenticated school. */
+  buses: number;
+  /** Routes of the authenticated school. */
+  routes: number;
+  /**
+   * Today's (UTC) trips currently `BOARDING` or `IN_PROGRESS` — the same
+   * definition the dashboard's "Live trips" card has always displayed.
+   */
+  active_trips: number;
+  /** Server timestamp the stats were computed at. */
+  generated_at: string;
+}
+
 /** Body of `POST /api/v1/students`. */
 export interface StudentCreateRequest {
   admission_number: string;
@@ -653,6 +678,39 @@ export interface PaginationMeta {
 export interface StudentListResponse {
   items: StudentResponse[];
   meta: PaginationMeta;
+}
+
+/**
+ * `include=minimal` projection of a student: the raw row fields a roster or
+ * picker needs — no stop/route/bus enrichment queries.
+ */
+export interface StudentMinimalResponse {
+  id: string;
+  school_id: string;
+  admission_number: string;
+  first_name: string;
+  last_name: string;
+  grade_level: string | null;
+  home_stop_id: string | null;
+  is_active: boolean;
+}
+
+/** Successful payload of `GET /api/v1/students?include=minimal`. */
+export interface StudentMinimalListResponse {
+  items: StudentMinimalResponse[];
+  meta: PaginationMeta;
+}
+
+/** Query string of `GET /api/v1/students`. */
+export interface StudentListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  /**
+   * Response shape: `full` (default) resolves stop/route/bus enrichment,
+   * `minimal` returns the raw student fields only (dropdown-friendly).
+   */
+  include?: ListInclude;
 }
 
 /** Successful payload of `DELETE /api/v1/students/:id`. */
@@ -1357,6 +1415,27 @@ export interface TripListResponse {
   meta: PaginationMeta;
 }
 
+/**
+ * `include=minimal` projection of a trip: the raw `trips` row only — no
+ * route/bus/crew name resolution. Callers that already hold the names (or
+ * only need ids and timestamps) skip the three enrichment queries entirely.
+ */
+export type TripMinimalResponse = Omit<
+  TripResponse,
+  | 'route_name'
+  | 'route_code'
+  | 'bus_number'
+  | 'registration_number'
+  | 'driver_name'
+  | 'conductor_name'
+>;
+
+/** Successful payload of `GET /api/v1/trips?include=minimal`. */
+export interface TripMinimalListResponse {
+  items: TripMinimalResponse[];
+  meta: PaginationMeta;
+}
+
 /** Successful payload of `DELETE /api/v1/trips/:id`. */
 export interface TripDeleteResponse {
   id: string;
@@ -1386,6 +1465,11 @@ export interface TripListQuery {
   date_from?: string;
   /** Inclusive range end in `YYYY-MM-DD` format. */
   date_to?: string;
+  /**
+   * Response shape: `full` (default) resolves route/bus/crew names, `minimal`
+   * returns the raw trip row only.
+   */
+  include?: ListInclude;
 }
 
 /**
@@ -1882,9 +1966,29 @@ export interface BusResponse {
   current_trip_status?: TripStatus | null;
 }
 
+/**
+ * `include=minimal` projection of a bus: the raw row fields only — no
+ * roster/crew/current-trip enrichment. Enough for capacity sums, dropdowns
+ * and labels.
+ */
+export interface BusMinimalResponse {
+  id: string;
+  school_id: string;
+  registration_number: string;
+  bus_number: string | null;
+  capacity: number;
+  is_active: boolean;
+}
+
 /** Successful payload of `GET /api/v1/buses`. */
 export interface BusListResponse {
   items: BusResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `GET /api/v1/buses?include=minimal`. */
+export interface BusMinimalListResponse {
+  items: BusMinimalResponse[];
   meta: PaginationMeta;
 }
 
@@ -1899,6 +2003,11 @@ export interface BusListQuery {
   page?: number;
   limit?: number;
   search?: string;
+  /**
+   * Response shape: `full` (default) resolves roster/crew/trip enrichment,
+   * `minimal` returns the raw bus fields only (dropdown-friendly).
+   */
+  include?: ListInclude;
 }
 
 /** Body of `POST /api/v1/routes`. */
@@ -1917,6 +2026,20 @@ export interface RouteUpdateRequest {
   description?: string | null;
   is_active?: boolean;
 }
+
+/**
+ * Response-shape selector for list endpoints (`include` query parameter).
+ *
+ * - `full` (default) — the enriched projection: every display field resolved
+ *   with extra queries (crew names, route codes, live trip status, …).
+ * - `minimal` — only the columns callers need for dropdowns, labels and code
+ *   lookups. No enrichment queries run, so these calls are several times
+ *   cheaper; anything the server would have resolved is simply absent.
+ *
+ * Omitting the parameter keeps the historical `full` behaviour, so existing
+ * API callers are unaffected.
+ */
+export type ListInclude = 'full' | 'minimal';
 
 /** Public projection of a route owned by the authenticated school. */
 export interface RouteResponse {
@@ -1938,6 +2061,19 @@ export interface RouteResponse {
   student_count?: number | null;
   /** Status of the route's active trip today, when one exists. */
   current_trip_status?: TripStatus | null;
+}
+
+/**
+ * `include=minimal` projection of a route: the raw row fields only — no crew,
+ * bus, student-count or today's-trip enrichment. Enough for any dropdown,
+ * code lookup or label.
+ */
+export interface RouteMinimalResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  code: string;
+  is_active: boolean;
 }
 
 /** A student shown on a route detail screen (derived from home stops). */
@@ -1970,6 +2106,12 @@ export interface RouteListResponse {
   meta: PaginationMeta;
 }
 
+/** Successful payload of `GET /api/v1/routes?include=minimal`. */
+export interface RouteMinimalListResponse {
+  items: RouteMinimalResponse[];
+  meta: PaginationMeta;
+}
+
 /** Successful payload of `DELETE /api/v1/routes/:id`. */
 export interface RouteDeleteResponse {
   id: string;
@@ -1981,6 +2123,11 @@ export interface RouteListQuery {
   page?: number;
   limit?: number;
   search?: string;
+  /**
+   * Response shape: `full` (default) resolves crew/bus/student enrichment,
+   * `minimal` returns the raw route fields only (dropdown-friendly).
+   */
+  include?: ListInclude;
 }
 
 /**
@@ -2054,6 +2201,26 @@ export interface StopListResponse {
   meta: PaginationMeta;
 }
 
+/**
+ * `include=minimal` projection of a stop: just the fields a home-stop picker
+ * or label needs (id, route link, name, order). Trims the payload for the
+ * large stop lists the student forms load.
+ */
+export interface StopMinimalResponse {
+  id: string;
+  school_id: string;
+  route_id: string;
+  name: string;
+  sequence_number: number;
+  is_active: boolean;
+}
+
+/** Successful payload of `GET /api/v1/stops?include=minimal`. */
+export interface StopMinimalListResponse {
+  items: StopMinimalResponse[];
+  meta: PaginationMeta;
+}
+
 /** Successful payload of `DELETE /api/v1/stops/:id`. */
 export interface StopDeleteResponse {
   id: string;
@@ -2067,6 +2234,11 @@ export interface StopListQuery {
   search?: string;
   /** Optional filter: only stops of this route. */
   route_id?: string;
+  /**
+   * Response shape: `full` (default) returns every stop column, `minimal`
+   * only the picker/label fields.
+   */
+  include?: ListInclude;
 }
 
 export interface TenantContext {

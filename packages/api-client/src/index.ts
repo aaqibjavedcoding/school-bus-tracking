@@ -43,8 +43,10 @@ import {
   BusDeleteResponse,
   BusListQuery,
   BusListResponse,
+  BusMinimalListResponse,
   BusResponse,
   BusUpdateRequest,
+  DashboardStatsResponse,
   RouteAssignmentCreateRequest,
   RouteAssignmentDeleteResponse,
   RouteAssignmentListQuery,
@@ -81,6 +83,7 @@ import {
   RouteDetailResponse,
   RouteListQuery,
   RouteListResponse,
+  RouteMinimalListResponse,
   RouteResponse,
   RouteStopsListResponse,
   RouteStopsOrderRequest,
@@ -91,6 +94,7 @@ import {
   StopDeleteResponse,
   StopListQuery,
   StopListResponse,
+  StopMinimalListResponse,
   StopResponse,
   StopUpdateRequest,
   StudentCreateRequest,
@@ -101,6 +105,8 @@ import {
   StudentGuardianResponse,
   StudentGuardianUpdateRequest,
   StudentListResponse,
+  StudentListQuery,
+  StudentMinimalListResponse,
   StudentResponse,
   StudentUpdateRequest,
   TripCancelRequest,
@@ -108,6 +114,7 @@ import {
   TripDeleteResponse,
   TripListQuery,
   TripListResponse,
+  TripMinimalListResponse,
   TripResponse,
   TripLocationHistoryQuery,
   TripLocationHistoryResponse,
@@ -734,6 +741,16 @@ export class ApiClient {
   }
 
   /**
+   * School-admin operations dashboard headline counts (students, buses,
+   * routes and today's live trips) — one call, four server-side COUNT
+   * queries, no enrichment. The cheap way to feed stat cards; today's-trip
+   * rows still come from {@link listTrips}.
+   */
+  public async getDashboardStats(): Promise<ApiResponse<DashboardStatsResponse>> {
+    return this.get<DashboardStatsResponse>('/dashboard/stats');
+  }
+
+  /**
    * Super Admin platform console (`/admin/*`).
    *
    * Every method here requires a SUPER_ADMIN access token; the API rejects
@@ -1019,15 +1036,28 @@ export class ApiClient {
     return this.post<StudentResponse>('/students', body);
   }
 
+  /**
+   * Lists students of the authenticated school.
+   *
+   * `include: 'minimal'` asks the API for the raw student fields only — it
+   * skips the stop/route/bus enrichment server-side, so the call is several
+   * times cheaper. The overload keeps the return type honest: minimal calls
+   * are typed as {@link StudentMinimalListResponse}.
+   */
   public async listStudents(
-    query: { page?: number; limit?: number; search?: string } = {},
-  ): Promise<ApiResponse<StudentListResponse>> {
+    query: StudentListQuery & { include: 'minimal' },
+  ): Promise<ApiResponse<StudentMinimalListResponse>>;
+  public async listStudents(query?: StudentListQuery): Promise<ApiResponse<StudentListResponse>>;
+  public async listStudents(
+    query: StudentListQuery = {},
+  ): Promise<ApiResponse<StudentListResponse | StudentMinimalListResponse>> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
+    if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
-    return this.get<StudentListResponse>(`/students${suffix}`);
+    return this.get<StudentListResponse | StudentMinimalListResponse>(`/students${suffix}`);
   }
 
   public async getStudent(id: string): Promise<ApiResponse<StudentResponse>> {
@@ -1247,13 +1277,28 @@ export class ApiClient {
     return this.post<BusResponse>('/buses', body);
   }
 
-  public async listBuses(query: BusListQuery = {}): Promise<ApiResponse<BusListResponse>> {
+  /**
+   * Lists buses of the authenticated school.
+   *
+   * `include: 'minimal'` asks the API for the raw bus fields only — it skips
+   * the roster/crew/current-trip enrichment server-side. The overload keeps
+   * the return type honest: minimal calls are typed as
+   * {@link BusMinimalListResponse}.
+   */
+  public async listBuses(
+    query: BusListQuery & { include: 'minimal' },
+  ): Promise<ApiResponse<BusMinimalListResponse>>;
+  public async listBuses(query?: BusListQuery): Promise<ApiResponse<BusListResponse>>;
+  public async listBuses(
+    query: BusListQuery = {},
+  ): Promise<ApiResponse<BusListResponse | BusMinimalListResponse>> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
+    if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
-    return this.get<BusListResponse>(`/buses${suffix}`);
+    return this.get<BusListResponse | BusMinimalListResponse>(`/buses${suffix}`);
   }
 
   public async getBus(id: string): Promise<ApiResponse<BusResponse>> {
@@ -1272,13 +1317,29 @@ export class ApiClient {
     return this.post<RouteResponse>('/routes', body);
   }
 
-  public async listRoutes(query: RouteListQuery = {}): Promise<ApiResponse<RouteListResponse>> {
+  /**
+   * Lists routes of the authenticated school.
+   *
+   * `include: 'minimal'` asks the API for the raw route fields only (id,
+   * name, code, is_active) — it skips the crew/bus/student-count/trip
+   * enrichment server-side, the shape dropdowns and code lookups need. The
+   * overload keeps the return type honest: minimal calls are typed as
+   * {@link RouteMinimalListResponse}.
+   */
+  public async listRoutes(
+    query: RouteListQuery & { include: 'minimal' },
+  ): Promise<ApiResponse<RouteMinimalListResponse>>;
+  public async listRoutes(query?: RouteListQuery): Promise<ApiResponse<RouteListResponse>>;
+  public async listRoutes(
+    query: RouteListQuery = {},
+  ): Promise<ApiResponse<RouteListResponse | RouteMinimalListResponse>> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
+    if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
-    return this.get<RouteListResponse>(`/routes${suffix}`);
+    return this.get<RouteListResponse | RouteMinimalListResponse>(`/routes${suffix}`);
   }
 
   public async getRoute(id: string): Promise<ApiResponse<RouteResponse>> {
@@ -1318,14 +1379,28 @@ export class ApiClient {
     return this.post<StopResponse>('/stops', body);
   }
 
-  public async listStops(query: StopListQuery = {}): Promise<ApiResponse<StopListResponse>> {
+  /**
+   * Lists stops of the authenticated school.
+   *
+   * `include: 'minimal'` trims each item to the picker/label fields
+   * (id, route link, name, order) — the stops list has no enrichment either
+   * way, so this purely shrinks the payload of the large stop lists.
+   */
+  public async listStops(
+    query: StopListQuery & { include: 'minimal' },
+  ): Promise<ApiResponse<StopMinimalListResponse>>;
+  public async listStops(query?: StopListQuery): Promise<ApiResponse<StopListResponse>>;
+  public async listStops(
+    query: StopListQuery = {},
+  ): Promise<ApiResponse<StopListResponse | StopMinimalListResponse>> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
     if (query.route_id) params.set('route_id', query.route_id);
+    if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
-    return this.get<StopListResponse>(`/stops${suffix}`);
+    return this.get<StopListResponse | StopMinimalListResponse>(`/stops${suffix}`);
   }
 
   public async getStop(id: string): Promise<ApiResponse<StopResponse>> {
@@ -1502,7 +1577,21 @@ export class ApiClient {
     return this.post<TripResponse>('/trips', body);
   }
 
-  public async listTrips(query: TripListQuery = {}): Promise<ApiResponse<TripListResponse>> {
+  /**
+   * Lists trips the caller can see.
+   *
+   * `include: 'minimal'` asks the API for the raw trip rows only — it skips
+   * the route/bus/crew name resolution server-side for callers that don't
+   * render the names. The overload keeps the return type honest: minimal
+   * calls are typed as {@link TripMinimalListResponse}.
+   */
+  public async listTrips(
+    query: TripListQuery & { include: 'minimal' },
+  ): Promise<ApiResponse<TripMinimalListResponse>>;
+  public async listTrips(query?: TripListQuery): Promise<ApiResponse<TripListResponse>>;
+  public async listTrips(
+    query: TripListQuery = {},
+  ): Promise<ApiResponse<TripListResponse | TripMinimalListResponse>> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
@@ -1515,8 +1604,9 @@ export class ApiClient {
     if (query.date) params.set('date', query.date);
     if (query.date_from) params.set('date_from', query.date_from);
     if (query.date_to) params.set('date_to', query.date_to);
+    if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
-    return this.get<TripListResponse>(`/trips${suffix}`);
+    return this.get<TripListResponse | TripMinimalListResponse>(`/trips${suffix}`);
   }
 
   public async getTrip(id: string): Promise<ApiResponse<TripResponse>> {

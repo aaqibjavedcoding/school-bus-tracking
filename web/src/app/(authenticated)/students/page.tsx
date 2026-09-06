@@ -80,22 +80,30 @@ function toPayload(form: FormState): StudentCreateRequest {
 
 export default function StudentsPage() {
   const toast = useToast();
-  const stopLookups = useLoad(async () => {
-    const [stops, routes] = await Promise.all([
-      apiClient.listStops({ page: 1, limit: 100 }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
-    ]);
-    return {
-      stops: unwrapEnvelope(stops).items,
-      routes: unwrapEnvelope(routes).items,
-    };
-  }, []);
+  const [open, setOpen] = useState(false);
+  // Form lookups are gated on the modal: the landing page no longer pays
+  // for two list APIs (stops + routes) on every mount just in case the user
+  // opens "Add student". Data fetched once stays cached in the hook while
+  // the modal is closed; the 30s client cache keeps a quick reopen cheap.
+  const stopLookups = useLoad(
+    async () => {
+      const [stops, routes] = await Promise.all([
+        apiClient.listStops({ page: 1, limit: 100, include: 'minimal' }),
+        apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
+      ]);
+      return {
+        stops: unwrapEnvelope(stops).items,
+        routes: unwrapEnvelope(routes).items,
+      };
+    },
+    [],
+    { enabled: open },
+  );
   const list = usePagedResource(
     async (page, search) =>
       unwrapEnvelope(await apiClient.listStudents({ page, limit: 20, search })),
     [],
   );
-  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<StudentResponse | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});

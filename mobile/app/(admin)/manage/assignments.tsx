@@ -3,14 +3,14 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   RouteAssignmentRole,
-  type BusListResponse,
-  type BusResponse,
+  type BusMinimalListResponse,
+  type BusMinimalResponse,
   type ConductorListResponse,
   type DriverListResponse,
   type RouteAssignmentCreateRequest,
   type RouteAssignmentResponse,
-  type RouteListResponse,
-  type RouteResponse,
+  type RouteMinimalListResponse,
+  type RouteMinimalResponse,
   type StaffResponse,
   type TripResponse,
 } from '@school-bus-tracking/shared-types';
@@ -75,21 +75,23 @@ export default function ManageAssignmentsScreen() {
 
   // Lookups feed the create / edit form selects only; the roster itself is
   // paginated and filtered server-side below.
+  // The pickers only render route/bus names — the minimal projections skip
+  // the crew/trip enrichment the API would otherwise resolve.
   const lookups = useLoad(async (): Promise<{
-    routes: RouteResponse[];
-    buses: BusResponse[];
+    routes: RouteMinimalResponse[];
+    buses: BusMinimalResponse[];
     drivers: StaffResponse[];
     conductors: StaffResponse[];
   }> => {
     const [routes, buses, drivers, conductors] = await Promise.all([
-      apiClient.listRoutes({ page: 1, limit: 100 }),
-      apiClient.listBuses({ page: 1, limit: 100 }),
+      apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
+      apiClient.listBuses({ page: 1, limit: 100, include: 'minimal' }),
       apiClient.listDrivers({ page: 1, limit: 100 }),
       apiClient.listConductors({ page: 1, limit: 100 }),
     ]);
     return {
-      routes: unwrapEnvelope<RouteListResponse>(routes).items,
-      buses: unwrapEnvelope<BusListResponse>(buses).items,
+      routes: unwrapEnvelope<RouteMinimalListResponse>(routes).items,
+      buses: unwrapEnvelope<BusMinimalListResponse>(buses).items,
       drivers: unwrapEnvelope<DriverListResponse>(drivers).items,
       conductors: unwrapEnvelope<ConductorListResponse>(conductors).items,
     };

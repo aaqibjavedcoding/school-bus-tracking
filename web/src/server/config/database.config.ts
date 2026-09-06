@@ -20,8 +20,8 @@ export default registerAs('database', () => ({
   ssl: process.env.DB_SSL === 'true',
   logging: process.env.DB_LOGGING === 'true',
   pool: {
-    max: parseInt(process.env.DB_POOL_MAX || '20', 10),
-    min: parseInt(process.env.DB_POOL_MIN || '2', 10),
+    max: parseInt(process.env.DB_POOL_MAX || '30', 10),
+    min: parseInt(process.env.DB_POOL_MIN || '5', 10),
     acquire: parseInt(process.env.DB_POOL_ACQUIRE || '30000', 10),
     idle: parseInt(process.env.DB_POOL_IDLE || '10000', 10),
   },

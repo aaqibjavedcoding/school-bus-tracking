@@ -15,7 +15,8 @@ export default function AttendancePage() {
   const trips = useLoad(async () => {
     const [tripList, routeList] = await Promise.all([
       apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
+      // Only the route code is rendered as a label — skip the enrichment.
+      apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
     ]);
     const items = unwrapEnvelope(tripList).items;
     const first = items[0]?.id ?? '';

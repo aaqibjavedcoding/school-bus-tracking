@@ -52,25 +52,33 @@ const emptyForm = {
 
 export default function AssignmentsPage() {
   const toast = useToast();
-  const lookups = useLoad(async () => {
-    const [routes, buses, drivers, conductors] = await Promise.all([
-      apiClient.listRoutes({ page: 1, limit: 100 }),
-      apiClient.listBuses({ page: 1, limit: 100 }),
-      apiClient.listDrivers({ page: 1, limit: 100 }),
-      apiClient.listConductors({ page: 1, limit: 100 }),
-    ]);
-    return {
-      routes: unwrapEnvelope(routes).items,
-      buses: unwrapEnvelope(buses).items,
-      drivers: unwrapEnvelope(drivers).items,
-      conductors: unwrapEnvelope(conductors).items,
-    };
-  }, []);
+  const [open, setOpen] = useState(false);
+  // Form lookups are gated on the modal: four list APIs used to fire on
+  // every page mount even though the picker is only visible when the
+  // "New assignment" modal is open. Routes/buses use `include: 'minimal'`
+  // because the form only renders their names.
+  const lookups = useLoad(
+    async () => {
+      const [routes, buses, drivers, conductors] = await Promise.all([
+        apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
+        apiClient.listBuses({ page: 1, limit: 100, include: 'minimal' }),
+        apiClient.listDrivers({ page: 1, limit: 100 }),
+        apiClient.listConductors({ page: 1, limit: 100 }),
+      ]);
+      return {
+        routes: unwrapEnvelope(routes).items,
+        buses: unwrapEnvelope(buses).items,
+        drivers: unwrapEnvelope(drivers).items,
+        conductors: unwrapEnvelope(conductors).items,
+      };
+    },
+    [],
+    { enabled: open },
+  );
   const list = usePagedResource(
     async (page) => unwrapEnvelope(await apiClient.listRouteAssignments({ page, limit: 20 })),
     [],
   );
-  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RouteAssignmentResponse | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});

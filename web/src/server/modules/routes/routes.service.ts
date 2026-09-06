@@ -7,6 +7,8 @@ import {
   RouteDeleteResponse,
   RouteDetailResponse,
   RouteListResponse,
+  RouteMinimalListResponse,
+  RouteMinimalResponse,
   RouteResponse,
   RouteStopsListResponse,
   RouteStudentSummary,
@@ -119,11 +121,34 @@ export class RoutesService {
   }
 
   /**
+   * Tenant-free headcount of the authenticated school's routes.
+   *
+   * One `COUNT(*)` query, no enrichment — the dashboard stats endpoint uses
+   * it so the stat cards never pay for projections they do not render.
+   */
+  async count(schoolId: string): Promise<number> {
+    return this.routes.count({ where: { school_id: schoolId } as WhereOptions });
+  }
+
+  /**
    * Lists routes of the authenticated school only, with pagination and an
    * optional case-insensitive search over name / code. No other tenant's rows
    * can match because `school_id` is always part of the where clause.
+   *
+   * `include: 'minimal'` skips `toRouteResponses` entirely and returns the
+   * raw route fields (id, name, code, is_active) — zero enrichment queries,
+   * the shape dropdowns and code lookups need. The overloads keep the return
+   * type honest for both shapes.
    */
-  async findAll(schoolId: string, query: ListRoutesQueryDto): Promise<RouteListResponse> {
+  async findAll(
+    schoolId: string,
+    query: ListRoutesQueryDto & { include: 'minimal' },
+  ): Promise<RouteMinimalListResponse>;
+  async findAll(schoolId: string, query: ListRoutesQueryDto): Promise<RouteListResponse>;
+  async findAll(
+    schoolId: string,
+    query: ListRoutesQueryDto,
+  ): Promise<RouteListResponse | RouteMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -153,6 +178,13 @@ export class RoutesService {
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     };
+
+    if (query.include === 'minimal') {
+      return {
+        items: rows.map((route) => toRouteMinimalResponse(route)),
+        meta,
+      };
+    }
 
     return {
       items: await this.toRouteResponses(rows),
@@ -214,10 +246,17 @@ export class RoutesService {
       const busIds = [activeTrip.bus_id].filter(isId);
       const [crew, buses] = await Promise.all([
         crewIds.length
-          ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: crewIds } } })
+          ? this.users.findAll({
+              where: { school_id: schoolId, id: { [Op.in]: crewIds } },
+              // Display names only — toTripResponse reads nothing else.
+              attributes: ['id', 'first_name', 'last_name'],
+            })
           : Promise.resolve([] as User[]),
         busIds.length
-          ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+          ? this.buses.findAll({
+              where: { school_id: schoolId, id: { [Op.in]: busIds } },
+              attributes: ['id', 'bus_number', 'registration_number'],
+            })
           : Promise.resolve([] as Bus[]),
       ]);
       activeTripResponse = toTripResponse(activeTrip, crew, buses, route);
@@ -418,6 +457,9 @@ export class RoutesService {
       }),
       this.stops.findAll({
         where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, is_active: true },
+        // Only the stop → route link is read below; selecting the two columns
+        // keeps the enrichment query off the (wide) stops table columns.
+        attributes: ['id', 'route_id'],
       }),
       this.trips.findAll({
         where: { school_id: schoolId, route_id: { [Op.in]: routeIds }, scheduled_start_at: todayRange() },
@@ -429,10 +471,17 @@ export class RoutesService {
     const busIds = [...new Set(assignments.map((assignment) => assignment.bus_id).filter(isId))];
     const [users, buses] = await Promise.all([
       userIds.length
-        ? this.users.findAll({ where: { school_id: schoolId, id: { [Op.in]: userIds } } })
+        ? this.users.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: userIds } },
+            // Display names only — the enrichment never reads other columns.
+            attributes: ['id', 'first_name', 'last_name'],
+          })
         : Promise.resolve([] as User[]),
       busIds.length
-        ? this.buses.findAll({ where: { school_id: schoolId, id: { [Op.in]: busIds } } })
+        ? this.buses.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: busIds } },
+            attributes: ['id', 'bus_number', 'registration_number'],
+          })
         : Promise.resolve([] as Bus[]),
     ]);
     const userById = new Map(users.map((user) => [user.id, user]));
@@ -442,6 +491,9 @@ export class RoutesService {
     const students = stopIds.length
       ? await this.students.findAll({
           where: { school_id: schoolId, home_stop_id: { [Op.in]: stopIds }, is_active: true },
+          // Only the allocation key is read; loading whole student rows here
+          // pulled every column for every active student of the school.
+          attributes: ['home_stop_id'],
         })
       : [];
     const stopRoute = new Map(stops.map((stop) => [stop.id, stop.route_id]));
@@ -524,6 +576,20 @@ function nullableTrim(value: string | null | undefined): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * `include=minimal` projection of a route — the raw row fields only. Pure and
+ * synchronous by design: any query here would defeat the point of the mode.
+ */
+function toRouteMinimalResponse(route: Route): RouteMinimalResponse {
+  return {
+    id: route.id,
+    school_id: route.school_id,
+    name: route.name,
+    code: route.code,
+    is_active: route.is_active,
+  };
 }
 
 /** Escapes LIKE wildcards so user input is matched literally. */

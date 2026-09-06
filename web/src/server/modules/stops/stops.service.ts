@@ -5,6 +5,8 @@ import {
   PlanLimitResource,
   StopDeleteResponse,
   StopListResponse,
+  StopMinimalListResponse,
+  StopMinimalResponse,
   StopResponse,
 } from '@school-bus-tracking/shared-types';
 import { Route, Stop, StopAttributes } from '../../database/models';
@@ -87,8 +89,21 @@ export class StopsService {
    * optional case-insensitive search over name / address. The result is
    * ordered per route (`route_id`, then `sequence_number`) so a manifest can
    * be rendered deterministically.
+   *
+   * `include: 'minimal'` trims each item to the picker/label fields
+   * (id, route link, name, order) so the large stop lists the student forms
+   * load stay small on the wire. Stops have no enrichment either way. The
+   * overloads keep the return type honest for both shapes.
    */
-  async findAll(schoolId: string, query: ListStopsQueryDto): Promise<StopListResponse> {
+  async findAll(
+    schoolId: string,
+    query: ListStopsQueryDto & { include: 'minimal' },
+  ): Promise<StopMinimalListResponse>;
+  async findAll(schoolId: string, query: ListStopsQueryDto): Promise<StopListResponse>;
+  async findAll(
+    schoolId: string,
+    query: ListStopsQueryDto,
+  ): Promise<StopListResponse | StopMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -121,6 +136,13 @@ export class StopsService {
       hasNextPage: page < totalPages,
       hasPreviousPage: page > 1,
     };
+
+    if (query.include === 'minimal') {
+      return {
+        items: rows.map((stop) => toStopMinimalResponse(stop)),
+        meta,
+      };
+    }
 
     return {
       items: rows.map((stop) => this.toStopResponse(stop)),
@@ -263,4 +285,20 @@ function nullableTrim(value: string | null | undefined): string | null {
 /** Escapes LIKE wildcards so user input is matched literally. */
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * `include=minimal` projection of a stop — the picker/label fields only.
+ * Pure and synchronous: the stops list never had enrichment queries, so the
+ * mode exists purely to keep the payload small.
+ */
+function toStopMinimalResponse(stop: Stop): StopMinimalResponse {
+  return {
+    id: stop.id,
+    school_id: stop.school_id,
+    route_id: stop.route_id,
+    name: stop.name,
+    sequence_number: stop.sequence_number,
+    is_active: stop.is_active,
+  };
 }

@@ -595,3 +595,66 @@ describe('StudentsService.remove', () => {
     assert.equal(record.deleted_at, null, 'other tenant rows must never be touched');
   });
 });
+
+describe('StudentsService.findAll — include=minimal', () => {
+  it('returns the raw student fields without firing a single enrichment query', async () => {
+    const { repo: students } = makeStudentsRepository([
+      makeStudentRecord({
+        id: 'student-1',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        admission_number: 'STU-0001',
+      }),
+    ]);
+    // Every enrichment repository explodes if touched: minimal mode must
+    // answer from the student rows alone.
+    const forbidden = {
+      findAll: async () => {
+        throw new Error('minimal mode must not run enrichment queries');
+      },
+    } as unknown as typeof Stop;
+    const service = new StudentsService(
+      students,
+      forbidden,
+      emptyGuardians(),
+      forbidden as unknown as typeof Route,
+      forbidden as unknown as typeof RouteAssignment,
+      forbidden as unknown as typeof Bus,
+      allowAllPlanLimits(),
+    );
+
+    const response = await service.findAll(SCHOOL_A, makeQuery({ include: 'minimal' }));
+
+    assert.equal(response.items.length, 1);
+    const item = response.items[0];
+    assert.equal(item.id, 'student-1');
+    assert.equal(item.first_name, 'Ada');
+    assert.equal(item.last_name, 'Lovelace');
+    const serialized = JSON.stringify(item);
+    assert.ok(!serialized.includes('home_stop_name'), 'no stop enrichment leaks in');
+    assert.ok(!serialized.includes('route_name'), 'no route enrichment leaks in');
+    assert.ok(!serialized.includes('bus_number'), 'no bus enrichment leaks in');
+    assert.ok(!serialized.includes('date_of_birth'), 'minimal keeps the picker fields only');
+  });
+});
+
+describe('StudentsService.count', () => {
+  it('counts only the authenticated school with a single query', async () => {
+    const { repo: students } = makeStudentsRepository([]);
+    const calls: Array<Record<string, unknown>> = [];
+    const repo = {
+      ...students,
+      count: async (options: { where?: Record<string, unknown> } = {}) => {
+        calls.push(options.where as Record<string, unknown>);
+        return 42;
+      },
+    } as unknown as typeof Student;
+    const service = makeService(repo, makeStopsRepository().repo, emptyGuardians());
+
+    const total = await service.count(SCHOOL_A);
+
+    assert.equal(total, 42);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].school_id, SCHOOL_A);
+  });
+});
