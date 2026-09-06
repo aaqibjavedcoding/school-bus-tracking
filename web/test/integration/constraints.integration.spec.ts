@@ -23,6 +23,16 @@ import {
 import { EmergencyEvent, Run, RunCrew, Student, Trip, User } from '../../src/server/database/models';
 
 /**
+ * Sequelize's error message names the constraint but does not include the
+ * SQLSTATE code, so the code is read from the driver error (parent.code).
+ */
+function isForeignKeyViolation(err: unknown, constraint: string): boolean {
+  const driverError = err as { parent?: { code?: string } };
+  const message = String((err as { message?: string })?.message ?? err);
+  return driverError.parent?.code === '23503' && message.includes(constraint);
+}
+
+/**
  * Schema-level guarantees, verified against the real database.
  *
  * These are the invariants the application layer *relies on*: if a foreign key
@@ -343,10 +353,7 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
 
     await assert.rejects(
       sequelize.query(`DELETE FROM runs WHERE id = $id`, { bind: { id: run.id } }),
-      (err: unknown) => {
-        const msg = String(err);
-        return msg.includes('23503') && msg.includes('fk_students_run');
-      },
+      (err: unknown) => isForeignKeyViolation(err, 'fk_students_run'),
     );
   });
 
@@ -359,10 +366,7 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
 
     await assert.rejects(
       sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
-      (err: unknown) => {
-        const msg = String(err);
-        return msg.includes('23503') && msg.includes('fk_trips_bus');
-      },
+      (err: unknown) => isForeignKeyViolation(err, 'fk_trips_bus'),
     );
   });
 
@@ -372,7 +376,11 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
     const stop = await createStop(school.id, route.id);
     const bus = await createBus(school.id);
     const driver = await createUser(school.id, UserRole.DRIVER);
-    const student = await createStudent(school.id, stop.id);
+    // The pupil lives on a different stop of the same route so deleting `stop`
+    // is not already refused by fk_students_home_stop; the attendance row is
+    // then the only blocker and names fk_trip_student_attendance_stop.
+    const homeStop = await createStop(school.id, route.id, 2);
+    const student = await createStudent(school.id, homeStop.id);
     const trip = await createTrip(school.id, route.id, bus.id, driver.id);
 
     // Record attendance for the student on the trip at the stop
@@ -388,10 +396,7 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
 
     await assert.rejects(
       sequelize.query(`DELETE FROM stops WHERE id = $id`, { bind: { id: stop.id } }),
-      (err: unknown) => {
-        const msg = String(err);
-        return msg.includes('23503') && msg.includes('fk_trip_student_attendance_stop');
-      },
+      (err: unknown) => isForeignKeyViolation(err, 'fk_trip_student_attendance_stop'),
     );
   });
 
@@ -403,10 +408,7 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
 
     await assert.rejects(
       sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
-      (err: unknown) => {
-        const msg = String(err);
-        return msg.includes('23503') && msg.includes('fk_runs_bus');
-      },
+      (err: unknown) => isForeignKeyViolation(err, 'fk_runs_bus'),
     );
   });
 
@@ -415,15 +417,19 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
     const route = await createRoute(school.id);
     const bus = await createBus(school.id);
     const driver = await createUser(school.id, UserRole.DRIVER);
-    const trip = await createTrip(school.id, route.id, bus.id, driver.id);
-    await createEmergency(school.id, trip.id, driver.id);
+    // The trip runs on a different bus so it cannot be the constraint that
+    // blocks the delete; the SOS row itself is the only reference to `bus`.
+    const tripBus = await createBus(school.id);
+    const trip = await createTrip(school.id, route.id, tripBus.id, driver.id);
+    const emergency = await createEmergency(school.id, trip.id, driver.id);
+    await sequelize.query(
+      `UPDATE emergency_events SET bus_id = :bus WHERE id = :id`,
+      { replacements: { bus: bus.id, id: emergency.id } },
+    );
 
     await assert.rejects(
       sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
-      (err: unknown) => {
-        const msg = String(err);
-        return msg.includes('23503') && msg.includes('fk_emergency_events_bus');
-      },
+      (err: unknown) => isForeignKeyViolation(err, 'fk_emergency_events_bus'),
     );
   });
 });
