@@ -57,8 +57,11 @@ import {
   RefreshToken,
   Route,
   RouteAssignment,
+  Run,
+  RunCrew,
   School,
   SchoolSubscription,
+  Shift,
   Stop,
   Student,
   StudentGuardian,
@@ -228,6 +231,7 @@ export class Container {
         Stop,
         User,
         Trip,
+        Run,
         this.sequelize,
         this.config(),
       ),
@@ -469,6 +473,7 @@ export class Container {
         this.adminSubscriptions(),
         Stop,
         RouteAssignment,
+        Run,
       ),
   );
 

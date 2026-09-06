@@ -19,6 +19,7 @@ import {
   Plan,
   Route,
   RouteAssignment,
+  Run,
   SchoolSubscription,
   Stop,
   Student,
@@ -57,6 +58,7 @@ describe('plan limits (real PostgreSQL)', () => {
       Stop,
       User,
       Trip,
+      Run,
       sequelize,
       config ?? configStub(),
     );
@@ -343,6 +345,7 @@ describe('plan limits (real PostgreSQL)', () => {
       Stop,
       User,
       Trip,
+      Run,
       sequelize,
       configStub(),
     );

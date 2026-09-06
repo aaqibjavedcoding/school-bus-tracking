@@ -22,6 +22,7 @@ import {
   RefreshToken,
   Route,
   RouteAssignment,
+  Run,
   School,
   Stop,
   Student,
@@ -85,6 +86,11 @@ export class AdminSchoolsService {
      */
     private readonly stops: typeof Stop,
     private readonly assignments: typeof RouteAssignment,
+    /**
+     * Runs (operating-model refactor) — optional and last so the ten existing
+     * construction sites keep working; without it the run buckets report 0.
+     */
+    private readonly runs?: typeof Run,
   ) {}
 
   /**
@@ -423,8 +429,16 @@ export class AdminSchoolsService {
 
   /** Full tenant statistics for the details page — grouped aggregates only. */
   private async collectSchoolStats(schoolId: string): Promise<AdminSchoolStats> {
-    const [userRows, studentRows, busRows, routeRows, tripRows, stopRows, assignmentRows] =
-      await Promise.all([
+    const [
+      userRows,
+      studentRows,
+      busRows,
+      routeRows,
+      tripRows,
+      stopRows,
+      assignmentRows,
+      runRows,
+    ] = await Promise.all([
       this.users.findAll({
         attributes: [
           'role',
@@ -487,6 +501,19 @@ export class AdminSchoolsService {
         group: ['is_active'],
         raw: true,
       }) as unknown as Promise<GroupCount[]>,
+      // Runs are a plan-limited resource (`docs/operating-model.md` §9); the
+      // School 360 usage table needs the real count, not a placeholder 0.
+      this.runs
+        ? (this.runs.findAll({
+            attributes: [
+              'is_active',
+              [this.runs.sequelize!.fn('COUNT', this.runs.sequelize!.col('id')), 'count'],
+            ],
+            where: { school_id: schoolId },
+            group: ['is_active'],
+            raw: true,
+          }) as unknown as Promise<GroupCount[]>)
+        : Promise.resolve([] as GroupCount[]),
     ]);
 
     const stats: AdminSchoolStats = {
@@ -507,6 +534,8 @@ export class AdminSchoolsService {
       active_assignment_count: 0,
       trip_count: 0,
       active_trip_count: 0,
+      run_count: 0,
+      active_run_count: 0,
     };
 
     const isActiveFlag = (value: unknown): boolean =>
@@ -559,6 +588,11 @@ export class AdminSchoolsService {
       const count = Number(row.count ?? 0);
       stats.assignment_count += count;
       if (isActiveFlag(row.is_active)) stats.active_assignment_count += count;
+    }
+    for (const row of runRows) {
+      const count = Number(row.count ?? 0);
+      stats.run_count += count;
+      if (isActiveFlag(row.is_active)) stats.active_run_count += count;
     }
 
     return stats;

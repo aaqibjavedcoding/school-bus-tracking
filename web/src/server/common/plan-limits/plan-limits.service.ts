@@ -13,6 +13,7 @@ import {
   Bus,
   Plan,
   Route,
+  Run,
   SchoolSubscription,
   Stop,
   Student,
@@ -29,6 +30,7 @@ import {
   PLAN_LIMITS_BUSES_REPOSITORY,
   PLAN_LIMITS_PLANS_REPOSITORY,
   PLAN_LIMITS_ROUTES_REPOSITORY,
+  PLAN_LIMITS_RUNS_REPOSITORY,
   PLAN_LIMITS_SEQUELIZE,
   PLAN_LIMITS_STOPS_REPOSITORY,
   PLAN_LIMITS_STUDENTS_REPOSITORY,
@@ -82,9 +84,15 @@ export class PlanLimitsService {
     private readonly users: typeof User,
     private readonly trips: typeof Trip,
     /**
+     * Runs — one vehicle's timed pass over a route (`docs/operating-model.md`
+     * §9). Ninth positional argument, before `sequelize`, so every existing
+     * call site changes in exactly one place.
+     */
+    private readonly runs: typeof Run,
+    /**
      * Live Sequelize connection. Optional so the service stays trivially
      * unit-constructible with stub repositories (the existing unit tests build
-     * it with eight arguments); without it the enforcement degrades to the
+     * it with nine arguments); without it the enforcement degrades to the
      * historical non-transactional check, which is only ever the case in
      * stubbed test bootstraps that have no database at all.
      */
@@ -299,6 +307,10 @@ export class PlanLimitsService {
         });
       case PlanLimitResource.TRIPS:
         return this.trips.count({ where: school, ...options });
+      case PlanLimitResource.RUNS:
+        // Counted like routes: active, non-deleted rows. A soft-deleted or
+        // deactivated run hands its quota back.
+        return this.runs.count({ where: { ...school, is_active: true }, ...options });
       default:
         return 0;
     }

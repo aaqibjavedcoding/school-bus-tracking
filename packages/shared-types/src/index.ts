@@ -62,6 +62,21 @@ export enum RouteAssignmentRole {
 export type AssignmentRole = RouteAssignmentRole;
 
 /**
+ * Operational role a person plays on a **run** (`run_crew.role`).
+ *
+ * The value set is identical to {@link RouteAssignmentRole} today, and the two
+ * are deliberately declared as separate enums: `run_crew` is the roster that
+ * will grow (a bus attendant / escort is a live requirement in several
+ * states), while `route_assignments` is frozen and on its way out. Sharing
+ * one enum would make a value added for one silently legal in the other.
+ * See `docs/operating-model.md` §3.3.
+ */
+export enum RunCrewRole {
+  DRIVER = 'DRIVER',
+  CONDUCTOR = 'CONDUCTOR',
+}
+
+/**
  * Lifecycle of a single scheduled bus run (`trips.status`).
  *
  * SCHEDULED   → planned, nothing has happened yet
@@ -458,6 +473,9 @@ export interface AdminSchoolStats {
   active_assignment_count: number;
   trip_count: number;
   active_trip_count: number;
+  /** Runs (timed passes over a route) — counts against the `runs` plan limit. */
+  run_count: number;
+  active_run_count: number;
 }
 
 /** Successful payload of `GET /api/v1/admin/schools/:id`. */
@@ -1333,6 +1351,228 @@ export type AssignmentResponse = RouteAssignmentResponse;
 export type AssignmentListResponse = RouteAssignmentListResponse;
 export type AssignmentDeleteResponse = RouteAssignmentDeleteResponse;
 export type AssignmentListQuery = RouteAssignmentListQuery;
+
+/**
+ * Operating model — shifts, runs and run crew (`docs/operating-model.md`).
+ *
+ * A **route** is a path; a **run** is one vehicle's timed pass over that path;
+ * a **shift** is the bell window that gives the run its clock; **run crew** is
+ * the per-run roster. `school_id` is never accepted in a request — the API
+ * pins the tenant from the verified JWT claims, and every reference (route,
+ * shift, bus, user) must belong to that tenant.
+ */
+
+/** Body of `POST /api/v1/shifts`. */
+export interface ShiftCreateRequest {
+  /** Bell-window label, unique among live shifts of a school ("Morning"). */
+  name: string;
+  /** Tenant-local wall clock, `HH:MM` or `HH:MM:SS`. */
+  start_time: string;
+  /** Must be later than `start_time` — overnight windows are not supported. */
+  end_time: string;
+  is_active?: boolean;
+}
+
+/** Body of `PATCH /api/v1/shifts/:id` — every field is optional. */
+export interface ShiftUpdateRequest {
+  name?: string;
+  start_time?: string;
+  end_time?: string;
+  is_active?: boolean;
+}
+
+/** Public projection of a shift. Times are normalised to `HH:MM:SS`. */
+export interface ShiftResponse {
+  id: string;
+  school_id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // --- Display fields (populated by the API) ---
+  /** Live runs currently attached to this shift. */
+  run_count?: number | null;
+}
+
+/** Successful payload of `GET /api/v1/shifts`. */
+export interface ShiftListResponse {
+  items: ShiftResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/shifts/:id`. */
+export interface ShiftDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/shifts`. */
+export interface ShiftListQuery {
+  page?: number;
+  limit?: number;
+  /** Free-text filter over the shift name. */
+  search?: string;
+  is_active?: boolean;
+}
+
+/** Body of `POST /api/v1/runs`. */
+export interface RunCreateRequest {
+  /** Path this run drives; must belong to the authenticated school. */
+  route_id: string;
+  /**
+   * Bell window the run occupies. Optional: a run without a shift is treated
+   * by the conflict rules as occupying the whole day.
+   */
+  shift_id?: string | null;
+  /** Vehicle; optional while the fleet is undecided. */
+  bus_id?: string | null;
+  /**
+   * Parent-facing short code shown on the bus sign (`R-01-2`). Unique among
+   * live runs of a school; omitted → derived from the route code.
+   */
+  code?: string;
+  is_active?: boolean;
+}
+
+/**
+ * Body of `POST /api/v1/routes/:id/runs` — the nested create. Identical to
+ * {@link RunCreateRequest} minus `route_id`, which comes from the path.
+ */
+export type RouteRunCreateRequest = Omit<RunCreateRequest, 'route_id'>;
+
+/**
+ * Body of `PATCH /api/v1/runs/:id` — every field is optional.
+ *
+ * `route_id` is immutable: a run *is* a pass over one route, and its stops,
+ * riders and history all hang off that identity. Create a new run instead.
+ * `is_default` is never accepted from a client (server-only, backfill-set).
+ */
+export interface RunUpdateRequest {
+  shift_id?: string | null;
+  bus_id?: string | null;
+  code?: string;
+  is_active?: boolean;
+}
+
+/** Public projection of a run. */
+export interface RunResponse {
+  id: string;
+  school_id: string;
+  route_id: string;
+  shift_id: string | null;
+  bus_id: string | null;
+  code: string;
+  /** True for the auto-provisioned back-compat run of a route. */
+  is_default: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  route_name?: string | null;
+  route_code?: string | null;
+  shift_name?: string | null;
+  /** Shift window, `HH:MM:SS`; null for a run without a shift. */
+  shift_start_time?: string | null;
+  shift_end_time?: string | null;
+  bus_number?: string | null;
+  bus_registration_number?: string | null;
+  /** Names of the currently active crew rostered on the run. */
+  driver_name?: string | null;
+  conductor_name?: string | null;
+  /** Active pupils allocated to this run (`students.run_id`). */
+  student_count?: number | null;
+}
+
+/** Successful payload of `GET /api/v1/runs` and the nested/route lists. */
+export interface RunListResponse {
+  items: RunResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/runs/:id`. */
+export interface RunDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of `GET /api/v1/runs` (and `GET /buses/:busId/runs`). */
+export interface RunListQuery {
+  page?: number;
+  limit?: number;
+  /** Free-text filter over the run code and the route name / code. */
+  search?: string;
+  route_id?: string;
+  shift_id?: string;
+  bus_id?: string;
+  is_active?: boolean;
+}
+
+/** Body of `POST /api/v1/runs/:id/crew`. */
+export interface RunCrewCreateRequest {
+  /** Crew member; must hold the matching staff role in the same school. */
+  user_id: string;
+  role: RunCrewRole;
+  /** Inclusive tenant-local date in `YYYY-MM-DD` format. */
+  effective_from: string;
+  /** Inclusive end date; omitted/null means open ended. */
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+/**
+ * Body of `PATCH /api/v1/run-crew/:id` — every field is optional. `run_id` is
+ * immutable; roster a person onto another run with a new row.
+ */
+export interface RunCrewUpdateRequest {
+  user_id?: string;
+  role?: RunCrewRole;
+  effective_from?: string;
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+/** Public projection of one run-crew roster row. */
+export interface RunCrewResponse {
+  id: string;
+  school_id: string;
+  run_id: string;
+  user_id: string;
+  role: RunCrewRole;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // --- Human-readable display fields (populated by the API) ---
+  run_code?: string | null;
+  route_id?: string | null;
+  route_name?: string | null;
+  route_code?: string | null;
+  user_name?: string | null;
+  user_email?: string | null;
+}
+
+/** Successful payload of `GET /api/v1/runs/:id/crew` and `/users/:id/run-crew`. */
+export interface RunCrewListResponse {
+  items: RunCrewResponse[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `DELETE /api/v1/run-crew/:id`. */
+export interface RunCrewDeleteResponse {
+  id: string;
+  message: string;
+}
+
+/** Query string of the run-crew list endpoints. */
+export interface RunCrewListQuery {
+  page?: number;
+  limit?: number;
+  role?: RunCrewRole;
+  is_active?: boolean;
+}
 
 /**
  * Phase 4 — Trip management.
@@ -2325,6 +2565,12 @@ export enum PlanLimitResource {
   STAFF = 'staff',
   PARENTS = 'parents',
   TRIPS = 'trips',
+  /**
+   * Runs — one vehicle's timed pass over a route (`docs/operating-model.md`
+   * §9). A billable resource: a Basic-plan school does not get unlimited
+   * tiering. Counted as active, non-deleted `runs` rows, like `routes`.
+   */
+  RUNS = 'runs',
 }
 
 export const PLAN_LIMIT_RESOURCE_VALUES: PlanLimitResource[] = Object.values(PlanLimitResource);
@@ -2340,6 +2586,7 @@ export const PLAN_LIMIT_RESOURCE_LABELS: Record<PlanLimitResource, string> = {
   [PlanLimitResource.STAFF]: 'Staff',
   [PlanLimitResource.PARENTS]: 'Parents / Guardians',
   [PlanLimitResource.TRIPS]: 'Trips',
+  [PlanLimitResource.RUNS]: 'Runs',
 };
 
 /** Application error code returned when a school has used its plan quota. */

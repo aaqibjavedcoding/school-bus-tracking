@@ -493,6 +493,14 @@ describe('AdminSchoolsService.findOneOrThrow — School 360 resource overview', 
           { is_active: false, count: 2 },
         ] as never,
     };
+    const runsRepo = {
+      sequelize,
+      findAll: async () =>
+        [
+          { is_active: true, count: 3 },
+          { is_active: false, count: 1 },
+        ] as never,
+    };
 
     const service = new AdminSchoolsService(
       schoolsRepo.repo as never,
@@ -506,12 +514,15 @@ describe('AdminSchoolsService.findOneOrThrow — School 360 resource overview', 
       makeSubscriptionsStub() as never,
       stopsRepo as never,
       assignmentsRepo as never,
+      runsRepo as never,
     );
 
     const details = await service.findOneOrThrow(schoolId);
     assert.equal(details.stats.stop_count, 24);
     assert.equal(details.stats.assignment_count, 7);
     assert.equal(details.stats.active_assignment_count, 5);
+    assert.equal(details.stats.run_count, 4);
+    assert.equal(details.stats.active_run_count, 3);
     // Untouched buckets keep reporting zero rather than undefined.
     assert.equal(details.stats.student_count, 0);
     assert.equal(details.stats.route_count, 0);

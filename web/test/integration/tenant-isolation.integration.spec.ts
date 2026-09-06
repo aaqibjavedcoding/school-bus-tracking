@@ -23,6 +23,7 @@ import {
   Plan,
   Route,
   RouteAssignment,
+  Run,
   SchoolSubscription,
   Stop,
   Student,
@@ -55,6 +56,7 @@ describe('tenant isolation (real PostgreSQL)', () => {
       Stop,
       User,
       Trip,
+      Run,
       sequelize,
     );
     buses = new BusesService(Bus, RouteAssignment, Route, User, Trip, planLimits);
