@@ -62,6 +62,11 @@ export class CreateStudentDto implements StudentCreateRequest {
   @IsUUID(undefined, { message: 'home_stop_id must be a valid UUID' })
   declare home_stop_id?: string | null;
 
+  /** Run (vehicle) the pupil rides; validated tenant- and stop-wise by the service. */
+  @IsOptional()
+  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  declare run_id?: string | null;
+
   @IsOptional()
   @IsString({ message: 'emergency_contact_name must be a string' })
   @MaxLength(150, {

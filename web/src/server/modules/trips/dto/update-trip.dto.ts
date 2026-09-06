@@ -9,6 +9,14 @@ import { TripUpdateRequest } from '@school-bus-tracking/shared-types';
  * so lifecycle rules cannot be bypassed through a plain field update.
  */
 export class UpdateTripDto implements TripUpdateRequest {
+  /** Re-dispatch onto this run (preferred over the deprecated assignment id). */
+  @IsOptional()
+  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  run_id?: string;
+
+  /**
+   * @deprecated Prefer `run_id`; kept for pre-refactor callers.
+   */
   @IsOptional()
   @IsUUID(undefined, { message: 'route_assignment_id must be a valid UUID' })
   route_assignment_id?: string;

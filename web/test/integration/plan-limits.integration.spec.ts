@@ -70,6 +70,7 @@ describe('plan limits (real PostgreSQL)', () => {
       RouteAssignment,
       Bus,
       planLimits,
+      Run,
     );
     return { students, planLimits };
   }

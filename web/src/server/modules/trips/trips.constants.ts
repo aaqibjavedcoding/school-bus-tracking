@@ -13,6 +13,8 @@ export const TRIPS_ROUTE_ASSIGNMENTS_REPOSITORY = 'TRIPS_ROUTE_ASSIGNMENTS_REPOS
 export const TRIPS_ROUTES_REPOSITORY = 'TRIPS_ROUTES_REPOSITORY';
 export const TRIPS_BUSES_REPOSITORY = 'TRIPS_BUSES_REPOSITORY';
 export const TRIPS_USERS_REPOSITORY = 'TRIPS_USERS_REPOSITORY';
+export const TRIPS_RUNS_REPOSITORY = 'TRIPS_RUNS_REPOSITORY';
+export const TRIPS_RUN_CREW_REPOSITORY = 'TRIPS_RUN_CREW_REPOSITORY';
 
 /**
  * Generic not-found message. It deliberately does not distinguish an unknown
@@ -30,6 +32,15 @@ export const TRIP_ASSIGNMENT_PERIOD_MESSAGE =
 export const TRIP_ASSIGNMENT_BUS_MISSING_MESSAGE =
   'Referenced route assignment has no bus and cannot be dispatched';
 export const TRIP_ROUTE_INVALID_MESSAGE = 'Referenced route does not belong to this school';
+
+/** Messages for run-based dispatch (`docs/operating-model.md` §8.4). */
+export const TRIP_RUN_INVALID_MESSAGE = 'Referenced run does not belong to this school';
+export const TRIP_RUN_INACTIVE_MESSAGE =
+  'Referenced run is not active and cannot be dispatched';
+export const TRIP_RUN_DRIVER_MISSING_MESSAGE =
+  'No active driver is rostered on this run for the scheduled trip date';
+export const TRIP_DISPATCH_SOURCE_MESSAGE =
+  'Exactly one of run_id or route_assignment_id must be provided';
 export const TRIP_BUS_INVALID_MESSAGE = 'Referenced bus does not belong to this school';
 export const TRIP_DRIVER_INVALID_MESSAGE = 'Referenced driver does not belong to this school';
 export const TRIP_CONDUCTOR_INVALID_MESSAGE = 'Referenced conductor does not belong to this school';

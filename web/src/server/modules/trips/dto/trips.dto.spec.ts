@@ -35,6 +35,37 @@ async function errorsFor<T extends object>(type: new () => T, body: Record<strin
 }
 
 describe('trip DTO validation', () => {
+  it('accepts run-based dispatch (Phase 3) — either source, never both', async () => {
+    const RUN_ID = '44444444-4444-4444-8444-444444444444';
+    const runOnly = { run_id: RUN_ID, scheduled_start_at: '2026-09-01T06:30:00.000Z' };
+    assert.equal((await errorsFor(CreateTripDto, runOnly)).length, 0);
+
+    // Zod mirrors the contract: exactly one source is required.
+    assert.deepEqual(tripCreateSchema.parse(runOnly).run_id, RUN_ID);
+    const both = tripCreateSchema.safeParse({
+      ...VALID_BODY,
+      run_id: RUN_ID,
+    });
+    assert.equal(both.success, false);
+    const neither = tripCreateSchema.safeParse({
+      scheduled_start_at: '2026-09-01T06:30:00.000Z',
+    });
+    assert.equal(neither.success, false);
+    assert.equal(
+      neither.error?.issues[0]?.path.join('.'),
+      'run_id',
+    );
+    assert.equal(
+      tripUpdateSchema.parse({ run_id: RUN_ID }).run_id,
+      RUN_ID,
+    );
+    assert.equal(
+      tripUpdateSchema.safeParse({ run_id: RUN_ID, route_assignment_id: ASSIGNMENT_ID })
+        .success,
+      false,
+    );
+  });
+
   it('accepts a complete dispatch request', async () => {
     assert.equal((await errorsFor(CreateTripDto, VALID_BODY)).length, 0);
     assert.equal(

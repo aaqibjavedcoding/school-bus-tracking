@@ -194,6 +194,9 @@ function makeAttendance(
 
 interface RepoStubs {
   guardians: { findAll: unknown[]; findOne: StubRow | null };
+  runs?: { findAll: StubRow[]; findOne: StubRow | null };
+  runCrew?: StubRow[];
+  shifts?: StubRow[];
   students: { findAll: StubRow[]; findOne: StubRow | null };
   stops: { findAll: StubRow[]; findOne: StubRow | null };
   routes: { findAll: StubRow[]; findOne: StubRow | null };
@@ -254,6 +257,9 @@ function createService(
   // the given result (null unless a test overrides it).
   const eta = { computeTripEta: async () => etaResult } as unknown as EtaService;
 
+  const runRows = stubs.runs?.findAll ?? [];
+  const crewRows = stubs.runCrew ?? [];
+  const shiftRows = stubs.shifts ?? [];
   return new ParentPortalService(
     guardians as never,
     students as never,
@@ -266,6 +272,14 @@ function createService(
     liveTracking,
     tripAttendance,
     eta,
+    // Run fixtures default to empty: legacy tests keep exercising the
+    // route-level fallback unchanged.
+    {
+      findOne: async () => stubs.runs?.findOne ?? null,
+      findAll: async () => runRows,
+    } as never,
+    { findAll: async () => crewRows } as never,
+    { findAll: async () => shiftRows } as never,
   );
 }
 
@@ -390,5 +404,152 @@ describe('ParentPortalService', () => {
       /\b(create|update|board|drop|delete|remove|link)\b/.test(name),
     );
     assert.deepEqual(write, []);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Phase 3 — the child's run is the source of truth
+// ---------------------------------------------------------------------------
+
+const RUN_DEFAULT = '0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c01';
+const RUN_TIER = '0c0c0c0c-0c0c-4c0c-8c0c-0c0c0c0c0c02';
+const BUS_TIER = '06060606-0606-4606-8606-060606060602';
+const SHIFT_MORN = '0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d01';
+const TRIP_TIER = '09090909-0909-4909-8909-090909090902';
+
+function makeRun(overrides: Partial<StubRow> = {}): StubRow {
+  return {
+    id: RUN_DEFAULT,
+    school_id: SCHOOL_A,
+    route_id: ROUTE_A,
+    shift_id: SHIFT_MORN,
+    bus_id: BUS_A,
+    code: 'NL-1',
+    is_default: true,
+    is_active: true,
+    created_at: new Date('2026-08-01T00:00:00.000Z'),
+    updated_at: new Date('2026-08-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function runFixtures() {
+  return {
+    runs: {
+      findAll: [
+        makeRun(),
+        makeRun({ id: RUN_TIER, code: 'NL-2', is_default: false, bus_id: BUS_TIER }),
+      ],
+      findOne: makeRun(),
+    },
+    runCrew: [
+      {
+        id: 'crew-1',
+        school_id: SCHOOL_A,
+        run_id: RUN_DEFAULT,
+        user_id: DRIVER_A,
+        role: 'DRIVER',
+        effective_from: '2026-08-01',
+        effective_to: null,
+        is_active: true,
+      },
+    ],
+    shifts: [
+      {
+        id: SHIFT_MORN,
+        school_id: SCHOOL_A,
+        name: 'Morning',
+        start_time: '07:00:00',
+        end_time: '11:00:00',
+        is_active: true,
+      },
+    ],
+  };
+}
+
+describe('ParentPortalService — run visibility', () => {
+  it('exposes the run block and keeps the legacy trip visible (zero change)', async () => {
+    const service = createService(defaultStubs(runFixtures()));
+    const { items } = await service.listChildren(parentA);
+    const run = items[0].run;
+    assert.ok(run);
+    assert.equal(run.id, RUN_DEFAULT);
+    assert.equal(run.is_default, true);
+    assert.equal(run.code, 'NL-1');
+    assert.equal(run.bus_number, 'Bus 7');
+    assert.equal(run.registration_number, 'ABC-123');
+    assert.equal(run.driver_name, 'Dana Nguyen');
+    assert.equal(run.shift_name, 'Morning');
+    assert.equal(run.shift_start_time, '07:00:00');
+    // The legacy run-less trip belongs to the default run → still today's trip.
+    assert.equal(items[0].today.trip?.id, TRIP_A);
+  });
+
+  it('runs today only trips of the allocated run', async () => {
+    const service = createService(
+      defaultStubs({
+        ...runFixtures(),
+        students: {
+          findAll: [makeStudent({ run_id: RUN_TIER })],
+          findOne: makeStudent({ run_id: RUN_TIER }),
+        },
+        buses: {
+          findAll: [
+            makeBus(),
+            makeBus({ id: BUS_TIER, registration_number: 'XYZ-999', bus_number: 'Bus 9' }),
+          ],
+          findOne: makeBus(),
+        },
+        trips: {
+          findAll: [
+            makeTrip(),
+            makeTrip({ id: TRIP_TIER, run_id: RUN_TIER, status: TripStatus.IN_PROGRESS }),
+          ],
+          findOne: makeTrip({ id: TRIP_TIER, run_id: RUN_TIER }),
+        },
+      }),
+    );
+    const { items } = await service.listChildren(parentA);
+    const child = items[0];
+    assert.equal(child.run?.id, RUN_TIER);
+    assert.equal(child.run?.is_default, false);
+    assert.equal(child.run?.bus_number, 'Bus 9');
+    assert.equal(child.run?.registration_number, 'XYZ-999');
+    // The default run's legacy trip must NOT leak into the tiered run's day.
+    assert.equal(child.today.trip?.id, TRIP_TIER);
+  });
+
+  it('shows the run bus even on a day without a dispatched trip', async () => {
+    const service = createService(
+      defaultStubs({
+        ...runFixtures(),
+        trips: { findAll: [], findOne: null },
+      }),
+    );
+    const { items } = await service.listChildren(parentA);
+    const child = items[0];
+    assert.equal(child.today.trip, null);
+    // The resolved (default) run still answers "which bus" — the pre-refactor
+    // view had nothing to show on a rest day.
+    assert.equal(child.run?.id, RUN_DEFAULT);
+    assert.equal(child.today.bus?.bus_number, 'Bus 7');
+    assert.equal(child.today.bus?.registration_number, 'ABC-123');
+  });
+
+  it('falls back to the standing run crew for the child detail', async () => {
+    const service = createService(
+      defaultStubs({
+        ...runFixtures(),
+        trips: { findAll: [], findOne: null },
+      }),
+    );
+    const detail = await service.getChild(parentA, STUDENT_A);
+    assert.equal(detail.today.trip, null);
+    // The default run's rostered driver surfaces even with no trip at all.
+    assert.equal(detail.driver?.first_name, 'Dana');
+    assert.equal(detail.conductor, null);
+    assert.equal(detail.run?.id, RUN_DEFAULT);
+    assert.equal(detail.run?.driver_name, 'Dana Nguyen');
   });
 });

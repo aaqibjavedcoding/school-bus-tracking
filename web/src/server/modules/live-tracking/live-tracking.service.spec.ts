@@ -167,6 +167,8 @@ function makeService(options: MakeServiceOptions = {}) {
     guardianRepo(),
     options.config ?? { gpsMinIntervalMs: 0, maxFutureSkewMs: 300_000, maxPastSkewMs: 86_400_000 },
     options.arrivals ?? makeNoopArrivalsStub(),
+    // No runs in this fixture set: parent visibility stays route-level legacy.
+    { findOne: async () => null, findAll: async () => [] } as never,
   );
   if (options.attachBroadcaster !== false) {
     service.attachBroadcaster(capture.fn);
@@ -1046,6 +1048,7 @@ function makeServiceForTrips(
     guardianRepo(),
     config,
     makeNoopArrivalsStub(),
+    { findOne: async () => null, findAll: async () => [] } as never,
   );
   service.attachBroadcaster(capture.fn);
   return { service, store, capture };
@@ -1133,5 +1136,187 @@ describe('LiveTrackingService — Task 22 stop-arrival evaluation hook', () => {
     await service.onTripStatusChanged(makeTrip({ status: TripStatus.COMPLETED }));
 
     assert.deepEqual(resets, [TRIP_A]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 — run-scoped parent visibility
+// ---------------------------------------------------------------------------
+
+describe('LiveTrackingService — parent run scope', () => {
+  const LT_STUDENT = 'st-run-1';
+  const LT_STOP = 'sp-run-1';
+  const LT_ROUTE = '11111111-1111-4111-8111-11111111aaaa';
+  const LT_TRIP = 'trip-run-1';
+  const LT_RUN_DEFAULT = 'run-default-1';
+  const LT_RUN_R2 = 'run-r2-1';
+
+  interface Fixture {
+    studentRunId: string | null;
+    tripRunId: string | null;
+    runs: Array<{ id: string; route_id: string; is_default: boolean }>;
+  }
+
+  function makeScopedService(fixture: Fixture) {
+    const trips = [
+      {
+        id: LT_TRIP,
+        school_id: SCHOOL_A,
+        route_id: LT_ROUTE,
+        run_id: fixture.tripRunId,
+        status: TripStatus.IN_PROGRESS,
+      },
+    ];
+    const students = [
+      {
+        id: LT_STUDENT,
+        school_id: SCHOOL_A,
+        is_active: true,
+        home_stop_id: LT_STOP,
+        run_id: fixture.studentRunId,
+      },
+    ];
+    const service = new LiveTrackingService(
+      makeLocationStore([]).repo as never,
+      {
+        findOne: async (q: { where: Record<string, unknown> }) =>
+          (trips.find((t) => t.id === q.where.id && t.school_id === q.where.school_id) ??
+            null) as never,
+      } as never,
+      { findAll: async () => [] } as never, // assignments
+      {
+        findAll: async (q: { where: Record<string, unknown> }) =>
+          students.filter((s) => matchesWhere(s as never, q.where as never)) as never,
+      } as never,
+      {
+        findAll: async (q: { where: Record<string, unknown> }) => {
+          if (q.where.route_id !== undefined) {
+            return q.where.route_id === LT_ROUTE
+              ? ([{ id: LT_STOP, route_id: LT_ROUTE }] as never)
+              : ([] as never);
+          }
+          return ([{ id: LT_STOP, route_id: LT_ROUTE }] as never);
+        },
+      } as never,
+      {
+        findAll: async (q: { where: Record<string, unknown> }) => {
+          const rows = [
+            {
+              school_id: SCHOOL_A,
+              user_id: PARENT_A,
+              student_id: LT_STUDENT,
+              is_active: true,
+            },
+          ];
+          return rows.filter((r) => matchesWhere(r as never, q.where as never)) as never;
+        },
+      } as never,
+      { gpsMinIntervalMs: 0, maxFutureSkewMs: 300_000, maxPastSkewMs: 86_400_000 },
+      makeNoopArrivalsStub(),
+      {
+        findOne: async (q: { where: Record<string, unknown> }) =>
+          (fixture.runs.find((r) =>
+            q.where.id !== undefined
+              ? r.id === q.where.id
+              : r.route_id === q.where.route_id && q.where.is_default === true && r.is_default,
+          ) ?? null) as never,
+        findAll: async (q: { where: Record<string, unknown> }) =>
+          fixture.runs.filter((r) => r.route_id === LT_ROUTE) as never,
+      } as never,
+    );
+    return service;
+  }
+
+  const parent = actorOf(UserRole.PARENT, PARENT_A);
+
+  it('keeps the legacy route-level view when the route has no split', async () => {
+    const service = makeScopedService({
+      studentRunId: null,
+      tripRunId: null,
+      runs: [{ id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true }],
+    });
+    const auth = await service.authorizeObservation(parent, LT_TRIP);
+    assert.equal(auth.ok, true);
+  });
+
+  it('hides a tiered run trip from a legacy (unallocated) child', async () => {
+    const service = makeScopedService({
+      studentRunId: null,
+      tripRunId: LT_RUN_R2,
+      runs: [
+        { id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true },
+        { id: LT_RUN_R2, route_id: LT_ROUTE, is_default: false },
+      ],
+    });
+    const auth = await service.authorizeObservation(parent, LT_TRIP);
+    assert.deepEqual(auth, { ok: false, reason: 'unauthorized' });
+  });
+
+  it('shows a tiered run trip to the child allocated to that run', async () => {
+    const service = makeScopedService({
+      studentRunId: LT_RUN_R2,
+      tripRunId: LT_RUN_R2,
+      runs: [
+        { id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true },
+        { id: LT_RUN_R2, route_id: LT_ROUTE, is_default: false },
+      ],
+    });
+    const auth = await service.authorizeObservation(parent, LT_TRIP);
+    assert.equal(auth.ok, true);
+  });
+
+  it('maps a NULL-run trip to the default run for a default-allocated child', async () => {
+    const service = makeScopedService({
+      studentRunId: LT_RUN_DEFAULT,
+      tripRunId: null,
+      runs: [
+        { id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true },
+        { id: LT_RUN_R2, route_id: LT_ROUTE, is_default: false },
+      ],
+    });
+    const auth = await service.authorizeObservation(parent, LT_TRIP);
+    assert.equal(auth.ok, true);
+  });
+
+  it('scope: single default run, unallocated child → no run narrowing', async () => {
+    const service = makeScopedService({
+      studentRunId: null,
+      tripRunId: null,
+      runs: [{ id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true }],
+    });
+    const scope = await service.getParentTripScope(parent);
+    assert.deepEqual(scope.routeIds, [LT_ROUTE]);
+    assert.deepEqual(scope.runScopedRouteIds, []);
+    assert.deepEqual(scope.runIds, []);
+  });
+
+  it('scope: allocated child → run-scoped with their run', async () => {
+    const service = makeScopedService({
+      studentRunId: LT_RUN_R2,
+      tripRunId: LT_RUN_R2,
+      runs: [
+        { id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true },
+        { id: LT_RUN_R2, route_id: LT_ROUTE, is_default: false },
+      ],
+    });
+    const scope = await service.getParentTripScope(parent);
+    assert.deepEqual(scope.runScopedRouteIds, [LT_ROUTE]);
+    assert.deepEqual(scope.runIds, [LT_RUN_R2]);
+    assert.deepEqual(scope.defaultRiderRouteIds, []);
+  });
+
+  it('scope: unallocated child on a tiered route rides the default run', async () => {
+    const service = makeScopedService({
+      studentRunId: null,
+      tripRunId: null,
+      runs: [
+        { id: LT_RUN_DEFAULT, route_id: LT_ROUTE, is_default: true },
+        { id: LT_RUN_R2, route_id: LT_ROUTE, is_default: false },
+      ],
+    });
+    const scope = await service.getParentTripScope(parent);
+    assert.deepEqual(scope.runScopedRouteIds, [LT_ROUTE]);
+    assert.deepEqual(scope.runIds, [LT_RUN_DEFAULT]);
+    assert.deepEqual(scope.defaultRiderRouteIds, [LT_ROUTE]);
   });
 });

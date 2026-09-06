@@ -1745,6 +1745,7 @@ export class ApiClient {
     if (query.search) params.set('search', query.search);
     if (query.status) params.set('status', query.status);
     if (query.route_id) params.set('route_id', query.route_id);
+    if (query.run_id) params.set('run_id', query.run_id);
     if (query.bus_id) params.set('bus_id', query.bus_id);
     if (query.driver_id) params.set('driver_id', query.driver_id);
     if (query.conductor_id) params.set('conductor_id', query.conductor_id);

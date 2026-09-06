@@ -12,7 +12,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
-import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import { Bus, Route, RouteAssignment, Run, RunCrew, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
@@ -29,8 +29,12 @@ import {
   TRIP_DATE_INVALID_MESSAGE,
   TRIP_DATE_RANGE_MESSAGE,
   TRIP_DELETED_MESSAGE,
+  TRIP_DISPATCH_SOURCE_MESSAGE,
   TRIP_DRIVER_INVALID_MESSAGE,
   TRIP_DRIVER_MISSING_MESSAGE,
+  TRIP_RUN_DRIVER_MISSING_MESSAGE,
+  TRIP_RUN_INACTIVE_MESSAGE,
+  TRIP_RUN_INVALID_MESSAGE,
   TRIP_INACTIVE_RESOURCE_MESSAGE,
   TRIP_INVALID_TRANSITION_MESSAGE,
   TRIP_NOT_EDITABLE_MESSAGE,
@@ -49,10 +53,23 @@ import { ListTripsQueryDto } from './dto/list-trips-query.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { UpdateTripStatusDto } from './dto/update-trip-status.dto';
 
-/** Resources a trip is dispatched with, derived from a roster row. */
+/** Parent-visibility restriction applied on top of the tenant where clause. */
+export interface TripListScope {
+  routeIds?: string[];
+  /** Routes whose parents see run-level trips only (a child is run-allocated). */
+  runScopedRouteIds?: string[];
+  /** Run ids visible to the calling parent. */
+  runIds?: string[];
+  /** Run-scoped routes whose children ride the default run (legacy trips OK). */
+  defaultRiderRouteIds?: string[];
+}
+
+/** Resources a trip is dispatched with, derived from a roster row or a run. */
 interface DispatchTarget {
+  /** The dispatched run; `null` for a legacy route-assignment dispatch. */
+  run_id: string | null;
   route_id: string;
-  bus_id: string;
+  bus_id: string | null;
   driver_id: string;
   conductor_id: string | null;
 }
@@ -90,6 +107,8 @@ export class TripsService {
     private readonly liveTracking: LiveTrackingService,
     private readonly notifications: NotificationsService,
     private readonly planLimits: PlanLimitsService,
+    private readonly runs: typeof Run,
+    private readonly runCrew: typeof RunCrew,
   ) {}
 
   /** Dispatches a new `SCHEDULED` trip from an active roster row. */
@@ -98,17 +117,14 @@ export class TripsService {
     const scheduledEndAt = parseNullableDateTime(dto.scheduled_end_at);
     assertScheduleRange(scheduledStartAt, scheduledEndAt);
 
-    const target = await this.resolveDispatchTarget(
-      schoolId,
-      dto.route_assignment_id,
-      scheduledStartAt,
-    );
-    await this.assertNoScheduleConflict(schoolId, target.route_id, scheduledStartAt, undefined);
+    const target = await this.resolveDispatch(schoolId, dto, scheduledStartAt);
+    await this.assertNoScheduleConflict(schoolId, target, scheduledStartAt, undefined);
 
     try {
       const trip = await this.trips.create({
         school_id: schoolId,
         route_id: target.route_id,
+        run_id: target.run_id,
         bus_id: target.bus_id,
         driver_id: target.driver_id,
         conductor_id: target.conductor_id,
@@ -158,15 +174,22 @@ export class TripsService {
     }
 
     if (actor.role === UserRole.PARENT) {
-      const routeIds = await this.liveTracking.getParentObservableRouteIds(actor);
-      if (routeIds.length === 0) {
+      const scope = await this.liveTracking.getParentTripScope(actor);
+      if (scope.routeIds.length === 0) {
         return emptyTripList(query);
       }
-      if (query.route_id !== undefined && !routeIds.includes(query.route_id)) {
+      if (query.route_id !== undefined && !scope.routeIds.includes(query.route_id)) {
         return emptyTripList(query);
       }
       return this.findAll(actor.school_id, query, {
-        routeIds: query.route_id ? [query.route_id] : routeIds,
+        routeIds: query.route_id ? [query.route_id] : scope.routeIds,
+        runScopedRouteIds: query.route_id
+          ? scope.runScopedRouteIds.filter((routeId) => routeId === query.route_id)
+          : scope.runScopedRouteIds,
+        runIds: scope.runIds,
+        defaultRiderRouteIds: query.route_id
+          ? scope.defaultRiderRouteIds.filter((routeId) => routeId === query.route_id)
+          : scope.defaultRiderRouteIds,
       });
     }
 
@@ -182,17 +205,17 @@ export class TripsService {
   async findAll(
     schoolId: string,
     query: ListTripsQueryDto & { include: 'minimal' },
-    scope?: { routeIds?: string[] },
+    scope?: TripListScope,
   ): Promise<TripMinimalListResponse>;
   async findAll(
     schoolId: string,
     query: ListTripsQueryDto,
-    scope?: { routeIds?: string[] },
+    scope?: TripListScope,
   ): Promise<TripListResponse>;
   async findAll(
     schoolId: string,
     query: ListTripsQueryDto,
-    scope?: { routeIds?: string[] },
+    scope?: TripListScope,
   ): Promise<TripListResponse | TripMinimalListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -204,6 +227,26 @@ export class TripsService {
     } else if (query.route_id !== undefined) {
       where.route_id = query.route_id;
     }
+    if (scope?.runScopedRouteIds !== undefined && scope.runScopedRouteIds.length > 0) {
+      // A parent with a run-allocated child sees that run's trips only;
+      // routes where no child is run-allocated keep the legacy route-level
+      // view. A trip with a `NULL` run belongs to its route's default run
+      // (`docs/operating-model.md` §6.1), so `run_id IS NULL` trips stay
+      // visible exactly as before whenever the default run is what the child
+      // rides.
+      where[Op.and] = [
+        {
+          [Op.or]: [
+            { route_id: { [Op.notIn]: scope.runScopedRouteIds } },
+            { run_id: { [Op.in]: scope.runIds ?? [] } },
+            ...(scope.defaultRiderRouteIds && scope.defaultRiderRouteIds.length > 0
+              ? [{ route_id: { [Op.in]: scope.defaultRiderRouteIds }, run_id: null }]
+              : []),
+          ],
+        },
+      ];
+    }
+    if (query.run_id !== undefined) where.run_id = query.run_id;
     if (query.bus_id !== undefined) where.bus_id = query.bus_id;
     if (query.driver_id !== undefined) where.driver_id = query.driver_id;
     if (query.conductor_id !== undefined) where.conductor_id = query.conductor_id;
@@ -307,21 +350,25 @@ export class TripsService {
       scheduled_end_at: scheduledEndAt,
     };
 
-    let routeId = trip.route_id;
-    if (dto.route_assignment_id !== undefined) {
-      const target = await this.resolveDispatchTarget(
-        schoolId,
-        dto.route_assignment_id,
-        scheduledStartAt,
-      );
-      routeId = target.route_id;
+    let target: DispatchTarget | null = null;
+    if (dto.run_id !== undefined || dto.route_assignment_id !== undefined) {
+      target = await this.resolveDispatch(schoolId, dto, scheduledStartAt);
+      // Re-dispatch replaces the whole snapshot — including clearing the run
+      // when the legacy assignment path is chosen — so the trip never mixes
+      // resources from two sources.
       values.route_id = target.route_id;
+      values.run_id = target.run_id;
       values.bus_id = target.bus_id;
       values.driver_id = target.driver_id;
       values.conductor_id = target.conductor_id;
     }
 
-    await this.assertNoScheduleConflict(schoolId, routeId, scheduledStartAt, id);
+    await this.assertNoScheduleConflict(
+      schoolId,
+      target ?? { run_id: trip.run_id, route_id: trip.route_id },
+      scheduledStartAt,
+      id,
+    );
 
     try {
       await trip.update(values);
@@ -446,13 +493,44 @@ export class TripsService {
   }
 
   /**
+   * Picks the dispatch source: `run_id` (preferred, `docs/operating-model.md`
+   * §8.4) or the deprecated `route_assignment_id`. Exactly one must be named;
+   * both or neither is a 400, because a trip that mixes a run with a route
+   * roster row has no single, auditable snapshot.
+   */
+  private async resolveDispatch(
+    schoolId: string,
+    source: { run_id?: string; route_assignment_id?: string },
+    scheduledStartAt: Date,
+  ): Promise<DispatchTarget> {
+    if (source.run_id !== undefined && source.route_assignment_id !== undefined) {
+      throw new BadRequestException(TRIP_DISPATCH_SOURCE_MESSAGE);
+    }
+    if (source.run_id !== undefined) {
+      return this.resolveRunDispatchTarget(schoolId, source.run_id, scheduledStartAt);
+    }
+    if (source.route_assignment_id !== undefined) {
+      return this.resolveAssignmentDispatchTarget(
+        schoolId,
+        source.route_assignment_id,
+        scheduledStartAt,
+      );
+    }
+    throw new BadRequestException(TRIP_DISPATCH_SOURCE_MESSAGE);
+  }
+
+  /**
    * Derives and validates the dispatch snapshot from a roster row.
+   *
+   * @deprecated Route-assignment dispatch is the pre-refactor path, kept so
+   * existing callers keep working; its trips carry `run_id: null`, which the
+   * parent-facing fallback rules read as "this route's default run".
    *
    * Every lookup is pinned to the JWT tenant, so a roster row, route, bus or
    * crew member from another school produces the same generic 400 as a
    * non-existent one and never leaks its existence.
    */
-  private async resolveDispatchTarget(
+  private async resolveAssignmentDispatchTarget(
     schoolId: string,
     assignmentId: string,
     scheduledStartAt: Date,
@@ -505,10 +583,93 @@ export class TripsService {
     }
 
     return {
+      run_id: null,
       route_id: assignment.route_id,
       bus_id: assignment.bus_id,
       driver_id: driverId,
       conductor_id: conductorId,
+    };
+  }
+
+  /**
+   * Derives and validates the dispatch snapshot from a **run** — the
+   * target-model way to schedule a trip.
+   *
+   * Route and vehicle come from the run itself; the driver and conductor come
+   * from its `run_crew` roster (the most recent effective row per role on the
+   * trip date). A run may legitimately have no bus yet, unlike a roster row
+   * dispatch — the vehicle is then `null` on the trip until fleet allocation.
+   * The driver seat is mandatory: a trip without a driver cannot be sent.
+   */
+  private async resolveRunDispatchTarget(
+    schoolId: string,
+    runId: string,
+    scheduledStartAt: Date,
+  ): Promise<DispatchTarget> {
+    const run = await this.runs.findOne({ where: { id: runId, school_id: schoolId } });
+    if (!run) {
+      throw new BadRequestException(TRIP_RUN_INVALID_MESSAGE);
+    }
+    if (!run.is_active) {
+      throw new BadRequestException(TRIP_RUN_INACTIVE_MESSAGE);
+    }
+
+    const route = await this.routes.findOne({
+      where: { id: run.route_id, school_id: schoolId },
+    });
+    if (!route) {
+      throw new BadRequestException(TRIP_ROUTE_INVALID_MESSAGE);
+    }
+
+    let bus: Bus | null = null;
+    if (run.bus_id) {
+      bus = await this.buses.findOne({ where: { id: run.bus_id, school_id: schoolId } });
+      if (!bus) {
+        throw new BadRequestException(TRIP_BUS_INVALID_MESSAGE);
+      }
+    }
+    if (route.is_active === false || bus?.is_active === false) {
+      throw new BadRequestException(TRIP_INACTIVE_RESOURCE_MESSAGE);
+    }
+
+    const tripDate = toDateOnly(scheduledStartAt);
+    const crewRows = await this.runCrew.findAll({
+      where: {
+        school_id: schoolId,
+        run_id: run.id,
+        is_active: true,
+        effective_from: { [Op.lte]: tripDate },
+        [Op.or]: [{ effective_to: null }, { effective_to: { [Op.gte]: tripDate } }],
+      },
+      order: [['effective_from', 'DESC']],
+    });
+    const driverRow = crewRows.find((row) => row.role === RouteAssignmentRole.DRIVER);
+    if (!driverRow) {
+      throw new BadRequestException(TRIP_RUN_DRIVER_MISSING_MESSAGE);
+    }
+    const conductorRow = crewRows.find((row) => row.role === RouteAssignmentRole.CONDUCTOR) ?? null;
+
+    await this.assertCrewMember(
+      schoolId,
+      driverRow.user_id,
+      UserRole.DRIVER,
+      TRIP_DRIVER_INVALID_MESSAGE,
+    );
+    if (conductorRow) {
+      await this.assertCrewMember(
+        schoolId,
+        conductorRow.user_id,
+        UserRole.CONDUCTOR,
+        TRIP_CONDUCTOR_INVALID_MESSAGE,
+      );
+    }
+
+    return {
+      run_id: run.id,
+      route_id: run.route_id,
+      bus_id: bus?.id ?? null,
+      driver_id: driverRow.user_id,
+      conductor_id: conductorRow?.user_id ?? null,
     };
   }
 
@@ -586,22 +747,32 @@ export class TripsService {
     }
   }
 
-  /** Mirrors the `uq_trips_route_scheduled_start` partial unique index. */
+  /**
+   * Mirrors the `uq_trips_route_scheduled_start` and
+   * `uq_trips_run_scheduled_start` partial unique indexes — both stay in
+   * force (two runs of one route must not depart at the same instant: the
+   * stops are shared, see `docs/operating-model.md` §3.5), and the service
+   * check turns either clash into the same clean 409 instead of a raw
+   * unique-violation.
+   */
   private async assertNoScheduleConflict(
     schoolId: string,
-    routeId: string,
+    target: Pick<DispatchTarget, 'route_id' | 'run_id'>,
     scheduledStartAt: Date,
     excludeId: string | undefined,
   ): Promise<void> {
-    const existing = await this.trips.findOne({
+    const clash = await this.trips.findOne({
       where: {
         school_id: schoolId,
-        route_id: routeId,
         scheduled_start_at: scheduledStartAt,
+        [Op.or]: [
+          { route_id: target.route_id },
+          ...(target.run_id !== null ? [{ run_id: target.run_id }] : []),
+        ],
       } as WhereOptions,
     });
 
-    if (existing && existing.id !== excludeId) {
+    if (clash && clash.id !== excludeId) {
       throw new ConflictException(TRIP_CONFLICT_MESSAGE);
     }
   }
@@ -623,6 +794,7 @@ export class TripsService {
     }
     const schoolId = trips[0].school_id;
     const routeIds = [...new Set(trips.map((trip) => trip.route_id))];
+    const runIds = [...new Set(trips.map((trip) => trip.run_id).filter(isNonEmptyString))];
     const busIds = [...new Set(trips.map((trip) => trip.bus_id).filter(isNonEmptyString))];
     const userIds = [
       ...new Set(
@@ -632,7 +804,7 @@ export class TripsService {
       ),
     ];
 
-    const [routes, buses, users] = await Promise.all([
+    const [routes, buses, users, runs] = await Promise.all([
       routeIds.length
         ? this.routes.findAll({
             where: { school_id: schoolId, id: { [Op.in]: routeIds } },
@@ -652,14 +824,23 @@ export class TripsService {
             attributes: ['id', 'first_name', 'last_name'],
           })
         : Promise.resolve([] as User[]),
+      runIds.length
+        ? this.runs.findAll({
+            where: { school_id: schoolId, id: { [Op.in]: runIds } },
+            // The run code is the only display field a trip projection needs.
+            attributes: ['id', 'code'],
+          })
+        : Promise.resolve([] as Run[]),
     ]);
 
     const routeById = new Map(routes.map((route) => [route.id, route]));
+    const runById = new Map(runs.map((run) => [run.id, run]));
     const busById = new Map(buses.map((bus) => [bus.id, bus]));
     const userById = new Map(users.map((user) => [user.id, user]));
 
     return trips.map((trip) => {
       const route = routeById.get(trip.route_id);
+      const run = trip.run_id ? runById.get(trip.run_id) : undefined;
       const bus = trip.bus_id ? busById.get(trip.bus_id) : undefined;
       const driver = trip.driver_id ? userById.get(trip.driver_id) : undefined;
       const conductor = trip.conductor_id ? userById.get(trip.conductor_id) : undefined;
@@ -667,6 +848,7 @@ export class TripsService {
         id: trip.id,
         school_id: trip.school_id,
         route_id: trip.route_id,
+        run_id: trip.run_id ?? null,
         bus_id: trip.bus_id ?? null,
         driver_id: trip.driver_id ?? null,
         conductor_id: trip.conductor_id ?? null,
@@ -681,6 +863,7 @@ export class TripsService {
         updated_at: toIsoString(trip.updated_at),
         route_name: route?.name ?? null,
         route_code: route?.code ?? null,
+        run_code: run?.code ?? null,
         bus_number: bus?.bus_number ?? null,
         registration_number: bus?.registration_number ?? null,
         driver_name: driver ? `${driver.first_name} ${driver.last_name}`.trim() : null,
@@ -861,6 +1044,7 @@ function toTripMinimalResponse(trip: Trip): TripMinimalResponse {
     id: trip.id,
     school_id: trip.school_id,
     route_id: trip.route_id,
+    run_id: trip.run_id ?? null,
     bus_id: trip.bus_id ?? null,
     driver_id: trip.driver_id ?? null,
     conductor_id: trip.conductor_id ?? null,
@@ -896,6 +1080,7 @@ function cloneTripListQuery(query: ListTripsQueryDto): ListTripsQueryDto {
   clone.search = query.search;
   clone.status = query.status;
   clone.route_id = query.route_id;
+  clone.run_id = query.run_id;
   clone.bus_id = query.bus_id;
   clone.driver_id = query.driver_id;
   clone.conductor_id = query.conductor_id;

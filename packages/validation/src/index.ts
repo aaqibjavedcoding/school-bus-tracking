@@ -201,6 +201,7 @@ export const studentCreateSchema = z.object({
   gender: studentGenderSchema.nullish(),
   grade_level: shortTextSchema,
   home_stop_id: z.string().uuid().nullish(),
+  run_id: z.string().uuid().nullish(),
   emergency_contact_name: z
     .string()
     .trim()
@@ -224,6 +225,7 @@ export type StudentUpdateInput = z.infer<typeof studentUpdateSchema>;
 
 export const studentListQuerySchema = paginationSchema.extend({
   search: z.string().trim().max(100, 'search must be at most 100 characters').optional(),
+  run_id: z.string().uuid('run_id must be a valid UUID').optional(),
 });
 
 export type StudentListQueryInput = z.infer<typeof studentListQuerySchema>;
@@ -802,12 +804,35 @@ export const tripCancellationReasonSchema = z
 
 export const tripCreateSchema = z
   .object({
-    route_assignment_id: z.string().uuid('route_assignment_id must be a valid UUID'),
+    /** Preferred dispatch source: the run whose route/bus/crew are used. */
+    run_id: z.string().uuid('run_id must be a valid UUID').optional(),
+    /**
+     * Legacy dispatch source. @deprecated — exactly one of `run_id` /
+     * `route_assignment_id` must be supplied.
+     */
+    route_assignment_id: z
+      .string()
+      .uuid('route_assignment_id must be a valid UUID')
+      .optional(),
     scheduled_start_at: tripDateTimeSchema,
     scheduled_end_at: tripDateTimeSchema.nullish(),
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.run_id === undefined && value.route_assignment_id === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['run_id'],
+        message: 'either run_id or route_assignment_id is required',
+      });
+    }
+    if (value.run_id !== undefined && value.route_assignment_id !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['run_id'],
+        message: 'run_id and route_assignment_id are alternatives — supply only one',
+      });
+    }
     if (
       value.scheduled_end_at &&
       Date.parse(value.scheduled_end_at) < Date.parse(value.scheduled_start_at)
@@ -824,12 +849,21 @@ export type TripCreateInput = z.infer<typeof tripCreateSchema>;
 
 export const tripUpdateSchema = z
   .object({
+    run_id: z.string().uuid('run_id must be a valid UUID').optional(),
+    /** @deprecated prefer `run_id`. */
     route_assignment_id: z.string().uuid('route_assignment_id must be a valid UUID').optional(),
     scheduled_start_at: tripDateTimeSchema.optional(),
     scheduled_end_at: tripDateTimeSchema.nullish(),
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.run_id !== undefined && value.route_assignment_id !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['run_id'],
+        message: 'run_id and route_assignment_id are alternatives — supply only one',
+      });
+    }
     if (
       value.scheduled_start_at &&
       value.scheduled_end_at &&
@@ -868,6 +902,7 @@ export const tripListQuerySchema = paginationSchema
   .extend({
     status: z.nativeEnum(TripStatus).optional(),
     route_id: z.string().uuid('route_id must be a valid UUID').optional(),
+    run_id: z.string().uuid('run_id must be a valid UUID').optional(),
     bus_id: z.string().uuid('bus_id must be a valid UUID').optional(),
     driver_id: z.string().uuid('driver_id must be a valid UUID').optional(),
     conductor_id: z.string().uuid('conductor_id must be a valid UUID').optional(),
