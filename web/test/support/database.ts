@@ -103,6 +103,31 @@ export function undoAllMigrations(): string {
   });
 }
 
+/**
+ * Rolls back exactly one migration — the most recently applied one.
+ *
+ * Needed by suites that have to observe a migration's *effect* on data that
+ * already exists: the sequence is migrate → seed → undo the data migration →
+ * migrate again. `undoAllMigrations()` cannot express that.
+ */
+export function undoLastMigration(): string {
+  const settings = testDatabaseSettings();
+  return execFileSync(process.execPath, ['scripts/sequelize-cli.js', 'db:migrate:undo'], {
+    cwd: API_ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      DB_HOST: settings.host,
+      DB_PORT: String(settings.port),
+      DB_USERNAME: settings.username,
+      DB_PASSWORD: settings.password,
+      DB_NAME: settings.database,
+      DB_NAME_TEST: settings.database,
+    },
+  });
+}
+
 /** A Sequelize instance bound to the test database with every model attached. */
 export function createTestSequelize(options: { withModels?: boolean } = {}): Sequelize {
   const settings = testDatabaseSettings();

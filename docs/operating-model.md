@@ -494,13 +494,14 @@ Everything above was executed, not just written. The project's own suites:
 | `npm run build:packages` | exit 0 |
 | `npm run typecheck` (all workspaces) | exit 0 |
 | `npm test` | 1681 pass / 0 fail (server 1320, mobile 149, web 212) — unchanged from the baseline before this change |
-| `npm run test:integration` (real PostgreSQL) | 65 pass / 0 fail, including the migration suite that migrates an empty database, re-runs the migrator, and rolls **all** the way back down and up again |
+| `npm run test:integration` (real PostgreSQL) | 88 pass / 0 fail — 65 pre-existing plus 23 added by this change; includes the migration suite that migrates an empty database, re-runs the migrator, and rolls **all** the way back down and up again |
 | `npm run test:e2e` | 95 pass / 5 fail — **identical on the base commit**; the five are CORS/CSRF/rate-limit transport tests that need a browser origin this environment does not provide |
 
 `npm test` and `npm run typecheck` do not touch a database, so the migrations
-were additionally exercised against a real PostgreSQL 17.10 (the deployment
-target is 16 — `infrastructure/docker-compose.yml` pins
-`postgis/postgis:16-3.4`) using the project's own `scripts/sequelize-cli.js`:
+were additionally exercised against a real PostgreSQL — **both 16.14** (the
+deployment target: `infrastructure/docker-compose.yml` pins
+`postgis/postgis:16-3.4`) **and 17.10** — using the project's own
+`scripts/sequelize-cli.js`:
 
 - **schema** — every index, partial-index predicate, CHECK and composite
   foreign key read back out of `pg_catalog` and compared with §3.
@@ -524,10 +525,30 @@ target is 16 — `infrastructure/docker-compose.yml` pins
   default-run invariant holds for all 14 seeded routes and the undo leaves the
   tenant empty.
 
-The verification harness was throwaway and is not committed. It found three
-real defects that are now fixed: a missing `Op` import, `MIN(uuid)` not
-existing in PostgreSQL (§6.1), and the seeder purge order that trips the
-composite `ON DELETE SET NULL` behaviour in §3.7.
+**That verification is now committed**, not throwaway — 23 tests across three
+specs in `web/test/integration/`, all running the real migration files through
+the project's own sequelize-cli runner:
+
+- `runs-backfill.integration.spec.ts` (11 tests) — the awkward fixture, the
+  pre-backfill state, every assertion above, idempotency, and the exact
+  reversal. Uses a new `undoLastMigration()` helper in `test/support/database.ts`
+  so a suite can migrate → seed → revert one migration → migrate again.
+- `constraints.integration.spec.ts` (+10 tests) — every new CHECK, unique index
+  and composite foreign key, proven to fire.
+- `migrations.integration.spec.ts` (+2 tests) — the new tables in the expected
+  set, the new indexes and constraints present, every new foreign key asserted
+  to be composite on `(school_id, …)`, and the two role enum types asserted to
+  be distinct.
+
+The suite has teeth: mutating the backfill's `HAVING COUNT(DISTINCT bus_id) = 1`
+to `>= 1` fails exactly one test ("takes the bus only when the roster is
+unambiguous"), and adding `ra.deleted_at IS NULL` to the roster copy fails three
+("copies the roster … with no loss", "is idempotent", "reproduces the same
+result"). Both mutations were reverted.
+
+The harness found three real defects that are now fixed: a missing `Op` import,
+`MIN(uuid)` not existing in PostgreSQL (§6.1), and the seeder purge order that
+trips the composite `ON DELETE SET NULL` behaviour in §3.7.
 
 ---
 
