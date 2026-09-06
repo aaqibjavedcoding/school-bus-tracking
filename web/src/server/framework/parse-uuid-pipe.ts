@@ -29,7 +29,7 @@ const UUID_PATTERNS: Record<UUIDVersion, RegExp> = {
 /** The exact message Nest emits for a failed UUID parse. */
 export const UUID_VALIDATION_FAILED_MESSAGE = 'Validation failed (uuid is expected)';
 
-export function isUuid(value: unknown, version: UUIDVersion = 'all'): boolean {
+export function isUuid(value: unknown, version: UUIDVersion = 'all'): value is string {
   return typeof value === 'string' && UUID_PATTERNS[version].test(value);
 }
 
