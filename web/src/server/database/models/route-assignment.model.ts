@@ -1,10 +1,11 @@
 import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
-import { Optional } from 'sequelize';
+import { Op, Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { ROUTE_ASSIGNMENT_ROLE_VALUES, RouteAssignmentRole } from './enums';
 import { School } from './school.model';
 import { Route } from './route.model';
 import { Bus } from './bus.model';
+import { RunCrew } from './run-crew.model';
 import { User } from './user.model';
 
 export interface RouteAssignmentAttributes extends BaseModelAttributes {
@@ -21,11 +22,18 @@ export interface RouteAssignmentAttributes extends BaseModelAttributes {
   /** Last day (inclusive). Null means "open ended". */
   effective_to: string | null;
   is_active: boolean;
+  /**
+   * Session 2B dual-write link: the `run_crew` row this row mirrors
+   * (`docs/operating-model.md` §6.3). Nullable internal bookkeeping — never
+   * returned by the API — kept only while `route_assignments` is still
+   * readable during the migration period.
+   */
+  run_crew_id: string | null;
 }
 
 export type RouteAssignmentCreationAttributes = Optional<
   RouteAssignmentAttributes,
-  BaseModelManagedFields | 'bus_id' | 'effective_to' | 'is_active'
+  BaseModelManagedFields | 'bus_id' | 'effective_to' | 'is_active' | 'run_crew_id'
 >;
 
 /**
@@ -69,6 +77,13 @@ export type RouteAssignmentCreationAttributes = Optional<
     // "Which routes is this driver rostered on?"
     { name: 'idx_route_assignments_school_user', fields: ['school_id', 'user_id'] },
     { name: 'idx_route_assignments_school_bus', fields: ['school_id', 'bus_id'] },
+    // One `route_assignments` row mirrors at most one `run_crew` row (§6.3).
+    {
+      name: 'uq_route_assignments_run_crew',
+      unique: true,
+      fields: ['run_crew_id'],
+      where: { run_crew_id: { [Op.ne]: null } },
+    },
   ],
 })
 export class RouteAssignment extends BaseModel<
@@ -102,6 +117,10 @@ export class RouteAssignment extends BaseModel<
 
   @Column({ type: DataType.BOOLEAN, allowNull: false, defaultValue: true })
   declare is_active: boolean;
+
+  @ForeignKey(() => RunCrew)
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare run_crew_id: string | null;
 
   @BelongsTo(() => School, { foreignKey: 'school_id', as: 'school' })
   declare school?: School;

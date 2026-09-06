@@ -3,9 +3,10 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { RunCrewRole, UserRole } from '@school-bus-tracking/shared-types';
-import { Route, Run, RunCrew, User } from '../../database/models';
+import { Route, RouteAssignment, Run, RunCrew, Shift, User } from '../../database/models';
 import { RunCrewService } from './run-crew.service';
 import {
+  RUN_CREW_CREW_RUN_CONFLICT_MESSAGE,
   RUN_CREW_DATE_INVALID_MESSAGE,
   RUN_CREW_DATE_RANGE_MESSAGE,
   RUN_CREW_DELETED_MESSAGE,
@@ -33,6 +34,11 @@ const CONDUCTOR_1 = '66666666-6666-4666-8666-666666666666';
 const PARENT_1 = '77777777-7777-4777-8777-777777777777';
 const CREW_1 = '88888888-8888-4888-8888-888888888888';
 const CREW_2 = '99999999-9999-4999-8999-999999999999';
+const RUN_C = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const SHIFT_AM = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
+const SHIFT_PM = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+const MIRROR_1 = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+const MIRROR_2 = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2';
 
 type WhereClause = Record<string | symbol, unknown>;
 
@@ -88,6 +94,8 @@ function makeCrewRecord(overrides: Partial<StubCrewRecord> = {}): StubCrewRecord
 function matchesWhere(candidate: object, where: WhereClause): boolean {
   const record = candidate as Record<string, unknown>;
   if (record.deleted_at) return false;
+  const or = (where as Record<symbol, unknown>)[Op.or] as WhereClause[] | undefined;
+  if (or && !or.some((clause) => matchesWhere(record, clause))) return false;
   for (const key of Object.keys(where)) {
     const expected = where[key];
     const actual = record[key];
@@ -151,8 +159,100 @@ function simpleRepo<T>(records: SimpleRecord[]): T {
   } as unknown as T;
 }
 
+interface StubAssignmentRecord {
+  id: string;
+  school_id: string;
+  route_id: string;
+  bus_id: string | null;
+  user_id: string;
+  role: string;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  run_crew_id: string | null;
+  deleted_at: Date | null;
+  update: (values: Record<string, unknown>) => Promise<StubAssignmentRecord>;
+  restore: () => Promise<StubAssignmentRecord>;
+  destroy: () => Promise<void>;
+}
+
+function makeAssignmentRecord(overrides: Partial<StubAssignmentRecord> = {}): StubAssignmentRecord {
+  const record: StubAssignmentRecord = {
+    id: MIRROR_1,
+    school_id: SCHOOL_A,
+    route_id: ROUTE_A,
+    bus_id: null,
+    user_id: DRIVER_1,
+    role: RunCrewRole.DRIVER,
+    effective_from: '2026-03-01',
+    effective_to: null,
+    is_active: true,
+    run_crew_id: CREW_1,
+    deleted_at: null,
+    update: async (values) => {
+      Object.assign(record, values, { deleted_at: null });
+      return record;
+    },
+    restore: async () => {
+      record.deleted_at = null;
+      return record;
+    },
+    destroy: async () => {
+      record.deleted_at = new Date();
+    },
+    ...overrides,
+  };
+  return record;
+}
+
+/** Matcher for the mirror repo: `paranoid: false` lookups must see soft-deleted rows too. */
+function matchesMirrorWhere(candidate: object, where: WhereClause): boolean {
+  const record = candidate as Record<string, unknown>;
+  for (const key of Object.keys(where)) {
+    const expected = where[key];
+    const actual = record[key];
+    if (expected !== null && typeof expected === 'object') {
+      const op = expected as Record<symbol, unknown>;
+      if (Op.in in op && !(op[Op.in] as unknown[]).includes(actual)) return false;
+      if (Op.ne in op && actual === op[Op.ne]) return false;
+      continue;
+    }
+    if (actual !== expected) return false;
+  }
+  return true;
+}
+
+interface AssignmentsRepoHarness {
+  repo: typeof RouteAssignment;
+  records: StubAssignmentRecord[];
+  createCalls: Array<Record<string, unknown>>;
+}
+
+function makeAssignmentsRepo(records: StubAssignmentRecord[]): AssignmentsRepoHarness {
+  const createCalls: Array<Record<string, unknown>> = [];
+  let counter = 0;
+  const repo = {
+    findOne: async ({ where }: { where: WhereClause }) =>
+      records.find((record) => matchesMirrorWhere(record, where)) ?? null,
+    findAll: async ({ where }: { where: WhereClause }) =>
+      records.filter((record) => matchesMirrorWhere(record, where)),
+    create: async (values: Record<string, unknown>) => {
+      createCalls.push(values);
+      counter += 1;
+      const record = makeAssignmentRecord({
+        id: `dddddddd-dddd-4ddd-8ddd-${String(counter).padStart(12, '0')}`,
+        ...(values as Partial<StubAssignmentRecord>),
+      });
+      records.push(record);
+      return record;
+    },
+  } as unknown as typeof RouteAssignment;
+  return { repo, records, createCalls };
+}
+
 interface Fixture {
   crew: CrewRepoHarness;
+  assignments: AssignmentsRepoHarness;
   service: RunCrewService;
 }
 
@@ -161,12 +261,23 @@ function buildFixture(
     crew?: StubCrewRecord[];
     runs?: SimpleRecord[];
     users?: SimpleRecord[];
+    shifts?: SimpleRecord[];
+    assignments?: StubAssignmentRecord[];
   } = {},
 ): Fixture {
   const crew = makeCrewRepo(options.crew ?? []);
+  const assignments = makeAssignmentsRepo(options.assignments ?? []);
   const runs = options.runs ?? [
-    { id: RUN_A, school_id: SCHOOL_A, route_id: ROUTE_A, code: 'R-01', is_active: true },
-    { id: RUN_B, school_id: SCHOOL_B, route_id: ROUTE_A, code: 'X-01', is_active: true },
+    {
+      id: RUN_A,
+      school_id: SCHOOL_A,
+      route_id: ROUTE_A,
+      shift_id: SHIFT_AM,
+      code: 'R-01',
+      is_active: true,
+    },
+    { id: RUN_B, school_id: SCHOOL_B, route_id: ROUTE_A, shift_id: SHIFT_AM, code: 'X-01', is_active: true },
+    { id: RUN_C, school_id: SCHOOL_A, route_id: ROUTE_A, shift_id: SHIFT_AM, code: 'R-02', is_active: true },
   ];
   const users = options.users ?? [
     {
@@ -209,13 +320,33 @@ function buildFixture(
   const routes: SimpleRecord[] = [
     { id: ROUTE_A, school_id: SCHOOL_A, name: 'North Loop', code: 'R-01', is_active: true },
   ];
+  const shifts = options.shifts ?? [
+    {
+      id: SHIFT_AM,
+      school_id: SCHOOL_A,
+      name: 'Morning',
+      start_time: '07:00:00',
+      end_time: '11:00:00',
+      is_active: true,
+    },
+    {
+      id: SHIFT_PM,
+      school_id: SCHOOL_A,
+      name: 'Afternoon',
+      start_time: '12:00:00',
+      end_time: '17:00:00',
+      is_active: true,
+    },
+  ];
   const service = new RunCrewService(
     crew.repo,
     simpleRepo<typeof Run>(runs),
     simpleRepo<typeof Route>(routes),
     simpleRepo<typeof User>(users),
+    simpleRepo<typeof Shift>(shifts),
+    assignments.repo,
   );
-  return { crew, service };
+  return { crew, assignments, service };
 }
 
 function createDto(overrides: Partial<CreateRunCrewDto> = {}): CreateRunCrewDto {
@@ -421,6 +552,148 @@ describe('RunCrewService.create', () => {
       RUN_CREW_DUPLICATE_MESSAGE,
     );
   });
+
+  it('rejects CREW_RUN: same person on two runs in overlapping shift windows', async () => {
+    const fixture = buildFixture({
+      crew: [makeCrewRecord({ id: CREW_1, user_id: DRIVER_1, run_id: RUN_A })],
+    });
+
+    await expectRejects(
+      fixture.service.create(SCHOOL_A, RUN_C, createDto({ user_id: DRIVER_1 })),
+      ConflictException,
+      RUN_CREW_CREW_RUN_CONFLICT_MESSAGE,
+    );
+    assert.equal(fixture.crew.createCalls.length, 0);
+  });
+
+  it('allows CREW_RUN tiering: same person on two runs in disjoint shift windows', async () => {
+    const fixture = buildFixture({
+      crew: [makeCrewRecord({ id: CREW_1, user_id: DRIVER_1, run_id: RUN_A })],
+      runs: [
+        {
+          id: RUN_A,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: SHIFT_AM,
+          code: 'R-01',
+          is_active: true,
+        },
+        {
+          id: RUN_C,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: SHIFT_PM,
+          code: 'R-02',
+          is_active: true,
+        },
+      ],
+    });
+
+    const response = await fixture.service.create(SCHOOL_A, RUN_C, createDto({ user_id: DRIVER_1 }));
+    assert.equal(response.run_id, RUN_C);
+  });
+
+  it('treats a NULL-shift run as whole day for CREW_RUN', async () => {
+    const fixture = buildFixture({
+      crew: [makeCrewRecord({ id: CREW_1, user_id: DRIVER_1, run_id: RUN_A })],
+      runs: [
+        {
+          id: RUN_A,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: SHIFT_AM,
+          code: 'R-01',
+          is_active: true,
+        },
+        {
+          id: RUN_C,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: null,
+          code: 'R-02',
+          is_active: true,
+        },
+      ],
+    });
+
+    await expectRejects(
+      fixture.service.create(SCHOOL_A, RUN_C, createDto({ user_id: DRIVER_1 })),
+      ConflictException,
+      RUN_CREW_CREW_RUN_CONFLICT_MESSAGE,
+    );
+  });
+
+  it('allows the same person sequentially in the same window (roster dates do not overlap)', async () => {
+    const fixture = buildFixture({
+      crew: [
+        makeCrewRecord({
+          id: CREW_1,
+          user_id: DRIVER_1,
+          run_id: RUN_A,
+          effective_from: '2026-01-01',
+          effective_to: '2026-03-31',
+        }),
+      ],
+    });
+
+    const response = await fixture.service.create(
+      SCHOOL_A,
+      RUN_C,
+      createDto({ user_id: DRIVER_1, effective_from: '2026-04-01' }),
+    );
+    assert.equal(response.run_id, RUN_C);
+  });
+
+  it('mirrors a created roster row onto route_assignments (dual write)', async () => {
+    const fixture = buildFixture();
+
+    const response = await fixture.service.create(
+      SCHOOL_A,
+      RUN_A,
+      createDto({ effective_to: '2026-06-30' }),
+    );
+
+    assert.ok(fixture.assignments.createCalls.length > 0);
+    assert.deepEqual(
+      {
+        school_id: fixture.assignments.createCalls[0].school_id,
+        route_id: fixture.assignments.createCalls[0].route_id,
+        bus_id: fixture.assignments.createCalls[0].bus_id,
+        user_id: fixture.assignments.createCalls[0].user_id,
+        role: fixture.assignments.createCalls[0].role,
+        effective_from: fixture.assignments.createCalls[0].effective_from,
+        effective_to: fixture.assignments.createCalls[0].effective_to,
+        is_active: fixture.assignments.createCalls[0].is_active,
+        run_crew_id: fixture.assignments.createCalls[0].run_crew_id,
+      },
+      {
+        school_id: SCHOOL_A,
+        route_id: ROUTE_A,
+        bus_id: null,
+        user_id: DRIVER_1,
+        role: RunCrewRole.DRIVER,
+        effective_from: '2026-03-01',
+        effective_to: '2026-06-30',
+        is_active: true,
+        run_crew_id: response.id,
+      },
+    );
+  });
+
+  it('adopts an unlinked legacy route_assignment row instead of duplicating it', async () => {
+    const orphan = makeAssignmentRecord({
+      id: MIRROR_2,
+      run_crew_id: null,
+      user_id: DRIVER_1,
+      effective_from: '2026-03-01',
+    });
+    const fixture = buildFixture({ assignments: [orphan] });
+
+    const response = await fixture.service.create(SCHOOL_A, RUN_A, createDto());
+
+    assert.equal(orphan.run_crew_id, response.id);
+    assert.equal(fixture.assignments.createCalls.length, 0);
+  });
 });
 
 describe('RunCrewService lists', () => {
@@ -600,6 +873,50 @@ describe('RunCrewService.update', () => {
       RUN_CREW_NOT_FOUND_MESSAGE,
     );
   });
+
+  it('keeps the route_assignment mirror in step with the updated roster row', async () => {
+    const crew = makeCrewRecord();
+    const mirror = makeAssignmentRecord();
+    const fixture = buildFixture({ crew: [crew], assignments: [mirror] });
+
+    const dto = new UpdateRunCrewDto();
+    dto.effective_to = '2026-12-31';
+    dto.is_active = false;
+    await fixture.service.update(SCHOOL_A, CREW_1, dto);
+
+    assert.equal(mirror.effective_to, '2026-12-31');
+    assert.equal(mirror.is_active, false);
+    assert.equal(mirror.run_crew_id, CREW_1);
+  });
+
+  it('re-checks CREW_RUN when the roster period is extended onto an overlapping run', async () => {
+    const fixture = buildFixture({
+      crew: [
+        makeCrewRecord({
+          id: CREW_1,
+          user_id: DRIVER_1,
+          run_id: RUN_A,
+          effective_from: '2026-01-01',
+          effective_to: '2026-03-31',
+        }),
+        makeCrewRecord({
+          id: CREW_2,
+          user_id: DRIVER_1,
+          run_id: RUN_C,
+          effective_from: '2026-04-01',
+          effective_to: null,
+        }),
+      ],
+    });
+
+    const extend = new UpdateRunCrewDto();
+    extend.effective_to = '2026-04-15';
+    await expectRejects(
+      fixture.service.update(SCHOOL_A, CREW_1, extend),
+      ConflictException,
+      RUN_CREW_CREW_RUN_CONFLICT_MESSAGE,
+    );
+  });
 });
 
 describe('RunCrewService.remove', () => {
@@ -611,6 +928,16 @@ describe('RunCrewService.remove', () => {
 
     assert.deepEqual(response, { id: CREW_1, message: RUN_CREW_DELETED_MESSAGE });
     assert.ok(record.deleted_at instanceof Date);
+  });
+
+  it('soft deletes the route_assignment mirror of the removed row', async () => {
+    const record = makeCrewRecord();
+    const mirror = makeAssignmentRecord();
+    const fixture = buildFixture({ crew: [record], assignments: [mirror] });
+
+    await fixture.service.remove(SCHOOL_A, CREW_1);
+
+    assert.ok(mirror.deleted_at instanceof Date);
   });
 
   it('returns 404 for another school', async () => {
