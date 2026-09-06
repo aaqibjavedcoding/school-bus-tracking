@@ -385,6 +385,33 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
+  // 0. CLEANUP: Remove any existing data from previous runs to ensure clean state
+  // ---------------------------------------------------------------------------
+  console.log('🧹 Cleaning up any existing seed data...');
+  for (const cfg of SCHOOL_CONFIGS) {
+    await queryInterface.bulkDelete('import_jobs', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('notifications', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('emergency_events', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('document_requirements', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('driver_documents', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('bus_documents', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('trip_student_attendance', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('trip_stop_arrivals', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('trip_locations', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('trips', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('route_assignments', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('student_guardians', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('students', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('stops', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('routes', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('buses', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('users', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('school_subscriptions', { school_id: cfg.id }, {});
+    await queryInterface.bulkDelete('schools', { id: cfg.id }, {});
+  }
+  console.log('✅ Cleanup complete\n');
+
+  // ---------------------------------------------------------------------------
   // 1. INSERT PLANS
   // ---------------------------------------------------------------------------
   await queryInterface.bulkInsert('plans', PLANS, options);
