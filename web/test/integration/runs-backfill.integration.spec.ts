@@ -8,6 +8,7 @@ import {
   prepareDatabase,
   runMigrations,
   undoLastMigration,
+  undoThroughMigration,
 } from '../support/database';
 import {
   createAssignment,
@@ -405,5 +406,36 @@ describe('default-run backfill (real PostgreSQL)', () => {
     assert.equal(await count('SELECT count(*) c FROM runs'), 7);
     assert.equal(await count('SELECT count(*) c FROM run_crew'), assignmentsBefore);
     assert.equal(await count('SELECT count(*) c FROM trips WHERE run_id IS NULL'), 0);
+  });
+
+  /**
+   * Verifies `undoThroughMigration()` (undoLastMigration + runMigrations) correctly
+   * targets the backfill's down() and restores a clean migrated state. This is
+   * the canonical use of the helper: undo one migration and immediately re-apply
+   * everything, ending up at the same state as a fresh `runMigrations()` call.
+   */
+  it('undoThroughMigration reverses the backfill and re-applies it cleanly', async () => {
+    // Apply the backfill on top of whatever state the database is in (it may
+    // already be migrated from a previous test in this suite).
+    runMigrations();
+    assert.ok((await count('SELECT count(*) c FROM runs')) > 0, 'precondition: backfill applied');
+
+    // undoThroughMigration = undoLastMigration + runMigrations
+    undoThroughMigration();
+
+    // After undoing the last migration (the backfill), we should be back at the
+    // pre-backfill state: routes exist, runs and run_crew do not.
+    assert.equal(await count('SELECT count(*) c FROM runs'), 0);
+    assert.equal(await count('SELECT count(*) c FROM run_crew'), 0);
+    assert.equal(
+      await count('SELECT count(*) c FROM route_assignments'),
+      assignmentsBefore,
+      'route_assignments is untouched',
+    );
+
+    // runMigrations() was already called inside undoThroughMigration — verify the
+    // backfill was re-applied.
+    assert.equal(await count('SELECT count(*) c FROM runs'), 7);
+    assert.equal(await count('SELECT count(*) c FROM run_crew'), assignmentsBefore);
   });
 });

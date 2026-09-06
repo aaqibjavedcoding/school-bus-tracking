@@ -6,9 +6,12 @@ import { RouteAssignmentRole, UserRole } from '@school-bus-tracking/shared-types
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import {
+  createAssignment,
   createBus,
-  createRoute,
+  createEmergency,
+  createFullSchool,
   createRun,
+  createRoute,
   createRunCrew,
   createSchool,
   createShift,
@@ -17,7 +20,7 @@ import {
   createTrip,
   createUser,
 } from '../support/fixtures';
-import { Student, User } from '../../src/server/database/models';
+import { EmergencyEvent, Run, RunCrew, Student, Trip, User } from '../../src/server/database/models';
 
 /**
  * Schema-level guarantees, verified against the real database.
@@ -190,7 +193,7 @@ describe('database constraints (real PostgreSQL)', () => {
     assert.notEqual(replacement.id, run.id);
   });
 
-  it('refuses to attach a run to another tenant’s route (composite FK)', async () => {
+  it('refuses to attach a run to another tenant\'s route (composite FK)', async () => {
     const schoolA = await createSchool();
     const schoolB = await createSchool();
     const routeB = await createRoute(schoolB.id);
@@ -271,7 +274,7 @@ describe('database constraints (real PostgreSQL)', () => {
     );
   });
 
-  it('refuses to point a student at another tenant’s run (composite FK)', async () => {
+  it('refuses to point a student at another tenant\'s run (composite FK)', async () => {
     const schoolA = await createSchool();
     const schoolB = await createSchool();
     const routeB = await createRoute(schoolB.id);
@@ -297,5 +300,130 @@ describe('database constraints (real PostgreSQL)', () => {
       paranoid: false,
     });
     assert.equal(remaining, 0);
+  });
+});
+
+/**
+ * Composite FKs with ON DELETE SET NULL would null every referencing column —
+ * including the non-nullable `school_id` — so the delete is refused with a
+ * generic not-null violation.  `ON DELETE NO ACTION` produces the same behaviour
+ * (the delete is blocked) but names the constraint in the error, making it
+ * actionable.
+ *
+ * Tests use error code 23503 (foreign_key_violation) and assert the named
+ * constraint appears in the message.
+ *
+ * @see 20260906130000-composite-set-null-to-no-action.ts
+ */
+describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
+  let sequelize: Sequelize;
+
+  before(async () => {
+    sequelize = await prepareDatabase();
+  });
+
+  beforeEach(async () => {
+    await truncateAll(sequelize);
+  });
+
+  after(async () => {
+    await sequelize?.close();
+  });
+
+  it('fk_students_run: hard-deleting a referenced run is refused with error 23503', async () => {
+    const school = await createSchool();
+    const route = await createRoute(school.id);
+    const run = await createRun(school.id, route.id);
+    await createStudent(school.id, null, { admission_number: 'STU-NO-ACT-1' });
+    // Set the student's run to the created run
+    await sequelize.query(
+      `UPDATE students SET run_id = :runId WHERE school_id = :school`,
+      { replacements: { runId: run.id, school: school.id } },
+    );
+
+    await assert.rejects(
+      sequelize.query(`DELETE FROM runs WHERE id = $id`, { bind: { id: run.id } }),
+      (err: unknown) => {
+        const msg = String(err);
+        return msg.includes('23503') && msg.includes('fk_students_run');
+      },
+    );
+  });
+
+  it('fk_trips_bus: hard-deleting a referenced bus is refused with error 23503', async () => {
+    const school = await createSchool();
+    const route = await createRoute(school.id);
+    const bus = await createBus(school.id);
+    const driver = await createUser(school.id, UserRole.DRIVER);
+    await createTrip(school.id, route.id, bus.id, driver.id);
+
+    await assert.rejects(
+      sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
+      (err: unknown) => {
+        const msg = String(err);
+        return msg.includes('23503') && msg.includes('fk_trips_bus');
+      },
+    );
+  });
+
+  it('fk_trip_student_attendance_stop: hard-deleting a stop with attendance records is refused with error 23503', async () => {
+    const school = await createSchool();
+    const route = await createRoute(school.id);
+    const stop = await createStop(school.id, route.id);
+    const bus = await createBus(school.id);
+    const driver = await createUser(school.id, UserRole.DRIVER);
+    const student = await createStudent(school.id, stop.id);
+    const trip = await createTrip(school.id, route.id, bus.id, driver.id);
+
+    // Record attendance for the student on the trip at the stop
+    await sequelize.query(
+      `INSERT INTO trip_student_attendance
+         (id, school_id, trip_id, student_id, stop_id, status,
+          boarded_at, boarded_by, dropped_at, dropped_by, created_at, updated_at)
+       VALUES
+         (gen_random_uuid(), :school, :trip, :student, :stop, 'PENDING',
+          NULL, NULL, NULL, NULL, now(), now())`,
+      { replacements: { school: school.id, trip: trip.id, student: student.id, stop: stop.id } },
+    );
+
+    await assert.rejects(
+      sequelize.query(`DELETE FROM stops WHERE id = $id`, { bind: { id: stop.id } }),
+      (err: unknown) => {
+        const msg = String(err);
+        return msg.includes('23503') && msg.includes('fk_trip_student_attendance_stop');
+      },
+    );
+  });
+
+  it('fk_runs_bus: hard-deleting a bus assigned to a run is refused with error 23503', async () => {
+    const school = await createSchool();
+    const route = await createRoute(school.id);
+    const bus = await createBus(school.id);
+    await createRun(school.id, route.id, { bus_id: bus.id, code: 'RUN-WITH-BUS' });
+
+    await assert.rejects(
+      sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
+      (err: unknown) => {
+        const msg = String(err);
+        return msg.includes('23503') && msg.includes('fk_runs_bus');
+      },
+    );
+  });
+
+  it('fk_emergency_events_bus: hard-deleting a bus referenced by an emergency event is refused with error 23503', async () => {
+    const school = await createSchool();
+    const route = await createRoute(school.id);
+    const bus = await createBus(school.id);
+    const driver = await createUser(school.id, UserRole.DRIVER);
+    const trip = await createTrip(school.id, route.id, bus.id, driver.id);
+    await createEmergency(school.id, trip.id, driver.id);
+
+    await assert.rejects(
+      sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
+      (err: unknown) => {
+        const msg = String(err);
+        return msg.includes('23503') && msg.includes('fk_emergency_events_bus');
+      },
+    );
   });
 });
