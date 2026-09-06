@@ -21,16 +21,28 @@ re-export it.
 
 ## Running
 
+> **This project is permanently locked to Expo SDK 54.** If scanning the QR
+> code says `Project is incompatible with this version of Expo Go`, that's
+> Expo Go being *newer* than this pinned project (Expo Go always tracks the
+> latest SDK) — not a bug here. Use a **development build** instead of the
+> generic Expo Go app; see `docs/mobile-expo-sdk.md` for the one-time setup,
+> why the SDK stays pinned, and why this permanently prevents the mismatch
+> instead of just working around it once.
+
 ```bash
 # from the repo root
 npm install
 npm run build:packages
 
+# ONE-TIME per device/emulator: build & install the dev client
+# (see docs/mobile-expo-sdk.md if you don't have Android Studio/Xcode yet)
+cd mobile && npx expo run:android   # or: npx expo run:ios
+
 # start the server first — it serves BOTH the web UI and the API on port 3001,
 # and the phone needs it running and reachable
 npm --prefix web run dev
 
-# then start the app
+# then start the app (auto-launches into the dev build installed above)
 npm --prefix mobile start
 ```
 
@@ -73,12 +85,22 @@ in the platform cookie jar, so the session survives app restarts.
 
 ```bash
 npm --prefix mobile run typecheck   # tsc --noEmit
+npm --prefix mobile run verify:sdk  # confirms the project is still on the locked Expo SDK
 npm --prefix mobile test            # node --test unit specs
 cd mobile && npx expo export --platform android   # Metro bundle check
 cd mobile && npx expo export --platform ios       # Metro bundle check
 ```
 
 ## Troubleshooting
+
+### `Project is incompatible with this version of Expo Go`
+
+This project is pinned to Expo SDK 54 on purpose and never auto-upgrades.
+Expo Go's app-store build tracks whatever the newest SDK is, so it will
+eventually be newer than this project — that is expected, not a bug. See
+`docs/mobile-expo-sdk.md` for the root cause and the permanent fix (a
+development build via the already-installed `expo-dev-client`, not chasing
+Expo Go's version or upgrading this project's SDK).
 
 ### `TypeError: Cannot read property 'useId' of null` at startup
 
