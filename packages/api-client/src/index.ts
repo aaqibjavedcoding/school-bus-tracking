@@ -359,6 +359,41 @@ function isCsrfRejection(errorData: unknown): boolean {
 }
 
 /**
+ * Reads an error response body exactly once.
+ *
+ * A previous implementation tried `response.json()` and fell back to
+ * `response.text()` in the catch. After `json()` throws (HTML / empty /
+ * non-JSON), the body stream is already consumed, so `text()` itself throws
+ * `TypeError: body stream already read` — masking the real status and body
+ * behind a client-side crash. A single `text()` + optional `JSON.parse`
+ * keeps the {@link ApiClientError} contract intact for every content type.
+ *
+ * Empty bodies become `undefined` (not `""`) so callers can distinguish
+ * "server sent nothing" from "server sent an empty JSON string".
+ */
+export async function readErrorResponseBody(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  if (raw.length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+}
+
+/** Builds the {@link ApiClientError} message; non-JSON bodies are truncated. */
+function apiClientErrorMessage(status: number, errorData: unknown): string {
+  const base = `Request failed with status ${status}`;
+  if (typeof errorData !== 'string' || errorData.length === 0) {
+    return base;
+  }
+  const truncated = errorData.length > 200 ? errorData.slice(0, 200) : errorData;
+  return `${base}: ${truncated}`;
+}
+
+/**
  * Reads a cookie from `document.cookie`.
  *
  * The CSRF cookie is deliberately *not* httpOnly: the browser must be able to
@@ -644,12 +679,7 @@ export class ApiClient {
       }
 
       if (!response.ok) {
-        let errorData: unknown;
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = await response.text();
-        }
+        const errorData = await readErrorResponseBody(response);
 
         // A 403 CSRF rejection means the cookie we echoed is gone or was
         // rotated (logout in another tab, expired TTL). Re-seed once and
@@ -668,7 +698,7 @@ export class ApiClient {
         }
 
         throw new ApiClientError(
-          `Request failed with status ${response.status}`,
+          apiClientErrorMessage(response.status, errorData),
           response.status,
           errorData,
         );
@@ -1080,6 +1110,7 @@ export class ApiClient {
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.search) params.set('search', query.search);
+    if (query.run_id) params.set('run_id', query.run_id);
     if (query.include) params.set('include', query.include);
     const suffix = querySuffix(params);
     return this.get<StudentListResponse | StudentMinimalListResponse>(`/students${suffix}`);
@@ -2149,16 +2180,13 @@ export class ApiClient {
     }
 
     if (!response.ok) {
-      // An error response *is* JSON even on a download route, because the
-      // failure happens before any bytes of the file are written.
-      let errorData: unknown;
-      try {
-        errorData = await response.json();
-      } catch {
-        errorData = await response.text();
-      }
+      // An error response is usually JSON even on a download route (the
+      // failure happens before any file bytes are written), but proxies and
+      // HTML error pages still show up — read once so non-JSON bodies cannot
+      // mask the real status behind a "body stream already read" TypeError.
+      const errorData = await readErrorResponseBody(response);
       throw new ApiClientError(
-        `Request failed with status ${response.status}`,
+        apiClientErrorMessage(response.status, errorData),
         response.status,
         errorData,
       );
@@ -2471,6 +2499,7 @@ function reportQuerySuffix(query: ReportQuery): string {
   if (query.route_id) params.set('route_id', query.route_id);
   if (query.bus_id) params.set('bus_id', query.bus_id);
   if (query.stop_id) params.set('stop_id', query.stop_id);
+  if (query.shift_id) params.set('shift_id', query.shift_id);
   if (query.driver_id) params.set('driver_id', query.driver_id);
   if (query.student_id) params.set('student_id', query.student_id);
   if (query.trip_status) params.set('trip_status', query.trip_status);
