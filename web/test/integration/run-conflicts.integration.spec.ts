@@ -3,7 +3,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UniqueConstraintError } from 'sequelize';
 import { ConfigService } from '../../src/server/framework';
-import { RouteAssignmentRole, UserRole } from '@school-bus-tracking/shared-types';
+import { RouteAssignmentRole, RunCrewRole, UserRole } from '@school-bus-tracking/shared-types';
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import {
@@ -22,9 +22,13 @@ import {
 import { PlanLimitsService } from '../../src/server/common/plan-limits';
 import { RunsService } from '../../src/server/modules/runs/runs.service';
 import { RunCrewService } from '../../src/server/modules/run-crew/run-crew.service';
+import { ShiftsService } from '../../src/server/modules/shifts/shifts.service';
 import { StudentsService } from '../../src/server/modules/students/students.service';
 import { CreateRunDto } from '../../src/server/modules/runs/dto/create-run.dto';
+import { CreateShiftDto } from '../../src/server/modules/shifts/dto/create-shift.dto';
 import { CreateRunCrewDto } from '../../src/server/modules/run-crew/dto/create-run-crew.dto';
+import { ListRunCrewQueryDto } from '../../src/server/modules/run-crew/dto/list-run-crew-query.dto';
+import { SHIFT_DELETED_MESSAGE } from '../../src/server/modules/shifts/shifts.constants';
 import { CreateStudentDto } from '../../src/server/modules/students/dto/create-student.dto';
 import { UpdateStudentDto } from '../../src/server/modules/students/dto/update-student.dto';
 import { STUDENT_RUN_ROUTE_MISMATCH_MESSAGE } from '../../src/server/modules/students/students.constants';
@@ -330,5 +334,79 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
     );
     assert.equal(cleared.run_id, null);
     assert.equal(cleared.home_stop_id, stopOnRoute1.id);
+  });
+
+  it('shift lifecycle: a shift with live runs cannot be deleted (§8.1), then can once unused', async () => {
+    const { runs } = services();
+    const f = await makeTenantFixture();
+    const shifts = new ShiftsService(Shift, Run);
+
+    const run = await runs.create(
+      f.school.id,
+      runDto({ route_id: f.route1.id, bus_id: f.bus.id, shift_id: f.morning.id, code: 'L-A' }),
+    );
+    assert.equal(run.shift_id, f.morning.id);
+
+    // A live run references the shift: the reference-data delete guard fires.
+    await assert.rejects(
+      shifts.remove(f.school.id, f.morning.id),
+      (error: unknown) => (error as { status: number }).status === 409,
+    );
+
+    // Free the shift (delete the run — soft delete via paranoid model), then
+    // the shift goes.
+    await runs.remove(f.school.id, run.id);
+    const result = await shifts.remove(f.school.id, f.morning.id);
+    assert.equal(result.message, SHIFT_DELETED_MESSAGE);
+
+    // Soft-deleted shift rows release their name (uq is partial).
+    const recreated = await shifts.create(
+      f.school.id,
+      Object.assign(new CreateShiftDto(), {
+        name: 'Morning',
+        start_time: '07:00:00',
+        end_time: '11:00:00',
+      }),
+    );
+    assert.equal(recreated.name, 'Morning');
+  });
+
+  it('run-crew writes still mirror to route_assignments (the read-only legacy table)', async () => {
+    const { runCrew } = services();
+    const f = await makeTenantFixture();
+    const run = await createRun(f.school.id, f.route1.id, {
+      bus_id: f.bus.id,
+      shift_id: f.morning.id,
+      code: 'M-A',
+    });
+
+    const dto = new CreateRunCrewDto();
+    dto.user_id = f.driver.id;
+    dto.role = RunCrewRole.DRIVER;
+    dto.effective_from = '2026-09-07';
+
+    const created = await runCrew.create(f.school.id, run.id, dto);
+
+    // The new table holds the roster of record…
+    const roster = await runCrew.findAllForRun(f.school.id, run.id, new ListRunCrewQueryDto());
+    assert.equal(roster.items.length, 1);
+    assert.equal(roster.items[0].id, created.id);
+
+    // …and the retired table stays a faithful readable mirror (§10).
+    const mirrors = await RouteAssignment.findAll({
+      where: { school_id: f.school.id, route_id: f.route1.id, deleted_at: null },
+    });
+    assert.equal(mirrors.length, 1);
+    assert.equal(mirrors[0].user_id, f.driver.id);
+    assert.equal(mirrors[0].bus_id, f.bus.id);
+    assert.equal(String(mirrors[0].effective_from).slice(0, 10), '2026-09-07');
+
+    // Deleting the roster row soft-deletes the mirror too — the mirror never
+    // outlives its source.
+    await runCrew.remove(f.school.id, created.id);
+    const afterDelete = await RouteAssignment.findAll({
+      where: { school_id: f.school.id, route_id: f.route1.id, deleted_at: null },
+    });
+    assert.equal(afterDelete.length, 0);
   });
 });

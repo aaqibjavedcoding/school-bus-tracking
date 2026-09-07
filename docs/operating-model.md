@@ -614,7 +614,7 @@ the audit record of what the roster was.
 and every roster entry resolvable through a run, and the whole backfill
 reversible (§6.4).
 
-### 6.3 `route_assignments`: deprecated, still readable
+### 6.3 `route_assignments`: deprecated, writes retired (Phase 4)
 
 | Stage | Session | `route_assignments` | `run_crew` |
 | --- | --- | --- | --- |
@@ -622,11 +622,32 @@ reversible (§6.4).
 | After Session 1 | 1 | read and written (unchanged) | populated by backfill, read-only |
 | Dual write | 2 | written (mirror) | **authoritative** — API writes here |
 | Read-only | 3 | read-only, API responses stop using it | authoritative |
-| Retired | 4+ | table kept, all reads gone | authoritative |
+| Writes retired | 4 | table kept, **GET still serves the mirror**, POST/PATCH/DELETE → `410 Gone` | authoritative |
+| Fully retired | future | table kept, all reads gone | authoritative |
 
 Session 2 owns the dual write and the conflict-engine swap. Session 1
 deliberately does **not** touch `AssignmentsService`, because writing to both
 tables before the conflict rules move would put the two rosters out of step.
+
+**Phase 4 mechanism.** Rather than deleting the legacy controllers, every
+legacy assignment endpoint carries a `deprecation` declaration consumed by the
+route runtime, which emits, on *every* response (read and write):
+
+- `Deprecation: true` ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594));
+- `Sunset: Wed, 31 Mar 2027 00:00:00 GMT`
+  ([RFC 8594](https://www.rfc-editor.org/rfc/rfc8594));
+- `Link: </api/v1/runs>; rel="success-version"`
+  ([RFC 9745](https://www.rfc-editor.org/rfc/rfc9745)).
+
+`POST`/`PATCH`/`DELETE` are answered with **`410 Gone`** *before* the auth
+guards run, so no legacy write path can ever create a row the run-crew service
+does not know about; `GET` keeps serving so existing screens and exports keep
+working against the mirror. The assignment services stay in the tree as the
+mirror reader. The tenant surface (`/route-assignments`, `/assignments`) and
+the assisted-management equivalents behave identically. The `run_crew`
+service remains the only writer — every run-crew create/update/delete still
+updates the mirror row, so the retired table is and remains a faithful
+read-only copy.
 
 Nothing is dropped in this programme without its own migration with a working
 `down()`. "Deprecated" here means "stop writing", never "delete".
@@ -816,14 +837,67 @@ No service, API, UI, mobile or `packages/*` change.
 - Mobile: driver sees the run they are rostered on, not "a route".
 - Parent view: exact bus number and driver for the child's run.
 
-### Phase 4 — Session 4 (reports, retirement, hardening)
+### Phase 4 — Session 4 (reports, retirement, hardening) — shipped
 
-- Run utilisation, bus-day tiering, crew-load and deadhead reports.
-- `route_assignments` becomes read-only, then unread; deprecation headers on
-  the old endpoints.
-- `NULL`-shift cleanup: provision shifts per school, backfill `runs.shift_id`,
-  then a `SET NOT NULL` migration if the data allows.
-- Load and concurrency verification of the conflict checks.
+- **Reports.** Four new report types follow the existing
+  schema → service → page-card pattern:
+  - *Run utilisation* — active riders (students with an active `run_id`) per
+    run against bus seat capacity, with fill %, trip count and crew
+    completeness;
+  - *Bus-day tiering* — per active bus: its runs and the distinct shift
+    windows they occupy (a `NULL` shift is its own whole-day window, matching
+    §4.3), so an operator sees how much of the day each bus covers;
+  - *Crew load* — active roster rows effective today per staff member and
+    role (`effective_from <= today` and `effective_to` NULL or in the future);
+  - *Deadhead* — active runs that carry a bus but zero riders (paid fleet
+    movement with no children on board).
+  All four accept the shared filter set (`route_id`, `bus_id`, `shift_id`,
+  `status`, `date_from`, `date_to`) and the `shift_id` report filter shipped
+  with them.
+- **`route_assignments` writes retired** — see §6.3: `410 Gone` on writes,
+  `Deprecation` / `Sunset` / `Link` headers on every response, GET unchanged.
+- **Data transfer.** `ExportDataset.SHIFTS` and `ExportDataset.RUNS` are
+  registered and wired to `ListActions` on `/shifts` and the Runs panel. The
+  runs export resolves route, shift window, bus registration, driver,
+  conductor and active-rider count; a `driver_id` filter resolves the
+  driver's runs through `run_crew`; runs without a shift export as
+  "Whole day (legacy)". **Bulk import for shifts/runs is deliberately not
+  added:** the existing import pipeline still funnels rosters through the
+  legacy date-based `route_assignments` write path (now `410`), and roster
+  imports must instead run the window-conflict engine — bolting a new importer
+  onto the retired dual-write would resurrect writes the retirement closed.
+  Runs and shifts continue to arrive via the API and seeders; a dedicated
+  importer driving the run-crew service is a future piece.
+- **Assisted management.** The SUPER_ADMIN managed surface now covers shifts,
+  runs and run-crew 1:1 across every place the assisted model requires:
+  capabilities + audit-entity mapping (`shifts`/`runs`/`run_crew`), 15 managed
+  endpoints (shifts CRUD, runs CRUD, `runs/:id/crew` GET+POST,
+  `run-crew/:id` GET/PATCH/DELETE — no new nested shapes beyond what the
+  tenant surface already has), the api-client `MANAGED_TENANT_PATH_RULES`
+  remapping `/shifts`, `/runs[/:id/crew]` and `/run-crew/:id`, and the managed
+  sidebar "Shifts & runs" entry.
+- **`NULL`-shift cleanup / `SET NOT NULL` — deliberately *not* shipped.** The
+  precondition for tightening `runs.shift_id` was "only if the data and the
+  seeders allow". They do not: the back-compat design of §6.1 auto-provisions
+  a default run with `shift_id = NULL` on every new route (`provisionDefaultRun`),
+  and the §4.3 whole-day semantics are load-bearing across the conflict
+  engine, the reports and their unit suites (a `NULL` shift *is* the express
+  representation of "no shift defined yet", not dirty data to clean up).
+  Forcing `NOT NULL` would require inventing a synthetic per-school shift
+  inside a data migration — the exact thing the `create-runs` migration
+  comment ruled out ("would write reference data no operator chose") — or
+  re-architecting the default-run provisioning path. The column stays
+  nullable; the reports, exports and conflict rules already treat `NULL`
+  explicitly and consistently.
+- **Integration coverage.** The CI-only `run-conflicts` integration spec
+  (real PostgreSQL; the sandbox has no database) gained, without rewriting
+  existing cases: a shift-lifecycle case (409 while a live run references the
+  shift, delete succeeds once the run is soft-deleted, the partial unique
+  index releases the name) and a run-crew case proving a crew write still
+  creates, and a delete still soft-deletes, the `route_assignments` mirror.
+- Load/concurrency verification of the conflict checks remains a CI/ops
+  exercise: the advisory-lock serialization is unit-covered and exercised in
+  the CI integration spec, but load testing needs a deployed PostgreSQL.
 
 ---
 
@@ -832,9 +906,15 @@ No service, API, UI, mobile or `packages/*` change.
 1. **Per-run time offsets.** If a school needs a run to start 10 minutes off
    its bell window, add `offset_minutes` to `runs` — not a second pair of
    timestamps. Decide in Phase 3, driven by a real requirement.
-2. **Direction.** Many districts model AM/PM as separate runs on one path. This
-   design expresses that as two runs; an explicit `direction` column is only
-   worth adding if reporting needs to pair them. Phase 4.
+2. **Direction — decided "won't do" in Phase 4.** Many districts model AM/PM
+   as separate runs on one path; this design expresses that as two runs. The
+   Phase 4 reports (§Phase 4) pair runs per bus per day via their **shift
+   windows**, not via a direction tag — morning/afternoon pairing falls out of
+   the shifts the runs already reference, and a `NULL` shift is its own
+   whole-day window. An explicit `direction` column would duplicate that
+   grouping as a second, denormalised source of truth, so it is not added.
+   Revisit only if a future report needs AM/PM pairing *across* shifts (e.g.
+   matching a morning run to its afternoon return regardless of window).
 3. **Multi-stop students.** A child who rides in the morning and leaves by a
    different run in the afternoon needs a join table, not a `run_id`. Session 1
    ships the single `run_id` because it covers the overwhelmingly common case;
