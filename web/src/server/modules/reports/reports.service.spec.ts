@@ -38,19 +38,34 @@ class StubModel {
   private match(where: Record<string, unknown> = {}): Row[] {
     return this.rows.filter((row) =>
       Object.entries(where).every(([key, condition]) => {
-        if (condition && typeof condition === 'object') {
-          const record = condition as Record<symbol, unknown>;
-          const inList = record[Op.in as unknown as symbol];
-          if (Array.isArray(inList)) return inList.includes(row[key]);
-          const notEqual = record[Op.ne as unknown as symbol];
-          if (notEqual !== undefined) return row[key] !== notEqual;
-          const gte = record[Op.gte as unknown as symbol];
-          if (gte instanceof Date) return new Date(row[key] as string) >= gte;
-          return true;
+        // Top-level OR (e.g. { [Op.or]: [{ effective_to: null }, …] }).
+        if (key === String(Op.or) && Array.isArray(condition)) {
+          return (condition as Record<string, unknown>[]).some((branch) =>
+            Object.entries(branch).every(([branchKey, branchCondition]) =>
+              this.conditionMatches(row, branchKey, branchCondition),
+            ),
+          );
         }
-        return row[key] === condition;
+        return this.conditionMatches(row, key, condition);
       }),
     );
+  }
+
+  private conditionMatches(row: Row, key: string, condition: unknown): boolean {
+    if (condition && typeof condition === 'object') {
+      const record = condition as Record<symbol, unknown>;
+      const inList = record[Op.in as unknown as symbol];
+      if (Array.isArray(inList)) return inList.includes(row[key]);
+      const notEqual = record[Op.ne as unknown as symbol];
+      if (notEqual !== undefined) return row[key] !== notEqual;
+      const gte = record[Op.gte as unknown as symbol];
+      if (gte instanceof Date) return new Date(row[key] as string) >= gte;
+      const lte = record[Op.lte as unknown as symbol];
+      if (lte instanceof Date) return new Date(row[key] as string) <= lte;
+      if (typeof lte === 'string') return String(row[key]) <= lte;
+      return true;
+    }
+    return row[key] === condition;
   }
 
   async count(options: { where?: Record<string, unknown> } = {}): Promise<number> {
@@ -130,6 +145,9 @@ function makeService(overrides: Partial<Record<string, StubModel>> = {}) {
     'notifications',
     'busDocuments',
     'driverDocuments',
+    'runs',
+    'runCrew',
+    'shifts',
   ];
   const models: Record<string, StubModel> = {};
   for (const name of names) {
@@ -155,6 +173,9 @@ function makeService(overrides: Partial<Record<string, StubModel>> = {}) {
         audit.push(entry);
       },
     } as unknown as AuditService,
+    models.runs as never,
+    models.runCrew as never,
+    models.shifts as never,
   );
 
   return { service, models, audit };
@@ -221,6 +242,7 @@ describe('report catalogue', () => {
       'route_id',
       'bus_id',
       'stop_id',
+      'shift_id',
       'driver_id',
       'student_id',
       'trip_status',
@@ -536,6 +558,174 @@ describe('report helpers', () => {
     assert.deepEqual(paginateRows(rows, 0, 2), [{ a: 1 }, { a: 2 }]);
     assert.deepEqual(paginateRows(rows, 2, 2), [{ a: 3 }]);
     assert.deepEqual(paginateRows(rows, 10, 2), []);
+  });
+});
+
+describe('run-level operating-model reports', () => {
+  it('run utilisation: computes riders, seats and fill per run', async () => {
+    const runs = new StubModel([
+      {
+        id: 'run-am',
+        school_id: SCHOOL_A,
+        route_id: 'route-north',
+        shift_id: 'shift-morning',
+        bus_id: 'bus-1',
+        code: 'R-01',
+        is_active: true,
+        is_default: false,
+      },
+      {
+        id: 'run-pm',
+        school_id: SCHOOL_A,
+        route_id: 'route-north',
+        shift_id: 'shift-afternoon',
+        bus_id: 'bus-2',
+        code: 'R-02',
+        is_active: true,
+        is_default: false,
+      },
+    ]);
+    const { service } = makeService({
+      runs,
+      routes: new StubModel([ROUTE_NORTH]),
+      shifts: new StubModel([
+        { id: 'shift-morning', school_id: SCHOOL_A, name: 'Morning', start_time: '07:00', end_time: '11:00' },
+        { id: 'shift-afternoon', school_id: SCHOOL_A, name: 'Afternoon', start_time: '12:00', end_time: '16:00' },
+      ]),
+      buses: new StubModel([
+        { id: 'bus-1', school_id: SCHOOL_A, capacity: 40, registration_number: 'REG-1', bus_number: 'B1', is_active: true },
+        { id: 'bus-2', school_id: SCHOOL_A, capacity: 30, registration_number: 'REG-2', bus_number: 'B2', is_active: true },
+      ]),
+      students: new StubModel([
+        { id: 's1', school_id: SCHOOL_A, run_id: 'run-am', is_active: true },
+        { id: 's2', school_id: SCHOOL_A, run_id: 'run-am', is_active: true },
+        { id: 's3', school_id: SCHOOL_A, run_id: 'run-pm', is_active: true },
+      ]),
+      runCrew: new StubModel([
+        { id: 'rc1', school_id: SCHOOL_A, run_id: 'run-am', role: 'DRIVER', is_active: true, effective_from: '2000-01-01', effective_to: null },
+      ]),
+      trips: new StubModel([]),
+    });
+
+    const result = await service.run(SCHOOL_A, ReportType.RUN_UTILIZATION, {});
+
+    assert.equal(result.meta.total, 2);
+    const am = result.rows.find((row) => row.run_code === 'R-01');
+    const pm = result.rows.find((row) => row.run_code === 'R-02');
+    assert.equal(am?.riders, 2);
+    assert.equal(am?.capacity, 40);
+    assert.equal(am?.fill, 5);
+    assert.equal(am?.shift, 'Morning');
+    assert.equal(am?.crew, 'Driver only');
+    assert.equal(pm?.riders, 1);
+    assert.equal(pm?.crew, 'Uncrewed');
+  });
+
+  it('bus day tiering: counts distinct shift windows per bus', async () => {
+    const { service } = makeService({
+      buses: new StubModel([
+        { id: 'bus-1', school_id: SCHOOL_A, capacity: 40, registration_number: 'REG-1', bus_number: 'B1', is_active: true },
+        { id: 'bus-2', school_id: SCHOOL_A, capacity: 30, registration_number: 'REG-2', bus_number: 'B2', is_active: true },
+      ]),
+      runs: new StubModel([
+        // bus-1 works two disjoint shifts: tiered (the legal configuration).
+        { id: 'r1', school_id: SCHOOL_A, bus_id: 'bus-1', shift_id: 'shift-morning', is_active: true },
+        { id: 'r2', school_id: SCHOOL_A, bus_id: 'bus-1', shift_id: 'shift-afternoon', is_active: true },
+        // bus-2 works a single shift.
+        { id: 'r3', school_id: SCHOOL_A, bus_id: 'bus-2', shift_id: 'shift-morning', is_active: true },
+      ]),
+      trips: new StubModel([]),
+    });
+
+    const result = await service.run(SCHOOL_A, ReportType.BUS_DAY_TIERING, {});
+    const tiered = result.rows.find((row) => row.registration_number === 'REG-1');
+    const single = result.rows.find((row) => row.registration_number === 'REG-2');
+
+    assert.equal(tiered?.tiers, 2);
+    assert.equal(tiered?.runs, 2);
+    assert.equal(single?.tiers, 1);
+    const summary = new Map(result.summary.map((card) => [card.key, card.value]));
+    assert.equal(summary.get('tiered'), 1);
+  });
+
+  it('crew load: aggregates runs and shift windows per crew member', async () => {
+    const today = isoDate(new Date());
+    const { service } = makeService({
+      runCrew: new StubModel([
+        // Driver A on two runs in disjoint shifts.
+        { id: 'c1', school_id: SCHOOL_A, run_id: 'r1', user_id: 'driver-a', role: 'DRIVER', is_active: true, effective_from: '2000-01-01', effective_to: null },
+        { id: 'c2', school_id: SCHOOL_A, run_id: 'r2', user_id: 'driver-a', role: 'DRIVER', is_active: true, effective_from: '2000-01-01', effective_to: null },
+        // Conductor B on one run.
+        { id: 'c3', school_id: SCHOOL_A, run_id: 'r1', user_id: 'cond-b', role: 'CONDUCTOR', is_active: true, effective_from: '2000-01-01', effective_to: null },
+      ]),
+      runs: new StubModel([
+        { id: 'r1', school_id: SCHOOL_A, shift_id: 'shift-morning', is_active: true },
+        { id: 'r2', school_id: SCHOOL_A, shift_id: 'shift-afternoon', is_active: true },
+      ]),
+      shifts: new StubModel([
+        { id: 'shift-morning', school_id: SCHOOL_A, name: 'Morning' },
+        { id: 'shift-afternoon', school_id: SCHOOL_A, name: 'Afternoon' },
+      ]),
+      users: new StubModel([
+        { id: 'driver-a', school_id: SCHOOL_A, first_name: 'Ada', last_name: 'Driver', is_active: true, role: 'DRIVER' },
+        { id: 'cond-b', school_id: SCHOOL_A, first_name: 'Con', last_name: 'Ductor', is_active: true, role: 'CONDUCTOR' },
+      ]),
+    });
+    void today;
+
+    const result = await service.run(SCHOOL_A, ReportType.CREW_LOAD, {});
+    const driver = result.rows.find((row) => row.name === 'Ada Driver');
+    const conductor = result.rows.find((row) => row.name === 'Con Ductor');
+
+    assert.equal(driver?.runs, 2);
+    assert.equal(driver?.shifts, 2);
+    assert.match(String(driver?.window), /Morning/);
+    assert.match(String(driver?.window), /Afternoon/);
+    assert.equal(conductor?.runs, 1);
+    assert.equal(conductor?.role, 'Conductor');
+  });
+
+  it('deadhead: flags active runs with a bus but no riders', async () => {
+    const { service } = makeService({
+      runs: new StubModel([
+        { id: 'r-dead', school_id: SCHOOL_A, route_id: 'route-north', shift_id: 'shift-morning', bus_id: 'bus-1', code: 'R-DEAD', is_active: true },
+        { id: 'r-full', school_id: SCHOOL_A, route_id: 'route-north', shift_id: 'shift-afternoon', bus_id: 'bus-2', code: 'R-FULL', is_active: true },
+        // No bus — undecided fleet, not dead service.
+        { id: 'r-nobus', school_id: SCHOOL_A, route_id: 'route-north', shift_id: null, bus_id: null, code: 'R-NOBUS', is_active: true },
+      ]),
+      routes: new StubModel([ROUTE_NORTH]),
+      shifts: new StubModel([
+        { id: 'shift-morning', school_id: SCHOOL_A, name: 'Morning' },
+        { id: 'shift-afternoon', school_id: SCHOOL_A, name: 'Afternoon' },
+      ]),
+      students: new StubModel([
+        { id: 's1', school_id: SCHOOL_A, run_id: 'r-full', is_active: true },
+      ]),
+      trips: new StubModel([]),
+    });
+
+    const result = await service.run(SCHOOL_A, ReportType.DEADHEAD_RUNS, {});
+
+    assert.equal(result.meta.total, 1);
+    assert.equal(result.rows[0].run_code, 'R-DEAD');
+    assert.match(String(result.rows[0].reason), /Dead/);
+  });
+
+  it('pins every new report query to the school id', async () => {
+    const runs = new StubModel([]);
+    const { service } = makeService({ runs, buses: new StubModel([]), runCrew: new StubModel([]) });
+
+    for (const report of [
+      ReportType.RUN_UTILIZATION,
+      ReportType.BUS_DAY_TIERING,
+      ReportType.CREW_LOAD,
+      ReportType.DEADHEAD_RUNS,
+    ]) {
+      await service.run(SCHOOL_A, report, {});
+    }
+    for (const query of runs.queries) {
+      assert.equal((query.where as Record<string, unknown>).school_id, SCHOOL_A);
+    }
   });
 });
 

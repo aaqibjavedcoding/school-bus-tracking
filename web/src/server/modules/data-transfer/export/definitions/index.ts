@@ -9,6 +9,7 @@ import {
   studentsExport,
 } from './people.export';
 import { busesExport, routeAssignmentsExport, routesExport, stopsExport } from './fleet.export';
+import { runsExport, shiftsExport } from './runs.export';
 import {
   attendanceExport,
   busDocumentsExport,
@@ -40,6 +41,8 @@ export const EXPORT_DEFINITIONS: Readonly<Record<ExportDataset, ExportDefinition
   [ExportDataset.NOTIFICATIONS]: notificationsExport,
   [ExportDataset.BUS_DOCUMENTS]: busDocumentsExport,
   [ExportDataset.DRIVER_DOCUMENTS]: driverDocumentsExport,
+  [ExportDataset.SHIFTS]: shiftsExport,
+  [ExportDataset.RUNS]: runsExport,
 });
 
 /**

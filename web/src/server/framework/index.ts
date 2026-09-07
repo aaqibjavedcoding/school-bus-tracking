@@ -15,6 +15,7 @@ export {
   ForbiddenException,
   NotFoundException,
   ConflictException,
+  GoneException,
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
   InternalServerErrorException,

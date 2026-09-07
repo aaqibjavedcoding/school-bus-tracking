@@ -61,6 +61,9 @@ export const ASSISTED_MANAGEMENT_CAPABILITIES = [
   'drivers',
   'conductors',
   'route_assignments',
+  'shifts',
+  'runs',
+  'run_crew',
   'imports',
   'exports',
   'import_templates',
@@ -86,4 +89,7 @@ export const ASSISTED_AUDIT_ENTITY_BY_RESOURCE: Record<string, AuditEntityType> 
   conductors: 'user',
   'route-assignments': 'assignment',
   assignments: 'assignment',
+  shifts: 'shift',
+  runs: 'run',
+  'run-crew': 'run_crew',
 };

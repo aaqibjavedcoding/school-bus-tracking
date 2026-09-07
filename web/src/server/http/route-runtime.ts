@@ -20,6 +20,7 @@
 import type { UserRole } from '@school-bus-tracking/shared-types';
 import {
   BadRequestException,
+  GoneException,
   HttpStatus,
   createExecutionContext,
   globalValidationPipe,
@@ -48,6 +49,11 @@ import {
 import { School } from '../database/models';
 import { RATE_LIMIT_POLICY_KEY } from '../common/rate-limit/rate-limit.constants';
 import { AdaptedResponse, adaptRequest, type AdaptedRequest } from './request-adapter';
+import {
+  applyDeprecationHeaders,
+  assertEndpointNotRetired,
+  type DeprecationDeclaration,
+} from './deprecation';
 import { CookieJar } from './cookies';
 import { buildErrorEnvelope, wrapSuccess } from './response-envelope';
 import {
@@ -101,6 +107,14 @@ export interface EndpointDefinition<TBody = unknown, TQuery = unknown> {
    * Such responses bypass the JSON envelope entirely.
    */
   raw?: boolean;
+  /**
+   * Retirement signal for a deprecated surface. When set, `Deprecation` and
+   * `Sunset` (and, for a declared successor, `Link`) headers are attached to
+   * every response; `retiredWrite` additionally makes state-changing verbs
+   * fail with 410 Gone while GET keeps serving the readable mirror. See
+   * `http/deprecation.ts`.
+   */
+  deprecation?: DeprecationDeclaration;
   handler: (context: HandlerContext<TBody, TQuery>) => Promise<unknown> | unknown;
 }
 
@@ -185,7 +199,17 @@ export function createRouteHandler<TBody, TQuery>(
     let adapted: AdaptedRequest | undefined;
     const startedAt = structuredLogger.start();
 
+    // Retirement signals ride on every response — success or error — of a
+    // deprecated surface (Deprecation / Sunset / Link headers).
+    if (definition.deprecation) {
+      applyDeprecationHeaders(adaptedResponse.headers, definition.deprecation);
+    }
+
     try {
+      // A permanently retired write surface closes state-changing verbs with
+      // 410 Gone before any guard/validation work; reads keep mirroring.
+      assertEndpointNotRetired(definition.deprecation, request.method);
+
       const params = segmentData?.params ? await segmentData.params : {};
       const body = await readJsonBody(request);
       adapted = adaptRequest({ request, params, body });

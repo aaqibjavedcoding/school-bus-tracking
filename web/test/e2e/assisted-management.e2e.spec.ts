@@ -359,7 +359,9 @@ describe('Super Admin assisted school management (E2E)', () => {
       });
       assert.notEqual(crossStop.status, 201, JSON.stringify(crossStop.body));
 
-      // An assignment referencing another tenant's bus/route/driver is refused.
+      // Legacy roster writes are permanently retired (run crew is
+      // authoritative — docs/operating-model.md §6.3): a managed POST to the
+      // route-assignments surface answers 410 Gone regardless of payload.
       const crossAssignment = await manageRequest(
         app,
         'POST',
@@ -374,7 +376,7 @@ describe('Super Admin assisted school management (E2E)', () => {
           valid_from: new Date().toISOString().slice(0, 10),
         },
       );
-      assert.notEqual(crossAssignment.status, 201, JSON.stringify(crossAssignment.body));
+      assert.equal(crossAssignment.status, 410, JSON.stringify(crossAssignment.body));
 
       // B's own route and bus still work normally in B's context.
       const ownRoute = await manageRequest<StudentData>(app, 'POST', beta.school.id, '/routes', root, {

@@ -43,6 +43,18 @@ describe('resolveManagedSchoolPath', () => {
       managed('/route-assignments'),
       `/admin/schools/${SCHOOL_ID}/manage/route-assignments`,
     );
+    // Operating model: shifts, runs (incl. crew) and run-crew rows remap too.
+    assert.equal(managed('/shifts'), `/admin/schools/${SCHOOL_ID}/manage/shifts`);
+    assert.equal(managed(`/shifts/${STUDENT_ID}`), `/admin/schools/${SCHOOL_ID}/manage/shifts/${STUDENT_ID}`);
+    assert.equal(managed('/runs'), `/admin/schools/${SCHOOL_ID}/manage/runs`);
+    assert.equal(
+      managed(`/runs/${STUDENT_ID}/crew`),
+      `/admin/schools/${SCHOOL_ID}/manage/runs/${STUDENT_ID}/crew`,
+    );
+    assert.equal(
+      managed(`/run-crew/${STUDENT_ID}`),
+      `/admin/schools/${SCHOOL_ID}/manage/run-crew/${STUDENT_ID}`,
+    );
     assert.equal(managed('/imports/modules'), `/admin/schools/${SCHOOL_ID}/manage/imports/modules`);
     assert.equal(managed('/imports/history'), `/admin/schools/${SCHOOL_ID}/manage/imports/history`);
     assert.equal(

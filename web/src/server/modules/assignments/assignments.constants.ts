@@ -60,3 +60,17 @@ export const ROUTE_ASSIGNMENT_CREW_ROUTE_CONFLICT_MESSAGE =
 /** Confirmation returned after a soft delete. */
 export const ROUTE_ASSIGNMENT_DELETED_MESSAGE = 'Route assignment deleted successfully';
 export const ASSIGNMENT_DELETED_MESSAGE = ROUTE_ASSIGNMENT_DELETED_MESSAGE;
+
+/**
+ * Deprecation metadata for the legacy route-assignment surface
+ * (`docs/operating-model.md` §6.3, Phase 4 "read-only, then unread").
+ *
+ * The table stays a **readable mirror** of the authoritative `run_crew`
+ * roster; every write endpoint permanently returns 410 Gone, pointing callers
+ * at the run-based successor. The same values drive the `Deprecation`,
+ * `Sunset` and `Link` response headers on the (still-served) read endpoints.
+ */
+export const ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET = 'Wed, 31 Mar 2027 00:00:00 GMT';
+export const ROUTE_ASSIGNMENTS_SUCCESSOR_PATH = '/api/v1/runs';
+export const ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE =
+  'Route assignments are read-only and no longer accept writes. Manage crews on runs via POST /api/v1/runs/:id/crew and PATCH/DELETE /api/v1/run-crew/:id.';

@@ -16,6 +16,12 @@ import {
   notificationsReport,
   tripsReport,
 } from './operations.reports';
+import {
+  busDayTieringReport,
+  crewLoadReport,
+  deadheadRunsReport,
+  runUtilizationReport,
+} from './runs.reports';
 
 /**
  * Registry of every report.
@@ -30,6 +36,10 @@ export const REPORT_DEFINITIONS: Readonly<Record<ReportType, ReportDefinition>> 
   [ReportType.STUDENTS_UNASSIGNED]: studentsUnassignedReport,
   [ReportType.STUDENTS_BY_BUS]: studentsByBusReport,
   [ReportType.BUS_UTILIZATION]: busUtilizationReport,
+  [ReportType.RUN_UTILIZATION]: runUtilizationReport,
+  [ReportType.BUS_DAY_TIERING]: busDayTieringReport,
+  [ReportType.CREW_LOAD]: crewLoadReport,
+  [ReportType.DEADHEAD_RUNS]: deadheadRunsReport,
   [ReportType.CREW_ASSIGNMENTS]: crewAssignmentsReport,
   [ReportType.TRIPS]: tripsReport,
   [ReportType.ATTENDANCE]: attendanceReport,
@@ -44,6 +54,10 @@ export const REPORT_ORDER: ReportType[] = [
   ReportType.STUDENTS_UNASSIGNED,
   ReportType.STUDENTS_BY_BUS,
   ReportType.BUS_UTILIZATION,
+  ReportType.RUN_UTILIZATION,
+  ReportType.BUS_DAY_TIERING,
+  ReportType.CREW_LOAD,
+  ReportType.DEADHEAD_RUNS,
   ReportType.CREW_ASSIGNMENTS,
   ReportType.TRIPS,
   ReportType.ATTENDANCE,

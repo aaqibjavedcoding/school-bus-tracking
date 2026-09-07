@@ -44,6 +44,7 @@ type FilterState = {
   route_id: string;
   bus_id: string;
   stop_id: string;
+  shift_id: string;
   driver_id: string;
   student_id: string;
   trip_status: string;
@@ -58,6 +59,7 @@ const EMPTY_FILTERS: FilterState = {
   route_id: '',
   bus_id: '',
   stop_id: '',
+  shift_id: '',
   driver_id: '',
   student_id: '',
   trip_status: '',
@@ -255,6 +257,9 @@ export default function ReportDetailPage() {
             {supported.includes('bus_id') ? (
               <BusFilter value={filters.bus_id} onChange={set('bus_id')} />
             ) : null}
+            {supported.includes('shift_id') ? (
+              <ShiftFilter value={filters.shift_id} onChange={set('shift_id')} />
+            ) : null}
             {supported.includes('date_from') ? (
               <Field id="filter-from" label="From">
                 <Input
@@ -361,6 +366,32 @@ export default function ReportDetailPage() {
     </div>
   );
 }
+
+/** Shift (bell-window) picker for the run-level reports. */
+const ShiftFilter: React.FC<{ value: string; onChange: (value: string) => void }> = ({
+  value,
+  onChange,
+}) => {
+  const shifts = useLoad(
+    async () => unwrapEnvelope(await apiClient.listShifts({ page: 1, limit: 100 })).items,
+    [],
+  );
+  return (
+    <Field id="filter-shift" label="Shift">
+      <Select
+        id="filter-shift"
+        value={value}
+        disabled={shifts.loading}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="All shifts"
+        options={(shifts.data ?? []).map((shift) => ({
+          value: shift.id,
+          label: `${shift.name} (${shift.start_time.slice(0, 5)}–${shift.end_time.slice(0, 5)})`,
+        }))}
+      />
+    </Field>
+  );
+};
 
 /** Route picker backed by the tenant's own routes. */
 const RouteFilter: React.FC<{ value: string; onChange: (value: string) => void }> = ({

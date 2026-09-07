@@ -167,6 +167,17 @@ export class ConflictException extends HttpException {
   }
 }
 
+/**
+ * 410 Gone — used by the retired legacy endpoints (`/route-assignments`
+ * writes) to say the resource is permanently retired in favour of the
+ * successor run-based surface, not merely missing.
+ */
+export class GoneException extends HttpException {
+  constructor(objectOrMessage?: HttpExceptionBody) {
+    super(buildBody(objectOrMessage, HttpStatus.GONE, 'Gone'), HttpStatus.GONE);
+  }
+}
+
 export class PayloadTooLargeException extends HttpException {
   constructor(objectOrMessage?: HttpExceptionBody) {
     super(

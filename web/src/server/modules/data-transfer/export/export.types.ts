@@ -8,6 +8,9 @@ import type {
   Notification,
   Route,
   RouteAssignment,
+  Run,
+  RunCrew,
+  Shift,
   Stop,
   Student,
   StudentGuardian,
@@ -30,6 +33,10 @@ export interface ExportRepositories {
   notifications: typeof Notification;
   busDocuments: typeof BusDocument;
   driverDocuments: typeof DriverDocument;
+  /** Operating-model tables (runs/shifts/run crew). */
+  runs: typeof Run;
+  runCrew: typeof RunCrew;
+  shifts: typeof Shift;
 }
 
 /** Loads one page of already-formatted rows. */

@@ -75,9 +75,10 @@ describe('assisted management endpoint surface', () => {
   const reflector = new Reflector();
 
   it('covers the whole assisted-management surface', () => {
-    // Sanity check on the reflection above: the thirteen former controllers
-    // contributed 67 endpoints between them.
-    assert.equal(MANAGE_ENDPOINTS.length, 67);
+    // Sanity check on the reflection above: the former controllers contributed
+    // 67 endpoints; Phase 4 added the operating-model surface — shifts (5),
+    // runs (5), runs/:id/crew (2) and run-crew/:id (3) = 15 more.
+    assert.equal(MANAGE_ENDPOINTS.length, 82);
   });
 
   it('declares the SUPER_ADMIN-only role on every handler', () => {

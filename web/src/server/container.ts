@@ -511,6 +511,9 @@ export class Container {
         BusDocument,
         DriverDocument,
         this.audit(),
+        Run,
+        RunCrew,
+        Shift,
       ),
   );
 
@@ -530,6 +533,9 @@ export class Container {
         BusDocument,
         DriverDocument,
         this.audit(),
+        Run,
+        RunCrew,
+        Shift,
       ),
   );
 }

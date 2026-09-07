@@ -23,9 +23,27 @@ import { ReportQueryDto } from '../modules/reports/dto/report-query.dto';
 import { ImportTemplateQueryDto, ImportUploadDto } from '../modules/data-transfer/dto/import.dto';
 import { DataFileFormat, EXPORT_DATASET_LABELS, EXPORT_DATASET_VALUES, ImportMode, ImportModule, StaffRole, UserRole } from '@school-bus-tracking/shared-types';
 import { RouteAssignmentsService } from '../modules/assignments/assignments.service';
-import { CreateRouteAssignmentDto } from '../modules/assignments/dto/create-route-assignment.dto';
 import { ListRouteAssignmentsQueryDto } from '../modules/assignments/dto/list-route-assignments-query.dto';
-import { UpdateRouteAssignmentDto } from '../modules/assignments/dto/update-route-assignment.dto';
+import type { DeprecationDeclaration } from '../http/deprecation';
+import {
+  ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+  ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+} from '../modules/assignments/assignments.constants';
+
+/**
+ * Retirement declaration for the legacy roster surface under assisted
+ * management (`docs/operating-model.md` §6.3, Phase 4). Writes are closed with
+ * 410 Gone; reads keep mirroring the authoritative run crew. The successor
+ * (run crew management) arrives on the managed surface with the
+ * shifts/runs capabilities below.
+ */
+const routeAssignmentsDeprecation: DeprecationDeclaration = {
+  sunset: ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  successor: ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+  retiredWrite: true,
+  retiredMessage: ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+};
 import { AssistedMutationAuditInterceptor } from '../modules/admin/manage/assisted-mutation-audit.interceptor';
 import { MANAGED_SCHOOL_PARAM } from '../modules/admin/manage/admin-manage.constants';
 import { ManagedSchoolGuard } from '../modules/admin/manage/managed-school.guard';
@@ -70,21 +88,30 @@ import { StudentsService } from '../modules/students/students.service';
 import { CreateStudentDto } from '../modules/students/dto/create-student.dto';
 import { ListStudentsQueryDto } from '../modules/students/dto/list-students-query.dto';
 import { UpdateStudentDto } from '../modules/students/dto/update-student.dto';
+import { CreateShiftDto } from '../modules/shifts/dto/create-shift.dto';
+import { ListShiftsQueryDto } from '../modules/shifts/dto/list-shifts-query.dto';
+import { UpdateShiftDto } from '../modules/shifts/dto/update-shift.dto';
+import { CreateRunDto } from '../modules/runs/dto/create-run.dto';
+import { ListRunsQueryDto } from '../modules/runs/dto/list-runs-query.dto';
+import { UpdateRunDto } from '../modules/runs/dto/update-run.dto';
+import { CreateRunCrewDto } from '../modules/run-crew/dto/create-run-crew.dto';
+import { ListRunCrewQueryDto } from '../modules/run-crew/dto/list-run-crew-query.dto';
+import { UpdateRunCrewDto } from '../modules/run-crew/dto/update-run-crew.dto';
 
-/** `POST /api/v1/admin/schools/:schoolId/manage/route-assignments` */
-export const postAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<CreateRouteAssignmentDto> = {
+/** `POST /api/v1/admin/schools/:schoolId/manage/route-assignments` — retired: run crew replaces it. */
+export const postAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.CREATED,
-  bodyType: CreateRouteAssignmentDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const dto = body;
-    return container().routeAssignments().create(schoolId, dto);
-  },};
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
+  },
+};
 
-/** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments` */
+/** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments` — readable mirror. */
 export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<unknown, ListRouteAssignmentsQueryDto> = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -96,6 +123,7 @@ export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
 export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -106,28 +134,227 @@ export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefini
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
-export const patchAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition<UpdateRouteAssignmentDto> = {
+/** `PATCH /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` — retired. */
+export const patchAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: UpdateRouteAssignmentDto,
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
+  },
+};
+
+/** `DELETE /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` — retired. */
+export const deleteAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
+  },
+};
+
+/* -------------------------------------------------------------------------
+ * Operating model: shifts / runs / run crew (operating-model §10 Phase 4).
+ *
+ * These reuse the exact tenant services the school admin uses, with the
+ * managed school id taken from the route (never a client claim) and every
+ * mutation audited by AssistedMutationAuditInterceptor via the resource
+ * mapping in admin-manage.constants.
+ * ---------------------------------------------------------------------- */
+
+/** `POST /admin/.../manage/shifts` */
+export const postAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<CreateShiftDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.CREATED,
+  bodyType: CreateShiftDto,
   handler: async ({ body, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
-    const dto = body;
-    return container().routeAssignments().update(schoolId, id, dto);
-  },};
+    return container().shifts().create(schoolId, body);
+  },
+};
 
-/** `DELETE /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
-export const deleteAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+/** `GET /admin/.../manage/shifts` */
+export const getAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<unknown, ListShiftsQueryDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  rateLimit: 'read_heavy',
+  status: HttpStatus.OK,
+  queryType: ListShiftsQueryDto,
+  handler: async ({ query, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    return container().shifts().findAll(schoolId, query);
+  },
+};
+
+/** `GET /admin/.../manage/shifts/:id` */
+export const getAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const id = parseUuidParam(params['id']);
-    return container().routeAssignments().remove(schoolId, id);
+    return container().shifts().findOne(schoolId, id);
+  },
+};
+
+/** `PATCH /admin/.../manage/shifts/:id` */
+export const patchAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition<UpdateShiftDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: UpdateShiftDto,
+  handler: async ({ body, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().shifts().update(schoolId, id, body);
+  },
+};
+
+/** `DELETE /admin/.../manage/shifts/:id` */
+export const deleteAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().shifts().remove(schoolId, id);
+  },
+};
+
+/** `POST /admin/.../manage/runs` */
+export const postAdminSchoolsBySchoolIdManageRuns: EndpointDefinition<CreateRunDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.CREATED,
+  bodyType: CreateRunDto,
+  handler: async ({ body, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    return container().runs().create(schoolId, body);
+  },
+};
+
+/** `GET /admin/.../manage/runs` */
+export const getAdminSchoolsBySchoolIdManageRuns: EndpointDefinition<unknown, ListRunsQueryDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  rateLimit: 'read_heavy',
+  status: HttpStatus.OK,
+  queryType: ListRunsQueryDto,
+  handler: async ({ query, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    return container().runs().findAll(schoolId, query);
+  },
+};
+
+/** `GET /admin/.../manage/runs/:id` */
+export const getAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runs().findOne(schoolId, id);
+  },
+};
+
+/** `PATCH /admin/.../manage/runs/:id` */
+export const patchAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition<UpdateRunDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: UpdateRunDto,
+  handler: async ({ body, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runs().update(schoolId, id, body);
+  },
+};
+
+/** `DELETE /admin/.../manage/runs/:id` */
+export const deleteAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runs().remove(schoolId, id);
+  },
+};
+
+/**
+ * `GET /admin/.../manage/runs/:id/crew` — the roster of one run.
+ *
+ * The crew *create* path stays under `/runs/:id/crew`; run-crew rows are
+ * mutated by id under `/manage/run-crew/:id` below, mirroring the tenant
+ * surface (no new nested endpoints).
+ */
+export const getAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<unknown, ListRunCrewQueryDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  queryType: ListRunCrewQueryDto,
+  handler: async ({ query, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runCrew().findAllForRun(schoolId, id, query);
+  },
+};
+
+/** `POST /admin/.../manage/runs/:id/crew` — roster one person onto a run. */
+export const postAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<CreateRunCrewDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.CREATED,
+  bodyType: CreateRunCrewDto,
+  handler: async ({ body, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runCrew().create(schoolId, id, body);
+  },
+};
+
+/** `GET /admin/.../manage/run-crew/:id` */
+export const getAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runCrew().findOne(schoolId, id);
+  },
+};
+
+/** `PATCH /admin/.../manage/run-crew/:id` */
+export const patchAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition<UpdateRunCrewDto> = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: UpdateRunCrewDto,
+  handler: async ({ body, params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runCrew().update(schoolId, id, body);
+  },
+};
+
+/** `DELETE /admin/.../manage/run-crew/:id` */
+export const deleteAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition = {
+  managedSchool: true,
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const schoolId = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['id']);
+    return container().runCrew().remove(schoolId, id);
   },
 };
 

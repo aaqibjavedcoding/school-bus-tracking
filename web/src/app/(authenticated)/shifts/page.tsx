@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import {
+  ExportDataset,
   type ShiftCreateRequest,
   type ShiftResponse,
   type ShiftUpdateRequest,
@@ -22,6 +23,7 @@ import {
   useToast,
 } from '../../../components/ui';
 import { usePagedResource } from '../../../hooks/usePagedResource';
+import { ListActions } from '../../../features/data-transfer';
 import { shiftLabel } from '../../../features/runs/helpers';
 import {
   fieldErrorsFromUnknown,
@@ -130,7 +132,11 @@ export default function ShiftsPage() {
       <PageHeader
         title="Shifts"
         description="Bell windows that group runs. Same bus, two windows, one day — tiering lives here."
-        actions={<Button onClick={startCreate}>Add shift</Button>}
+        actions={
+          <ListActions dataset={ExportDataset.SHIFTS}>
+            <Button onClick={startCreate}>Add shift</Button>
+          </ListActions>
+        }
       />
       {list.loading ? (
         <Skeleton lines={6} />
