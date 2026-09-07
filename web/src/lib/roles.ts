@@ -52,11 +52,12 @@ export const MANAGED_NAV_ITEMS: NavItem[] = [
   { href: '/routes', label: 'Routes', icon: 'route' },
   { href: '/staff', label: 'Drivers & conductors', icon: 'staff' },
   { href: '/assignments', label: 'Assignments', icon: 'assign' },
-  // 'Shifts & runs' is deliberately absent here even though the school-admin
-  // nav has it: the assisted-management surface exposes no shifts/runs
-  // endpoints yet (see MANAGED_TENANT_PATH_RULES in
-  // @school-bus-tracking/api-client), so opening the page from a managed
-  // session would only produce 403s. Add it when the managed surface grows.
+  // Assisted management covers shifts/runs/run-crew 1:1 with the API: the
+  // 'shifts'/'runs'/'run_crew' capabilities and /manage/shifts|/runs|
+  // /run-crew endpoints (admin-manage.ts), and the path remapping in
+  // MANAGED_TENANT_PATH_RULES (@school-bus-tracking/api-client). The shifts
+  // page owns runs + run crew, so one nav entry covers all three.
+  { href: '/shifts', label: 'Shifts & runs', icon: 'clock' },
   { href: '/reports', label: 'Reports', icon: 'chart' },
   { href: '/imports', label: 'Import data', icon: 'upload' },
 ];

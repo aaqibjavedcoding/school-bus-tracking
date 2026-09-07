@@ -257,9 +257,12 @@ const MANAGED_TENANT_PATH_RULES: RegExp[] = [
   /^\/stops(?:\/[0-9a-fA-F-]{36})?$/,
   /^\/(?:drivers|conductors)(?:\/[0-9a-fA-F-]{36})?$/,
   /^\/(?:route-assignments|assignments)(?:\/[0-9a-fA-F-]{36})?$/,
-  // Shifts / runs / run-crew are deliberately NOT listed yet: the assisted
-  // management surface for them lands with the Session 3 UI, and remapping a
-  // path to an endpoint that does not exist would turn a 403 into a 404.
+  // Operating model — shifts, runs (incl. /runs/:id/crew) and run-crew rows by
+  // id. The assisted surface mirrors these 1:1 (server capabilities + managed
+  // endpoints + MANAGED_NAV_ITEMS), so remapping is safe.
+  /^\/shifts(?:\/[0-9a-fA-F-]{36})?$/,
+  /^\/runs(?:\/[0-9a-fA-F-]{36}(?:\/crew)?)?$/,
+  /^\/run-crew\/[0-9a-fA-F-]{36}$/,
   /^\/imports(?:\/(?:modules|history(?:\/[0-9a-fA-F-]{36}(?:\/error-file)?)?|[a-z-]+\/(?:template|validate|commit)))?$/,
   /^\/exports(?:\/[a-z-]+)?$/,
   /^\/reports(?:\/(?:overview|[a-z0-9_]+(?:\/export)?))?$/,
