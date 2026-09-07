@@ -113,9 +113,18 @@ describe('cross-tenant access control (real HTTP + PostgreSQL)', () => {
       await expectGenericNotFound(adminA, 'GET', `/stops/${beta.stop.id}`);
     });
 
-    it('cannot read or mutate another school\'s route assignment', async () => {
+    it('cannot read another school\'s route assignment; writes are retired', async () => {
+      // Reads are tenant-scoped: the other school's roster row is a 404.
       await expectGenericNotFound(adminA, 'GET', `/route-assignments/${beta.assignment.id}`);
-      await expectGenericNotFound(adminA, 'DELETE', `/route-assignments/${beta.assignment.id}`);
+      // Writes on the legacy roster surface are permanently retired with 410
+      // Gone (run crew is authoritative — docs/operating-model.md §6.3), so the
+      // request never reaches a tenant lookup; either way it is not a 2xx.
+      const retired = await httpRequest(
+        app.baseUrl,
+        `/route-assignments/${beta.assignment.id}`,
+        { method: 'DELETE', token: adminA.accessToken },
+      );
+      assert.equal(retired.status, 410, `DELETE should be 410, got ${JSON.stringify(retired.body)}`);
     });
 
     it('cannot read or mutate another school\'s trip', async () => {

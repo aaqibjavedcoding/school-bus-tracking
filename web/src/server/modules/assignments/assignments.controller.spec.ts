@@ -18,11 +18,17 @@ import {
   patchRouteassignmentsById,
   postRouteassignments,
 } from '../../api/assignments';
+import { invokeRoute } from '../../http/route-testing';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { RouteAssignmentsService } from './assignments.service';
 import { CreateRouteAssignmentDto } from './dto/create-route-assignment.dto';
 import { ListRouteAssignmentsQueryDto } from './dto/list-route-assignments-query.dto';
 import { UpdateRouteAssignmentDto } from './dto/update-route-assignment.dto';
+import {
+  ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+  ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+} from './assignments.constants';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -35,6 +41,14 @@ const SECRET = 'unit-test-jwt-secret';
 const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
 const rolesGuard = new RolesGuard(new Reflector());
+
+/** Retirement declaration identical to the one `api/assignments.ts` uses. */
+const deprecation = {
+  sunset: ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  successor: ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+  retiredWrite: true,
+  retiredMessage: ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+};
 
 async function signAccessToken(role: UserRole, schoolId = SCHOOL_A): Promise<string> {
   const payload: JwtAccessTokenPayload = {
@@ -119,7 +133,7 @@ describe('RouteAssignmentsController authorization', () => {
     );
   });
 
-  it('passes only the JWT school id to every CRUD service call', async () => {
+  it('passes only the JWT school id to the read-only service calls', async () => {
     const calls: Array<{ method: string; schoolId: string; id?: string; dto?: unknown }> = [];
     const service = {
       create: async (schoolId: string, dto: CreateRouteAssignmentDto) => {
@@ -145,20 +159,93 @@ describe('RouteAssignmentsController authorization', () => {
     } as unknown as RouteAssignmentsService;
     const restore = overrideContainer('routeAssignments', service);
     try {
-
-      await callHandler(postRouteassignments, { user: ADMIN_B, body: assignmentDto() });
+      // Reads still reach the mirror service, pinned to the JWT school.
       await callHandler(getRouteassignments, { user: ADMIN_B, query: new ListRouteAssignmentsQueryDto() });
       await callHandler(getRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID } });
-      await callHandler(patchRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID }, body: new UpdateRouteAssignmentDto() });
-      await callHandler(deleteRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID } });
     } finally {
       restore();
     }
 
     assert.deepEqual(
       calls.map((call) => call.method),
-      ['create', 'findAll', 'findOne', 'update', 'remove'],
+      ['findAll', 'findOne'],
     );
     assert.ok(calls.every((call) => call.schoolId === SCHOOL_B));
+  });
+
+  it('retired writes answer 410 Gone with the deprecation headers, never touching the service', async () => {
+    const calls: string[] = [];
+    const service = {
+      create: async () => {
+        calls.push('create');
+        return {};
+      },
+      update: async () => {
+        calls.push('update');
+        return {};
+      },
+      remove: async () => {
+        calls.push('remove');
+        return {};
+      },
+      findAll: async () => ({ items: [], meta: {} }),
+      findOne: async () => ({}),
+    } as unknown as RouteAssignmentsService;
+    const restore = overrideContainer('routeAssignments', service);
+    const token = `Bearer ${await signAccessToken(UserRole.SCHOOL_ADMIN)}`;
+    try {
+      for (const [definition, method, body] of [
+        [postRouteassignments, 'POST', assignmentDto()],
+        [patchRouteassignmentsById, 'PATCH', new UpdateRouteAssignmentDto()],
+        [deleteRouteassignmentsById, 'DELETE', undefined],
+      ] as const) {
+        const result = await invokeRoute(definition as EndpointDefinition<never, never>, {
+          method,
+          params: { id: ASSIGNMENT_ID },
+          headers: { authorization: token },
+          ...(body ? { body } : {}),
+        });
+        assert.equal(result.status, 410, `${method} should be 410 Gone`);
+        assert.equal(result.headers.get('deprecation'), 'true');
+        assert.equal(result.headers.get('sunset'), ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET);
+        assert.equal(
+          result.headers.get('link'),
+          `<${ROUTE_ASSIGNMENTS_SUCCESSOR_PATH}>; rel="success-version"`,
+        );
+        const envelope = result.body as { error?: { message?: string } };
+        assert.equal(envelope.error?.message, ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE);
+      }
+    } finally {
+      restore();
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  it('serves a readable mirror on GET with the deprecation headers', async () => {
+    // The legacy read endpoints run with full auth (verified above and by the
+    // roles spec); here we drive the route runtime with an `auth: false`
+    // definition carrying the *same* retirement declaration, so the GET
+    // behaviour — mirror served, deprecation headers attached — is proven
+    // without a database.
+    let reached = false;
+    const mirror: EndpointDefinition = {
+      deprecation,
+      auth: false,
+      roles: [],
+      status: 200,
+      handler: async () => {
+        reached = true;
+        return { items: [], meta: {} };
+      },
+    };
+    const result = await invokeRoute(mirror, { method: 'GET' });
+    assert.equal(result.status, 200);
+    assert.equal(reached, true);
+    assert.equal(result.headers.get('deprecation'), 'true');
+    assert.equal(result.headers.get('sunset'), ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET);
+    assert.equal(
+      result.headers.get('link'),
+      `<${ROUTE_ASSIGNMENTS_SUCCESSOR_PATH}>; rel="success-version"`,
+    );
   });
 });

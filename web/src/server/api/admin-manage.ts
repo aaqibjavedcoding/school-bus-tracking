@@ -23,9 +23,27 @@ import { ReportQueryDto } from '../modules/reports/dto/report-query.dto';
 import { ImportTemplateQueryDto, ImportUploadDto } from '../modules/data-transfer/dto/import.dto';
 import { DataFileFormat, EXPORT_DATASET_LABELS, EXPORT_DATASET_VALUES, ImportMode, ImportModule, StaffRole, UserRole } from '@school-bus-tracking/shared-types';
 import { RouteAssignmentsService } from '../modules/assignments/assignments.service';
-import { CreateRouteAssignmentDto } from '../modules/assignments/dto/create-route-assignment.dto';
 import { ListRouteAssignmentsQueryDto } from '../modules/assignments/dto/list-route-assignments-query.dto';
-import { UpdateRouteAssignmentDto } from '../modules/assignments/dto/update-route-assignment.dto';
+import type { DeprecationDeclaration } from '../http/deprecation';
+import {
+  ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+  ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+} from '../modules/assignments/assignments.constants';
+
+/**
+ * Retirement declaration for the legacy roster surface under assisted
+ * management (`docs/operating-model.md` §6.3, Phase 4). Writes are closed with
+ * 410 Gone; reads keep mirroring the authoritative run crew. The successor
+ * (run crew management) arrives on the managed surface with the
+ * shifts/runs capabilities below.
+ */
+const routeAssignmentsDeprecation: DeprecationDeclaration = {
+  sunset: ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
+  successor: ROUTE_ASSIGNMENTS_SUCCESSOR_PATH,
+  retiredWrite: true,
+  retiredMessage: ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
+};
 import { AssistedMutationAuditInterceptor } from '../modules/admin/manage/assisted-mutation-audit.interceptor';
 import { MANAGED_SCHOOL_PARAM } from '../modules/admin/manage/admin-manage.constants';
 import { ManagedSchoolGuard } from '../modules/admin/manage/managed-school.guard';
@@ -71,20 +89,20 @@ import { CreateStudentDto } from '../modules/students/dto/create-student.dto';
 import { ListStudentsQueryDto } from '../modules/students/dto/list-students-query.dto';
 import { UpdateStudentDto } from '../modules/students/dto/update-student.dto';
 
-/** `POST /api/v1/admin/schools/:schoolId/manage/route-assignments` */
-export const postAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<CreateRouteAssignmentDto> = {
+/** `POST /api/v1/admin/schools/:schoolId/manage/route-assignments` — retired: run crew replaces it. */
+export const postAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.CREATED,
-  bodyType: CreateRouteAssignmentDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const dto = body;
-    return container().routeAssignments().create(schoolId, dto);
-  },};
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
+  },
+};
 
-/** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments` */
+/** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments` — readable mirror. */
 export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<unknown, ListRouteAssignmentsQueryDto> = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -96,6 +114,7 @@ export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
 export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -106,28 +125,25 @@ export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefini
   },
 };
 
-/** `PATCH /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
-export const patchAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition<UpdateRouteAssignmentDto> = {
+/** `PATCH /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` — retired. */
+export const patchAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: UpdateRouteAssignmentDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
-    const dto = body;
-    return container().routeAssignments().update(schoolId, id, dto);
-  },};
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
+  },
+};
 
-/** `DELETE /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
+/** `DELETE /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` — retired. */
 export const deleteAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
+  deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
-    return container().routeAssignments().remove(schoolId, id);
+  status: HttpStatus.GONE,
+  handler: async () => {
+    throw new Error('unreachable');
   },
 };
 
