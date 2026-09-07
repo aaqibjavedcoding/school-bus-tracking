@@ -238,7 +238,9 @@ describe('RouteAssignmentsController authorization', () => {
         return { items: [], meta: {} };
       },
     };
-    const result = await invokeRoute(mirror, { method: 'GET' });
+    const result = await invokeRoute(mirror as EndpointDefinition<never, never>, {
+      method: 'GET',
+    });
     assert.equal(result.status, 200);
     assert.equal(reached, true);
     assert.equal(result.headers.get('deprecation'), 'true');

@@ -26,6 +26,9 @@ import type {
   Notification,
   Route,
   RouteAssignment,
+  Run,
+  RunCrew,
+  Shift,
   Stop,
   Student,
   StudentGuardian,
@@ -92,6 +95,9 @@ export class ReportsService {
     busDocuments: typeof BusDocument,
     driverDocuments: typeof DriverDocument,
     private readonly audit: AuditService,
+    runs: typeof Run,
+    runCrew: typeof RunCrew,
+    shifts: typeof Shift,
   ) {
     this.repositories = {
       students,
@@ -106,6 +112,9 @@ export class ReportsService {
       notifications,
       busDocuments,
       driverDocuments,
+      runs,
+      runCrew,
+      shifts,
     };
   }
 

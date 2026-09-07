@@ -14,6 +14,9 @@ import type {
   Notification,
   Route,
   RouteAssignment,
+  Run,
+  RunCrew,
+  Shift,
   Stop,
   Student,
   StudentGuardian,
@@ -39,6 +42,10 @@ export interface ReportRepositories {
   notifications: typeof Notification;
   busDocuments: typeof BusDocument;
   driverDocuments: typeof DriverDocument;
+  /** Run-level operating model (`docs/operating-model.md`). */
+  runs: typeof Run;
+  runCrew: typeof RunCrew;
+  shifts: typeof Shift;
 }
 
 /** What a report produced for one request. */

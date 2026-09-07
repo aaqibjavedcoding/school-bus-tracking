@@ -66,6 +66,10 @@ export class ReportQueryDto {
   bus_id?: string;
 
   @IsOptional()
+  @IsUUID('4', { message: 'shift_id must be a valid UUID' })
+  shift_id?: string;
+
+  @IsOptional()
   @IsUUID('4', { message: 'stop_id must be a valid UUID' })
   stop_id?: string;
 

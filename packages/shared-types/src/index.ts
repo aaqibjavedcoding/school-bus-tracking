@@ -3907,6 +3907,15 @@ export enum ReportType {
   ATTENDANCE = 'attendance',
   NOTIFICATIONS = 'notifications',
   DOCUMENTS = 'documents',
+  // --- Run-level operations reports (operating model, §10 Phase 4) ---
+  /** Runs with riders, trips and capacity fill — tiering utilisation. */
+  RUN_UTILIZATION = 'run-utilization',
+  /** Buses by number of distinct shifts/runs per operating day (tiering). */
+  BUS_DAY_TIERING = 'bus-day-tiering',
+  /** How many runs each crew member is rostered on, per shift window. */
+  CREW_LOAD = 'crew-load',
+  /** Runs rostered with a bus but zero allocated riders (dead service). */
+  DEADHEAD_RUNS = 'deadhead-runs',
 }
 
 export const REPORT_TYPE_VALUES: ReportType[] = Object.values(ReportType);
@@ -3921,6 +3930,7 @@ export type ReportFilterKey =
   | 'route_id'
   | 'bus_id'
   | 'stop_id'
+  | 'shift_id'
   | 'driver_id'
   | 'student_id'
   | 'trip_status'
@@ -3968,6 +3978,8 @@ export interface ReportQuery {
   route_id?: string;
   bus_id?: string;
   stop_id?: string;
+  /** Restricts the run-level reports to one shift window. */
+  shift_id?: string;
   driver_id?: string;
   student_id?: string;
   trip_status?: TripStatus;
