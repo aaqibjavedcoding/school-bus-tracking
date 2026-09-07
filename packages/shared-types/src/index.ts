@@ -3849,6 +3849,10 @@ export enum ExportDataset {
   NOTIFICATIONS = 'notifications',
   BUS_DOCUMENTS = 'bus-documents',
   DRIVER_DOCUMENTS = 'driver-documents',
+  /** Bell windows (operating model, §3.1). */
+  SHIFTS = 'shifts',
+  /** Timed vehicle passes (operating model, §3.2) — the tiering dataset. */
+  RUNS = 'runs',
 }
 
 export const EXPORT_DATASET_VALUES: ExportDataset[] = Object.values(ExportDataset);
@@ -3868,6 +3872,8 @@ export const EXPORT_DATASET_LABELS: Record<ExportDataset, string> = {
   [ExportDataset.NOTIFICATIONS]: 'Notifications',
   [ExportDataset.BUS_DOCUMENTS]: 'Bus documents',
   [ExportDataset.DRIVER_DOCUMENTS]: 'Driver documents',
+  [ExportDataset.SHIFTS]: 'Shifts',
+  [ExportDataset.RUNS]: 'Runs',
 };
 
 /**

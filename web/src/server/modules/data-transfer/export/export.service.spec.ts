@@ -94,6 +94,9 @@ function makeService(overrides: Partial<Record<string, StubModel>> = {}): {
     'notifications',
     'busDocuments',
     'driverDocuments',
+    'runs',
+    'runCrew',
+    'shifts',
   ];
   const models: Record<string, StubModel> = {};
   for (const name of names) {
@@ -121,6 +124,9 @@ function makeService(overrides: Partial<Record<string, StubModel>> = {}): {
     models.busDocuments as never,
     models.driverDocuments as never,
     auditService,
+    models.runs as never,
+    models.runCrew as never,
+    models.shifts as never,
   );
 
   return { service, models, audit };
@@ -460,6 +466,103 @@ describe('export query helpers', () => {
     assert.equal(formatDate(null), '');
     assert.equal(formatDateTime(new Date('2026-03-15T08:30:00.000Z')), '2026-03-15 08:30');
     assert.equal(formatDateTime('not a date'), '');
+  });
+});
+
+describe('operating-model exports (shifts / runs)', () => {
+  it('exports shifts with their window and run count', async () => {
+    const shifts = new StubModel([
+      {
+        id: 'shift-morning',
+        school_id: SCHOOL_A,
+        name: 'Morning',
+        start_time: '07:00:00',
+        end_time: '11:00:00',
+        is_active: true,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+    const runs = new StubModel([
+      { id: 'r1', school_id: SCHOOL_A, shift_id: 'shift-morning', is_active: true },
+      { id: 'r2', school_id: SCHOOL_A, shift_id: 'shift-morning', is_active: true },
+      { id: 'r3', school_id: SCHOOL_A, shift_id: 'shift-morning', is_active: false },
+    ]);
+    const { service } = makeService({ shifts, runs });
+
+    const plan = await service.prepare(SCHOOL_A, ADMIN_A, ExportDataset.SHIFTS, {
+      format: DataFileFormat.CSV,
+    });
+    const { text: body, written } = await render(plan);
+
+    assert.equal(written, 1);
+    assert.match(body, /Morning/);
+    assert.match(body, /07:00:00/);
+    // Two active runs use the shift; the inactive one is not counted.
+    assert.match(body, /,2,/);
+  });
+
+  it('exports runs with route, shift, bus and standing crew', async () => {
+    const runsModel = new StubModel([
+      {
+        id: 'run-1',
+        school_id: SCHOOL_A,
+        route_id: 'route-north',
+        shift_id: 'shift-morning',
+        bus_id: 'bus-1',
+        code: 'R-01',
+        is_default: false,
+        is_active: true,
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+    const { service } = makeService({
+      runs: runsModel,
+      routes: new StubModel([
+        { id: 'route-north', school_id: SCHOOL_A, code: 'NORTH', name: 'North Loop' },
+      ]),
+      shifts: new StubModel([
+        { id: 'shift-morning', school_id: SCHOOL_A, name: 'Morning', start_time: '07:00', end_time: '11:00' },
+      ]),
+      buses: new StubModel([
+        { id: 'bus-1', school_id: SCHOOL_A, registration_number: 'REG-1' },
+      ]),
+      runCrew: new StubModel([
+        { id: 'c1', school_id: SCHOOL_A, run_id: 'run-1', user_id: 'driver-1', role: 'DRIVER', is_active: true },
+      ]),
+      users: new StubModel([
+        { id: 'driver-1', school_id: SCHOOL_A, first_name: 'Sam', last_name: 'Driver' },
+      ]),
+      students: new StubModel([
+        { id: 's1', school_id: SCHOOL_A, run_id: 'run-1', is_active: true },
+        { id: 's2', school_id: SCHOOL_A, run_id: 'run-1', is_active: true },
+        { id: 's3', school_id: SCHOOL_A, run_id: 'run-1', is_active: false },
+      ]),
+    });
+
+    const plan = await service.prepare(SCHOOL_A, ADMIN_A, ExportDataset.RUNS, {
+      format: DataFileFormat.CSV,
+    });
+    const { text: body, written } = await render(plan);
+
+    assert.equal(written, 1);
+    assert.match(body, /R-01/);
+    assert.match(body, /NORTH/);
+    assert.match(body, /Morning/);
+    assert.match(body, /REG-1/);
+    assert.match(body, /Sam Driver/);
+  });
+
+  it('pins the new dataset queries to the school id', async () => {
+    const shifts = new StubModel([]);
+    const runsModel = new StubModel([]);
+    const { service } = makeService({ shifts, runs: runsModel });
+
+    await service.prepare(SCHOOL_A, ADMIN_A, ExportDataset.SHIFTS, {});
+    await service.prepare(SCHOOL_A, ADMIN_A, ExportDataset.RUNS, {});
+
+    for (const query of [...shifts.queries, ...runsModel.queries]) {
+      assert.equal((query.where as Record<string, unknown>).school_id, SCHOOL_A);
+    }
   });
 });
 

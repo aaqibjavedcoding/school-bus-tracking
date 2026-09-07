@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import {
+  ExportDataset,
   RunCrewRole,
   type BusResponse,
   type RunCrewResponse,
@@ -27,6 +28,7 @@ import {
   unwrapEnvelope,
 } from '../../lib/errors';
 import { apiClient } from '../../services/api';
+import { ListActions } from '../data-transfer';
 import { runLabel, shiftWindowLabel, windowsOverlapPreview } from './helpers';
 
 /**
@@ -250,7 +252,9 @@ export const RunsPanel: React.FC<RunsPanelProps> = ({
   return (
     <Card title="Runs" description="One vehicle's timed pass over this route — bus, crew and bell window per run.">
       <div className="table-actions" style={{ marginBottom: 8 }}>
-        <Button onClick={startCreate}>Add run</Button>
+        <ListActions dataset={ExportDataset.RUNS} query={{ route_id: routeId }}>
+          <Button onClick={startCreate}>Add run</Button>
+        </ListActions>
       </div>
       {runs.length === 0 ? (
         <p className="muted">
