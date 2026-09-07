@@ -15,15 +15,34 @@ function csrfEnvelope(token: string) {
   return { success: true, data: { csrf_token: token, header_name: 'x-csrf-token' } };
 }
 
+/** JSON body of the API's CSRF rejection (403). */
+const CSRF_REJECT_BODY = {
+  success: false,
+  error: { code: 'Forbidden', message: 'Invalid or missing CSRF token' },
+};
+
+/**
+ * Minimal Response-like object whose `text()` and `json()` agree.
+ *
+ * The real api-client reads error bodies via a single `response.text()` then
+ * `JSON.parse` — stubs that only implement `json()` (and return `''` from
+ * `text()`) make CSRF rejection detection fail and hide the regression the
+ * suite is meant to guard.
+ */
+function jsonResponse(status: number, body: unknown): Response {
+  const raw = JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => JSON.parse(raw) as unknown,
+    text: async () => raw,
+  } as unknown as Response;
+}
+
 function stubFetch(captured: CapturedRequest[]): void {
   globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
     captured.push({ url, init });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data: {} }),
-      text: async () => '',
-    } as unknown as Response;
+    return jsonResponse(200, { success: true, data: {} });
   }) as typeof fetch;
 }
 
@@ -58,12 +77,7 @@ function stubApi(
     if (url.endsWith('/auth/csrf')) {
       jar.set('csrf_token', 'issued-csrf-token');
       syncDocument();
-      return {
-        ok: true,
-        status: 200,
-        json: async () => csrfEnvelope('issued-csrf-token'),
-        text: async () => '',
-      } as unknown as Response;
+      return jsonResponse(200, csrfEnvelope('issued-csrf-token'));
     }
 
     const header = headerOf(init, 'X-CSRF-Token');
@@ -73,38 +87,20 @@ function stubApi(
     const bearer = headerOf(init, 'Authorization');
     const csrfRequired = method !== 'GET' && !bearer && jar.has('refresh_token');
     if (csrfRequired && (!header || header !== cookie)) {
-      return {
-        ok: false,
-        status: 403,
-        json: async () => ({
-          success: false,
-          error: { code: 'Forbidden', message: 'Invalid or missing CSRF token' },
-        }),
-        text: async () => '',
-      } as unknown as Response;
+      return jsonResponse(403, CSRF_REJECT_BODY);
     }
 
     if (url.endsWith('/auth/login')) {
       jar.set('refresh_token', 'fresh-refresh-token');
       jar.set('csrf_token', 'rotated-csrf-token');
       syncDocument();
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          success: true,
-          data: { access_token: 'jwt', token_type: 'Bearer', expires_in: 900, user: {} },
-        }),
-        text: async () => '',
-      } as unknown as Response;
+      return jsonResponse(200, {
+        success: true,
+        data: { access_token: 'jwt', token_type: 'Bearer', expires_in: 900, user: {} },
+      });
     }
 
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data: {} }),
-      text: async () => '',
-    } as unknown as Response;
+    return jsonResponse(200, { success: true, data: {} });
   }) as typeof fetch;
 
   return { jar };
@@ -297,15 +293,7 @@ describe('web auth flow: CSRF bootstrap (regression for the 403 login)', () => {
       if (url.endsWith('/auth/logout') && !firstUnsafeSeen) {
         firstUnsafeSeen = true;
         captured.push({ url, init });
-        return {
-          ok: false,
-          status: 403,
-          json: async () => ({
-            success: false,
-            error: { code: 'Forbidden', message: 'Invalid or missing CSRF token' },
-          }),
-          text: async () => '',
-        } as unknown as Response;
+        return jsonResponse(403, CSRF_REJECT_BODY);
       }
       return originalStub(url as unknown as RequestInfo, init);
     }) as typeof fetch;
@@ -325,22 +313,9 @@ describe('web auth flow: CSRF bootstrap (regression for the 403 login)', () => {
     globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
       captured.push({ url, init });
       if (url.endsWith('/auth/csrf')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => csrfEnvelope('issued-csrf-token'),
-          text: async () => '',
-        } as unknown as Response;
+        return jsonResponse(200, csrfEnvelope('issued-csrf-token'));
       }
-      return {
-        ok: false,
-        status: 403,
-        json: async () => ({
-          success: false,
-          error: { code: 'Forbidden', message: 'Invalid or missing CSRF token' },
-        }),
-        text: async () => '',
-      } as unknown as Response;
+      return jsonResponse(403, CSRF_REJECT_BODY);
     }) as typeof fetch;
 
     const client = new ApiClient({ baseUrl: '/api/v1' });
