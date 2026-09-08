@@ -8,7 +8,7 @@ import { prepareDatabase, truncateAll } from '../support/database';
 import { createBus, createSchool, createUser, TEST_PASSWORD } from '../support/fixtures';
 import { startTestApp, TestApp } from '../support/app';
 import { login } from '../support/auth';
-import { errorMessage, httpRequest, readCookie } from '../support/http';
+import { errorCode, errorMessage, httpRequest, readCookie } from '../support/http';
 import { CSRF_INVALID_MESSAGE } from '../../src/server/common/security';
 
 const CSRF_COOKIE_NAME = 'csrf_token';
@@ -33,6 +33,12 @@ describe('browser security (real HTTP)', () => {
     school = await createSchool();
     admin = await createUser(school.id, UserRole.SCHOOL_ADMIN);
     await createBus(school.id);
+    // The test harness mounts the production `/api/*` middleware chain; a
+    // zero compression threshold makes the gzip negotiation observable on the
+    // (small) JSON responses this suite requests. Set before the app — and
+    // therefore the config container — is created, exactly like an operator
+    // would configure it.
+    process.env.COMPRESSION_THRESHOLD_BYTES = process.env.COMPRESSION_THRESHOLD_BYTES || '0';
     app = await startTestApp();
   });
 
@@ -99,11 +105,75 @@ describe('browser security (real HTTP)', () => {
     });
 
     it('keeps a JSON-only CSP that cannot host active content', async () => {
-      const csp = String((await httpRequest(app.baseUrl, '/health')).headers.get(
-        'content-security-policy',
-      ));
+      const csp = String(
+        (await httpRequest(app.baseUrl, '/health')).headers.get('content-security-policy'),
+      );
       assert.match(csp, /default-src 'none'/);
       assert.match(csp, /frame-ancestors 'none'/);
+    });
+  });
+
+  describe('request id + compression (middleware chain)', () => {
+    it('stamps a server-generated x-request-id on every API response', async () => {
+      const response = await httpRequest(app.baseUrl, '/health');
+      const requestId = response.headers.get('x-request-id');
+      assert.ok(requestId, 'the chain must emit x-request-id');
+      assert.match(requestId as string, /^[0-9a-f-]{36}$/i, 'the id is a UUID by default');
+    });
+
+    it('echoes a client-supplied x-request-id (trimmed to 64 chars)', async () => {
+      const response = await httpRequest(app.baseUrl, '/health', {
+        headers: { 'x-request-id': 'trace-abc-123' },
+      });
+      assert.equal(response.headers.get('x-request-id'), 'trace-abc-123');
+    });
+
+    it('compresses responses when the client advertises gzip', async () => {
+      const response = await httpRequest(app.baseUrl, '/health', {
+        headers: { 'Accept-Encoding': 'gzip' },
+      });
+      assert.equal(response.status, 200);
+      assert.equal(
+        response.headers.get('content-encoding'),
+        'gzip',
+        'the compression middleware must gzip JSON when negotiated',
+      );
+      assert.match(String(response.headers.get('vary')), /Accept-Encoding/i);
+    });
+
+    it('leaves responses uncompressed when the client sends no Accept-Encoding', async () => {
+      const response = await httpRequest(app.baseUrl, '/health', {
+        headers: { 'Accept-Encoding': 'identity' },
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-encoding'), null);
+    });
+
+    it('keeps liveness and readiness unauthenticated and answering the real envelope', async () => {
+      const live = await httpRequest<{
+        status: string;
+        service: string;
+      }>(app.baseUrl, '/health');
+      assert.equal(live.status, 200);
+      assert.equal(live.body.status, 'ok');
+      assert.ok(live.body.service, 'liveness names the service');
+
+      const ready = await httpRequest<{
+        success: boolean;
+        data: { status: string };
+      }>(app.baseUrl, '/health/ready');
+      assert.equal(ready.status, 200, 'the suite database is migrated, so readiness must pass');
+      assert.equal(ready.body.success, true);
+      assert.equal(ready.body.data.status, 'ready');
+    });
+
+    it('rejects an unauthenticated call to a protected route with the standard 401 envelope', async () => {
+      const response = await httpRequest<{ success: boolean }>(app.baseUrl, '/buses');
+      assert.equal(response.status, 401);
+      assert.equal(response.body.success, false);
+      assert.equal(errorCode(response.body), 'Unauthorized');
+      // Hardening headers must ride along on guard rejections too.
+      assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     });
   });
 
@@ -242,7 +312,8 @@ describe('browser security (real HTTP)', () => {
       assert.equal(allowed.status, 200);
     });
 
-    it('leaves bearer-token clients (mobile) unaffected', async () => {      const session = await login(app.baseUrl, school.code, admin.email);
+    it('leaves bearer-token clients (mobile) unaffected', async () => {
+      const session = await login(app.baseUrl, school.code, admin.email);
       const response = await httpRequest(app.baseUrl, '/buses', {
         method: 'POST',
         token: session.accessToken,

@@ -26,6 +26,19 @@ This document describes the testing strategy and how to run tests.
 - **Run**: `npm run test:e2e` (from `web`)
 - **Requirements**: PostgreSQL server running
 
+The harness (`web/test/support/app.ts` → `src/server/http/test-server.ts`)
+mounts **the exact `/api/*` middleware chain the production custom server
+mounts** — the chain lives once in `src/server/http/api-middleware-chain.ts`
+and is consumed by both `web/server.js` and the harness, so the suites cannot
+drift from production. E2E requests therefore carry and assert the real
+CORS behaviour (allowlist echo, preflight, credentials), gzip compression,
+security headers (`nosniff`, CSP, Referrer-Policy, Permissions-Policy,
+X-Frame-Options), request-id stamping/echo, cookie parsing and the
+unauthenticated health/readiness probes — on top of the guard chain
+(CSRF → rate limit → JWT → roles) the route runtime applies. Next.js itself
+is not started; the suites cover `/api/v1/*`, which is where the server-side
+behaviour lives.
+
 ### 4. All Database Tests
 
 - **Run**: `npm run test:db` (from `web`)

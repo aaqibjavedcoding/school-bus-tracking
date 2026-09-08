@@ -2,8 +2,6 @@ import { Logger } from '../../framework';
 import { JwtService } from '../../framework';
 import type { Server, Socket } from 'socket.io';
 import {
-  LIVE_TRACKING_EVENTS,
-  LIVE_TRACKING_NAMESPACE,
   TrackingJoinAck,
   TrackingLeaveAck,
   TripLocationUpdateAck,
@@ -14,6 +12,8 @@ import { getTripTrackingState, trackingJoinSchema } from '@school-bus-tracking/v
 import type { AuthenticatedRequestUser, TenantRequestUser } from '../../common/guards';
 import { isAccessTokenPayloadValid } from '../../common/guards';
 import { SchoolAccessService } from '../../common/access';
+import { resolveTokenExpiry } from '../../common/websocket';
+
 import { LiveTrackingService, extractTripId } from './live-tracking.service';
 import { StopArrivalsService } from '../eta/stop-arrivals.service';
 
@@ -250,6 +250,12 @@ export class LiveTrackingGateway {
     if (!accessible) {
       return null;
     }
+
+    // Pin the verified token's lifetime onto the socket: the periodic
+    // session revalidation sweep disconnects sockets whose access token
+    // has expired since this handshake (clients reconnect with a fresh
+    // token via their `auth` callback).
+    client.data.token_exp = resolveTokenExpiry(payload);
 
     return {
       id: payload.sub,

@@ -60,18 +60,17 @@ async function main() {
   }
 
   const { getContainer } = require(path.join(serverDist, 'container'));
-  const {
-    buildCorsOptions,
-    createSecurityHeadersMiddleware,
-    resolveCorsPolicy,
-  } = require(path.join(serverDist, 'common/security'));
-  const {
-    createCompressionMiddleware,
-  } = require(path.join(serverDist, 'common/middleware/compression.middleware'));
-  const { RequestIdMiddleware } = require(path.join(serverDist, 'common/middleware/request-id.middleware'));
+  const { resolveCorsPolicy } = require(path.join(serverDist, 'common/security'));
+  const { createApiMiddlewareChain, isApiPath } = require(
+    path.join(serverDist, 'http/api-middleware-chain'),
+  );
   const { parseOriginList } = require(path.join(serverDist, 'config'));
   const { Logger } = require(path.join(serverDist, 'framework'));
   const { bootstrapDatabase } = require(path.join(serverDist, 'database/bootstrap'));
+  const { RetentionWorker } = require(path.join(serverDist, 'workers'));
+  const { startRetentionScheduler, stopRegisteredRetentionScheduler } = require(
+    path.join(serverDist, 'workers/retention.scheduler'),
+  );
 
   const logger = new Logger('Bootstrap');
   const container = getContainer();
@@ -89,7 +88,8 @@ async function main() {
   // responsible for awaiting.
   //
   // Idempotent — it reuses `container.sequelize` when already connected.
-  await bootstrapDatabase();
+  // The returned connection is what the retention scheduler below runs on.
+  const sequelize = await bootstrapDatabase();
 
   // Explicit, allowlisted CORS. `resolveCorsPolicy` throws in production when
   // the allowlist is missing or wildcarded, so a misconfigured deployment
@@ -105,68 +105,24 @@ async function main() {
   await app.prepare();
 
   // --- the `/api/*` middleware chain -------------------------------------
-  const cors = require('cors')(buildCorsOptions(corsPolicy));
-  const compression = createCompressionMiddleware({
-    enabled: configService.get('app.compression.enabled') ?? true,
-    threshold: configService.get('app.compression.thresholdBytes') ?? 1024,
-  });
-  const securityHeaders = createSecurityHeadersMiddleware({
-    enabled: configService.get('security.headers.enabled') ?? true,
-    isProduction: configService.get('security.isProduction') ?? false,
-    hstsMaxAge: configService.get('security.headers.hstsMaxAge') ?? 15552000,
-    hstsIncludeSubDomains: configService.get('security.headers.hstsIncludeSubDomains') ?? true,
-    hstsPreload: configService.get('security.headers.hstsPreload') ?? false,
-    cspEnabled: configService.get('security.headers.cspEnabled') ?? true,
-    frameAncestors: configService.get('security.headers.frameAncestors') ?? "'none'",
-    referrerPolicy:
-      configService.get('security.headers.referrerPolicy') ?? 'strict-origin-when-cross-origin',
-    permissionsPolicy: configService.get('security.headers.permissionsPolicy') ?? '',
-  });
-  const cookieParser = require('cookie-parser')();
-  const requestId = new RequestIdMiddleware();
-  const requestIdMiddleware = requestId.use.bind(requestId);
-
-  const apiChain = [cors, compression, securityHeaders, cookieParser, requestIdMiddleware];
-
-  /** Runs the Express-style chain, then resolves. */
-  function runChain(req, res) {
-    return new Promise((resolve, reject) => {
-      let index = 0;
-      const nextFn = (err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        const middleware = apiChain[index++];
-        if (!middleware) {
-          resolve(true);
-          return;
-        }
-        try {
-          middleware(req, res, nextFn);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      nextFn();
-    });
-  }
+  // CORS → compression → security headers → cookie parsing → request-id.
+  // The chain lives in `src/server/http/api-middleware-chain.ts` — shared
+  // verbatim with the E2E test harness, so the suites exercise exactly this
+  // pipeline — and is built from configuration, never inline.
+  const chain = createApiMiddlewareChain(corsPolicy, configService);
 
   const server = http.createServer((req, res) => {
-    const isApi = req.url === `/${apiPrefix}` || req.url.startsWith(`/${apiPrefix}/`);
-
-    if (!isApi) {
+    if (!isApiPath(req.url, apiPrefix)) {
       handle(req, res);
       return;
     }
 
-    runChain(req, res)
-      .then(() => {
+    chain
+      .run(req, res)
+      .then((outcome) => {
         // A middleware may have already answered (CORS preflight, a blocked
         // origin); in that case Next must not also write to the socket.
-        if (!res.writableEnded && !res.headersSent) {
-          handle(req, res);
-        } else if (!res.writableEnded) {
+        if (outcome === 'continue') {
           handle(req, res);
         }
       })
@@ -228,9 +184,7 @@ async function main() {
     const { wireRealtimeGateways } = require(path.join(serverDist, 'realtime'));
     wireRealtimeGateways(io);
   } catch (error) {
-    logger.warn(
-      `Deferred realtime wiring to instrumentation: ${error?.message ?? String(error)}`,
-    );
+    logger.warn(`Deferred realtime wiring to instrumentation: ${error?.message ?? String(error)}`);
   }
 
   // --- fail fast on detached models --------------------------------------
@@ -251,11 +205,98 @@ async function main() {
     );
   }
 
+  // --- background retention worker ---------------------------------------
+  // Schedules the data-retention cleanup (GPS locations, notifications,
+  // refresh tokens, audit logs, resolved emergencies, expired idempotency
+  // keys) inside this process. The scheduler is idempotent (one instance per
+  // process, enforced again via a globalThis guard), keeps the configured
+  // cadence (`RETENTION_INTERVAL_MS`, first pass after
+  // `RETENTION_INITIAL_DELAY_MS`), never lets a failed pass crash the server,
+  // and relies on the worker's PostgreSQL advisory lock so multiple instances
+  // never double-delete. Stubbed bootstraps (`sequelize === null`) never
+  // schedule it.
+  startRetentionScheduler(
+    { configService, sequelize },
+    new RetentionWorker(configService, sequelize),
+  );
+
   server.listen(port, hostname, () => {
     logger.log(`Application is running on: http://${hostname}:${port}`);
     logger.log(`API available at: http://${hostname}:${port}/${apiPrefix}`);
     logger.log(`Health endpoint available at: http://${hostname}:${port}/${apiPrefix}/health`);
   });
+
+  // --- graceful shutdown ---------------------------------------------------
+  // SIGTERM/SIGINT (container stop, `kill`, Ctrl-C): stop the background
+  // timers first, then disconnect the Socket.IO clients, stop accepting HTTP
+  // connections and close the database pool. A force-exit timer bounds the
+  // wait so a stuck keep-alive connection can never hang the container.
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    logger.log(`${signal} received — starting graceful shutdown`);
+    const forceExit = setTimeout(() => {
+      logger.warn('Graceful shutdown timed out — forcing exit.');
+      process.exit(0);
+    }, 10_000);
+    if (typeof forceExit.unref === 'function') {
+      forceExit.unref();
+    }
+
+    // 1. Background workers/timers.
+    try {
+      await stopRegisteredRetentionScheduler();
+    } catch (error) {
+      logger.error(`Retention scheduler stop failed: ${error?.message ?? String(error)}`);
+    }
+    try {
+      const { getRegisteredWebSocketSessionRevalidation } = require(
+        path.join(serverDist, 'common/websocket/websocket-session-revalidation'),
+      );
+      getRegisteredWebSocketSessionRevalidation()?.stop();
+    } catch {
+      // Realtime (and its sweep) may never have been wired in this process.
+    }
+
+    // 2. Realtime: close the Socket.IO server (also closes the HTTP server).
+    try {
+      const io = globalThis.__socketIoServer;
+      if (io) {
+        await new Promise((resolve) => io.close(() => resolve()));
+      }
+    } catch (error) {
+      logger.error(`Socket.IO close failed: ${error?.message ?? String(error)}`);
+    }
+
+    // 3. HTTP listener (no-op when Socket.IO already closed it).
+    try {
+      if (server.listening) {
+        await new Promise((resolve) => {
+          server.closeIdleConnections?.();
+          server.close(() => resolve());
+        });
+      }
+    } catch (error) {
+      logger.error(`HTTP server close failed: ${error?.message ?? String(error)}`);
+    }
+
+    // 4. Database pool.
+    try {
+      if (sequelize) {
+        await sequelize.close();
+      }
+    } catch (error) {
+      logger.error(`Database close failed: ${error?.message ?? String(error)}`);
+    }
+
+    logger.log('Graceful shutdown complete.');
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 main().catch((error) => {

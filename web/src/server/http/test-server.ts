@@ -7,9 +7,13 @@
  * It reproduces the parts of the production stack that those tests actually
  * depend on:
  *
- * - the `api/v1` global prefix and Express-style `:param` matching, so route
+ * - the `/api/v1` global prefix and Express-style `:param` matching, so route
  *   parameters reach the handler exactly as Next's segment data would;
- * - `cookie-parser`, since the auth handlers read `request.cookies`;
+ * - the **same `/api/*` middleware chain the custom server mounts**
+ *   (`api-middleware-chain.ts`): CORS, compression, security headers, cookie
+ *   parsing and request-id, built from the test process's configuration —
+ *   E2E suites therefore assert exactly the headers/behaviour a real
+ *   deployment answers with;
  * - the route runtime itself, which brings the guard chain, validation and
  *   the success/error envelope with it.
  *
@@ -19,6 +23,13 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { getContainer } from '../container';
+import { resolveCorsPolicy } from '../common/security';
+import {
+  createApiMiddlewareChain,
+  isApiPath,
+  type ApiMiddlewareChain,
+} from './api-middleware-chain';
 import { createRouteHandler, type EndpointDefinition } from './route-runtime';
 
 /** One mounted endpoint: verb + Express-style path, e.g. `/auth/login`. */
@@ -36,6 +47,13 @@ export interface TestServerOptions {
   routes: TestRoute[];
   /** Defaults to `api/v1`, matching the production global prefix. */
   apiPrefix?: string;
+  /**
+   * Set `false` to skip the production middleware chain. Only the rare spec
+   * that asserts *runtime-only* behaviour (with no server in the loop) may
+   * want this; E2E suites must keep the default so they exercise the real
+   * production chain.
+   */
+  middlewareChain?: boolean;
 }
 
 export interface RunningTestServer {
@@ -83,9 +101,7 @@ function readBody(request: IncomingMessage): Promise<Buffer | undefined> {
 }
 
 /** Starts the server on an ephemeral port bound to loopback. */
-export async function startTestServer(
-  options: TestServerOptions,
-): Promise<RunningTestServer> {
+export async function startTestServer(options: TestServerOptions): Promise<RunningTestServer> {
   const apiPrefix = options.apiPrefix ?? 'api/v1';
   // Next's file-system router resolves a static segment before a dynamic one,
   // so `/emergencies/active` wins over `/emergencies/:id` regardless of
@@ -109,8 +125,32 @@ export async function startTestServer(
     void handle(incoming, response);
   });
 
+  // The production `/api/*` chain — CORS, compression, security headers,
+  // cookie parsing, request-id — built from the same configuration the custom
+  // server reads, so the harness cannot drift from `server.js`.
+  const chain: ApiMiddlewareChain | null =
+    options.middlewareChain === false
+      ? null
+      : (() => {
+          const config = getContainer().config();
+          const policy = resolveCorsPolicy({
+            isProduction: config.get('security.isProduction') ?? false,
+            corsOrigins: config.get('security.corsOrigins') ?? [],
+            credentials: config.get('security.corsCredentials') ?? true,
+          });
+          return createApiMiddlewareChain(policy, config);
+        })();
+
   async function handle(incoming: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
+      if (chain && isApiPath(incoming.url, apiPrefix)) {
+        const outcome = await chain.run(incoming, response);
+        if (outcome === 'answered') {
+          // CORS preflight / blocked origin — the chain already responded.
+          return;
+        }
+      }
+
       const url = new URL(incoming.url ?? '/', `http://${incoming.headers.host ?? 'localhost'}`);
       const match = routes.find(
         (route) =>

@@ -125,10 +125,50 @@ database, mounts the API and Socket.IO under `/api/v1`, and hands everything els
 to Next.js. Build first with `npm run build` (compiles the server API into
 `web/dist` and the App Router bundle into `web/.next`).
 
+### Single-instance architecture (deployment constraint)
+
+The supported deployment is **one API server process against one PostgreSQL**.
+Three subsystems are process-local by design and must move together before any
+horizontal scaling (see `docs/security.md` → "Rate limiting — deployment
+assumptions" for the full checklist):
+
+1. **Rate limiting** — counters live in the process's memory; N instances
+   multiply the effective limits and restarting resets the windows.
+2. **Socket.IO** — rooms, broadcasts and the session-revalidation sweep are
+   in-process; realtime needs a shared adapter (e.g. Redis) for N instances.
+3. **Background workers** — the retention scheduler runs inside the server
+   process (safe to replicate: the PostgreSQL advisory lock makes every extra
+   instance's pass a skip, but run exactly one instance for tidy schedules).
+
+### Background workers
+
+The server starts two in-process background loops after boot; both are
+configuration-gated and neither can crash the server:
+
+| Worker                         | What it does                                                                                                                                                                                                         | Knobs                                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Retention worker               | Deletes GPS locations / notifications / refresh tokens / audit logs / resolved emergencies / expired idempotency keys past their policy age (`docs/data-retention.md`)                                               | `RETENTION_ENABLED`, `RETENTION_INTERVAL_MS` (default 6 h), `RETENTION_INITIAL_DELAY_MS` (default 30 s), `*_RETENTION_DAYS` |
+| WebSocket session revalidation | Every `WEBSOCKET_SESSION_REVALIDATION_INTERVAL_MS` (default 5 min) disconnects live sockets whose access token expired, whose account or school was deactivated; clients reconnect and re-authenticate transparently | `WEBSOCKET_SESSION_REVALIDATION_ENABLED`, `..._INTERVAL_MS`                                                                 |
+
+### Graceful shutdown
+
+`server.js` handles `SIGTERM`/`SIGINT` (container stop, `kill`, Ctrl-C):
+
+1. stops the retention scheduler and the socket revalidation sweep,
+2. closes the Socket.IO server (disconnects clients, which then reconnect to
+   the remaining instance in future multi-instance setups),
+3. stops the HTTP listener and idle keep-alive connections,
+4. closes the database pool,
+
+with a 10 s force-exit bound so a stuck connection can never hang a container
+stop. Orchestrators should rely on this and allow the default grace period
+(e.g. Docker's 10 s `stop_grace_period`) — the server normally exits well
+inside it.
+
 > **`web/dist` must match `web/src/server`.** The App Router route handlers
 > `require()` the compiled server tree at runtime, so a `dist` that predates the
 > sources (a `git pull` that added an endpoint, a branch switch, an edit without
-> `npm run build:server`) does *not* fail at boot — the server starts, login
+> `npm run build:server`) does _not_ fail at boot — the server starts, login
 > works, and the first request into a module that has no compiled output throws
 > `Cannot find module '…/dist/api/<module>'` inside the handler. Next then
 > answers with its generic 500 page instead of the JSON envelope, which is how

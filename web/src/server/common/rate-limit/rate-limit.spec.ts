@@ -12,7 +12,10 @@ import {
   retryAfterSeconds,
 } from './rate-limit.keys';
 import { MemoryRateLimitStore } from './rate-limit.store';
-import { REDIS_RATE_LIMIT_UNAVAILABLE_MESSAGE, createRateLimitStore } from './rate-limit.store-factory';
+import {
+  REDIS_RATE_LIMIT_UNAVAILABLE_MESSAGE,
+  createRateLimitStore,
+} from './rate-limit.store-factory';
 
 describe('MemoryRateLimitStore', () => {
   it('counts within a window and rolls over when it expires', async () => {
@@ -43,6 +46,21 @@ describe('MemoryRateLimitStore', () => {
     await store.hit('c', 10, 1_000);
     assert.equal(store.size, 1);
   });
+
+  it('starts empty — a restarted process gets fresh buckets (documented single-instance behaviour)', async () => {
+    // Documents the restart semantics of the process-local store: counters do
+    // not survive a process restart, so a brute-force window also resets.
+    // See docs/security.md ("Rate limiting — deployment assumptions").
+    const first = new MemoryRateLimitStore();
+    await first.hit('auth_login|ip:1.2.3.4', 60_000, 0);
+    await first.hit('auth_login|ip:1.2.3.4', 60_000, 0);
+    assert.equal(first.peek('auth_login|ip:1.2.3.4', 0)?.count, 2);
+
+    const restarted = new MemoryRateLimitStore();
+    assert.equal(restarted.peek('auth_login|ip:1.2.3.4', 0), null);
+    const afterRestart = await restarted.hit('auth_login|ip:1.2.3.4', 60_000, 0);
+    assert.deepEqual(afterRestart, { count: 1, resetAt: 60_000 });
+  });
 });
 
 describe('resolveClientIp', () => {
@@ -59,7 +77,10 @@ describe('extractLoginIdentity', () => {
       extractLoginIdentity({ email: ' Admin@School.test ', school_id: ' ABC ' }),
       'abc:admin@school.test',
     );
-    assert.equal(extractLoginIdentity({ email: 'root@platform.test' }), 'platform:root@platform.test');
+    assert.equal(
+      extractLoginIdentity({ email: 'root@platform.test' }),
+      'platform:root@platform.test',
+    );
     assert.equal(extractLoginIdentity({ school_id: 'abc' }), null);
     assert.equal(extractLoginIdentity(null), null);
   });
@@ -71,14 +92,20 @@ describe('buildRateLimitBuckets', () => {
 
   it('keys by IP for anonymous callers and by user id once authenticated', () => {
     const anonymous = buildRateLimitBuckets({ policy: 'read_heavy', ip: '9.9.9.9' }, policy, login);
-    assert.deepEqual(anonymous.map((bucket) => bucket.key), ['read_heavy|ip:9.9.9.9']);
+    assert.deepEqual(
+      anonymous.map((bucket) => bucket.key),
+      ['read_heavy|ip:9.9.9.9'],
+    );
 
     const authenticated = buildRateLimitBuckets(
       { policy: 'read_heavy', ip: '9.9.9.9', userId: 'user-1' },
       policy,
       login,
     );
-    assert.deepEqual(authenticated.map((bucket) => bucket.key), ['read_heavy|user:user-1']);
+    assert.deepEqual(
+      authenticated.map((bucket) => bucket.key),
+      ['read_heavy|user:user-1'],
+    );
   });
 
   it('adds a hashed identity bucket for login so credential stuffing is capped', () => {
@@ -110,10 +137,13 @@ describe('createRateLimitStore', () => {
   });
 
   it('fails fast for the not-yet-implemented distributed store', () => {
-    assert.throws(() => createRateLimitStore('redis'), (error: Error) => {
-      assert.equal(error.message, REDIS_RATE_LIMIT_UNAVAILABLE_MESSAGE);
-      return true;
-    });
+    assert.throws(
+      () => createRateLimitStore('redis'),
+      (error: Error) => {
+        assert.equal(error.message, REDIS_RATE_LIMIT_UNAVAILABLE_MESSAGE);
+        return true;
+      },
+    );
     assert.throws(() => createRateLimitStore('memcached'), /Unknown RATE_LIMIT_STORE/);
   });
 });
@@ -190,7 +220,10 @@ describe('RateLimitGuard', () => {
 
     await assert.rejects(guard.canActivate(context), (error: unknown) => {
       assert.ok(error instanceof RateLimitExceededException);
-      const body = error.getResponse() as { error: string; details: { retry_after_seconds: number } };
+      const body = error.getResponse() as {
+        error: string;
+        details: { retry_after_seconds: number };
+      };
       assert.equal(error.getStatus(), 429);
       assert.equal(body.error, RATE_LIMIT_EXCEEDED_CODE);
       assert.ok(body.details.retry_after_seconds >= 1);
@@ -228,7 +261,11 @@ describe('RateLimitGuard', () => {
     assert.equal(
       await guard.canActivate(
         makeContext(
-          { ip: '4.4.4.4', headers: {}, body: { email: 'other@school.test', school_id: 'school-a' } },
+          {
+            ip: '4.4.4.4',
+            headers: {},
+            body: { email: 'other@school.test', school_id: 'school-a' },
+          },
           response,
         ),
       ),

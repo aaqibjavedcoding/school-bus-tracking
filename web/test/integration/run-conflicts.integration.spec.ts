@@ -11,7 +11,6 @@ import {
   createPlan,
   createRoute,
   createRun,
-  createRunCrew,
   createSchool,
   createShift,
   createStop,
@@ -85,7 +84,15 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
       configStub(),
     );
     const runs = new RunsService(Run, Route, Shift, Bus, RunCrew, User, Student, planLimits);
-    const runCrew = new RunCrewService(RunCrew, Run, Route, User, Shift, RouteAssignment, sequelize);
+    const runCrew = new RunCrewService(
+      RunCrew,
+      Run,
+      Route,
+      User,
+      Shift,
+      RouteAssignment,
+      sequelize,
+    );
     const students = new StudentsService(
       Student,
       Stop,
@@ -149,7 +156,10 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
     const { runs } = services();
     const f = await makeTenantFixture();
 
-    await runs.create(f.school.id, runDto({ route_id: f.route1.id, bus_id: f.bus.id, shift_id: f.morning.id, code: 'T-A' }));
+    await runs.create(
+      f.school.id,
+      runDto({ route_id: f.route1.id, bus_id: f.bus.id, shift_id: f.morning.id, code: 'T-A' }),
+    );
     const second = await runs.create(
       f.school.id,
       runDto({ route_id: f.route2.id, bus_id: f.bus.id, shift_id: f.afternoon.id, code: 'T-B' }),
@@ -162,9 +172,20 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
   it('rejects the same bus on overlapping windows (the pre-refactor rule, kept)', async () => {
     const { runs } = services();
     const f = await makeTenantFixture();
-    await runs.create(f.school.id, runDto({ route_id: f.route1.id, bus_id: f.bus.id, shift_id: f.morning.id, code: 'O-A' }));
+    await runs.create(
+      f.school.id,
+      runDto({ route_id: f.route1.id, bus_id: f.bus.id, shift_id: f.morning.id, code: 'O-A' }),
+    );
     await assert.rejects(
-      runs.create(f.school.id, runDto({ route_id: f.route2.id, bus_id: f.bus.id, shift_id: f.overlapping.id, code: 'O-B' })),
+      runs.create(
+        f.school.id,
+        runDto({
+          route_id: f.route2.id,
+          bus_id: f.bus.id,
+          shift_id: f.overlapping.id,
+          code: 'O-B',
+        }),
+      ),
       (error: unknown) => (error as { status: number }).status === 409,
     );
   });
@@ -188,9 +209,16 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
     const bus2 = await createBus(school2.id);
     const r1 = await createRoute(school2.id);
     const r2 = await createRoute(school2.id);
+    // The blocking run must reference a shift *of the same tenant* — the
+    // conflict engine only compares rows within one school.
+    const school2Morning = await createShift(school2.id, {
+      name: 'Morning',
+      start_time: '07:00:00',
+      end_time: '11:00:00',
+    });
     await runs.create(
       school2.id,
-      runDto({ route_id: r1.id, bus_id: bus2.id, shift_id: f.morning.id, code: 'E-1' }),
+      runDto({ route_id: r1.id, bus_id: bus2.id, shift_id: school2Morning.id, code: 'E-1' }),
     );
     await assert.rejects(
       runs.create(school2.id, runDto({ route_id: r2.id, bus_id: bus2.id, code: 'E-2' })),
@@ -245,9 +273,21 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
   it('uq_trips_run_scheduled_start and the route index both reject double departures', async () => {
     const f = await makeTenantFixture();
     const runA = await createRun(f.school.id, f.route1.id, { bus_id: f.bus.id, code: 'TI-A' });
-    const runB = await createRun(f.school.id, f.route1.id, { shift_id: f.afternoon.id, code: 'TI-B' });
+    const runB = await createRun(f.school.id, f.route1.id, {
+      shift_id: f.afternoon.id,
+      code: 'TI-B',
+    });
     const start = new Date('2026-09-07T06:30:00.000Z');
-    await createTrip(f.school.id, f.route1.id, f.bus.id, f.driver.id, null, undefined, start, runA.id);
+    await createTrip(
+      f.school.id,
+      f.route1.id,
+      f.bus.id,
+      f.driver.id,
+      null,
+      undefined,
+      start,
+      runA.id,
+    );
 
     // Same run, same instant → run-level index (or, whichever the planner
     // reaches first, §3.6: the route index is still in force too).
