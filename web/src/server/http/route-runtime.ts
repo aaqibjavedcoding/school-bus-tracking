@@ -22,6 +22,7 @@ import {
   BadRequestException,
   GoneException,
   HttpStatus,
+  Logger,
   createExecutionContext,
   globalValidationPipe,
   type Type,
@@ -60,6 +61,14 @@ import {
   structuredLogger,
   type LoggableRequest,
 } from '../common/interceptors/structured-logging.interceptor';
+import { IDEMPOTENCY_HEADER } from '../common/idempotency/idempotency.constants';
+import {
+  REQUEST_ID_HEADER,
+  REQUEST_ID_PROPERTY,
+  resolveRequestId,
+} from '../common/middleware/request-id.middleware';
+
+const routeLogger = new Logger('RouteRuntime');
 
 /** Context handed to every endpoint handler. */
 export interface HandlerContext<TBody = unknown, TQuery = unknown> {
@@ -102,6 +111,17 @@ export interface EndpointDefinition<TBody = unknown, TQuery = unknown> {
   bodyType?: Type<TBody>;
   /** DTO class validated against the query string. */
   queryType?: Type<TQuery>;
+  /**
+   * Idempotency scope for this endpoint (one of `IDEMPOTENCY_ENDPOINTS`).
+   *
+   * When set, a request carrying an `x-idempotency-key` header is deduplicated
+   * against the stored result of the first request with the same key: replays
+   * (mobile retries, offline-queue flushes, double submits) return the
+   * original response without re-executing the handler, so no duplicate rows,
+   * events or notifications are created. Keys are scoped per tenant, user and
+   * endpoint. Requests without the header execute normally.
+   */
+  idempotency?: string;
   /**
    * Set when the handler returns its own `Response` (file streams, exports).
    * Such responses bypass the JSON envelope entirely.
@@ -260,27 +280,54 @@ export function createRouteHandler<TBody, TQuery>(
         })) as TQuery;
       }
 
-      const result = await definition.handler({
-        user: adapted.user as AuthenticatedRequestUser,
-        body: validatedBody,
-        query: validatedQuery,
-        params,
-        request: adapted,
-        raw: request,
-        cookies: cookieJar,
-      });
-
-      // Assisted-management mutations are audited once the handler has
-      // succeeded, on the envelope the client will actually receive.
-      if (definition.managedSchool) {
-        await auditAssistedMutation(adapted, result);
+      // 5b. Idempotency — a replayed key returns the stored response without
+      // re-executing the handler; a fresh key runs and its result is stored.
+      const idempotency = resolveIdempotencyRequest(definition, adapted);
+      let replayed: { status: number; body: Record<string, unknown> } | null = null;
+      if (idempotency) {
+        replayed = await findStoredIdempotentResponse(idempotency);
       }
+
+      let result: unknown;
+      if (replayed) {
+        result = replayed.body;
+      } else {
+        result = await definition.handler({
+          user: adapted.user as AuthenticatedRequestUser,
+          body: validatedBody,
+          query: validatedQuery,
+          params,
+          request: adapted,
+          raw: request,
+          cookies: cookieJar,
+        });
+
+        // Assisted-management mutations are audited once the handler has
+        // succeeded, on the envelope the client will actually receive.
+        if (definition.managedSchool) {
+          await auditAssistedMutation(adapted, result);
+        }
+
+        // Replays never reach this branch, so a stored key always reflects
+        // exactly one execution. Streaming/file responses bypass storage —
+        // no idempotent endpoint returns one.
+        if (idempotency && !(result instanceof Response)) {
+          await storeIdempotentResponse(
+            idempotency,
+            successStatusFor(request, definition),
+            result,
+          );
+        }
+      }
+
+      const requestId = adapted[REQUEST_ID_PROPERTY] as string;
 
       // Streaming/file endpoints return their own Response and must bypass
       // the JSON envelope (exports, report downloads, import error files).
       if (result instanceof Response) {
         adaptedResponse.applyTo(result.headers);
         cookieJar.applyTo(result.headers);
+        result.headers.set(REQUEST_ID_HEADER, requestId);
         structuredLogger.logSuccess(
           adapted as unknown as LoggableRequest,
           result.status,
@@ -292,10 +339,9 @@ export function createRouteHandler<TBody, TQuery>(
       const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' });
       adaptedResponse.applyTo(headers);
       cookieJar.applyTo(headers);
+      headers.set(REQUEST_ID_HEADER, requestId);
 
-      const status =
-        definition.status ??
-        (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK);
+      const status = replayed?.status ?? successStatusFor(request, definition);
 
       structuredLogger.logSuccess(adapted as unknown as LoggableRequest, status, startedAt);
 
@@ -311,6 +357,15 @@ export function createRouteHandler<TBody, TQuery>(
       // the guard before it threw, so they must survive onto the error too.
       adaptedResponse.applyTo(headers);
       cookieJar.applyTo(headers);
+      // Every response — success or error — carries the correlation id, so a
+      // client can quote it when reporting a failure. When the failure
+      // happened before the request was adapted (malformed JSON), the id is
+      // resolved from the incoming headers with the same rule.
+      headers.set(
+        REQUEST_ID_HEADER,
+        (adapted?.[REQUEST_ID_PROPERTY] as string | undefined) ??
+          resolveRequestId(request.headers.get(REQUEST_ID_HEADER)),
+      );
 
       structuredLogger.logError(
         (adapted ?? {
@@ -364,6 +419,122 @@ async function auditAssistedMutation(request: AdaptedRequest, result: unknown): 
     request as unknown as ManagedRequest,
     wrapSuccess(result) as { success?: boolean; data?: unknown },
   );
+}
+
+/** Success status for a freshly executed handler (replays keep their own). */
+function successStatusFor(request: Request, definition: EndpointDefinition): number {
+  return (
+    definition.status ?? (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK)
+  );
+}
+
+/** One idempotent request: tenant + user + endpoint scope plus the client key. */
+interface IdempotencyRequest {
+  schoolId: string;
+  userId: string;
+  endpoint: string;
+  idempotencyKey: string;
+}
+
+/**
+ * Resolves the idempotency scope for this request, or null when idempotency
+ * does not apply: the endpoint did not declare it, the client sent no key, or
+ * there is no tenant/user scope to isolate the key by (idempotent endpoints
+ * are tenant routes, so the guards have already guaranteed both — the check
+ * is defence in depth).
+ *
+ * An oversized key is a client error: the column holds 255 chars and silently
+ * truncating would merge distinct operations into one.
+ */
+function resolveIdempotencyRequest(
+  definition: EndpointDefinition,
+  adapted: AdaptedRequest,
+): IdempotencyRequest | null {
+  if (!definition.idempotency) {
+    return null;
+  }
+  const raw = adapted.headers[IDEMPOTENCY_HEADER];
+  const key = (Array.isArray(raw) ? raw[0] : raw)?.trim() ?? '';
+  if (key.length === 0) {
+    return null;
+  }
+  if (key.length > 255) {
+    throw new BadRequestException(
+      'x-idempotency-key must be at most 255 characters long',
+    );
+  }
+  const user = adapted.user;
+  const schoolId = user?.school_id;
+  const userId = user?.id;
+  if (typeof schoolId !== 'string' || schoolId.length === 0) {
+    return null;
+  }
+  if (typeof userId !== 'string' || userId.length === 0) {
+    return null;
+  }
+  return { schoolId, userId, endpoint: definition.idempotency, idempotencyKey: key };
+}
+
+/**
+ * Returns the stored response for a replayed key, or null for a fresh key.
+ *
+ * Fail-open by design: when the lookup itself errors (a database blip), the
+ * request proceeds as a fresh one instead of failing a mutation the database
+ * might still accept. The handler's own guards (unique indexes, 409s) remain
+ * the backstop against duplicates.
+ */
+async function findStoredIdempotentResponse(
+  idempotency: IdempotencyRequest,
+): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  try {
+    const outcome = await getContainer().idempotency().check({
+      schoolId: idempotency.schoolId,
+      userId: idempotency.userId,
+      endpoint: idempotency.endpoint,
+      idempotencyKey: idempotency.idempotencyKey,
+    });
+    if (outcome.status === 'duplicate') {
+      return { status: outcome.responseStatus, body: outcome.responseBody };
+    }
+    return null;
+  } catch (error) {
+    routeLogger.warn(
+      `Idempotency lookup failed, proceeding as a fresh request: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Stores the result of one execution. Best-effort: a storage failure is
+ * logged but never fails the already-successful mutation. A concurrent
+ * request that stored first wins (unique constraint); the service swallows
+ * that race and this request simply returns its own identical result.
+ */
+async function storeIdempotentResponse(
+  idempotency: IdempotencyRequest,
+  status: number,
+  result: unknown,
+): Promise<void> {
+  try {
+    const serializable = JSON.parse(JSON.stringify(result ?? null)) as Record<string, unknown>;
+    await getContainer().idempotency().store({
+      schoolId: idempotency.schoolId,
+      userId: idempotency.userId,
+      endpoint: idempotency.endpoint,
+      idempotencyKey: idempotency.idempotencyKey,
+      responseStatus: status,
+      responseBody: serializable,
+    });
+  } catch (error) {
+    routeLogger.warn(
+      `Idempotency store failed for key=${idempotency.idempotencyKey}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }
 
 /**

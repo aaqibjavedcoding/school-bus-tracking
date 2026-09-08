@@ -352,6 +352,7 @@ export class Container {
         this.liveTrackingConfig(),
         this.stopArrivals(),
         Run,
+        this.idempotency(),
       ),
   );
 

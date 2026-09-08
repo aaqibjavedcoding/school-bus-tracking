@@ -19,6 +19,7 @@ export const AUDIT_ACTIONS = {
   // Plan / subscription
   PLAN_CREATE: 'plan.create',
   PLAN_UPDATE: 'plan.update',
+  PLAN_ACTIVATE: 'plan.activate',
   PLAN_DEACTIVATE: 'plan.deactivate',
   SUBSCRIPTION_ASSIGN: 'subscription.assign',
   SUBSCRIPTION_CHANGE: 'subscription.change',
@@ -62,8 +63,11 @@ export const AUDIT_ACTIONS = {
   TRIP_UPDATE: 'trip.update',
   TRIP_STATUS_CHANGE: 'trip.status_change',
   TRIP_CANCEL: 'trip.cancel',
+  TRIP_DELETE: 'trip.delete',
 
   // Attendance
+  ATTENDANCE_BOARD: 'attendance.board',
+  ATTENDANCE_DROP: 'attendance.drop',
   ATTENDANCE_CORRECTION: 'attendance.correction',
 
   // Document
@@ -76,6 +80,7 @@ export const AUDIT_ACTIONS = {
   EMERGENCY_ACKNOWLEDGE: 'emergency.acknowledge',
   EMERGENCY_RESOLVE: 'emergency.resolve',
   EMERGENCY_CANCEL: 'emergency.cancel',
+  EMERGENCY_REOPEN: 'emergency.reopen',
 
   // Bulk data transfer (import / export / reports)
   IMPORT_VALIDATE: 'import.validate',

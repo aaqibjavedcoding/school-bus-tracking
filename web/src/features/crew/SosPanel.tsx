@@ -14,6 +14,8 @@ import { emergencySosSchema } from '@school-bus-tracking/validation';
 import { Badge, Button, Card, Field, Modal, Select, Textarea, useToast } from '../../components/ui';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
+import { generateIdempotencyKey } from '../../lib/idempotency';
+import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../services/api';
 import { getEmergenciesSocket } from '../../services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
@@ -51,6 +53,10 @@ export const SosPanel: React.FC<{ tripId: string | null }> = ({ tripId }) => {
   const [history, setHistory] = useState<EmergencyEventResponse[]>([]);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Stable for one composed alert: retries of the same SOS (double submit,
+  // flaky network, the client's own 401-refresh replay) carry the same key,
+  // so the server records the alert exactly once. A new alert mints a new key.
+  const [sosKey, setSosKey] = useState(() => generateIdempotencyKey());
   const [type, setType] = useState<EmergencyType>(EmergencyType.ACCIDENT);
   const [message, setMessage] = useState('');
 
@@ -95,10 +101,11 @@ export const SosPanel: React.FC<{ tripId: string | null }> = ({ tripId }) => {
           toast.push(parsed.error.issues[0]?.message ?? 'Invalid emergency', 'danger');
           return;
         }
-        unwrapEnvelope(await apiClient.raiseSos(parsed.data));
+        unwrapEnvelope(await apiClient.raiseSos(parsed.data, withIdempotencyKey(sosKey)));
         toast.push('SOS sent. The school has been alerted.', 'success');
         setConfirming(false);
         setMessage('');
+        setSosKey(generateIdempotencyKey());
         await reload();
       } catch (caught) {
         toast.push(getApiErrorMessage(caught), 'danger');

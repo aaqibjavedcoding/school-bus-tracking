@@ -4,6 +4,8 @@ import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
+import { generateIdempotencyKey } from '../../lib/idempotency';
+import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { Button, Field } from '../../components';
 import { nextCrewTransitions, transitionLabel } from './crew-trip';
 
@@ -32,7 +34,13 @@ export const TripStatusActions: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      const envelope = await apiClient.updateTripStatus(trip.id, { status: next });
+      // One key per press: a retried transition (flaky network, the client's
+      // own 401-refresh replay) replays instead of double-applying.
+      const envelope = await apiClient.updateTripStatus(
+        trip.id,
+        { status: next },
+        withIdempotencyKey(generateIdempotencyKey()),
+      );
       onApplied(unwrapEnvelope(envelope));
     } catch (caught) {
       setError(getApiErrorMessage(caught, 'Could not update the trip.'));
@@ -49,7 +57,11 @@ export const TripStatusActions: React.FC<{
     setBusy(true);
     setError(null);
     try {
-      const envelope = await apiClient.cancelTrip(trip.id, { cancellation_reason: reason.trim() });
+      const envelope = await apiClient.cancelTrip(
+        trip.id,
+        { cancellation_reason: reason.trim() },
+        withIdempotencyKey(generateIdempotencyKey()),
+      );
       setCancelling(false);
       setReason('');
       onApplied(unwrapEnvelope(envelope));

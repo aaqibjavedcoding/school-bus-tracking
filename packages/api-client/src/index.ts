@@ -325,6 +325,22 @@ export const CSRF_HEADER_NAME = 'X-CSRF-Token';
  */
 export const CSRF_TOKEN_PATH = '/auth/csrf';
 
+/** Header the API deduplicates critical mutations on (see `IDEMPOTENCY_ENDPOINTS` server-side). */
+export const IDEMPOTENCY_HEADER_NAME = 'x-idempotency-key';
+
+/**
+ * Builds the `RequestInit` that marks a mutation as safely retryable.
+ *
+ * Pass the result as the `options` argument of the idempotent client methods
+ * (`boardTripStudent`, `raiseSos`, `updateTripStatus`, …). The key must be
+ * unique per *logical operation* (one UUID per SOS alert, per offline-queue
+ * item, per GPS fix): replays with the same key return the original response
+ * without re-executing, while a fresh key always executes.
+ */
+export function withIdempotencyKey(key: string): RequestInit {
+  return { headers: { [IDEMPOTENCY_HEADER_NAME]: key } };
+}
+
 /** Payload of `GET /auth/csrf` (inside the standard `{ success, data }` envelope). */
 export interface CsrfTokenPayload {
   csrf_token: string;
@@ -1803,16 +1819,18 @@ export class ApiClient {
   public async updateTripStatus(
     id: string,
     body: TripStatusUpdateRequest,
+    options?: RequestInit,
   ): Promise<ApiResponse<TripResponse>> {
-    return this.patch<TripResponse>(`/trips/${encodeURIComponent(id)}/status`, body);
+    return this.patch<TripResponse>(`/trips/${encodeURIComponent(id)}/status`, body, options);
   }
 
   /** Cancels a non-terminal trip while keeping it visible in reporting. */
   public async cancelTrip(
     id: string,
     body: TripCancelRequest = {},
+    options?: RequestInit,
   ): Promise<ApiResponse<TripResponse>> {
-    return this.post<TripResponse>(`/trips/${encodeURIComponent(id)}/cancel`, body);
+    return this.post<TripResponse>(`/trips/${encodeURIComponent(id)}/cancel`, body, options);
   }
 
   /** Cancels (when still open) and soft-deletes the trip. */
@@ -1909,9 +1927,12 @@ export class ApiClient {
   public async boardTripStudent(
     tripId: string,
     studentId: string,
+    options?: RequestInit,
   ): Promise<ApiResponse<TripStudentAttendanceResponse>> {
     return this.post<TripStudentAttendanceResponse>(
       `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}/board`,
+      undefined,
+      options,
     );
   }
 
@@ -1919,9 +1940,12 @@ export class ApiClient {
   public async dropTripStudent(
     tripId: string,
     studentId: string,
+    options?: RequestInit,
   ): Promise<ApiResponse<TripStudentAttendanceResponse>> {
     return this.post<TripStudentAttendanceResponse>(
       `/trips/${encodeURIComponent(tripId)}/students/${encodeURIComponent(studentId)}/drop`,
+      undefined,
+      options,
     );
   }
 
@@ -2081,8 +2105,11 @@ export class ApiClient {
    * console and the crew member's own history. No paid SMS / push provider is
    * involved — delivery is the self-hosted Socket.IO feed.
    */
-  public async raiseSos(body: EmergencySosRequest): Promise<ApiResponse<EmergencyEventResponse>> {
-    return this.post<EmergencyEventResponse>('/emergencies/sos', body);
+  public async raiseSos(
+    body: EmergencySosRequest,
+    options?: RequestInit,
+  ): Promise<ApiResponse<EmergencyEventResponse>> {
+    return this.post<EmergencyEventResponse>('/emergencies/sos', body, options);
   }
 
   /** The signed-in crew member's own SOS history. */
@@ -2096,10 +2123,12 @@ export class ApiClient {
   public async cancelMyEmergency(
     id: string,
     body: EmergencyStatusUpdateRequest = { status: EmergencyStatus.CANCELLED },
+    options?: RequestInit,
   ): Promise<ApiResponse<EmergencyEventResponse>> {
     return this.patch<EmergencyEventResponse>(
       `/emergencies/${encodeURIComponent(id)}/cancel`,
       body,
+      options,
     );
   }
 
@@ -2122,10 +2151,12 @@ export class ApiClient {
   public async updateEmergencyStatus(
     id: string,
     body: EmergencyStatusUpdateRequest,
+    options?: RequestInit,
   ): Promise<ApiResponse<EmergencyEventResponse>> {
     return this.patch<EmergencyEventResponse>(
       `/emergencies/${encodeURIComponent(id)}/status`,
       body,
+      options,
     );
   }
 

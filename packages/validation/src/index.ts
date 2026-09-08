@@ -1085,6 +1085,9 @@ export type GpsLocationFixInput = z.infer<typeof gpsLocationFixSchema>;
 export const tripLocationUpdateSchema = gpsLocationFixSchema
   .extend({
     trip_id: z.string().uuid('trip_id must be a valid UUID'),
+    // Optional idempotency key for redelivered fixes. Trimmed and bounded to
+    // the storage column; anything longer is a malformed payload.
+    idempotency_key: z.string().trim().min(1).max(255).optional(),
   })
   .strict();
 

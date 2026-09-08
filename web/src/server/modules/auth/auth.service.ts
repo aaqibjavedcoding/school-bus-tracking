@@ -258,8 +258,18 @@ export class AuthService {
   /**
    * Revokes the refresh token session in the database.
    * Idempotent: succeeds even if no token is provided or already revoked.
+   *
+   * The revoked session's identity rides along on the result (the route
+   * handler strips it before responding) so the logout can be audited
+   * against *which* session ended. Both fields are `null` when no live
+   * session was revoked — a no-op logout carries no identity.
    */
-  async logout(rawRefreshToken: string | undefined): Promise<LogoutResponse> {
+  async logout(
+    rawRefreshToken: string | undefined,
+  ): Promise<
+    LogoutResponse & { revoked_user_id?: string | null; revoked_school_id?: string | null }
+  > {
+    let revoked: { user_id: string; school_id: string | null } | null = null;
     if (rawRefreshToken && typeof rawRefreshToken === 'string' && rawRefreshToken.trim()) {
       const tokenHash = hashToken(rawRefreshToken.trim());
       const storedToken = await this.refreshTokens.unscoped().findOne({
@@ -269,11 +279,14 @@ export class AuthService {
       if (storedToken && storedToken.revoked_at === null) {
         storedToken.revoked_at = new Date();
         await storedToken.save();
+        revoked = { user_id: storedToken.user_id, school_id: storedToken.school_id };
       }
     }
 
     return {
       message: LOGOUT_SUCCESS_MESSAGE,
+      revoked_user_id: revoked?.user_id ?? null,
+      revoked_school_id: revoked?.school_id ?? null,
     };
   }
 

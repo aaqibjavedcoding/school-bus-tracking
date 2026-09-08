@@ -10,6 +10,8 @@ import { HttpStatus, parseUuidParam, validateDto } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { ParentResponse, UserRole } from '@school-bus-tracking/shared-types';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
+import { auditRequestContext } from '../modules/audit/audit-request';
 import { CreateParentDto } from '../modules/parents/dto/create-parent.dto';
 import { CreateParentStudentRelationshipDto } from '../modules/parents/dto/create-parent-student-relationship.dto';
 import { ListParentsQueryDto } from '../modules/parents/dto/list-parents-query.dto';
@@ -24,10 +26,19 @@ export const postParents: EndpointDefinition<CreateParentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateParentDto,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, request }) => {
     const schoolId = user.school_id as string;
     const dto = body;
-    return container().parents().create(schoolId, dto);
+    const parent = await container().parents().create(schoolId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: parent.id,
+      ...auditRequestContext({ request }),
+    });
+    return parent;
   },};
 
 /** `GET /api/v1/parents` */
@@ -57,11 +68,22 @@ export const postParentsByParentIdStudents: EndpointDefinition<CreateParentStude
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateParentStudentRelationshipDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const parentId = parseUuidParam(params['parentId']);
     const dto = body;
-    return container().parentGuardians().createForParent(schoolId, parentId, dto);
+    const link = await container().parentGuardians().createForParent(schoolId, parentId, dto);
+    // Guardian links decide which parent sees which child: record both ends.
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: link.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: parentId, student_id: link.student_id },
+    });
+    return link;
   },};
 
 /** `GET /api/v1/parents/:parentId/students` */
@@ -80,23 +102,43 @@ export const patchParentsByParentIdStudentsByStudentId: EndpointDefinition<Updat
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateParentStudentRelationshipDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const parentId = parseUuidParam(params['parentId']);
     const studentId = parseUuidParam(params['studentId']);
     const dto = body;
-    return container().parentGuardians().updateForParent(schoolId, parentId, studentId, dto);
+    const link = await container().parentGuardians().updateForParent(schoolId, parentId, studentId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: link.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: parentId, student_id: studentId },
+    });
+    return link;
   },};
 
 /** `DELETE /api/v1/parents/:parentId/students/:studentId` */
 export const deleteParentsByParentIdStudentsByStudentId: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
     const parentId = parseUuidParam(params['parentId']);
     const studentId = parseUuidParam(params['studentId']);
-    return container().parentGuardians().removeForParent(schoolId, parentId, studentId);
+    const result = await container().parentGuardians().removeForParent(schoolId, parentId, studentId);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: parentId, student_id: studentId },
+    });
+    return result;
   },
 };
 
@@ -116,21 +158,39 @@ export const patchParentsById: EndpointDefinition<UpdateParentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateParentDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const id = parseUuidParam(params['parentId']);
     const dto = body;
-    return container().parents().update(schoolId, id, dto);
+    const parent = await container().parents().update(schoolId, id, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: parent.id,
+      ...auditRequestContext({ request }),
+    });
+    return parent;
   },};
 
 /** `DELETE /api/v1/parents/:parentId` */
 export const deleteParentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
     const id = parseUuidParam(params['parentId']);
-    return container().parents().remove(schoolId, id);
+    const result = await container().parents().remove(schoolId, id);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };
 
@@ -139,11 +199,21 @@ export const postStudentsByStudentIdGuardians: EndpointDefinition<CreateStudentG
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateStudentGuardianDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const studentId = parseUuidParam(params['studentId']);
     const dto = body;
-    return container().parentGuardians().createForStudent(schoolId, studentId, dto);
+    const link = await container().parentGuardians().createForStudent(schoolId, studentId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: link.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: link.parent_id, student_id: studentId },
+    });
+    return link;
   },};
 
 /** `GET /api/v1/students/:studentId/guardians` */
@@ -162,22 +232,42 @@ export const patchStudentsByStudentIdGuardiansByParentId: EndpointDefinition<Upd
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateParentStudentRelationshipDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const studentId = parseUuidParam(params['studentId']);
     const parentId = parseUuidParam(params['parentId']);
     const dto = body;
-    return container().parentGuardians().updateForStudent(schoolId, studentId, parentId, dto);
+    const link = await container().parentGuardians().updateForStudent(schoolId, studentId, parentId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: link.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: parentId, student_id: studentId },
+    });
+    return link;
   },};
 
 /** `DELETE /api/v1/students/:studentId/guardians/:parentId` */
 export const deleteStudentsByStudentIdGuardiansByParentId: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
     const studentId = parseUuidParam(params['studentId']);
     const parentId = parseUuidParam(params['parentId']);
-    return container().parentGuardians().removeForStudent(schoolId, studentId, parentId);
+    const result = await container().parentGuardians().removeForStudent(schoolId, studentId, parentId);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.GUARDIAN_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.GUARDIAN,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+      metadata: { parent_id: parentId, student_id: studentId },
+    });
+    return result;
   },
 };

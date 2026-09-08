@@ -18,6 +18,8 @@ import { getEmergenciesSocket } from '../../services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { formatRelative } from '../../lib/format';
+import { generateIdempotencyKey } from '../../lib/idempotency';
+import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { emergencyStatusTone, isEmergencyActive } from '../admin/emergencies/helpers';
 import {
   Badge,
@@ -59,6 +61,10 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
   const [history, setHistory] = useState<EmergencyEventResponse[]>([]);
   const [busy, setBusy] = useState(false);
   const [composing, setComposing] = useState(false);
+  // Stable for one composed alert: retries of the same SOS (double tap,
+  // flaky network, the client's own 401-refresh replay) carry the same key,
+  // so the server records the alert exactly once. A new alert mints a new key.
+  const [sosKey, setSosKey] = useState(() => generateIdempotencyKey());
   const [type, setType] = useState<EmergencyType>(EmergencyType.ACCIDENT);
   const [message, setMessage] = useState('');
   const [shareLocation, setShareLocation] = useState(true);
@@ -105,10 +111,11 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
         Alert.alert('Could not send SOS', parsed.error.issues[0]?.message ?? 'Invalid alert');
         return;
       }
-      unwrapEnvelope(await apiClient.raiseSos(parsed.data));
+      unwrapEnvelope(await apiClient.raiseSos(parsed.data, withIdempotencyKey(sosKey)));
       Alert.alert('SOS sent', 'The school has been alerted and can see your trip.');
       setComposing(false);
       setMessage('');
+      setSosKey(generateIdempotencyKey());
       await reload();
     } catch (caught) {
       Alert.alert('Could not send SOS', getApiErrorMessage(caught));

@@ -32,6 +32,8 @@ import {
   TripLocation,
 } from '../../database/models';
 import type { TenantRequestUser as RequestUser } from '../../common/guards';
+import type { IdempotencyService } from '../../common/idempotency/idempotency.service';
+import { IDEMPOTENCY_ENDPOINTS } from '../../common/idempotency/idempotency.constants';
 import { StopArrivalsService } from '../eta/stop-arrivals.service';
 import {
   DEFAULT_HISTORY_LIMIT,
@@ -157,6 +159,14 @@ export class LiveTrackingService {
     private readonly arrivals: StopArrivalsService,
     // Phase 3: run-scoped parent visibility (`docs/operating-model.md` §8.4).
     private readonly runs: typeof Run,
+    /**
+     * Idempotency receipts for redelivered fixes. Optional so the service
+     * stays trivially unit-constructible (existing specs pass nine
+     * arguments); the container injects the real service in the running
+     * application. Without it, fixes carrying `idempotency_key` are still
+     * accepted — they are just not deduplicated.
+     */
+    private readonly idempotency?: IdempotencyService | null,
   ) {}
   private readonly logger = new Logger(LiveTrackingService.name);
 
@@ -535,6 +545,12 @@ export class LiveTrackingService {
    * fixes are still persisted for the history — they simply never move the
    * live position backwards, because a fix only replaces the latest when its
    * `recorded_at` is newer (or equal with a later server receipt).
+   *
+   * Fixes carrying `idempotency_key` are deduplicated: a redelivery returns
+   * the original `accepted` ack without inserting a second row. The check
+   * runs after trip/crew validation but before throttling, so a redelivery
+   * is never mistaken for a too-frequent new fix. Rejected fixes are never
+   * stored — a retry after the throttle window must be able to succeed.
    */
   async recordLocation(
     user: RequestUser,
@@ -568,6 +584,17 @@ export class LiveTrackingService {
 
     if (!isTripTrackingActive(trip.status)) {
       return reject(payload.trip_id, 'trip_not_open');
+    }
+
+    // Redelivered fix with a known key: replay the original ack. No row, no
+    // broadcast, no throttle interaction — the first delivery already did all
+    // of that.
+    const idempotencyKey = payload.idempotency_key ?? null;
+    if (idempotencyKey) {
+      const replayed = await this.findStoredLocationAck(user, trip, idempotencyKey);
+      if (replayed) {
+        return { ack: replayed };
+      }
     }
 
     const now = new Date();
@@ -621,6 +648,7 @@ export class LiveTrackingService {
     };
 
     if (!replacesLatest) {
+      await this.storeLocationAck(user, trip, idempotencyKey, ack);
       return { ack };
     }
 
@@ -629,6 +657,11 @@ export class LiveTrackingService {
       receivedAt: nowMs,
       id: location.id,
     });
+
+    // The receipt is stored before the broadcast so that a redelivery racing
+    // the original broadcast still replays instead of double-inserting. A
+    // storage failure never blocks the already-accepted fix.
+    await this.storeLocationAck(user, trip, idempotencyKey, ack);
 
     const payloadOut: TripLocationUpdateEvent = {
       trip_id: trip.id,
@@ -653,6 +686,98 @@ export class LiveTrackingService {
       ack,
       broadcast: { event: LIVE_TRACKING_EVENTS.locationUpdate, payload: payloadOut },
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // Fix idempotency
+  // ---------------------------------------------------------------------
+
+  /**
+   * Endpoint scope for one trip's fixes. Keys are additionally isolated by
+   * tenant and crew user (see `IdempotencyService`), so a key can never
+   * replay a fix onto another trip, tenant or device.
+   */
+  private locationEndpointScope(tripId: string): string {
+    return `${IDEMPOTENCY_ENDPOINTS.TRIP_LOCATION}:${tripId}`;
+  }
+
+  /**
+   * Returns the stored ack for a redelivered fix, or null for a fresh key.
+   *
+   * Fail-open: a lookup failure proceeds as a fresh fix — the alternative
+   * would drop live GPS data over a receipt-table blip. The stored ack is
+   * shape-checked defensively: anything that is not an `accepted` ack for
+   * this trip is ignored and the fix is processed normally.
+   */
+  private async findStoredLocationAck(
+    user: RequestUser,
+    trip: Trip,
+    idempotencyKey: string,
+  ): Promise<TripLocationUpdateAck | null> {
+    if (!this.idempotency) {
+      return null;
+    }
+    try {
+      const outcome = await this.idempotency.check({
+        schoolId: user.school_id,
+        userId: user.id,
+        endpoint: this.locationEndpointScope(trip.id),
+        idempotencyKey,
+      });
+      if (outcome.status !== 'duplicate') {
+        return null;
+      }
+      const body = outcome.responseBody as Partial<TripLocationUpdateAck> | null;
+      if (
+        body &&
+        body.status === 'accepted' &&
+        body.trip_id === trip.id &&
+        typeof body.received_at === 'string'
+      ) {
+        return body as TripLocationUpdateAck;
+      }
+      return null;
+    } catch (error) {
+      this.logger.warn(
+        `Location idempotency lookup failed, accepting fix as fresh: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Stores the ack of an accepted fix. Best-effort: failures are logged but
+   * never reject the fix. Rejected fixes are never stored (see
+   * `recordLocation`).
+   */
+  private async storeLocationAck(
+    user: RequestUser,
+    trip: Trip,
+    idempotencyKey: string | null,
+    ack: TripLocationUpdateAck,
+  ): Promise<void> {
+    if (!idempotencyKey || !this.idempotency) {
+      return;
+    }
+    try {
+      await this.idempotency.store({
+        schoolId: user.school_id,
+        userId: user.id,
+        endpoint: this.locationEndpointScope(trip.id),
+        idempotencyKey,
+        // The socket path has no HTTP status; 200 marks "accepted".
+        responseStatus: 200,
+        responseBody: { ...ack } as unknown as Record<string, unknown>,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Location idempotency store failed (key=${idempotencyKey}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------

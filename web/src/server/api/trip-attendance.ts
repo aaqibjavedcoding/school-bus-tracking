@@ -11,6 +11,9 @@ import { container } from '../container';
 import { tenantUser } from '../http/route-runtime';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
+import { IDEMPOTENCY_ENDPOINTS } from '../common/idempotency/idempotency.constants';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
+import { auditRequestContext } from '../modules/audit/audit-request';
 import { TripAttendanceService } from '../modules/trip-attendance/trip-attendance.service';
 import { ListTripStudentsQueryDto } from '../modules/trip-attendance/dto/list-trip-students-query.dto';
 
@@ -41,12 +44,26 @@ export const getTripsByTripIdStudentsByStudentId: EndpointDefinition = {
 export const postTripsByTripIdStudentsByStudentIdBoard: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR],
   rateLimit: 'attendance_write',
+  idempotency: IDEMPOTENCY_ENDPOINTS.BOARD,
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const actor = tenantUser(user);
     const tripId = parseUuidParam(params['tripId']);
     const studentId = parseUuidParam(params['studentId']);
-    return container().tripAttendance().board(actor, tripId, studentId);
+    const record = await container().tripAttendance().board(actor, tripId, studentId);
+    // Audited after success: idempotent replays never reach the handler, so a
+    // retried scan produces exactly one event. `AuditService.log` is
+    // best-effort — a failing audit trail cannot fail the boarding itself.
+    await container().audit().log({
+      school_id: actor.school_id,
+      actor_user_id: actor.id,
+      action: AUDIT_ACTIONS.ATTENDANCE_BOARD,
+      entity_type: AUDIT_ENTITY_TYPES.ATTENDANCE,
+      entity_id: record.id,
+      ...auditRequestContext({ request }),
+      metadata: { trip_id: tripId, student_id: studentId },
+    });
+    return record;
   },
 };
 
@@ -54,11 +71,23 @@ export const postTripsByTripIdStudentsByStudentIdBoard: EndpointDefinition = {
 export const postTripsByTripIdStudentsByStudentIdDrop: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR],
   rateLimit: 'attendance_write',
+  idempotency: IDEMPOTENCY_ENDPOINTS.DROP,
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const actor = tenantUser(user);
     const tripId = parseUuidParam(params['tripId']);
     const studentId = parseUuidParam(params['studentId']);
-    return container().tripAttendance().drop(actor, tripId, studentId);
+    const record = await container().tripAttendance().drop(actor, tripId, studentId);
+    // Same replay reasoning as the board handler above: one event per scan.
+    await container().audit().log({
+      school_id: actor.school_id,
+      actor_user_id: actor.id,
+      action: AUDIT_ACTIONS.ATTENDANCE_DROP,
+      entity_type: AUDIT_ENTITY_TYPES.ATTENDANCE,
+      entity_id: record.id,
+      ...auditRequestContext({ request }),
+      metadata: { trip_id: tripId, student_id: studentId },
+    });
+    return record;
   },
 };
