@@ -23,7 +23,6 @@
  * 3. **Fail fast** if any Sequelize model class is still detached, turning a
  *    login-time `Model not initialized` 500 into a clear startup error.
  */
-const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const next = require('next');
@@ -39,11 +38,25 @@ async function main() {
   // marks the same tree external and points at this output, so the custom
   // server, the route handlers and the gateways all load one copy of every
   // module — and therefore one Sequelize model registry.
+  //
+  // `dist` is therefore a build artefact the route handlers depend on at
+  // runtime, and it can silently fall behind `src/server` (a `git pull` that
+  // adds a module, a branch switch, an edit without `build:server`). A partial
+  // tree does NOT fail at boot: the server starts, login works, and the first
+  // route that requires a missing module throws `Cannot find module
+  // '…/dist/api/<x>'` *inside* the handler — before the JSON error envelope —
+  // so Next answers with its generic 500 page and the UI shows that raw
+  // payload instead of, say, the dashboard. Verify (and, in dev, repair) the
+  // tree up front so it either runs the current code or fails loudly here.
   const serverDist = path.join(__dirname, 'dist');
-  if (!fs.existsSync(serverDist)) {
-    throw new Error(
-      'web/dist is missing. Run `npm run build:server` (or `npm run build`) before starting the server.',
-    );
+  const { ensureServerBuild } = require('./server-build-check');
+  const buildCheck = ensureServerBuild({
+    webDir: __dirname,
+    dev,
+    log: (message) => console.log(`[ServerBuild] ${message}`),
+  });
+  if (buildCheck.rebuilt) {
+    console.log('[ServerBuild] web/dist is now in sync with src/server.');
   }
 
   const { getContainer } = require(path.join(serverDist, 'container'));

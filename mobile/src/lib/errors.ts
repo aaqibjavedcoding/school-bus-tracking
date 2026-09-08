@@ -6,9 +6,50 @@ import { ApiClientError } from '@school-bus-tracking/api-client';
  * network failures, session expiry) instead of raw fetch errors.
  */
 
+/**
+ * True for a response body that is a *document*, not a message (a framework
+ * or proxy HTML error page). Mirrors the web helper: such a body must never be
+ * rendered verbatim as the error text.
+ */
+export function isRawDocumentBody(value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const head = value.trimStart().slice(0, 256).toLowerCase();
+  return (
+    head.startsWith('<!doctype') ||
+    head.startsWith('<html') ||
+    head.startsWith('<?xml') ||
+    /^<[a-z][\s\S]*>/.test(head)
+  );
+}
+
+/** User-facing text for an error the API did not describe itself. */
+export function statusFallbackMessage(status: number, fallback: string): string {
+  if (status === 0) {
+    return 'Network error. Check your connection and try again.';
+  }
+  if (status === 401) {
+    return 'Your session has expired. Please sign in again.';
+  }
+  if (status === 403) {
+    return 'You do not have permission to do that.';
+  }
+  if (status === 404) {
+    return 'The requested resource was not found.';
+  }
+  if (status === 429) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+  if (status >= 500) {
+    return `The server could not complete the request (HTTP ${status}). Please try again in a moment.`;
+  }
+  return fallback;
+}
+
 function readMessage(value: unknown): string | null {
   if (typeof value === 'string' && value.trim().length > 0) {
-    return value;
+    return isRawDocumentBody(value) ? null : value;
   }
   if (Array.isArray(value)) {
     const parts = value
@@ -35,14 +76,12 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
   if (error instanceof ApiClientError) {
     const fromDetails = readMessage(error.details);
     if (fromDetails) return fromDetails;
-    if (error.status === 0) {
-      return 'Network error. Check your connection and try again.';
+    if (error.status === 0 || error.status === 401 || error.status === 403) {
+      return statusFallbackMessage(error.status, fallback);
     }
-    if (error.status === 401) {
-      return 'Your session has expired. Please sign in again.';
-    }
-    if (error.status === 403) {
-      return 'You do not have permission to do that.';
+    // Empty or raw-document body: never echo markup into the UI.
+    if (isRawDocumentBody(error.details) || error.status >= 500) {
+      return statusFallbackMessage(error.status, fallback);
     }
     return error.message || fallback;
   }
