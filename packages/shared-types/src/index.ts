@@ -2059,6 +2059,13 @@ export interface TrackingLeaveAck {
  */
 export interface TripLocationUpdatePayload extends GpsLocationFix {
   trip_id: string;
+  /**
+   * Optional client-generated idempotency key (max 255 chars). When present,
+   * a redelivered fix (background-task double delivery, socket retry) returns
+   * the original ack without inserting a duplicate `trip_locations` row. Keys
+   * are scoped per tenant, crew user and trip.
+   */
+  idempotency_key?: string;
 }
 
 /** Why a `trip:location:update` was refused (the socket stays connected). */

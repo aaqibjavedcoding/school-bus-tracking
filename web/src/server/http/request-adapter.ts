@@ -9,6 +9,7 @@
  * same; only the object they read is synthesized here.
  */
 import type { AuthenticatedRequestUser } from '../common/guards';
+import { REQUEST_ID_PROPERTY, resolveRequestId } from '../common/middleware/request-id.middleware';
 import { parseCookieHeader } from '../auth';
 
 /** The Express-ish request surface the guards actually touch. */
@@ -110,6 +111,12 @@ export function adaptRequest(options: {
 
   const ip = resolveRequestIp(headers);
 
+  // The correlation id every layer shares: the client-supplied
+  // `x-request-id` when present (or the one the Express middleware in
+  // `server.js` resolved and echoed back into the headers), otherwise a
+  // freshly minted UUID. Structured logs and audit rows read it from here.
+  const requestId = resolveRequestId(headers['x-request-id']);
+
   return {
     method: request.method,
     url: url.pathname + url.search,
@@ -122,6 +129,7 @@ export function adaptRequest(options: {
     ip,
     secure: isRequestSecure(headers),
     socket: { remoteAddress: ip },
+    [REQUEST_ID_PROPERTY]: requestId,
   };
 }
 

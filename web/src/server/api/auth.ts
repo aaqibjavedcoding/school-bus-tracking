@@ -6,6 +6,10 @@
  * the HTTPS detection that drives `Secure`/`SameSite`, and the body-token
  * fallback — is carried over unchanged from `AuthController`; only
  * `res.cookie` / `res.clearCookie` are replaced by the {@link CookieJar}.
+ *
+ * Login (success and failure) and logout are audited. Token refresh is
+ * deliberately *not*: it fires every few minutes per active user and the
+ * session is already bounded by its login/logout events.
  */
 import type { LoginResponse, LogoutResponse, RefreshResponse } from '@school-bus-tracking/shared-types';
 import { HttpStatus } from '../framework';
@@ -13,6 +17,8 @@ import { container } from '../container';
 import type { EndpointDefinition, HandlerContext } from '../http/route-runtime';
 import type { AdaptedRequest } from '../http/request-adapter';
 import type { CookieJar } from '../http/cookies';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
+import { auditRequestContext } from '../modules/audit/audit-request';
 import { LoginDto } from '../modules/auth/dto/login.dto';
 import { parseCookieHeader } from '../auth';
 import { buildCsrfClearCookieOptions, buildCsrfCookieOptions, generateCsrfToken } from '../common/security';
@@ -118,9 +124,37 @@ export const postAuthLogin: EndpointDefinition<LoginDto> = {
   status: HttpStatus.OK,
   bodyType: LoginDto,
   handler: async ({ body, request, cookies }: HandlerContext<LoginDto>) => {
-    const { response, refreshToken } = await container().auth().login(body);
+    let session;
+    try {
+      session = await container().auth().login(body);
+    } catch (error) {
+      // Failed logins are audited too: brute-force forensics need the
+      // attempted identifier. The actor is unknown by definition; the
+      // original error is rethrown unchanged so audit cannot alter the
+      // auth outcome.
+      await container().audit().log({
+        school_id: null,
+        actor_user_id: null,
+        action: AUDIT_ACTIONS.AUTH_LOGIN,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: null,
+        ...auditRequestContext({ request }),
+        metadata: { success: false, email: body.email },
+      });
+      throw error;
+    }
+    const { response, refreshToken } = session;
     setRefreshTokenCookie(request, cookies, refreshToken);
     issueCsrfToken(request, cookies);
+    await container().audit().log({
+      school_id: response.user.school_id,
+      actor_user_id: response.user.id,
+      action: AUDIT_ACTIONS.AUTH_LOGIN,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: response.user.id,
+      ...auditRequestContext({ request }),
+      metadata: { success: true },
+    });
     return response satisfies LoginResponse;
   },
 };
@@ -149,7 +183,21 @@ export const postAuthLogout: EndpointDefinition = {
     const result = await container().auth().logout(rawRefreshToken);
     clearRefreshTokenCookie(request, cookies);
     clearCsrfCookie(request, cookies);
-    return result satisfies LogoutResponse;
+    // Only a logout that actually revoked a live session is audited — the
+    // revoked identity rides along on the service result (never on the
+    // wire). No-op logouts carry no identity and would only flood the trail.
+    const { revoked_user_id, revoked_school_id, ...response } = result;
+    if (revoked_user_id) {
+      await container().audit().log({
+        school_id: revoked_school_id ?? null,
+        actor_user_id: revoked_user_id,
+        action: AUDIT_ACTIONS.AUTH_LOGOUT,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: revoked_user_id,
+        ...auditRequestContext({ request }),
+      });
+    }
+    return response satisfies LogoutResponse;
   },
 };
 

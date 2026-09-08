@@ -5,11 +5,18 @@
  * decorators — authentication, roles, rate-limit policy, success status and
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
+ *
+ * Every mutation below is audited: the platform SUPER_ADMIN is the actor
+ * (`school_id` stays `null` for platform-wide plans, and is the managed
+ * school for school/admin/subscription rows — the same convention the
+ * assisted-management surface uses).
  */
 import { HttpStatus, parseUuidParam, validateDto } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { AdminDashboardResponse, AdminPlanCreateRequest, AdminPlanLifecycleResponse, AdminPlanListResponse, AdminPlanResponse, AdminPlanUpdateRequest, AdminSchoolAdminListResponse, AdminSchoolAdminResponse, AdminSchoolCreateRequest, AdminSchoolDetailsResponse, AdminSchoolLifecycleResponse, AdminSchoolListResponse, AdminSchoolResponse, AdminSchoolSubscriptionCancelRequest, AdminSchoolSubscriptionCreateRequest, AdminSchoolSubscriptionHistoryResponse, AdminSchoolSubscriptionResponse, AdminSchoolSubscriptionUpdateRequest, AdminSchoolUpdateRequest, AdminSubscriptionListResponse, UserRole } from '@school-bus-tracking/shared-types';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
+import { auditRequestContext } from '../modules/audit/audit-request';
 import { AdminDashboardService } from '../modules/admin/admin-dashboard.service';
 import { AdminGlobalSubscriptionsService } from '../modules/admin/admin-global-subscriptions.service';
 import { CancelSchoolSubscriptionDto, CreateAdminPlanDto, CreateAdminSchoolDto, CreateSchoolAdminDto, CreateSchoolSubscriptionDto, ListAdminPlansQueryDto, ListAdminSchoolsQueryDto, ListAdminSubscriptionsQueryDto, ListSchoolAdminsQueryDto, ResetSchoolAdminPasswordDto, UpdateAdminPlanDto, UpdateAdminSchoolDto, UpdateSchoolAdminDto, UpdateSchoolSubscriptionDto } from '../modules/admin/dto';
@@ -41,9 +48,18 @@ export const postAdminPlans: EndpointDefinition<CreateAdminPlanDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateAdminPlanDto,
-  handler: async ({ body }) => {
+  handler: async ({ user, body, request }) => {
     const dto = body;
-    return container().adminPlans().create(dto as AdminPlanCreateRequest);
+    const plan = await container().adminPlans().create(dto as AdminPlanCreateRequest);
+    await container().audit().log({
+      school_id: null,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.PLAN_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.PLAN,
+      entity_id: plan.id,
+      ...auditRequestContext({ request }),
+    });
+    return plan;
   },};
 
 /** `GET /api/v1/admin/plans` */
@@ -70,19 +86,37 @@ export const patchAdminPlansById: EndpointDefinition<UpdateAdminPlanDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateAdminPlanDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const id = parseUuidParam(params['id']);
     const dto = body;
-    return container().adminPlans().update(id, dto as AdminPlanUpdateRequest);
+    const plan = await container().adminPlans().update(id, dto as AdminPlanUpdateRequest);
+    await container().audit().log({
+      school_id: null,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.PLAN_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.PLAN,
+      entity_id: plan.id,
+      ...auditRequestContext({ request }),
+    });
+    return plan;
   },};
 
 /** `POST /api/v1/admin/plans/:id/activate` */
 export const postAdminPlansByIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const id = parseUuidParam(params['id']);
-    return container().adminPlans().activate(id);
+    const result = await container().adminPlans().activate(id);
+    await container().audit().log({
+      school_id: null,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.PLAN_ACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.PLAN,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };
 
@@ -90,9 +124,18 @@ export const postAdminPlansByIdActivate: EndpointDefinition = {
 export const postAdminPlansByIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const id = parseUuidParam(params['id']);
-    return container().adminPlans().deactivate(id);
+    const result = await container().adminPlans().deactivate(id);
+    await container().audit().log({
+      school_id: null,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.PLAN_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.PLAN,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };
 
@@ -111,10 +154,19 @@ export const postAdminSchoolsByIdAdmins: EndpointDefinition<CreateSchoolAdminDto
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateSchoolAdminDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
-    return container().adminSchoolAdmins().create(schoolId, dto);
+    const admin = await container().adminSchoolAdmins().create(schoolId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_ADMIN_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: admin.id,
+      ...auditRequestContext({ request }),
+    });
+    return admin;
   },};
 
 /** `PATCH /api/v1/admin/schools/:schoolId/admins/:adminId` */
@@ -122,21 +174,39 @@ export const patchAdminSchoolsByIdAdminsByAdminId: EndpointDefinition<UpdateScho
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateSchoolAdminDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     const dto = body;
-    return container().adminSchoolAdmins().update(schoolId, adminId, dto);
+    const admin = await container().adminSchoolAdmins().update(schoolId, adminId, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_ADMIN_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: admin.id,
+      ...auditRequestContext({ request }),
+    });
+    return admin;
   },};
 
 /** `POST /api/v1/admin/schools/:schoolId/admins/:adminId/activate` */
 export const postAdminSchoolsByIdAdminsByAdminIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
-    return container().adminSchoolAdmins().setActive(schoolId, adminId, true);
+    const admin = await container().adminSchoolAdmins().setActive(schoolId, adminId, true);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.USER_ACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: admin.id,
+      ...auditRequestContext({ request }),
+    });
+    return admin;
   },
 };
 
@@ -144,10 +214,19 @@ export const postAdminSchoolsByIdAdminsByAdminIdActivate: EndpointDefinition = {
 export const postAdminSchoolsByIdAdminsByAdminIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
-    return container().adminSchoolAdmins().setActive(schoolId, adminId, false);
+    const admin = await container().adminSchoolAdmins().setActive(schoolId, adminId, false);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.USER_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: admin.id,
+      ...auditRequestContext({ request }),
+    });
+    return admin;
   },
 };
 
@@ -157,11 +236,22 @@ export const postAdminSchoolsByIdAdminsByAdminIdResetpassword: EndpointDefinitio
   rateLimit: 'password_reset',
   status: HttpStatus.OK,
   bodyType: ResetSchoolAdminPasswordDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const adminId = parseUuidParam(params['adminId']);
     const dto = body;
-    return container().adminSchoolAdmins().resetPassword(schoolId, adminId, dto);
+    const result = await container().adminSchoolAdmins().resetPassword(schoolId, adminId, dto);
+    // The new password (or its hash) must never appear in the audit trail —
+    // only the fact that this actor reset this account.
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_ADMIN_PASSWORD_RESET,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },};
 
 /** `POST /api/v1/admin/schools` */
@@ -169,9 +259,18 @@ export const postAdminSchools: EndpointDefinition<CreateAdminSchoolDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateAdminSchoolDto,
-  handler: async ({ body }) => {
+  handler: async ({ user, body, request }) => {
     const dto = body;
-    return container().adminSchools().create(dto as AdminSchoolCreateRequest);
+    const details = await container().adminSchools().create(dto as AdminSchoolCreateRequest);
+    await container().audit().log({
+      school_id: details.school.id,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.SCHOOL,
+      entity_id: details.school.id,
+      ...auditRequestContext({ request }),
+    });
+    return details;
   },};
 
 /** `GET /api/v1/admin/schools` */
@@ -199,19 +298,37 @@ export const patchAdminSchoolsById: EndpointDefinition<UpdateAdminSchoolDto> = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateAdminSchoolDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const id = parseUuidParam(params['schoolId']);
     const dto = body;
-    return container().adminSchools().update(id, dto as AdminSchoolUpdateRequest);
+    const school = await container().adminSchools().update(id, dto as AdminSchoolUpdateRequest);
+    await container().audit().log({
+      school_id: id,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.SCHOOL,
+      entity_id: school.id,
+      ...auditRequestContext({ request }),
+    });
+    return school;
   },};
 
 /** `POST /api/v1/admin/schools/:schoolId/activate` */
 export const postAdminSchoolsByIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const id = parseUuidParam(params['schoolId']);
-    return container().adminSchools().activate(id);
+    const result = await container().adminSchools().activate(id);
+    await container().audit().log({
+      school_id: id,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_ACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.SCHOOL,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };
 
@@ -219,9 +336,18 @@ export const postAdminSchoolsByIdActivate: EndpointDefinition = {
 export const postAdminSchoolsByIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ params }) => {
+  handler: async ({ user, params, request }) => {
     const id = parseUuidParam(params['schoolId']);
-    return container().adminSchools().deactivate(id);
+    const result = await container().adminSchools().deactivate(id);
+    await container().audit().log({
+      school_id: id,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SCHOOL_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.SCHOOL,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };
 
@@ -250,13 +376,23 @@ export const postAdminSchoolsBySchoolIdSubscription: EndpointDefinition<CreateSc
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateSchoolSubscriptionDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
-    return container().adminSubscriptions().createSubscription(
+    const subscription = await container().adminSubscriptions().createSubscription(
     schoolId,
     dto as AdminSchoolSubscriptionCreateRequest,
     );
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_ASSIGN,
+      entity_type: AUDIT_ENTITY_TYPES.SUBSCRIPTION,
+      entity_id: subscription.id ?? null,
+      ...auditRequestContext({ request }),
+      metadata: { plan_id: subscription.plan_id },
+    });
+    return subscription;
   },};
 
 /** `PATCH /api/v1/admin/schools/:schoolId/subscription` */
@@ -264,13 +400,23 @@ export const patchAdminSchoolsBySchoolIdSubscription: EndpointDefinition<UpdateS
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateSchoolSubscriptionDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
-    return container().adminSubscriptions().updateSubscription(
+    const subscription = await container().adminSubscriptions().updateSubscription(
     schoolId,
     dto as AdminSchoolSubscriptionUpdateRequest,
     );
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_CHANGE,
+      entity_type: AUDIT_ENTITY_TYPES.SUBSCRIPTION,
+      entity_id: subscription.id ?? null,
+      ...auditRequestContext({ request }),
+      metadata: { plan_id: subscription.plan_id },
+    });
+    return subscription;
   },};
 
 /** `POST /api/v1/admin/schools/:schoolId/subscription/cancel` */
@@ -278,11 +424,21 @@ export const postAdminSchoolsBySchoolIdSubscriptionCancel: EndpointDefinition<Ca
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   bodyType: CancelSchoolSubscriptionDto,
-  handler: async ({ body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
-    return container().adminSubscriptions().cancelSubscription(
+    const subscription = await container().adminSubscriptions().cancelSubscription(
     schoolId,
     dto as AdminSchoolSubscriptionCancelRequest,
     );
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.SUBSCRIPTION_CANCEL,
+      entity_type: AUDIT_ENTITY_TYPES.SUBSCRIPTION,
+      entity_id: subscription.id ?? null,
+      ...auditRequestContext({ request }),
+      metadata: { plan_id: subscription.plan_id },
+    });
+    return subscription;
   },};

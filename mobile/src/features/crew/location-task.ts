@@ -8,6 +8,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { buildLocationPayload, type DeviceLocationFix } from '../../lib/geo';
+import { generateIdempotencyKey } from '../../lib/idempotency';
 
 /**
  * Crew GPS channel (shared by the DRIVER and CONDUCTOR experience).
@@ -128,7 +129,14 @@ export function pushCrewDeviceFix(fix: DeviceLocationFix): PushFixResult {
     return 'no-trip';
   }
 
-  const payload: TripLocationUpdatePayload | null = buildLocationPayload(tripId, fix);
+  // One key per fix: if the OS redelivers this task execution (or the emit is
+  // retried), the server replays the original ack instead of storing the fix
+  // twice. Fixes are still never queued — a fresh fix always mints a new key.
+  const payload: TripLocationUpdatePayload | null = buildLocationPayload(
+    tripId,
+    fix,
+    generateIdempotencyKey(),
+  );
   if (!payload) {
     stats = { ...stats, invalidCount: stats.invalidCount + 1 };
     publish();

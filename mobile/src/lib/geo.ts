@@ -62,10 +62,14 @@ export interface DeviceLocationFix {
  * degrees; the API contract wants **km/h**. Optional readings that the device
  * could not provide (`null`/negative speed, non-finite heading) are omitted
  * instead of being zero-filled — the server treats missing as unknown.
+ *
+ * `idempotencyKey` (one UUID per fix) lets the server recognise a redelivered
+ * fix and replay the original ack instead of inserting a duplicate row.
  */
 export function buildLocationPayload(
   tripId: string,
   fix: DeviceLocationFix,
+  idempotencyKey?: string,
 ): TripLocationUpdatePayload | null {
   const recordedDate = new Date(fix.timestamp);
   const time = recordedDate.getTime();
@@ -95,6 +99,7 @@ export function buildLocationPayload(
     ...(accuracy !== null ? { accuracy } : {}),
     ...(speedMs !== null ? { speed: speedMs * 3.6 } : {}),
     ...(heading !== null ? { heading } : {}),
+    ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
   };
 
   return tripLocationUpdateSchema.safeParse(payload).success ? payload : null;

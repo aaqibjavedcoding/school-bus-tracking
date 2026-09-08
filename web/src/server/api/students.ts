@@ -11,6 +11,8 @@ import { container } from '../container';
 import { tenantUser } from '../http/route-runtime';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
+import { auditRequestContext } from '../modules/audit/audit-request';
 import { StudentsService } from '../modules/students/students.service';
 import { CreateStudentDto } from '../modules/students/dto/create-student.dto';
 import { ListStudentsQueryDto } from '../modules/students/dto/list-students-query.dto';
@@ -21,10 +23,21 @@ export const postStudents: EndpointDefinition<CreateStudentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateStudentDto,
-  handler: async ({ user, body }) => {
+  handler: async ({ user, body, request }) => {
     const schoolId = user.school_id as string;
     const dto = body;
-    return container().students().create(schoolId, dto);
+    const student = await container().students().create(schoolId, dto);
+    // Student DTOs can carry medical and other sensitive fields, so the
+    // audit metadata deliberately records only the linkage — never the body.
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.STUDENT_CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.STUDENT,
+      entity_id: student.id,
+      ...auditRequestContext({ request }),
+    });
+    return student;
   },};
 
 /** `GET /api/v1/students` */
@@ -54,20 +67,38 @@ export const patchStudentsById: EndpointDefinition<UpdateStudentDto> = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   bodyType: UpdateStudentDto,
-  handler: async ({ user, body, params }) => {
+  handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
     const id = parseUuidParam(params['studentId']);
     const dto = body;
-    return container().students().update(schoolId, id, dto);
+    const student = await container().students().update(schoolId, id, dto);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.STUDENT_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.STUDENT,
+      entity_id: student.id,
+      ...auditRequestContext({ request }),
+    });
+    return student;
   },};
 
 /** `DELETE /api/v1/students/:studentId` */
 export const deleteStudentsById: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
-  handler: async ({ user, params }) => {
+  handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
     const id = parseUuidParam(params['studentId']);
-    return container().students().remove(schoolId, id);
+    const result = await container().students().remove(schoolId, id);
+    await container().audit().log({
+      school_id: schoolId,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.STUDENT_DEACTIVATE,
+      entity_type: AUDIT_ENTITY_TYPES.STUDENT,
+      entity_id: result.id,
+      ...auditRequestContext({ request }),
+    });
+    return result;
   },
 };

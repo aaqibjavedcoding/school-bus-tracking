@@ -22,14 +22,32 @@ export const REQUEST_ID_PROPERTY = 'requestId';
  */
 export class RequestIdMiddleware {
   use(req: Request, res: Response, next: NextFunction): void {
-    const raw = req.headers[REQUEST_ID_HEADER];
-    const incoming = typeof raw === 'string' ? raw.trim().slice(0, 64) : '';
-    const requestId = incoming.length > 0 ? incoming : randomUUID();
+    const requestId = resolveRequestId(req.headers[REQUEST_ID_HEADER]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any)[REQUEST_ID_PROPERTY] = requestId;
     res.setHeader(REQUEST_ID_HEADER, requestId);
 
+    // The App Router route handlers run behind this chain (see `server.js`):
+    // they rebuild the request from `req.headers`, so the resolved id is
+    // echoed back into the headers. That makes the *same* id visible to the
+    // route runtime (`adaptRequest`), the structured logs and the audit trail
+    // instead of each layer minting its own.
+    req.headers[REQUEST_ID_HEADER] = requestId;
+
     next();
   }
+}
+
+/**
+ * Resolves the request/correlation id for one request: a client-supplied
+ * `x-request-id` (trimmed, max 64 chars) wins, otherwise a UUIDv4 is minted.
+ *
+ * Shared by the Express middleware above and by `adaptRequest`, so the
+ * standalone test server and plain `next dev` (no custom server) resolve ids
+ * with exactly the same rule production uses.
+ */
+export function resolveRequestId(raw: unknown): string {
+  const incoming = typeof raw === 'string' ? raw.trim().slice(0, 64) : '';
+  return incoming.length > 0 ? incoming : randomUUID();
 }

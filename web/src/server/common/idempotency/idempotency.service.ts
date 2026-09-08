@@ -1,7 +1,7 @@
 import { Logger } from '../../framework';
 import { ConfigService } from '../../framework';
+import { UniqueConstraintError } from 'sequelize';
 import { IdempotencyKey } from '../../database/models';
-import { IDEMPOTENCY_REPOSITORY } from './idempotency.constants';
 
 /**
  * Default TTL for idempotency keys (24 hours).
@@ -103,13 +103,23 @@ export class IdempotencyService {
         expires_at: expiresAt,
       } as never);
     } catch (error) {
-      // Unique constraint violation means a concurrent request stored first.
-      // This is expected and safe — the caller will re-check.
-      this.logger.debug(
-        `Idempotency key store race (key=${params.idempotencyKey}): ${
+      // A unique violation means a concurrent request with the same key
+      // stored first — expected and safe, the stored row wins.
+      if (error instanceof UniqueConstraintError) {
+        this.logger.debug(
+          `Idempotency key store race (key=${params.idempotencyKey}): concurrent request stored first`,
+        );
+        return;
+      }
+      // Any other failure (connection loss, serialization) must be visible
+      // to the caller: it decides whether the operation can proceed without
+      // a stored receipt. The route runtime treats it as best-effort.
+      this.logger.warn(
+        `Idempotency key store failed (key=${params.idempotencyKey}): ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      throw error;
     }
   }
 

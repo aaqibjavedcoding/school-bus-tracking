@@ -10,6 +10,8 @@ import { TRIP_STATUS_TRANSITIONS } from '@school-bus-tracking/validation';
 import { apiClient } from '../../services/api';
 import { getApiErrorMessage } from '../../lib/errors';
 import { tripStatusLabel } from '../../lib/format';
+import { generateIdempotencyKey } from '../../lib/idempotency';
+import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { Button, Field, Input, Modal, useToast } from '../../components/ui';
 
 const ACTION_VARIANT: Partial<Record<TripStatus, 'primary' | 'success' | 'danger' | 'secondary'>> =
@@ -38,7 +40,13 @@ export const TripStatusActions: React.FC<{
   const apply = async (status: TripStatus, extra: Partial<TripStatusUpdateRequest> = {}) => {
     setBusy(status);
     try {
-      const envelope = await apiClient.updateTripStatus(trip.id, { status, ...extra });
+      // One key per press: a retried transition (flaky network, the client's
+      // own 401-refresh replay) replays instead of double-applying.
+      const envelope = await apiClient.updateTripStatus(
+        trip.id,
+        { status, ...extra },
+        withIdempotencyKey(generateIdempotencyKey()),
+      );
       if (!envelope.data) throw new Error(envelope.message || 'Could not update trip');
       onUpdated(envelope.data);
       toast.push(`Trip is now ${tripStatusLabel(envelope.data.status).toLowerCase()}.`, 'success');
