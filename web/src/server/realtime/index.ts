@@ -24,6 +24,11 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { Logger } from '../framework';
 import { getContainer } from '../container';
+import { User } from '../database/models';
+import {
+  WebSocketSessionRevalidation,
+  registerWebSocketSessionRevalidation,
+} from '../common/websocket/websocket-session-revalidation';
 import { LiveTrackingGateway } from '../modules/live-tracking/live-tracking.gateway';
 import { NotificationsGateway } from '../modules/notifications/notifications.gateway';
 import { EmergenciesGateway } from '../modules/emergencies/emergencies.gateway';
@@ -154,6 +159,35 @@ export function wireRealtimeGateways(io: Server): void {
     runConnection(socket, (client) => emergencies.handleConnection(client), logger);
     socket.on('disconnect', () => emergencies.handleDisconnect(socket));
   });
+
+  // --------------------------------------------- session revalidation sweep
+  // Long-lived sockets must not outlive their authorization: the sweep
+  // disconnects sockets whose access token expired since the handshake, whose
+  // account was deactivated, or whose school was deactivated (the same
+  // lifecycle checks the HTTP JwtAuthGuard applies per request). It reuses
+  // the container's `SchoolAccessService`, so the tenant rules stay in one
+  // place, and runs on a minutes-wide interval with batched queries — never a
+  // per-event database hit.
+  const revalidationEnabled = c
+    .config()
+    .get<boolean>('websocket.sessionRevalidation.enabled', true);
+  const revalidationIntervalMs = c
+    .config()
+    .get<number>('websocket.sessionRevalidation.intervalMs', 5 * 60 * 1000);
+  if (revalidationEnabled) {
+    const revalidation = new WebSocketSessionRevalidation(io, c.schoolAccess(), User, {
+      intervalMs: revalidationIntervalMs,
+      namespaces: [LIVE_TRACKING_NAMESPACE, NOTIFICATIONS_NAMESPACE, EMERGENCIES_NAMESPACE],
+    });
+    revalidation.start();
+    // Published for `server.js`, which stops the sweep during graceful
+    // shutdown (the wiring may have happened in either module graph).
+    registerWebSocketSessionRevalidation(revalidation);
+    logger.log(`WebSocket session revalidation scheduled (interval: ${revalidationIntervalMs}ms).`);
+  } else {
+    registerWebSocketSessionRevalidation(null);
+    logger.log('WebSocket session revalidation disabled by configuration.');
+  }
 
   logger.log(
     `Socket.IO namespaces ready: ${LIVE_TRACKING_NAMESPACE}, ${NOTIFICATIONS_NAMESPACE}, ${EMERGENCIES_NAMESPACE}`,

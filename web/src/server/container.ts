@@ -39,6 +39,7 @@ import {
   retentionConfig,
   securityConfig,
   subscriptionConfig,
+  websocketConfig,
 } from './config';
 
 import {
@@ -168,6 +169,7 @@ export class Container {
         subscriptionConfig,
         retentionConfig,
         notificationsConfig,
+        websocketConfig,
       ] as never),
   );
 

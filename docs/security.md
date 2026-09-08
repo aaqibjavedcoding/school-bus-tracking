@@ -110,10 +110,45 @@ Comprehensive E2E tests verify:
 
 ## Rate Limiting
 
-- Per-endpoint rate limits
-- Per-user rate limits
-- Configurable via environment variables
-- PostgreSQL-backed (no Redis required)
+- Per-endpoint rate limits (declared per route with a named policy)
+- Per-identity login brute-force protection (school + email bucket, hashed)
+- Per-user buckets for authenticated calls, per-IP for anonymous ones
+- Every number configurable via environment variables, without a redeploy
+
+### Deployment assumptions (single instance) — read before scaling
+
+The limiter's counters live in a **process-local in-memory store**
+(`MemoryRateLimitStore`, bounded at 50 000 keys with lazy eviction). This is a
+deliberate, safe choice for the **single API instance** this project deploys
+today (`server.js` hosting the web app, the API and Socket.IO together against
+one PostgreSQL — see `docs/deployment.md`). Understand exactly what it means:
+
+- **Horizontal scaling is not supported with this store.** With N instances
+  behind a load balancer, each process counts its own buckets, so the
+  effective limit becomes N × the configured limit and the login
+  identity bucket no longer stops distributed credential stuffing.
+- **Restarting the process wipes every bucket.** A brute-force window resets
+  on deploy/crash; the protection is windowed (never a permanent lockout), so
+  the exposure is bounded to the configured window size.
+- `RATE_LIMIT_STORE=redis` **fails fast** at boot instead of silently
+  degrading — pretending to be distributed would be worse than refusing to
+  start. There is intentionally no Redis in this phase (no paid services, no
+  extra infrastructure).
+
+**Before horizontal scaling, all of the following must land together** (the
+store boundary — `RateLimitStore` with `hit`/`reset` — already exists, so a
+shared backend is a drop-in):
+
+1. A shared `RateLimitStore` implementation (self-hosted Redis via the
+   `RATE_LIMIT_STORE` seam, or a PostgreSQL-backed store) selected through
+   configuration.
+2. A Socket.IO adapter with a shared bus (e.g. `@socket.io/redis-adapter`) —
+   realtime rooms/broadcasts are also process-local today.
+3. A load balancer that terminates TLS and sets `X-Forwarded-For`, with
+   `RATE_LIMIT_TRUST_PROXY=true` so the limiter keys on the real client IP.
+
+Login/refresh rate limiting itself (limits, identity bucketing, windowing)
+is unchanged by these decisions and must not be weakened.
 
 ## Audit Logging
 

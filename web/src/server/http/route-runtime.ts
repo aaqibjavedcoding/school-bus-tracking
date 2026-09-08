@@ -312,11 +312,7 @@ export function createRouteHandler<TBody, TQuery>(
         // exactly one execution. Streaming/file responses bypass storage —
         // no idempotent endpoint returns one.
         if (idempotency && !(result instanceof Response)) {
-          await storeIdempotentResponse(
-            idempotency,
-            successStatusFor(request, definition),
-            result,
-          );
+          await storeIdempotentResponse(idempotency, successStatusFor(request, definition), result);
         }
       }
 
@@ -422,10 +418,17 @@ async function auditAssistedMutation(request: AdaptedRequest, result: unknown): 
 }
 
 /** Success status for a freshly executed handler (replays keep their own). */
-function successStatusFor(request: Request, definition: EndpointDefinition): number {
-  return (
-    definition.status ?? (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK)
-  );
+/**
+ * The erased endpoint shape for helpers that only read transport-agnostic
+ * metadata (idempotency scope, declared status). `any` keeps the DTO
+ * generics from surfacing in these helpers while the strict-mode web
+ * typecheck stays honest about handler contravariance.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ErasedEndpointDefinition = EndpointDefinition<any, any>;
+
+function successStatusFor(request: Request, definition: ErasedEndpointDefinition): number {
+  return definition.status ?? (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK);
 }
 
 /** One idempotent request: tenant + user + endpoint scope plus the client key. */
@@ -447,7 +450,7 @@ interface IdempotencyRequest {
  * truncating would merge distinct operations into one.
  */
 function resolveIdempotencyRequest(
-  definition: EndpointDefinition,
+  definition: ErasedEndpointDefinition,
   adapted: AdaptedRequest,
 ): IdempotencyRequest | null {
   if (!definition.idempotency) {
@@ -459,9 +462,7 @@ function resolveIdempotencyRequest(
     return null;
   }
   if (key.length > 255) {
-    throw new BadRequestException(
-      'x-idempotency-key must be at most 255 characters long',
-    );
+    throw new BadRequestException('x-idempotency-key must be at most 255 characters long');
   }
   const user = adapted.user;
   const schoolId = user?.school_id;

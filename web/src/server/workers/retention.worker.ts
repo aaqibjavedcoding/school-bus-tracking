@@ -1,7 +1,7 @@
 import { Logger } from '../framework';
 import { ConfigService } from '../framework';
 import { Sequelize } from 'sequelize-typescript';
-import { QueryTypes } from 'sequelize';
+import { QueryTypes, type Transaction } from 'sequelize';
 
 /**
  * Data retention configuration.
@@ -90,53 +90,58 @@ export class RetentionWorker {
 
   /**
    * Runs all retention cleanup jobs.
-   * Uses advisory lock to prevent concurrent execution.
+   *
+   * Uses a PostgreSQL **transaction-scoped** advisory lock
+   * (`pg_try_advisory_xact_lock`) so concurrent workers don't duplicate
+   * cleanup. The transaction matters: a session-level
+   * `pg_try_advisory_lock`/`pg_advisory_unlock` pair issued through a
+   * connection *pool* can land on two different connections, silently leaking
+   * the lock. Inside a transaction the lock lives on the transaction's single
+   * connection and is released automatically at commit/rollback.
    */
   async runAll(): Promise<RetentionResults> {
     // Advisory lock to prevent concurrent retention runs.
     const lockKey = 9876543210;
-    const lockResult = await this.sequelize.query<{ pg_try_advisory_lock: boolean }>(
-      `SELECT pg_try_advisory_lock(${lockKey})`,
-      { type: QueryTypes.SELECT },
-    );
+    return this.sequelize.transaction(async (transaction) => {
+      const lockResult = await this.sequelize.query<{ pg_try_advisory_xact_lock: boolean }>(
+        `SELECT pg_try_advisory_xact_lock(${lockKey})`,
+        { type: QueryTypes.SELECT, transaction },
+      );
 
-    if (!lockResult[0]?.pg_try_advisory_lock) {
-      this.logger.log('Retention worker skipped — another instance is running');
-      return { skipped: true };
-    }
+      if (!lockResult[0]?.pg_try_advisory_xact_lock) {
+        this.logger.log('Retention worker skipped — another instance is running');
+        return { skipped: true };
+      }
 
-    try {
       const results: RetentionResults = { skipped: false };
 
-      results.locations = await this.cleanupTripLocations();
-      results.notifications = await this.cleanupNotifications();
-      results.refreshTokens = await this.cleanupRefreshTokens();
-      results.auditLogs = await this.cleanupAuditLogs();
-      results.emergencies = await this.cleanupEmergencies();
-      results.idempotencyKeys = await this.cleanupIdempotencyKeys();
+      results.locations = await this.cleanupTripLocations(transaction);
+      results.notifications = await this.cleanupNotifications(transaction);
+      results.refreshTokens = await this.cleanupRefreshTokens(transaction);
+      results.auditLogs = await this.cleanupAuditLogs(transaction);
+      results.emergencies = await this.cleanupEmergencies(transaction);
+      results.idempotencyKeys = await this.cleanupIdempotencyKeys(transaction);
 
       this.logger.log(`Retention cleanup complete: ${JSON.stringify(results)}`);
       return results;
-    } finally {
-      await this.sequelize.query(`SELECT pg_advisory_unlock(${lockKey})`, {
-        type: QueryTypes.SELECT,
-      });
-    }
+    });
   }
 
   /**
    * Cleans up old GPS trip locations.
    * This is the most important retention job because GPS data grows quickly.
    */
-  async cleanupTripLocations(): Promise<number> {
+  async cleanupTripLocations(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.locationRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM trip_locations WHERE recorded_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
-      this.logger.log(`Cleaned up ${count} trip locations older than ${this.config.locationRetentionDays} days`);
+      this.logger.log(
+        `Cleaned up ${count} trip locations older than ${this.config.locationRetentionDays} days`,
+      );
     }
     return count;
   }
@@ -144,15 +149,17 @@ export class RetentionWorker {
   /**
    * Cleans up old notifications.
    */
-  async cleanupNotifications(): Promise<number> {
+  async cleanupNotifications(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.notificationRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM notifications WHERE created_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
-      this.logger.log(`Cleaned up ${count} notifications older than ${this.config.notificationRetentionDays} days`);
+      this.logger.log(
+        `Cleaned up ${count} notifications older than ${this.config.notificationRetentionDays} days`,
+      );
     }
     return count;
   }
@@ -160,15 +167,17 @@ export class RetentionWorker {
   /**
    * Cleans up expired refresh tokens.
    */
-  async cleanupRefreshTokens(): Promise<number> {
+  async cleanupRefreshTokens(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.refreshTokenRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM refresh_tokens WHERE created_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
-      this.logger.log(`Cleaned up ${count} refresh tokens older than ${this.config.refreshTokenRetentionDays} days`);
+      this.logger.log(
+        `Cleaned up ${count} refresh tokens older than ${this.config.refreshTokenRetentionDays} days`,
+      );
     }
     return count;
   }
@@ -176,15 +185,17 @@ export class RetentionWorker {
   /**
    * Cleans up old audit logs.
    */
-  async cleanupAuditLogs(): Promise<number> {
+  async cleanupAuditLogs(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.auditLogRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM audit_logs WHERE created_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
-      this.logger.log(`Cleaned up ${count} audit logs older than ${this.config.auditLogRetentionDays} days`);
+      this.logger.log(
+        `Cleaned up ${count} audit logs older than ${this.config.auditLogRetentionDays} days`,
+      );
     }
     return count;
   }
@@ -192,15 +203,17 @@ export class RetentionWorker {
   /**
    * Cleans up old resolved/cancelled emergency events.
    */
-  async cleanupEmergencies(): Promise<number> {
+  async cleanupEmergencies(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.emergencyRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM emergency_events WHERE status IN ('RESOLVED', 'CANCELLED') AND resolved_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
-      this.logger.log(`Cleaned up ${count} resolved/cancelled emergencies older than ${this.config.emergencyRetentionDays} days`);
+      this.logger.log(
+        `Cleaned up ${count} resolved/cancelled emergencies older than ${this.config.emergencyRetentionDays} days`,
+      );
     }
     return count;
   }
@@ -208,18 +221,42 @@ export class RetentionWorker {
   /**
    * Cleans up expired idempotency keys.
    */
-  async cleanupIdempotencyKeys(): Promise<number> {
+  async cleanupIdempotencyKeys(transaction?: Transaction): Promise<number> {
     const cutoff = this.cutoffDate(this.config.idempotencyKeyRetentionDays);
-    const result = await this.sequelize.query(
+    const count = await this.deleteOldRows(
       `DELETE FROM idempotency_keys WHERE expires_at < $cutoff`,
-      { bind: { cutoff }, type: QueryTypes.DELETE },
+      cutoff,
+      transaction,
     );
-    const count = (result as unknown as [unknown, { rowCount: number }])[1]?.rowCount ?? 0;
     if (count > 0) {
       this.logger.log(`Cleaned up ${count} expired idempotency keys`);
     }
     return count;
   }
+
+  /**
+   * Runs one policy DELETE and returns the number of rows it removed.
+   *
+   * `RETURNING id` + `QueryTypes.SELECT` is deliberate: Sequelize's Postgres
+   * dialect returns `[]` (no rowCount metadata) for `QueryTypes.DELETE`, so
+   * the affected-row count would silently read as 0 and every cleanup log
+   * would lie. Returning the deleted ids makes the count real and keeps the
+   * query inside the caller's transaction.
+   */
+  private async deleteOldRows(
+    sql: string,
+    cutoff: Date,
+    transaction?: Transaction,
+  ): Promise<number> {
+    const deleted = await this.sequelize.query<{ id: string }>(`${sql} RETURNING id`, {
+      bind: { cutoff },
+      type: QueryTypes.SELECT,
+      transaction,
+    });
+    const count = Array.isArray(deleted) ? deleted.length : 0;
+    return count;
+  }
+
   private cutoffDate(days: number): Date {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);

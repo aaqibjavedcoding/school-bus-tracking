@@ -3,7 +3,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -192,16 +191,27 @@ describe('TripsController authorization', () => {
     } as unknown as TripsService;
     const restore = overrideContainer('trips', service);
     try {
-
       const status = new UpdateTripStatusDto();
       status.status = TripStatus.IN_PROGRESS;
 
       await callHandler(postTrips, { user: actor, body: tripDto() });
       await callHandler(getTrips, { user: actor, query: new ListTripsQueryDto() });
       await callHandler(getTripsById, { user: actor, params: { tripId: TRIP_ID } });
-      await callHandler(patchTripsById, { user: actor, params: { tripId: TRIP_ID }, body: new UpdateTripDto() });
-      await callHandler(patchTripsByIdStatus, { user: actor, params: { tripId: TRIP_ID }, body: status });
-      await callHandler(postTripsByIdCancel, { user: actor, params: { tripId: TRIP_ID }, body: new CancelTripDto() });
+      await callHandler(patchTripsById, {
+        user: actor,
+        params: { tripId: TRIP_ID },
+        body: new UpdateTripDto(),
+      });
+      await callHandler(patchTripsByIdStatus, {
+        user: actor,
+        params: { tripId: TRIP_ID },
+        body: status,
+      });
+      await callHandler(postTripsByIdCancel, {
+        user: actor,
+        params: { tripId: TRIP_ID },
+        body: new CancelTripDto(),
+      });
       await callHandler(deleteTripsById, { user: actor, params: { tripId: TRIP_ID } });
     } finally {
       restore();
@@ -209,7 +219,20 @@ describe('TripsController authorization', () => {
 
     assert.deepEqual(
       calls.map((call) => call.method),
-      ['create', 'findAll', 'findOne', 'update', 'updateStatus', 'cancel', 'remove'],
+      [
+        'create',
+        'findAll',
+        'findOne',
+        'update',
+        // The status/cancel handlers issue a best-effort `findOne` pre-read so
+        // the audit trail can record `{ from, to }` for the transition; the
+        // read never changes the outcome and is still tenant-scoped.
+        'findOne',
+        'updateStatus',
+        'findOne',
+        'cancel',
+        'remove',
+      ],
     );
     assert.ok(calls.every((call) => call.schoolId === SCHOOL_B));
     assert.ok(
