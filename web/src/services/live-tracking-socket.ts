@@ -1,6 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 import { LIVE_TRACKING_NAMESPACE } from '@school-bus-tracking/shared-types';
 import { getAccessToken } from './session';
+import { registerSocketCleanup } from './socket-registry';
+
 
 /**
  * Process-wide Socket.IO client for the live-tracking namespace.
@@ -47,3 +49,8 @@ export function disconnectLiveTrackingSocket(): void {
   socket.disconnect();
   socket = null;
 }
+
+// Registered so logout/unauthorized teardown finds this connection even
+// when the AuthProvider never imports this module directly.
+registerSocketCleanup(disconnectLiveTrackingSocket);
+
