@@ -17,6 +17,7 @@ import { container } from '../container';
 import type { EndpointDefinition, HandlerContext } from '../http/route-runtime';
 import type { AdaptedRequest } from '../http/request-adapter';
 import type { CookieJar } from '../http/cookies';
+import type { CookieOptions } from 'express';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
 import { auditRequestContext } from '../modules/audit/audit-request';
 import { LoginDto } from '../modules/auth/dto/login.dto';
@@ -89,6 +90,63 @@ function clearRefreshTokenCookie(request: AdaptedRequest, cookies: CookieJar): v
 }
 
 /**
+ * Non-sensitive, non-httpOnly session-presence marker cookie.
+ *
+ * The refresh token itself is httpOnly (the client can never read it), so a
+ * freshly loaded tab cannot tell whether a session *might* exist without
+ * attempting `POST /auth/refresh`. On every page load — including `/login`
+ * — the AuthProvider used to fire `GET /auth/csrf` + `POST /auth/refresh`
+ * just to learn "anonymous", and `refresh` fails with 401 for the vast
+ * majority of visitors who never logged in.
+ *
+ * This marker carries **no secret**: it is a plain `1` set (and cleared)
+ * alongside the httpOnly refresh cookie, with the same lifetime, on login
+ * and on every successful refresh, and removed on logout. The client uses
+ * its presence only to decide whether a refresh attempt is worthwhile; the
+ * server-side session/security behaviour is completely unchanged (an absent
+ * marker never blocks a real login, and the marker cannot mint sessions).
+ *
+ * Path is `/` so the value is readable from every page (the refresh cookie
+ * is scoped to `/api/v1/auth` and invisible to document.cookie anyway).
+ */
+export const SESSION_PRESENT_COOKIE_NAME = 'sb_session';
+
+function sessionPresentOptions(request: AdaptedRequest): CookieOptions {
+  const auth = container().auth();
+  const refreshOptions = auth.getRefreshCookieOptions(isHttpsRequest(request));
+  return {
+    httpOnly: false,
+    secure: refreshOptions.secure,
+    // Readable same-origin only; never needs to ride along cross-site.
+    sameSite: 'lax',
+    path: '/',
+    // The marker lives exactly as long as the refresh token it mirrors, so
+    // the two cookies can never disagree about session lifetime.
+    maxAge: refreshOptions.maxAge,
+  };
+}
+
+function sessionPresentClearOptions(request: AdaptedRequest): CookieOptions {
+  return {
+    httpOnly: false,
+    secure: sessionPresentOptions(request).secure,
+    sameSite: 'lax',
+    path: '/',
+  };
+}
+
+function setSessionPresentCookie(request: AdaptedRequest, cookies: CookieJar): void {
+  cookies.cookie(SESSION_PRESENT_COOKIE_NAME, '1', sessionPresentOptions(request));
+}
+
+function clearSessionPresentCookie(request: AdaptedRequest, cookies: CookieJar): void {
+  cookies.clearCookie(
+    SESSION_PRESENT_COOKIE_NAME,
+    sessionPresentClearOptions(request),
+  );
+}
+
+/**
  * Resolves the refresh token: parsed cookies first, then the raw Cookie
  * header, then — only when explicitly enabled — the request body.
  */
@@ -145,6 +203,7 @@ export const postAuthLogin: EndpointDefinition<LoginDto> = {
     }
     const { response, refreshToken } = session;
     setRefreshTokenCookie(request, cookies, refreshToken);
+    setSessionPresentCookie(request, cookies);
     issueCsrfToken(request, cookies);
     await container().audit().log({
       school_id: response.user.school_id,
@@ -166,8 +225,20 @@ export const postAuthRefresh: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ request, cookies }) => {
     const rawRefreshToken = extractRefreshToken(request);
-    const { response, refreshToken } = await container().auth().refresh(rawRefreshToken);
+    let result: { response: RefreshResponse; refreshToken: string };
+    try {
+      result = await container().auth().refresh(rawRefreshToken);
+    } catch (error) {
+      // A failed refresh means no usable session: drop the presence marker
+      // so later page loads stop paying for refresh attempts until the user
+      // logs in again. The httpOnly refresh cookie itself is left untouched —
+      // clearing it here would change the error semantics of logout.
+      clearSessionPresentCookie(request, cookies);
+      throw error;
+    }
+    const { response, refreshToken } = result;
     setRefreshTokenCookie(request, cookies, refreshToken);
+    setSessionPresentCookie(request, cookies);
     issueCsrfToken(request, cookies);
     return response satisfies RefreshResponse;
   },
@@ -182,6 +253,7 @@ export const postAuthLogout: EndpointDefinition = {
     const rawRefreshToken = extractRefreshToken(request);
     const result = await container().auth().logout(rawRefreshToken);
     clearRefreshTokenCookie(request, cookies);
+    clearSessionPresentCookie(request, cookies);
     clearCsrfCookie(request, cookies);
     // Only a logout that actually revoked a live session is audited — the
     // revoked identity rides along on the service result (never on the

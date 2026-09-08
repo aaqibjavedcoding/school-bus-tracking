@@ -3,14 +3,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { AuthenticatedUser, LoginRequest } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
-import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
+import {
+  clearAccessToken,
+  clearSessionPresentCookie,
+  getAccessToken,
+  hasSessionPresentCookie,
+  setAccessToken,
+  setUnauthorizedHandler,
+} from '../../services/session';
 import {
   clearManagedSchool,
   getManagedSchool,
 } from '../managed/managed-school-store';
-import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
-import { disconnectNotificationsSocket } from '../../services/notifications-socket';
-import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
+import { disconnectAllSessionSockets } from '../../services/socket-registry';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
 
@@ -32,13 +37,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // authenticate the handshake with the in-memory JWT, so a socket left
     // open after sign-out keeps reconnecting without one and is rejected
     // ("Rejected unauthenticated … socket") until the tab is closed.
-    disconnectLiveTrackingSocket();
-    disconnectNotificationsSocket();
-    disconnectEmergenciesSocket();
+    //
+    // The realtime services register their disconnect routines in
+    // `socket-registry` at import time, so this teardown stays synchronous
+    // without forcing every page to load `socket.io-client` (only pages that
+    // actually open a socket ever import those modules).
+    disconnectAllSessionSockets();
     // An ended platform session must never keep a managed-school context: the
     // banner and the API-call remap both disappear with it. (Server-side, the
     // open session is closed on the next entry as `superseded`.)
     clearManagedSchool();
+    // Mirror the API's cookie clearing locally: logout may have failed on the
+    // network, but the tab must not keep believing a session may exist.
+    clearSessionPresentCookie();
     clearAccessToken();
     setUser(null);
     setStatus('anonymous');
@@ -46,9 +57,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      disconnectLiveTrackingSocket();
-      disconnectNotificationsSocket();
-      disconnectEmergenciesSocket();
+      disconnectAllSessionSockets();
+      clearSessionPresentCookie();
       clearAccessToken();
       setUser(null);
       setStatus('anonymous');
@@ -56,6 +66,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let cancelled = false;
     void (async () => {
+      // No in-memory token and no session-presence marker means the browser
+      // almost certainly holds no httpOnly refresh cookie (login, first
+      // visit, post-logout). Both CSRF bootstrap and the refresh round trip
+      // would come back empty — skip them instead of paying two requests on
+      // every anonymous page load. Login itself never needs the CSRF cookie
+      // without an existing session (the API's origin check + login rate
+      // limiter guard it), and a real session in another tab always sets the
+      // marker, so no recovery path is lost.
+      if (!getAccessToken() && !hasSessionPresentCookie()) {
+        setStatus('anonymous');
+        return;
+      }
       try {
         // Seed the double-submit CSRF cookie before the first state-changing
         // auth call. The API only issues it on login/refresh success and on

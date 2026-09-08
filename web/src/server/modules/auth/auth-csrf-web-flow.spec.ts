@@ -308,6 +308,17 @@ describe('web CSRF flow against the real auth handlers and guard', () => {
       'the refresh cookie must stay invisible to page scripts',
     );
     assert.match(session.documentCookie, /csrf_token=/);
+    // The session-presence marker mirrors the refresh token: readable (so the
+    // AuthProvider can skip pointless refresh attempts) but never a secret.
+    assert.ok(
+      session.has('sb_session'),
+      'login must set the readable session-presence marker',
+    );
+    assert.match(
+      session.documentCookie,
+      /sb_session=/,
+      'the marker must be visible to page scripts (unlike the refresh token)',
+    );
   });
 
   it('carries the token through refresh and logout', async () => {
@@ -338,6 +349,36 @@ describe('web CSRF flow against the real auth handlers and guard', () => {
     // Logout clears both cookies; the next login bootstraps a new token.
     assert.equal(session.has('csrf_token'), false);
     assert.equal(session.has('refresh_token'), false);
+    assert.equal(
+      session.has('sb_session'),
+      false,
+      'logout must also drop the session-presence marker',
+    );
+  });
+
+  it('drops the session-presence marker when refresh finds no session', async () => {
+    const session = new BrowserSession(baseUrl);
+    // A tab can hold a stale marker while the httpOnly refresh token is
+    // already gone (logout/expiry in another tab). The refresh attempt then
+    // fails — and must clear the marker so that *this* tab's future page
+    // loads skip straight to anonymous instead of retrying forever.
+    session.set('sb_session', '1', false);
+    const restore = installBrowser(session, baseUrl);
+
+    try {
+      const client = new ApiClient({ baseUrl });
+      // The API refuses a refresh with no usable refresh token — any
+      // rejection is the expected outcome here.
+      await assert.rejects(client.refresh());
+    } finally {
+      restore();
+    }
+
+    assert.equal(
+      session.has('sb_session'),
+      false,
+      'a failed refresh must clear the marker so future page loads stay cheap',
+    );
   });
 
   it('repairs and replays a request whose token was rotated behind its back', async () => {

@@ -29,14 +29,10 @@ function TrackingInner() {
     const trips = unwrapEnvelope(tripList).items;
     const selectedId = requested || tripId || trips[0]?.id || '';
     const selected = trips.find((trip) => trip.id === selectedId) ?? trips[0] ?? null;
-    const stops = selected
-      ? unwrapEnvelope(await apiClient.listRouteStops(selected.route_id)).items
-      : [];
     return {
       trips,
       routes: unwrapEnvelope(routeList).items,
       selected,
-      stops,
       selectedId: selected?.id ?? '',
     };
   }, [requested, user?.role]);
@@ -47,9 +43,18 @@ function TrackingInner() {
     [data, activeId],
   );
 
-  const { data: stopsData } = useLoad(async () => {
-    if (!selected) return [];
-    return unwrapEnvelope(await apiClient.listRouteStops(selected.route_id)).items;
+  // Stops are fetched once per selected route — by this loader only. (The
+  // initial trip list used to fetch them a second time inside the main
+  // loader, doubling the `/routes/:id/stops` request on every page mount.)
+  // The route id rides along so a previous trip's stops can never be drawn
+  // on the map while the new selection is still loading.
+  const { data: stopsResult } = useLoad(async () => {
+    const routeId = selected?.route_id ?? null;
+    if (!routeId) return null;
+    return {
+      routeId,
+      stops: unwrapEnvelope(await apiClient.listRouteStops(routeId)).items,
+    };
   }, [selected?.id, selected?.route_id]);
 
   if (loading && !data) {
@@ -88,7 +93,11 @@ function TrackingInner() {
       </Card>
       <TripTracker
         tripId={selected?.id ?? null}
-        stops={stopsData ?? data.stops}
+        stops={
+          stopsResult && selected && stopsResult.routeId === selected.route_id
+            ? stopsResult.stops
+            : []
+        }
         emptyTitle="No trip to follow"
         emptyDescription={
           selected
