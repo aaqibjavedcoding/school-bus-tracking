@@ -125,6 +125,20 @@ database, mounts the API and Socket.IO under `/api/v1`, and hands everything els
 to Next.js. Build first with `npm run build` (compiles the server API into
 `web/dist` and the App Router bundle into `web/.next`).
 
+> **`web/dist` must match `web/src/server`.** The App Router route handlers
+> `require()` the compiled server tree at runtime, so a `dist` that predates the
+> sources (a `git pull` that added an endpoint, a branch switch, an edit without
+> `npm run build:server`) does *not* fail at boot — the server starts, login
+> works, and the first request into a module that has no compiled output throws
+> `Cannot find module '…/dist/api/<module>'` inside the handler. Next then
+> answers with its generic 500 page instead of the JSON envelope, which is how
+> the school-admin dashboard once rendered a raw HTML/JSON error in place of
+> the UI. `server.js` now verifies the tree on start-up
+> (`web/server-build-check.js`): in development a missing, incomplete or stale
+> `dist` is rebuilt automatically; in production the server refuses to start
+> and lists the affected modules. `SKIP_SERVER_BUILD_CHECK=true` disables the
+> check for images that ship `dist` without matching source mtimes.
+
 ## Docker Compose (Development)
 
 ```bash

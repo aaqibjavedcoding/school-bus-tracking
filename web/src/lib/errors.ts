@@ -1,8 +1,56 @@
 import { ApiClientError } from '@school-bus-tracking/api-client';
 
+/**
+ * True for a response body that is a *document*, not a message.
+ *
+ * The API always answers with the JSON envelope, but a request can still come
+ * back as a framework-rendered page: Next's generic 500 page when a route
+ * handler fails to even load (a stale/partial `web/dist`), a reverse proxy's
+ * 502/504 page, or a login portal on a captive network. `ApiClientError`
+ * faithfully keeps that raw body on `.details`; rendering it verbatim as the
+ * error text is how the dashboard ended up showing `<!DOCTYPE html>…` and a
+ * JSON blob instead of the UI.
+ */
+export function isRawDocumentBody(value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const head = value.trimStart().slice(0, 256).toLowerCase();
+  return (
+    head.startsWith('<!doctype') ||
+    head.startsWith('<html') ||
+    head.startsWith('<?xml') ||
+    /^<[a-z][\s\S]*>/.test(head)
+  );
+}
+
+/** User-facing text for an error the API did not describe itself. */
+export function statusFallbackMessage(status: number, fallback: string): string {
+  if (status === 0) {
+    return 'Network error. Check your connection and try again.';
+  }
+  if (status === 401) {
+    return 'Your session has expired. Please sign in again.';
+  }
+  if (status === 403) {
+    return 'You do not have permission to do that.';
+  }
+  if (status === 404) {
+    return 'The requested resource was not found.';
+  }
+  if (status === 429) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+  if (status >= 500) {
+    return `The server could not complete the request (HTTP ${status}). Please try again in a moment.`;
+  }
+  return fallback;
+}
+
 function readMessage(value: unknown): string | null {
   if (typeof value === 'string' && value.trim().length > 0) {
-    return value;
+    // A whole HTML/XML document is never a message worth showing.
+    return isRawDocumentBody(value) ? null : value;
   }
   if (Array.isArray(value)) {
     const parts = value
@@ -32,14 +80,15 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
     if (isPlanLimitError(error.details)) {
       return planLimitFallback(error.details) ?? fromDetails ?? error.message;
     }
-    if (error.status === 0) {
-      return 'Network error. Check your connection and try again.';
+    if (error.status === 0 || error.status === 401 || error.status === 403) {
+      return statusFallbackMessage(error.status, fallback);
     }
-    if (error.status === 401) {
-      return 'Your session has expired. Please sign in again.';
-    }
-    if (error.status === 403) {
-      return 'You do not have permission to do that.';
+    // No envelope message: the body was empty, or a raw document (HTML 500 /
+    // proxy page). `error.message` would embed a slice of that document
+    // ("Request failed with status 500: <!DOCTYPE html>…"), so fall back to a
+    // status-based sentence instead of leaking markup into the UI.
+    if (isRawDocumentBody(error.details) || error.status >= 500) {
+      return statusFallbackMessage(error.status, fallback);
     }
     return error.message || fallback;
   }
