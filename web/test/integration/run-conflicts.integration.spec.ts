@@ -83,7 +83,18 @@ describe('run conflicts + run_id assignment (real PostgreSQL)', () => {
       sequelize,
       configStub(),
     );
-    const runs = new RunsService(Run, Route, Shift, Bus, RunCrew, User, Student, planLimits);
+    const runs = new RunsService(
+      Run,
+      Route,
+      Shift,
+      Bus,
+      RunCrew,
+      RouteAssignment,
+      User,
+      Student,
+      planLimits,
+      sequelize,
+    );
     const runCrew = new RunCrewService(
       RunCrew,
       Run,

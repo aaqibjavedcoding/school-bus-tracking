@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, Transaction, UniqueConstraintError, type WhereOptions } from 'sequelize';
+import { Sequelize } from 'sequelize-typescript';
 import {
   PaginationMeta,
   PlanLimitResource,
@@ -11,6 +12,7 @@ import {
 import {
   Bus,
   Route,
+  RouteAssignment,
   Run,
   RunAttributes,
   RunCrew,
@@ -68,9 +70,17 @@ export class RunsService {
     private readonly shifts: typeof Shift,
     private readonly buses: typeof Bus,
     private readonly runCrew: typeof RunCrew,
+    private readonly routeAssignments: typeof RouteAssignment,
     private readonly users: typeof User,
     private readonly students: typeof Student,
     private readonly planLimits: PlanLimitsService,
+    /**
+     * Live Sequelize connection. Optional so the service stays trivially
+     * unit-constructible with stub repositories; without it the soft-delete
+     * cascade degrades to the plain non-transactional write, which is only
+     * ever the case in stubbed test bootstraps that have no database at all.
+     */
+    private readonly sequelize?: Sequelize | null,
   ) {}
 
   /**
@@ -192,15 +202,29 @@ export class RunsService {
    * {@link provisionDefaultRun}, called by `RoutesService.remove`. A run is a
    * pass over a route; without the route it has nothing to drive and would
    * otherwise keep consuming `runs` quota forever.
+   *
+   * The runs' roster rows (and their `route_assignments` mirrors) are soft
+   * deleted alongside the runs in the same transaction, so a deleted route
+   * cannot leave ghost `run_crew` rows behind to block crew reassignment.
    */
   async removeForRoute(
     schoolId: string,
     routeId: string,
     transaction?: Transaction,
   ): Promise<number> {
+    const options = transaction ? { transaction } : {};
+    const runs = await this.runs.findAll({
+      where: { school_id: schoolId, route_id: routeId } as WhereOptions,
+      attributes: ['id'],
+      ...options,
+    });
+    const runIds = runs.map((run) => run.id);
+    if (runIds.length > 0) {
+      await this.cascadeCrewRemoval(schoolId, runIds, transaction);
+    }
     return this.runs.destroy({
       where: { school_id: schoolId, route_id: routeId } as WhereOptions,
-      ...(transaction ? { transaction } : {}),
+      ...options,
     });
   }
 
@@ -340,9 +364,58 @@ export class RunsService {
     if (run.is_default) {
       throw new ConflictException(RUN_DEFAULT_UNDELETABLE_MESSAGE);
     }
-    await run.destroy();
+    if (!this.sequelize) {
+      await this.cascadeCrewRemoval(schoolId, [run.id]);
+      await run.destroy();
+      return { id, message: RUN_DELETED_MESSAGE };
+    }
+    await this.sequelize.transaction(async (transaction) => {
+      await this.cascadeCrewRemoval(schoolId, [run.id], transaction);
+      await run.destroy({ transaction });
+    });
     return { id, message: RUN_DELETED_MESSAGE };
   }
+
+  /**
+   * Soft deletes the `run_crew` roster rows of the given runs and their
+   * `route_assignments` mirrors, mirroring `RunCrewService.remove()` (row
+   * soft-delete + mirror soft-delete). Without this cascade, deleting a run —
+   * or a route via {@link removeForRoute} — leaves ghost `run_crew` rows whose
+   * `run_id` points at a soft-deleted run; those ghosts would otherwise keep
+   * the person in a permanent `CREW_RUN` conflict.
+   */
+  private async cascadeCrewRemoval(
+    schoolId: string,
+    runIds: string[],
+    transaction?: Transaction,
+  ): Promise<void> {
+    const options = transaction ? { transaction } : {};
+    const crew = await this.runCrew.findAll({
+      where: { school_id: schoolId, run_id: { [Op.in]: runIds } } as WhereOptions,
+      ...options,
+    });
+    for (const row of crew) {
+      await row.destroy(options);
+    }
+    const crewIds = crew.map((row) => row.id);
+    if (crewIds.length === 0) {
+      return;
+    }
+    const mirrors = await this.routeAssignments.findAll({
+      where: { school_id: schoolId, run_crew_id: { [Op.in]: crewIds } } as WhereOptions,
+      // Mirrors already soft-deleted by an earlier run_crew removal are still
+      // visible here and simply skipped below.
+      paranoid: false,
+      ...options,
+    });
+    for (const mirror of mirrors) {
+      if (mirror.deleted_at) {
+        continue;
+      }
+      await mirror.destroy(options);
+    }
+  }
+
   private async findRunOrThrow(schoolId: string, id: string): Promise<Run> {
     const run = await this.runs.findOne({ where: { id, school_id: schoolId } });
     if (!run) {

@@ -566,6 +566,34 @@ describe('RunCrewService.create', () => {
     assert.equal(fixture.crew.createCalls.length, 0);
   });
 
+  it('ignores a roster row whose run has been soft-deleted (CREW_RUN ghost)', async () => {
+    const fixture = buildFixture({
+      crew: [makeCrewRecord({ id: CREW_1, user_id: DRIVER_1, run_id: RUN_A })],
+      runs: [
+        {
+          id: RUN_A,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: SHIFT_AM,
+          code: 'R-01',
+          is_active: true,
+          deleted_at: new Date(),
+        },
+        {
+          id: RUN_C,
+          school_id: SCHOOL_A,
+          route_id: ROUTE_A,
+          shift_id: SHIFT_AM,
+          code: 'R-02',
+          is_active: true,
+        },
+      ],
+    });
+
+    const response = await fixture.service.create(SCHOOL_A, RUN_C, createDto({ user_id: DRIVER_1 }));
+    assert.equal(response.run_id, RUN_C);
+  });
+
   it('allows CREW_RUN tiering: same person on two runs in disjoint shift windows', async () => {
     const fixture = buildFixture({
       crew: [makeCrewRecord({ id: CREW_1, user_id: DRIVER_1, run_id: RUN_A })],

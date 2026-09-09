@@ -294,7 +294,19 @@ export class Container {
   readonly shifts = lazy(() => new ShiftsService(Shift, Run));
 
   readonly runs = lazy(
-    () => new RunsService(Run, Route, Shift, Bus, RunCrew, User, Student, this.planLimits()),
+    () =>
+      new RunsService(
+        Run,
+        Route,
+        Shift,
+        Bus,
+        RunCrew,
+        RouteAssignment,
+        User,
+        Student,
+        this.planLimits(),
+        this.sequelize,
+      ),
   );
 
   readonly runCrew = lazy(
