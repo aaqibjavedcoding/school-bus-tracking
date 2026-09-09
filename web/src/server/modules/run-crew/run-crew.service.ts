@@ -387,6 +387,15 @@ export class RunCrewService {
       if (excludeId && other.id === excludeId) {
         continue;
       }
+      // Defense in depth: a roster row whose run has been soft-deleted (or is
+      // otherwise missing from the paranoid `runs` lookup) is a ghost. It must
+      // not keep blocking the person from being rostered elsewhere, so only
+      // rows attached to a still-live run take part in the window comparison.
+      // A *live* NULL-shift run still resolves through `windowOf` to the
+      // whole-day window — that legacy semantics is untouched.
+      if (!runById.has(other.run_id)) {
+        continue;
+      }
       const conflict = findRunCrewConflict(candidate, {
         id: other.id,
         run_id: other.run_id,

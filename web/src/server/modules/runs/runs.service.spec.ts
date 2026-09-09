@@ -3,7 +3,16 @@ import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
 import { PlanLimitResource, RouteAssignmentRole } from '@school-bus-tracking/shared-types';
-import { Bus, Route, Run, RunCrew, Shift, Student, User } from '../../database/models';
+import {
+  Bus,
+  Route,
+  RouteAssignment,
+  Run,
+  RunCrew,
+  Shift,
+  Student,
+  User,
+} from '../../database/models';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { RunsService } from './runs.service';
 import {
@@ -210,6 +219,7 @@ function buildFixture(
     shifts?: SimpleRecord[];
     buses?: SimpleRecord[];
     crew?: Array<Record<string, unknown>>;
+    assignments?: SimpleRecord[];
     users?: SimpleRecord[];
     students?: Array<Record<string, unknown>>;
     rejectPlanLimit?: boolean;
@@ -246,6 +256,7 @@ function buildFixture(
     simpleRepo<typeof Shift>(shifts),
     simpleRepo<typeof Bus>(buses),
     simpleRepo<typeof RunCrew>((options.crew ?? []) as SimpleRecord[]),
+    simpleRepo<typeof RouteAssignment>(options.assignments ?? []),
     simpleRepo<typeof User>(options.users ?? []),
     simpleRepo<typeof Student>((options.students ?? []) as SimpleRecord[]),
     planLimits.service,
@@ -612,6 +623,54 @@ describe('RunsService.removeForRoute', () => {
     assert.deepEqual(fixture.runs.destroyCalls, [{ school_id: SCHOOL_A, route_id: ROUTE_A }]);
     assert.equal(fixture.runs.records.find((run) => run.id === 'other')?.deleted_at, null);
   });
+
+  it('cascades crew rows and mirrors for every run of the route', async () => {
+    const crewA: SimpleRecord = {
+      id: 'crew-a',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_id: RUN_DEFAULT,
+      deleted_at: null,
+      destroy: async () => {
+        crewA.deleted_at = new Date();
+      },
+    };
+    const crewB: SimpleRecord = {
+      id: 'crew-b',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_id: RUN_TIER,
+      deleted_at: null,
+      destroy: async () => {
+        crewB.deleted_at = new Date();
+      },
+    };
+    const mirrorA: SimpleRecord = {
+      id: 'mirror-a',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_crew_id: 'crew-a',
+      deleted_at: null,
+      destroy: async () => {
+        mirrorA.deleted_at = new Date();
+      },
+    };
+    const fixture = buildFixture({
+      runs: [
+        makeRunRecord({ id: RUN_DEFAULT }),
+        makeRunRecord({ id: RUN_TIER, code: 'R-01-2', is_default: false }),
+      ],
+      crew: [crewA, crewB],
+      assignments: [mirrorA],
+    });
+
+    const removed = await fixture.service.removeForRoute(SCHOOL_A, ROUTE_A);
+
+    assert.equal(removed, 2);
+    assert.ok(crewA.deleted_at instanceof Date);
+    assert.ok(crewB.deleted_at instanceof Date);
+    assert.ok(mirrorA.deleted_at instanceof Date);
+  });
 });
 
 describe('RunsService.findAll', () => {
@@ -920,6 +979,56 @@ describe('RunsService.remove', () => {
 
     assert.deepEqual(response, { id: RUN_TIER, message: RUN_DELETED_MESSAGE });
     assert.ok(record.deleted_at instanceof Date);
+  });
+
+  it('cascades the run crew rows and their route_assignments mirrors', async () => {
+    const record = makeRunRecord({ id: RUN_TIER, code: 'R-01-2', is_default: false });
+    const crewRow: SimpleRecord = {
+      id: 'crew-1',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_id: RUN_TIER,
+      deleted_at: null,
+      destroy: async () => {
+        crewRow.deleted_at = new Date();
+      },
+    };
+    const mirror: SimpleRecord = {
+      id: 'mirror-1',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_crew_id: 'crew-1',
+      deleted_at: null,
+      destroy: async () => {
+        mirror.deleted_at = new Date();
+      },
+    };
+    const fixture = buildFixture({ runs: [record], crew: [crewRow], assignments: [mirror] });
+
+    await fixture.service.remove(SCHOOL_A, RUN_TIER);
+
+    assert.ok(crewRow.deleted_at instanceof Date);
+    assert.ok(mirror.deleted_at instanceof Date);
+    assert.ok(record.deleted_at instanceof Date);
+  });
+
+  it('leaves crew rows of other runs untouched when deleting a run', async () => {
+    const record = makeRunRecord({ id: RUN_TIER, code: 'R-01-2', is_default: false });
+    const otherCrew: SimpleRecord = {
+      id: 'crew-other',
+      school_id: SCHOOL_A,
+      is_active: true,
+      run_id: RUN_DEFAULT,
+      deleted_at: null,
+      destroy: async () => {
+        otherCrew.deleted_at = new Date();
+      },
+    };
+    const fixture = buildFixture({ runs: [record], crew: [otherCrew] });
+
+    await fixture.service.remove(SCHOOL_A, RUN_TIER);
+
+    assert.equal(otherCrew.deleted_at, null);
   });
 
   it('refuses to delete the default run of a route', async () => {

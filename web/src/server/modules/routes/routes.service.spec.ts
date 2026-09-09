@@ -2,10 +2,21 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
-import { Bus, Route, RouteAssignment, Stop, Student, Trip, User } from '../../database/models';
+import {
+  Bus,
+  Route,
+  RouteAssignment,
+  Run,
+  RunCrew,
+  Shift,
+  Stop,
+  Student,
+  Trip,
+  User,
+} from '../../database/models';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { RoutesService } from './routes.service';
-import type { DefaultRunSource, RunsService } from '../runs/runs.service';
+import { RunsService, type DefaultRunSource } from '../runs/runs.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
   ROUTE_DELETED_MESSAGE,
@@ -344,6 +355,34 @@ function recordingRunsService(): {
   return { runs, provisioned, removed };
 }
 
+/**
+ * Builds a *real* `RunsService` whose repository stubs only serve the
+ * `removeForRoute` cascade path, so a route-deletion test can assert the crew
+ * and mirror rows it delegates to are actually soft-deleted.
+ */
+function makeCascadeRunsService(options: {
+  crew?: Array<Record<string, unknown>>;
+  mirrors?: Array<Record<string, unknown>>;
+} = {}): { runs: RunsService } {
+  const crew = options.crew ?? [];
+  const mirrors = options.mirrors ?? [];
+  const runs = new RunsService(
+    {
+      findAll: async () => [{ id: 'run-1' }],
+      destroy: async () => 1,
+    } as unknown as typeof Run,
+    { findAll: async () => [] } as unknown as typeof Route,
+    { findAll: async () => [] } as unknown as typeof Shift,
+    { findAll: async () => [] } as unknown as typeof Bus,
+    { findAll: async () => crew } as unknown as typeof RunCrew,
+    { findAll: async () => mirrors } as unknown as typeof RouteAssignment,
+    { findAll: async () => [] } as unknown as typeof User,
+    { findAll: async () => [] } as unknown as typeof Student,
+    allowAllPlanLimits(),
+  );
+  return { runs };
+}
+
 async function expectNotFound(promise: Promise<unknown>): Promise<void> {
   await assert.rejects(promise, (error: unknown) => {
     assert.ok(error instanceof NotFoundException, 'expected a NotFoundException');
@@ -651,6 +690,38 @@ describe('RoutesService.remove', () => {
     await service.remove(SCHOOL_A, ROUTE_A);
 
     assert.deepEqual(removed, [{ schoolId: SCHOOL_A, routeId: ROUTE_A }]);
+    assert.notEqual(all[0].deleted_at, null);
+  });
+
+  it('cascades crew rows and mirrors when the route is deleted', async () => {
+    const route = makeRouteRecord({ id: ROUTE_A });
+    const { repo, all } = makeRoutesRepository([route]);
+
+    const crewRow: Record<string, unknown> = {
+      id: 'crew-1',
+      school_id: SCHOOL_A,
+      run_id: 'run-1',
+      deleted_at: null,
+      destroy: async () => {
+        crewRow.deleted_at = new Date();
+      },
+    };
+    const mirror: Record<string, unknown> = {
+      id: 'mirror-1',
+      school_id: SCHOOL_A,
+      run_crew_id: 'crew-1',
+      deleted_at: null,
+      destroy: async () => {
+        mirror.deleted_at = new Date();
+      },
+    };
+    const { runs } = makeCascadeRunsService({ crew: [crewRow], mirrors: [mirror] });
+    const service = makeService(repo, makeStopsRepository().repo, runs);
+
+    await service.remove(SCHOOL_A, ROUTE_A);
+
+    assert.ok(crewRow.deleted_at instanceof Date);
+    assert.ok(mirror.deleted_at instanceof Date);
     assert.notEqual(all[0].deleted_at, null);
   });
 
