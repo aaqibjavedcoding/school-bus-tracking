@@ -21,9 +21,10 @@ That mismatch is the reason a QR scan "does nothing / goes back a screen"
 *when the two sides are on different SDK lines*, and it is fixed by moving the
 project onto the SDK line Expo Go ships — **not** by clearing caches,
 re-installing node modules, or any other workaround that leaves the versions
-mismatched. (With matching SDK lines, a dead scan has two other causes — a
-development-build QR being scanned with Expo Go, and the phone being unable to
-reach the machine over the LAN — both covered in `mobile/README.md` →
+mismatched. (With matching SDK lines, a dead scan has three other causes — the
+QR encoding the `_expo/loading` interstitial page instead of an `exp://` link,
+a development-build QR being scanned with Expo Go, and the phone being unable
+to reach the machine over the LAN — all covered in `mobile/README.md` →
 Troubleshooting.)
 
 Keep the SDK pinned (one deliberate major at a time), and when Expo Go moves to
@@ -104,9 +105,12 @@ npm run typecheck                 # tsc --noEmit against the new RN/React types
 npm test                          # node --test unit suites
 npx expo export --platform android  # Metro bundles every route (no device needed)
 npx expo export --platform ios
-npx expo start -c --go            # clean cache, then scan the QR code with Expo Go
-                                  # (--go: expo-dev-client is installed, so plain
-                                  # `expo start` would serve a dev-build QR instead)
+npm start -- -c                   # clean cache, then scan the QR code with Expo Go
+                                  # (goes through scripts/expo-start.mjs, which pins
+                                  # `--go` and EXPO_NO_REDIRECT_PAGE=1 — plain
+                                  # `expo start` would serve a dev-build QR, and
+                                  # `expo start --go` alone would serve the
+                                  # `_expo/loading` interstitial instead of exp://)
 ```
 
 The QR/manifest check, without a phone:
@@ -130,22 +134,46 @@ version checks) runs locally.
 
 ```bash
 npm --prefix web run dev          # API + web UI on :3001 (the app auto-discovers it)
-cd mobile && npm start            # or: npx expo start -c to clear the Metro cache
+cd mobile && npm start            # or: npm start -- -c to clear the Metro cache
 ```
 
 Scan the QR code with the **Expo Go** app from the Play Store / App Store. It
 opens the project directly because the project and Expo Go are on the same SDK
 line.
 
-One gotcha: because this workspace installs `expo-dev-client`, the Expo CLI's
-plain `expo start` **auto-detects it and serves a development-build QR**
-(`exp+school-bus-tracking://expo-development-client/…`), which the Expo Go app
-cannot open — scanning it looks like "nothing happens". That is why every npm
-script in `mobile/package.json` pins the Expo Go target explicitly
-(`expo start --go`, including the derived `android` / `ios` scripts);
-`npm run start:go` is the same command. If the phone cannot reach the machine
-on the LAN, `npm run start:tunnel` (`expo start --go --tunnel`, backed by the
-`@expo/ngrok` devDependency) serves a scannable tunnel URL instead.
+One gotcha — and it is the one that survives a correct SDK pin: because this
+workspace installs `expo-dev-client`, the Expo CLI changes what the **QR code
+encodes**, in two separate ways.
+
+1. The CLI's plain `expo start` **auto-detects it and serves a
+   development-build QR** (`exp+school-bus-tracking://expo-development-client/…`),
+   which the Expo Go app cannot open — scanning it looks like "nothing happens".
+2. `--go` fixes the _target_ but not the QR. The CLI also keeps a web
+   interstitial enabled whenever `expo-dev-client` is resolvable **and** the
+   target is not a dev client (`BundlerDevServer.isRedirectPageEnabled()`), and
+   prints _that_ URL into the QR
+   (`printQRCode(interstitialPageUrl ?? nativeRuntimeUrl)`):
+
+   ```text
+   › Choose an app to open your project at http://<lan-ip>:8081/_expo/loading
+   › Metro: exp://<lan-ip>:8081
+   ```
+
+   The phone must then load a web page before Expo Go can take over, so the
+   scan dies on any LAN that blocks the browser's request — and Expo Go's own
+   scanner cannot do anything with a web URL at all.
+
+That is why every Expo Go script in `mobile/package.json` runs
+`scripts/expo-start.mjs`, which sets `EXPO_NO_REDIRECT_PAGE=1` (the only switch
+for the interstitial — the CLI has no flag for it, and `.env` is gitignored)
+and pins `--go`, then execs the CLI with the current Node so it behaves the
+same on macOS, Linux and Windows. The resulting QR encodes
+`exp://<lan-ip>:8081`, which Expo Go opens directly.
+`scripts/expo-start.spec.ts` guards that wiring in `npm test`.
+
+If the phone cannot reach the machine on the LAN, `npm run start:tunnel`
+(launcher + `--tunnel`, backed by the `@expo/ngrok` devDependency) serves a
+scannable tunnel URL instead.
 
 ### Development build (`expo-dev-client`)
 
