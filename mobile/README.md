@@ -40,6 +40,19 @@ npm --prefix web run dev
 npm --prefix mobile start
 ```
 
+`npm --prefix mobile start` runs `expo start --go`. The `--go` flag is
+deliberate: because `expo-dev-client` is installed in this workspace, the Expo
+CLI's plain `expo start` auto-detects it and switches to **development-build
+mode**, whose QR code is an `exp+school-bus-tracking://expo-development-client/…`
+deep link that the Expo Go app **cannot open** — scanning it "does nothing".
+`--go` forces the Expo Go target instead. If the phone cannot reach your
+machine on the local network (guest WiFi, AP isolation, different networks),
+use the tunnel instead and scan that QR:
+
+```bash
+npm --prefix mobile run start:tunnel   # expo start --go --tunnel
+```
+
 A **development build** (`expo-dev-client`, still installed) is only needed for
 things Expo Go cannot do — chiefly remote push notifications:
 
@@ -116,6 +129,26 @@ If it does not, the project drifted off the pinned line — run
 package) and reinstall from the repo root. Do **not** "fix" it by clearing
 caches: the versions have to actually match. Full background in
 `docs/mobile-expo-sdk.md`.
+
+### QR scans but Expo Go does nothing — SDKs already match
+
+Two causes, both independent of the SDK versions:
+
+1. **The QR is a development-build link, not an Expo Go link.** Because this
+   workspace installs `expo-dev-client`, the Expo CLI's plain `expo start`
+   auto-detects it and serves a QR of the form
+   `exp+school-bus-tracking://expo-development-client/?url=…` — only a custom
+   development build installed on the phone can open it, Expo Go ignores it
+   (Android: "no app found" / nothing happens, iOS: an error toast). All npm
+   scripts here therefore pin the Expo Go target explicitly (`expo start
+   --go`); if you ever type an `expo` command by hand, add `--go` too, or
+   press `s` in the running CLI to switch targets.
+2. **The phone cannot reach the machine over the LAN.** Expo Go scanned the
+   `http://<lan-ip>:8081` URL but the network keeps the two apart (guest WiFi
+   with AP isolation, phone on mobile data, corporate network, …) — the scan
+   succeeds and the load never finishes. Fix:
+   `npm --prefix mobile run start:tunnel` (uses `@expo/ngrok`, already a
+   devDependency here) and scan the `https://…ngrok…` QR instead.
 
 ### `TypeError: Cannot read property 'useId' of null` at startup
 
