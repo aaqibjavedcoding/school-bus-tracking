@@ -54,6 +54,25 @@ export function isPushSupported(platform: string | null | undefined): boolean {
 }
 
 /**
+ * True when remote push registration should be attempted on this platform
+ * AND runtime.
+ *
+ * Platform support alone (`isPushSupported`) is not enough: Expo removed the
+ * *remote* push implementation from the Expo Go app in SDK 53, so on Android
+ * an `expo-notifications` call such as `getDevicePushTokenAsync()` throws
+ * `UnavailabilityError` inside Expo Go even though the platform is android.
+ * Passing `isExpoGo` here lets the native wrapper short-circuit to a graceful
+ * no-op in Expo Go while keeping remote push fully available in a development
+ * or production build, where `isExpoGo` is `false`.
+ */
+export function shouldEnableRemotePush(runtime: {
+  platform: string | null | undefined;
+  isExpoGo: boolean;
+}): boolean {
+  return isPushSupported(runtime.platform) && runtime.isExpoGo !== true;
+}
+
+/**
  * True when the permission response allows notifications.
  *
  * On iOS the root `status` can be `undetermined` even when the granular iOS

@@ -136,7 +136,13 @@ Security notes:
 ## Building the mobile app for push (required — not Expo Go)
 
 **Remote push does NOT work in Expo Go on SDK 57.** You must build a
-development or production build with EAS:
+development or production build with EAS.
+
+The mobile app detects Expo Go at runtime (`isRunningInExpoGo()` from `expo`)
+and skips push registration there — a graceful no-op — so the QR → Expo Go
+flow never attempts (and never logs) the removed remote-push APIs. In a
+development/production build the same code path registers the FCM/APNs token
+as normal.
 
 1. `npm install` in the repo (adds `expo-notifications`).
 2. Android:

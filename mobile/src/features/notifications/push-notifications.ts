@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { isRunningInExpoGo } from 'expo';
 import * as Notifications from 'expo-notifications';
 import type { AuthenticatedUser } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
@@ -6,9 +7,9 @@ import {
   buildDeviceTokenRequest,
   devicePushTokenValue,
   isNotificationPermissionGranted,
-  isPushSupported,
   mapDevicePlatform,
   PUSH_CHANNEL_ID,
+  shouldEnableRemotePush,
   shouldRequestNotificationPermission,
 } from './push-registration';
 
@@ -61,7 +62,11 @@ export async function setupPushNotifications(user: AuthenticatedUser): Promise<v
   if (!user.school_id) {
     return;
   }
-  if (!isPushSupported(Platform.OS)) {
+  // Remote push was removed from Expo Go in SDK 53 (calling
+  // `getDevicePushTokenAsync()` there throws on Android). Skip registration
+  // gracefully so Expo Go keeps working, while a development/production build
+  // (`isRunningInExpoGo() === false`) still registers the token.
+  if (!shouldEnableRemotePush({ platform: Platform.OS, isExpoGo: isRunningInExpoGo() })) {
     return;
   }
 
