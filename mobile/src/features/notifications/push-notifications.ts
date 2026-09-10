@@ -26,7 +26,8 @@ import {
  *   deactivates later (or the next login overwrites).
  *
  * Remote push requires a development/production build (EAS) — it does **not**
- * work in Expo Go on SDK 54. See docs/notifications.md.
+ * work in Expo Go (the FCM/APNs credentials are bound to your own build), so a
+ * development build is required. See docs/notifications.md.
  */
 
 // Foreground presentation: show the banner/list row, play the default sound.
