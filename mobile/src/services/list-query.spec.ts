@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { createApiClient, querySuffix } from '@school-bus-tracking/api-client';
 
@@ -7,25 +6,42 @@ import { createApiClient, querySuffix } from '@school-bus-tracking/api-client';
  * Regression tests for the mobile search/pagination defect.
  *
  * Root cause: the shared API client built its query string with
- * `params.size > 0 ? ... : ''`. `URLSearchParams.size` is unimplemented in the
- * React Native / Expo URL polyfill (`whatwg-url-without-unicode`), where it is
- * `undefined` — so `undefined > 0` was `false` and **every** list request went
- * out with no query string at all: no `page`, no `limit`, no `search`, no
- * filters. Browsers implement `size`, hence web was fine and mobile was not.
+ * `params.size > 0 ? ... : ''`. `URLSearchParams.size` was unimplemented in the
+ * URL polyfill React Native installed over the global — `whatwg-url-without-unicode`,
+ * which read `undefined` — so `undefined > 0` was `false` and **every** list
+ * request went out with no query string at all: no `page`, no `limit`, no
+ * `search`, no filters. Browsers implement `size`, hence web was fine and
+ * mobile was not.
  *
  * These tests run the real client twice: once with Node's native
- * `URLSearchParams` (the "web" runtime) and once with the exact polyfill Expo
- * installs at runtime (the "mobile" runtime). Both must produce identical URLs.
+ * `URLSearchParams` (the "web" runtime) and once with a `URLSearchParams` that
+ * deliberately hides `size` (the historical "mobile" runtime). Both must
+ * produce identical URLs, so the client can never start depending on `size`
+ * again — whichever polyfill React Native happens to ship.
+ *
+ * The size-less polyfill used to be imported from `whatwg-url-without-unicode`,
+ * a transitive dependency of React Native ≤ 0.81 that Expo SDK 54 installed.
+ * RN 0.86 (Expo SDK 57) dropped that package and ships its own
+ * `Libraries/Blob/URLSearchParams`, which *does* implement `size` — so the
+ * runtime the guard is protecting against is simulated here instead of being
+ * imported from a package the mobile app no longer installs.
  */
 
-const require = createRequire(import.meta.url);
-
-// The polyfill Expo installs over `globalThis.URLSearchParams` on device.
-const { URLSearchParams: ExpoURLSearchParams } = require('whatwg-url-without-unicode') as {
-  URLSearchParams: typeof URLSearchParams;
-};
-
 const NativeURLSearchParams = globalThis.URLSearchParams;
+
+/**
+ * Faithful stand-in for a `size`-less React Native polyfill: identical
+ * serialisation semantics to the global implementation, but `size` reads
+ * `undefined`, exactly as it did on device before RN 0.86.
+ */
+class SizeLessURLSearchParams extends NativeURLSearchParams {}
+
+Object.defineProperty(SizeLessURLSearchParams.prototype, 'size', {
+  get: () => undefined,
+  configurable: true,
+});
+
+const MobileURLSearchParams = SizeLessURLSearchParams;
 
 /** Records every URL the client requests, returning an empty paged envelope. */
 function trackingClient() {
@@ -51,8 +67,8 @@ function trackingClient() {
 }
 
 describe('URLSearchParams.size is unusable on React Native', () => {
-  it('the Expo polyfill really does lack `size` (guards the root cause)', () => {
-    const params = new ExpoURLSearchParams();
+  it('the mobile polyfill really does lack `size` (guards the root cause)', () => {
+    const params = new MobileURLSearchParams();
     params.set('search', 'Aaqib');
     assert.equal(
       (params as unknown as { size?: number }).size,
@@ -63,14 +79,14 @@ describe('URLSearchParams.size is unusable on React Native', () => {
   });
 
   it('querySuffix does not depend on `size`', () => {
-    const params = new ExpoURLSearchParams();
+    const params = new MobileURLSearchParams();
     params.set('page', '1');
     params.set('search', 'Aaqib');
     assert.equal(querySuffix(params as URLSearchParams), '?page=1&search=Aaqib');
   });
 
   it('querySuffix returns an empty suffix for an empty query', () => {
-    assert.equal(querySuffix(new ExpoURLSearchParams() as URLSearchParams), '');
+    assert.equal(querySuffix(new MobileURLSearchParams() as URLSearchParams), '');
     assert.equal(querySuffix(new NativeURLSearchParams()), '');
   });
 });
@@ -145,7 +161,7 @@ const CASES: Array<[string, (c: ReturnType<typeof createApiClient>) => Promise<u
 
 for (const [runtime, Impl] of [
   ['web runtime (native URLSearchParams)', NativeURLSearchParams],
-  ['mobile runtime (Expo whatwg-url polyfill)', ExpoURLSearchParams],
+  ['mobile runtime (size-less URLSearchParams polyfill)', MobileURLSearchParams],
 ] as const) {
   describe(`list query strings — ${runtime}`, () => {
     beforeEach(() => {

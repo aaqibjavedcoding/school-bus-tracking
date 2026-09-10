@@ -119,7 +119,9 @@ const styles = StyleSheet.create({
     borderColor: colors.neutral[200],
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    // RN 0.86 (Expo SDK 57) removed `StyleSheet.absoluteFillObject`; the
+    // frozen `StyleSheet.absoluteFill` object is the single replacement.
+    ...StyleSheet.absoluteFill,
   },
   placeholder: {
     borderRadius: borderRadius.lg,

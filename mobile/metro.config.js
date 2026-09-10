@@ -41,14 +41,14 @@ config.resolver.nodeModulesPaths = [projectNodeModules, monorepoNodeModules];
 //
 //    This monorepo installs two Reacts. The web app pins react/react-dom
 //    18.3.1 (Next 14), and npm hoists those to <root>/node_modules. The mobile
-//    app needs react/react-dom 19.1.0 (what react-native 0.81 peers on), so
+//    app needs react/react-dom 19.2.3 (what react-native 0.86 peers on), so
 //    npm nests that copy in mobile/node_modules.
 //
 //    With hierarchical lookup running first, every bare `require('react')`
 //    issued from a package hoisted to the monorepo root — `expo`,
 //    `expo-router`, `expo-keep-awake`, … — lands on <root>/node_modules/react
 //    (18.3.1), while mobile/app/** and react-native land on
-//    mobile/node_modules/react (19.1.0). Two Reacts ship in one bundle, the
+//    mobile/node_modules/react (19.2.3). Two Reacts ship in one bundle, the
 //    renderer installs its dispatcher on one of them, and the first hook
 //    called from the other throws at startup:
 //

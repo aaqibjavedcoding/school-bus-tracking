@@ -89,7 +89,7 @@ Both are JWT-protected (`JwtAuthGuard` + `RolesGuard`) and rate-limited by the
 `device_register` policy (`RATE_LIMIT_DEVICE_REGISTER_LIMIT`,
 default 30/minute). The platform `SUPER_ADMIN` (no tenant) is rejected.
 
-## Mobile wiring (Expo SDK 54)
+## Mobile wiring (Expo SDK 57)
 
 `mobile/src/features/notifications/`:
 
@@ -135,7 +135,7 @@ Security notes:
 
 ## Building the mobile app for push (required — not Expo Go)
 
-**Remote push does NOT work in Expo Go on SDK 54.** You must build a
+**Remote push does NOT work in Expo Go on SDK 57.** You must build a
 development or production build with EAS:
 
 1. `npm install` in the repo (adds `expo-notifications`).

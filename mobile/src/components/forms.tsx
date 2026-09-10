@@ -255,7 +255,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    // RN 0.86 (Expo SDK 57) removed `StyleSheet.absoluteFillObject`; the
+    // frozen `StyleSheet.absoluteFill` object is the single replacement.
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(15, 23, 42, 0.5)',
   },
   sheet: {

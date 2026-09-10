@@ -21,29 +21,32 @@ re-export it.
 
 ## Running
 
-> **This project is permanently locked to Expo SDK 54.** If scanning the QR
-> code says `Project is incompatible with this version of Expo Go`, that's
-> Expo Go being *newer* than this pinned project (Expo Go always tracks the
-> latest SDK) — not a bug here. Use a **development build** instead of the
-> generic Expo Go app; see `docs/mobile-expo-sdk.md` for the one-time setup,
-> why the SDK stays pinned, and why this permanently prevents the mismatch
-> instead of just working around it once.
+This app is on **Expo SDK 57** (`expo ~57.0.21`, React Native 0.86.3,
+React 19.2.3), the same SDK line the Expo Go app in the Play Store / App Store
+ships — so the plain QR-code workflow works with no extra setup. See
+`docs/mobile-expo-sdk.md` for the version policy and the verified package
+matrix.
 
 ```bash
 # from the repo root
 npm install
 npm run build:packages
 
-# ONE-TIME per device/emulator: build & install the dev client
-# (see docs/mobile-expo-sdk.md if you don't have Android Studio/Xcode yet)
-cd mobile && npx expo run:android   # or: npx expo run:ios
-
 # start the server first — it serves BOTH the web UI and the API on port 3001,
 # and the phone needs it running and reachable
 npm --prefix web run dev
 
-# then start the app (auto-launches into the dev build installed above)
+# then start the app and scan the QR code with Expo Go
 npm --prefix mobile start
+```
+
+A **development build** (`expo-dev-client`, still installed) is only needed for
+things Expo Go cannot do — chiefly remote push notifications:
+
+```bash
+# ONE-TIME per device/emulator (see docs/mobile-expo-sdk.md)
+cd mobile && npx expo run:android   # or: npx expo run:ios
+npm run start:dev-client            # expo start --dev-client
 ```
 
 The app auto-detects the API host from the Metro dev server, so a physical
@@ -86,6 +89,7 @@ in the platform cookie jar, so the session survives app restarts.
 ```bash
 npm --prefix mobile run typecheck   # tsc --noEmit
 npm --prefix mobile run verify:sdk  # confirms the project is still on the locked Expo SDK
+                                    # and every Expo dep matches that SDK (offline)
 npm --prefix mobile test            # node --test unit specs
 cd mobile && npx expo export --platform android   # Metro bundle check
 cd mobile && npx expo export --platform ios       # Metro bundle check
@@ -93,14 +97,25 @@ cd mobile && npx expo export --platform ios       # Metro bundle check
 
 ## Troubleshooting
 
-### `Project is incompatible with this version of Expo Go`
+### QR scan does nothing / Expo Go goes back to its project screen
 
-This project is pinned to Expo SDK 54 on purpose and never auto-upgrades.
-Expo Go's app-store build tracks whatever the newest SDK is, so it will
-eventually be newer than this project — that is expected, not a bug. See
-`docs/mobile-expo-sdk.md` for the root cause and the permanent fix (a
-development build via the already-installed `expo-dev-client`, not chasing
-Expo Go's version or upgrading this project's SDK).
+The project and the Expo Go app on the phone are on **different SDK lines**.
+Expo Go only opens a project whose `sdkVersion` matches its own, so a mismatch
+looks like "nothing happened" rather than an error. Check both sides:
+
+```bash
+# what the dev server tells Expo Go:
+curl -sS -H 'expo-platform: android' \
+     -H 'Accept: application/expo+json,application/json' \
+     http://127.0.0.1:8081/ | grep sdkVersion
+# must equal the SDK of the Expo Go build installed on the phone (currently 57)
+```
+
+If it does not, the project drifted off the pinned line — run
+`npm --prefix mobile run verify:sdk` (it fails with the exact offending
+package) and reinstall from the repo root. Do **not** "fix" it by clearing
+caches: the versions have to actually match. Full background in
+`docs/mobile-expo-sdk.md`.
 
 ### `TypeError: Cannot read property 'useId' of null` at startup
 
@@ -116,8 +131,8 @@ ERROR  [TypeError: Cannot read property 'useId' of null]
 
 This means **two copies of React ended up in one bundle**. The workspace
 installs two on purpose: `web` pins React 18.3.1 (Next 14) and npm hoists it to
-`<root>/node_modules/react`, while mobile needs React 19.1.0 (what
-`react-native` 0.81 peers on) so npm nests that copy in `mobile/node_modules`.
+`<root>/node_modules/react`, while mobile needs React 19.2.3 (what
+`react-native` 0.86 peers on) so npm nests that copy in `mobile/node_modules`.
 Metro resolves bare imports hierarchically first, so `require('react')` from a
 hoisted package (`expo`, `expo-router`, `expo-keep-awake`, …) picks up React 18
 while `react-native` and `mobile/app/**` pick up React 19. The renderer installs
