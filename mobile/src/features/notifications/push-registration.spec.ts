@@ -8,6 +8,7 @@ import {
   isPushSupported,
   mapDevicePlatform,
   PUSH_CHANNEL_ID,
+  shouldEnableRemotePush,
   shouldRequestNotificationPermission,
 } from './push-registration.ts';
 
@@ -33,6 +34,23 @@ describe('mapDevicePlatform / isPushSupported', () => {
   it('supports exactly the platforms the backend can deliver to', () => {
     assert.equal(isPushSupported('android'), true);
     assert.equal(isPushSupported('ios'), true);
+  });
+});
+
+describe('shouldEnableRemotePush (Expo Go vs development build)', () => {
+  it('enables remote push in a development/production build on android/ios', () => {
+    assert.equal(shouldEnableRemotePush({ platform: 'android', isExpoGo: false }), true);
+    assert.equal(shouldEnableRemotePush({ platform: 'ios', isExpoGo: false }), true);
+  });
+
+  it('disables remote push inside Expo Go even on android/ios', () => {
+    assert.equal(shouldEnableRemotePush({ platform: 'android', isExpoGo: true }), false);
+    assert.equal(shouldEnableRemotePush({ platform: 'ios', isExpoGo: true }), false);
+  });
+
+  it('never enables remote push on unsupported platforms', () => {
+    assert.equal(shouldEnableRemotePush({ platform: 'web', isExpoGo: false }), false);
+    assert.equal(shouldEnableRemotePush({ platform: null, isExpoGo: false }), false);
   });
 });
 

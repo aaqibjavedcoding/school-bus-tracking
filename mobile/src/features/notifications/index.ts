@@ -6,5 +6,6 @@ export {
   isNotificationPermissionGranted,
   isPushSupported,
   mapDevicePlatform,
+  shouldEnableRemotePush,
   shouldRequestNotificationPermission,
 } from './push-registration';
