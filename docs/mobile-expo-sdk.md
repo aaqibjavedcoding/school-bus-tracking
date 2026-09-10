@@ -21,10 +21,12 @@ That mismatch is the reason a QR scan "does nothing / goes back a screen"
 *when the two sides are on different SDK lines*, and it is fixed by moving the
 project onto the SDK line Expo Go ships — **not** by clearing caches,
 re-installing node modules, or any other workaround that leaves the versions
-mismatched. (With matching SDK lines, a dead scan has two other causes — a
-development-build QR being scanned with Expo Go, and the phone being unable to
-reach the machine over the LAN — both covered in `mobile/README.md` →
-Troubleshooting.)
+mismatched. (With matching SDK lines, a dead scan has three other causes — the
+QR encoding the `/_expo/loading` interstitial page, a development-build QR being
+scanned with Expo Go, and the phone being unable to reach the machine over the
+LAN — all covered in `mobile/README.md` → Troubleshooting. The first is handled
+automatically by `mobile/scripts/start-expo.mjs`, which every `npm start` script
+here goes through.)
 
 Keep the SDK pinned (one deliberate major at a time), and when Expo Go moves to
 a new SDK, upgrade the whole mobile workspace to that SDK line in one reviewed
@@ -104,9 +106,11 @@ npm run typecheck                 # tsc --noEmit against the new RN/React types
 npm test                          # node --test unit suites
 npx expo export --platform android  # Metro bundles every route (no device needed)
 npx expo export --platform ios
-npx expo start -c --go            # clean cache, then scan the QR code with Expo Go
-                                  # (--go: expo-dev-client is installed, so plain
-                                  # `expo start` would serve a dev-build QR instead)
+npm run start:clear               # clean cache, then scan the QR code with Expo Go
+                                  # (use the npm script, not a bare `expo start -c --go`:
+                                  # the launcher also sets EXPO_NO_REDIRECT_PAGE=1, without
+                                  # which the QR encodes the /_expo/loading interstitial
+                                  # page that Expo Go cannot open — see mobile/README.md)
 ```
 
 The QR/manifest check, without a phone:
