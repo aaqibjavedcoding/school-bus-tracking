@@ -40,17 +40,49 @@ npm --prefix web run dev
 npm --prefix mobile start
 ```
 
-`npm --prefix mobile start` runs `expo start --go`. The `--go` flag is
-deliberate: because `expo-dev-client` is installed in this workspace, the Expo
-CLI's plain `expo start` auto-detects it and switches to **development-build
-mode**, whose QR code is an `exp+school-bus-tracking://expo-development-client/…`
-deep link that the Expo Go app **cannot open** — scanning it "does nothing".
-`--go` forces the Expo Go target instead. If the phone cannot reach your
-machine on the local network (guest WiFi, AP isolation, different networks),
-use the tunnel instead and scan that QR:
+`npm --prefix mobile start` runs `scripts/expo-start.mjs`, which execs
+`expo start --go` with `EXPO_NO_REDIRECT_PAGE=1`. **Both** parts are needed,
+because this workspace installs `expo-dev-client` and that changes what the QR
+code contains:
+
+- Plain `expo start` auto-detects `expo-dev-client` and switches to
+  **development-build mode**, whose QR is an
+  `exp+school-bus-tracking://expo-development-client/…` deep link the Expo Go
+  app **cannot open**.
+- `--go` alone is _not_ enough either. The CLI keeps a web "interstitial"
+  enabled whenever `expo-dev-client` is resolvable **and** the target is not a
+  dev client — which is exactly the `--go` case — and then encodes _that page_
+  into the QR:
+
+  ```text
+  › Choose an app to open your project at http://<lan-ip>:8081/_expo/loading
+  › Metro: exp://<lan-ip>:8081
+  ```
+
+  Scanned with the phone camera, that URL has to load in the phone's browser
+  before it can deep-link into Expo Go; scanned with Expo Go's own scanner,
+  Expo Go is handed a web page instead of an `exp://` project URL. Either way
+  it reads as "the link does not open".
+
+`EXPO_NO_REDIRECT_PAGE=1` is the only switch that turns the interstitial off
+(the CLI has no flag for it, and a `.env` file cannot carry it — `.env` is
+gitignored), so the launcher sets it before the CLI boots. With it, the QR
+encodes `exp://<lan-ip>:8081` and Expo Go opens the project directly:
+
+```text
+› Metro: exp://<lan-ip>:8081
+Scan the QR code above to open in Expo Go.
+```
+
+`scripts/expo-start.spec.ts` (part of `npm test`) asserts the scripts keep
+going through the launcher and that it keeps pinning `--go` +
+`EXPO_NO_REDIRECT_PAGE=1`.
+
+If the phone cannot reach your machine on the local network (guest WiFi, AP
+isolation, different networks), use the tunnel instead and scan that QR:
 
 ```bash
-npm --prefix mobile run start:tunnel   # expo start --go --tunnel
+npm --prefix mobile run start:tunnel   # launcher + --tunnel
 ```
 
 A **development build** (`expo-dev-client`, still installed) is only needed for
@@ -132,23 +164,42 @@ caches: the versions have to actually match. Full background in
 
 ### QR scans but Expo Go does nothing — SDKs already match
 
-Two causes, both independent of the SDK versions:
+Three causes, all independent of the SDK versions. **First check what the QR
+actually contains** — the terminal tells you, on the line above the hint:
 
-1. **The QR is a development-build link, not an Expo Go link.** Because this
-   workspace installs `expo-dev-client`, the Expo CLI's plain `expo start`
-   auto-detects it and serves a QR of the form
+```text
+› Choose an app to open your project at http://<lan-ip>:8081/_expo/loading   ← interstitial (bad)
+› Metro: exp://<lan-ip>:8081                                                 ← what Expo Go wants
+Scan the QR code above to open in Expo Go.
+```
+
+1. **The QR is the `_expo/loading` interstitial page, not an `exp://` link.**
+   This is the one that `--go` does _not_ fix. The CLI enables that page
+   whenever `expo-dev-client` is resolvable and the target is not a dev client,
+   so with `expo start --go` in this workspace the QR encodes
+   `http://<lan-ip>:8081/_expo/loading`. The phone then has to load a web page
+   before it can hand the project to Expo Go — and if the browser cannot reach
+   the dev server, or Expo Go's scanner is what read the code, nothing opens.
+   Fix: use `npm --prefix mobile start` (it sets `EXPO_NO_REDIRECT_PAGE=1`, the
+   only switch for this). If you type an `expo` command by hand, do the same —
+   on Windows that means `set EXPO_NO_REDIRECT_PAGE=1` (CMD) /
+   `$env:EXPO_NO_REDIRECT_PAGE=1` (PowerShell) before the command.
+2. **The QR is a development-build link.** The Expo CLI's plain `expo start`
+   auto-detects `expo-dev-client` and serves a QR of the form
    `exp+school-bus-tracking://expo-development-client/?url=…` — only a custom
    development build installed on the phone can open it, Expo Go ignores it
-   (Android: "no app found" / nothing happens, iOS: an error toast). All npm
-   scripts here therefore pin the Expo Go target explicitly (`expo start
-   --go`); if you ever type an `expo` command by hand, add `--go` too, or
-   press `s` in the running CLI to switch targets.
-2. **The phone cannot reach the machine over the LAN.** Expo Go scanned the
-   `http://<lan-ip>:8081` URL but the network keeps the two apart (guest WiFi
-   with AP isolation, phone on mobile data, corporate network, …) — the scan
-   succeeds and the load never finishes. Fix:
-   `npm --prefix mobile run start:tunnel` (uses `@expo/ngrok`, already a
-   devDependency here) and scan the `https://…ngrok…` QR instead.
+   (Android: "no app found" / nothing happens, iOS: an error toast). All Expo
+   Go scripts here pin `--go`; if you ever type an `expo` command by hand, add
+   `--go` too, or press `s` in the running CLI to switch targets.
+3. **The phone cannot reach the machine over the LAN.** Expo Go scanned the
+   `exp://<lan-ip>:8081` URL but the network keeps the two apart (guest WiFi
+   with AP isolation, phone on mobile data, corporate network, host firewall
+   blocking inbound 8081, …) — the scan succeeds and the load never finishes.
+   Fix: `npm --prefix mobile run start:tunnel` (uses `@expo/ngrok`, already a
+   devDependency here) and scan the `https://…ngrok…` QR instead. On Windows
+   also allow Node.js through the firewall for **private** networks, and keep
+   phone and machine on the same subnet (a router "guest" SSID isolates
+   clients from each other).
 
 ### `TypeError: Cannot read property 'useId' of null` at startup
 
@@ -177,7 +228,7 @@ then restart with a cleared cache — a stale Metro cache keeps serving the
 two-React bundle:
 
 ```bash
-cd mobile && npx expo start -c
+npm --prefix mobile start -- -c
 ```
 
 To confirm the fix, grep the dev bundle for React's runtime. Exactly **one**
