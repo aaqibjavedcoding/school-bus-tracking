@@ -17,10 +17,14 @@ works at all:
 | same        | same        | app opens and runs                                                |
 | different   | newer       | Expo Go refuses the project and drops back to its project screen  |
 
-That mismatch is the *only* reason a QR scan "does nothing / goes back a
-screen", and it is fixed by moving the project onto the SDK line Expo Go ships
-— **not** by clearing caches, re-installing node modules, or any other
-workaround that leaves the versions mismatched.
+That mismatch is the reason a QR scan "does nothing / goes back a screen"
+*when the two sides are on different SDK lines*, and it is fixed by moving the
+project onto the SDK line Expo Go ships — **not** by clearing caches,
+re-installing node modules, or any other workaround that leaves the versions
+mismatched. (With matching SDK lines, a dead scan has two other causes — a
+development-build QR being scanned with Expo Go, and the phone being unable to
+reach the machine over the LAN — both covered in `mobile/README.md` →
+Troubleshooting.)
 
 Keep the SDK pinned (one deliberate major at a time), and when Expo Go moves to
 a new SDK, upgrade the whole mobile workspace to that SDK line in one reviewed
@@ -100,7 +104,9 @@ npm run typecheck                 # tsc --noEmit against the new RN/React types
 npm test                          # node --test unit suites
 npx expo export --platform android  # Metro bundles every route (no device needed)
 npx expo export --platform ios
-npx expo start -c                 # clean cache, then scan the QR code
+npx expo start -c --go            # clean cache, then scan the QR code with Expo Go
+                                  # (--go: expo-dev-client is installed, so plain
+                                  # `expo start` would serve a dev-build QR instead)
 ```
 
 The QR/manifest check, without a phone:
@@ -129,7 +135,17 @@ cd mobile && npm start            # or: npx expo start -c to clear the Metro cac
 
 Scan the QR code with the **Expo Go** app from the Play Store / App Store. It
 opens the project directly because the project and Expo Go are on the same SDK
-line. `npm run start:go` (`expo start --go`) forces Expo Go explicitly.
+line.
+
+One gotcha: because this workspace installs `expo-dev-client`, the Expo CLI's
+plain `expo start` **auto-detects it and serves a development-build QR**
+(`exp+school-bus-tracking://expo-development-client/…`), which the Expo Go app
+cannot open — scanning it looks like "nothing happens". That is why every npm
+script in `mobile/package.json` pins the Expo Go target explicitly
+(`expo start --go`, including the derived `android` / `ios` scripts);
+`npm run start:go` is the same command. If the phone cannot reach the machine
+on the LAN, `npm run start:tunnel` (`expo start --go --tunnel`, backed by the
+`@expo/ngrok` devDependency) serves a scannable tunnel URL instead.
 
 ### Development build (`expo-dev-client`)
 
