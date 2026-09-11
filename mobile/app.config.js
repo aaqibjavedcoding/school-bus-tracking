@@ -19,18 +19,21 @@
  * When the variable is unset (e.g. Expo Go, where Maps runs on its own key),
  * no key is injected and `react-native-maps` keeps its default behaviour.
  *
- * All other values stay exactly as pinned in `app.json` (spread, untouched).
+ * The stateless function receives the fully-merged static config from
+ * `app.json` (every pinned value: name, slug, version, icons, permissions,
+ * plugins, scheme, EAS project id, owner) and only adds the key — nothing
+ * else is changed or redeclared.
  */
-const appJson = require('./app.json');
-
-module.exports = () => {
-  // The spread keeps every pinned static value byte-identical; only the
-  // Android Maps key is resolved from the environment per build.
-  const config = { ...appJson.expo };
+module.exports = ({ config }) => {
   const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-  if (googleMapsApiKey) {
-    config.android = {
+  if (!googleMapsApiKey) {
+    return config;
+  }
+
+  return {
+    ...config,
+    android: {
       ...config.android,
       config: {
         ...config.android?.config,
@@ -38,8 +41,6 @@ module.exports = () => {
           apiKey: googleMapsApiKey,
         },
       },
-    };
-  }
-
-  return config;
+    },
+  };
 };
