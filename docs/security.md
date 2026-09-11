@@ -13,7 +13,22 @@ This document describes the security measures implemented in the School Bus Trac
 - Access tokens: Short-lived (configurable, default 15 minutes)
 - Refresh tokens: Long-lived (configurable, default 7 days), stored in httpOnly cookies
 - CSRF protection: Double-submit cookie pattern
-- Token rotation: Refresh tokens are rotated on each use
+- Token rotation: Refresh tokens are rotated on each use — a stale token is
+  rejected with `401 revoked` even when its session is still alive, so the
+  replay defence is never bypassed
+- Single-flight refresh: the client (`@school-bus-tracking/api-client`)
+  allows at most one `POST /auth/refresh` in flight at a time. The
+  AuthProvider boot (which React StrictMode runs twice on mount) and every
+  401-retry path share one in-flight refresh promise, so a concurrent
+  duplicate — the request that would always lose the rotation race — is never
+  sent
+- Session-presence marker: the readable, secret-free `sb_session` cookie
+  mirrors the httpOnly refresh cookie so a fresh tab knows a refresh attempt
+  is worthwhile. It is cleared on logout and on refresh failure — **except**
+  a rotation conflict, where the presented token was superseded by a
+  concurrent refresh whose rotated session is still live. Clearing the marker
+  there would log every tab out on its next reload even though a valid
+  session exists; the 401 itself is unchanged
 
 ### CSRF: the exact contract clients must follow
 

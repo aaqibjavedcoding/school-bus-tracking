@@ -21,6 +21,7 @@ import type { CookieOptions } from 'express';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
 import { auditRequestContext } from '../modules/audit/audit-request';
 import { LoginDto } from '../modules/auth/dto/login.dto';
+import { RefreshTokenRotationConflictException } from '../modules/auth/auth.service';
 import { parseCookieHeader } from '../auth';
 import { buildCsrfClearCookieOptions, buildCsrfCookieOptions, generateCsrfToken } from '../common/security';
 
@@ -233,7 +234,16 @@ export const postAuthRefresh: EndpointDefinition = {
       // so later page loads stop paying for refresh attempts until the user
       // logs in again. The httpOnly refresh cookie itself is left untouched —
       // clearing it here would change the error semantics of logout.
-      clearSessionPresentCookie(request, cookies);
+      //
+      // Exception — a rotation conflict: the presented token was superseded
+      // by a *concurrent* refresh (another tab, a doubled boot request) and
+      // the rotated session is still live. Dropping the marker in that case
+      // would log the user out of every tab on the next reload even though a
+      // valid session exists, so the marker survives this response. The
+      // 401 itself is rethrown unchanged — a stale token is never accepted.
+      if (!(error instanceof RefreshTokenRotationConflictException)) {
+        clearSessionPresentCookie(request, cookies);
+      }
       throw error;
     }
     const { response, refreshToken } = result;

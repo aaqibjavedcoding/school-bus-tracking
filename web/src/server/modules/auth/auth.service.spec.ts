@@ -6,7 +6,7 @@ import { JwtService } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { hashPassword, hashToken } from '../../auth';
 import { RefreshToken, School, User } from '../../database/models';
-import { AuthService } from './auth.service';
+import { AuthService, RefreshTokenRotationConflictException } from './auth.service';
 import {
   EXPIRED_REFRESH_TOKEN_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
@@ -87,6 +87,9 @@ function makeRefreshTokensRepository(
           capture.where = options.where;
           const match = tokens.find((t) => {
             if (options.where.token_hash && t.token_hash !== options.where.token_hash) {
+              return false;
+            }
+            if (options.where.id && t.id !== options.where.id) {
               return false;
             }
             return true;
@@ -591,6 +594,222 @@ describe('AuthService.refresh & token rotation', () => {
     );
 
     await expectUnauthorized(service.refresh(rawToken), INVALID_CREDENTIALS_MESSAGE);
+  });
+});
+
+/**
+ * Rotation-conflict detection: a revoked token whose lineage ends in a live
+ * token means the presented token lost a *concurrent* rotation race (two
+ * tabs, a doubled boot request). The 401 must stay — stale tokens are never
+ * accepted — but the route needs to know the session survived so it can keep
+ * the `sb_session` marker instead of logging every tab out on reload.
+ */
+describe('AuthService.refresh rotation-conflict detection', () => {
+  const rawToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const tokenHash = hashToken(rawToken);
+  let user: StubUser;
+
+  beforeEach(async () => {
+    user = await makeActiveUser();
+  });
+
+  function makeRevokedToken(overrides: Partial<StubRefreshToken> = {}): StubRefreshToken {
+    return {
+      id: 'token-stale',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: tokenHash,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: new Date(Date.now() - 1000),
+      replaced_by_token_id: 'token-live',
+      save: async () => {},
+      ...overrides,
+    };
+  }
+
+  function makeSuccessor(overrides: Partial<StubRefreshToken> = {}): StubRefreshToken {
+    return {
+      id: 'token-live',
+      school_id: SCHOOL_ID,
+      user_id: USER_ID,
+      token_hash: hashToken('live-successor-token'),
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      revoked_at: null,
+      replaced_by_token_id: null,
+      save: async () => {},
+      ...overrides,
+    };
+  }
+
+  function expectConflict(promise: Promise<unknown>): Promise<void> {
+    return assert.rejects(promise, (error: unknown) => {
+      assert.ok(
+        error instanceof RefreshTokenRotationConflictException,
+        `expected a rotation-conflict exception, got: ${error}`,
+      );
+      // The wire surface stays a plain 401 revocation — nothing is weakened.
+      assert.ok(error instanceof UnauthorizedException);
+      assert.equal(error.getStatus(), 401);
+      assert.equal(error.message, REVOKED_REFRESH_TOKEN_MESSAGE);
+      return true;
+    });
+  }
+
+  function expectPlainRevocation(promise: Promise<unknown>): Promise<void> {
+    return assert.rejects(promise, (error: unknown) => {
+      assert.ok(
+        !(error instanceof RefreshTokenRotationConflictException),
+        'must NOT be tagged as a rotation conflict',
+      );
+      assert.ok(error instanceof UnauthorizedException);
+      assert.equal(error.getStatus(), 401);
+      assert.equal(error.message, REVOKED_REFRESH_TOKEN_MESSAGE);
+      return true;
+    });
+  }
+
+  it('tags a revoked token whose successor is live as a rotation conflict', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken(),
+      makeSuccessor(),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectConflict(service.refresh(rawToken));
+  });
+
+  it('follows a multi-hop rotation chain to its live head', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken({ replaced_by_token_id: 'token-mid' }),
+      {
+        id: 'token-mid',
+        school_id: SCHOOL_ID,
+        user_id: USER_ID,
+        token_hash: hashToken('mid-token'),
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        revoked_at: new Date(Date.now() - 500),
+        replaced_by_token_id: 'token-live',
+        save: async () => {},
+      },
+      makeSuccessor(),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectConflict(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation whose successor was revoked (logout after rotation)', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken(),
+      makeSuccessor({ revoked_at: new Date(Date.now() - 100) }),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation whose successor has expired', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken(),
+      makeSuccessor({ expires_at: new Date(Date.now() - 1000) }),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation when the user was deactivated', async () => {
+    const inactiveUser = await makeActiveUser({ is_active: false });
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken(),
+      makeSuccessor(),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(inactiveUser),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation when the school became inactive', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken(),
+      makeSuccessor(),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      { isSchoolAccessible: async () => false } as never,
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation with a broken lineage (missing successor row)', async () => {
+    // Only the stale token exists; its successor was deleted.
+    const { repo: refreshRepo } = makeRefreshTokensRepository([makeRevokedToken()]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('terminates on a cyclic lineage instead of looping', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken({ replaced_by_token_id: 'token-cycle' }),
+      makeSuccessor({ id: 'token-cycle', replaced_by_token_id: 'token-stale' }),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
+  });
+
+  it('does not tag a revocation with no successor at all (plain logout revocation)', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository([
+      makeRevokedToken({ replaced_by_token_id: null }),
+    ]);
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+    );
+
+    await expectPlainRevocation(service.refresh(rawToken));
   });
 });
 
