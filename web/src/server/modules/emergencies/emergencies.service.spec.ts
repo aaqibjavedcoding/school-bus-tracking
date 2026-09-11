@@ -526,3 +526,85 @@ describe('EmergenciesService.updateStatus', () => {
     );
   });
 });
+
+describe('EmergenciesService push sink (Phase 4)', () => {
+  type PushCall = Parameters<
+    import('./emergencies.service').EmergencyPushSink['pushToUsers']
+  >[0];
+
+  function withSink(harness: Harness, adminIds: string[] = [ADMIN_A]) {
+    const calls: PushCall[] = [];
+    harness.service.attachPushSink({
+      pushToUsers: async (input) => {
+        calls.push(input);
+      },
+      resolveSchoolAdminUserIds: async (schoolId) => (schoolId === SCHOOL_A ? adminIds : []),
+    });
+    return calls;
+  }
+
+  it('pushes a raised SOS to the school admins only', async () => {
+    const harness = makeHarness();
+    const calls = withSink(harness);
+    const event = await harness.service.raiseSos(
+      driverActor,
+      sos({ trip_id: TRIP_A, message: 'Bus hit a divider' }),
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].school_id, SCHOOL_A);
+    assert.deepEqual(calls[0].user_ids, [ADMIN_A]);
+    assert.deepEqual(calls[0].roles, [UserRole.SCHOOL_ADMIN]);
+    assert.equal(calls[0].type, 'EMERGENCY_SOS');
+    assert.equal(calls[0].data?.emergency_id, event.id);
+    assert.equal(calls[0].data?.trip_id, TRIP_A);
+    assert.match(calls[0].message, /Bus hit a divider/);
+  });
+
+  it('pushes an admin acknowledgement back to the crew member who raised it', async () => {
+    const harness = makeHarness();
+    const calls = withSink(harness);
+    const event = await harness.service.raiseSos(driverActor, sos());
+    calls.length = 0;
+
+    await harness.service.updateStatus(
+      adminActor,
+      event.id,
+      statusBody(EmergencyStatus.ACKNOWLEDGED),
+    );
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].user_ids, [DRIVER_A]);
+    assert.deepEqual(calls[0].roles, [UserRole.DRIVER, UserRole.CONDUCTOR]);
+    assert.equal(calls[0].type, 'EMERGENCY_STATUS');
+  });
+
+  it('does not push a crew member their own cancellation', async () => {
+    const harness = makeHarness();
+    const calls = withSink(harness);
+    const event = await harness.service.raiseSos(driverActor, sos());
+    calls.length = 0;
+
+    await harness.service.updateStatus(
+      driverActor,
+      event.id,
+      statusBody(EmergencyStatus.CANCELLED),
+      { requireOwnership: true },
+    );
+    assert.equal(calls.length, 0);
+  });
+
+  it('works without a sink and survives a failing sink', async () => {
+    const plain = makeHarness();
+    await assert.doesNotReject(() => plain.service.raiseSos(driverActor, sos()));
+
+    const failing = makeHarness();
+    failing.service.attachPushSink({
+      pushToUsers: async () => {
+        throw new Error('fcm down');
+      },
+      resolveSchoolAdminUserIds: async () => [ADMIN_A],
+    });
+    const event = await failing.service.raiseSos(driverActor, sos());
+    assert.equal(event.status, EmergencyStatus.OPEN);
+  });
+});

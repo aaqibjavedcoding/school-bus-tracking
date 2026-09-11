@@ -412,7 +412,12 @@ export class Container {
       ),
   );
 
-  readonly emergencies = lazy(() => new EmergenciesService(EmergencyEvent, Trip, Bus, Route, User));
+  readonly emergencies = lazy(() => {
+    const service = new EmergenciesService(EmergencyEvent, Trip, Bus, Route, User);
+    // Phase 4: SOS → school-admin devices, ack/resolve → raising crew device.
+    service.attachPushSink(this.notifications());
+    return service;
+  });
 
   readonly documentRequirements = lazy(
     () => new DocumentRequirementsService(DocumentRequirementModel),

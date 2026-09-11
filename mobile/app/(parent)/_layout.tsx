@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
+import { flushPendingRoute } from '../../src/features/notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@school-bus-tracking/design-tokens';
@@ -21,6 +22,11 @@ function ParentTabs() {
   const { state, latestEvent, dismissLatest } = useParentNotifications();
   const unread = state.unreadCount;
   const bar = useBottomBarMetrics();
+  // A notification tapped before this navigator existed (cold start) lands
+  // on its screen as soon as the role tabs are mounted.
+  useEffect(() => {
+    flushPendingRoute();
+  }, []);
   const insets = useSafeAreaInsets();
 
   return (

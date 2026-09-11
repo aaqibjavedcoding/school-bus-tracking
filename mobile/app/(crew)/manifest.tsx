@@ -2,10 +2,13 @@ import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { UserRole, type TripStudentManifestResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
+import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../src/services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import { isTripOpen, ManifestList, manifestCounts, useCrewToday } from '../../src/features/crew';
+import { OfflineSyncBanner, useOfflineAction } from '../../src/features/crew/offline';
+import { useToast } from '../../src/components';
 import { useAuth } from '../../src/features/auth';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '../../src/components';
@@ -43,15 +46,31 @@ export default function CrewManifestScreen() {
   }, [trip?.id]);
 
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
+  const offline = useOfflineAction();
+  const toast = useToast();
 
+  // Online-first with an offline fallback: the board/drop call carries the
+  // idempotency key of its queue reservation, so a lost response is replayed
+  // as a dedupe hit and the manifest can never double-record a student.
   const withAction = async (studentId: string, action: 'board' | 'drop') => {
     if (!trip) return;
     setBusyStudentId(studentId);
     try {
-      if (action === 'board') {
-        await apiClient.boardTripStudent(trip.id, studentId);
-      } else {
-        await apiClient.dropTripStudent(trip.id, studentId);
+      const result = await offline.execute(
+        { kind: 'attendance', userId: user?.id ?? null, tripId: trip.id, studentId, eventType: action },
+        (key) =>
+          action === 'board'
+            ? apiClient.boardTripStudent(trip.id, studentId, withIdempotencyKey(key))
+            : apiClient.dropTripStudent(trip.id, studentId, withIdempotencyKey(key)),
+      );
+      if (result.mode === 'queued') {
+        toast.push(
+          action === 'board'
+            ? 'Saved offline — boarding will sync when back online.'
+            : 'Saved offline — drop-off will sync when back online.',
+          'info',
+        );
+        return;
       }
       await manifestLoad.reload();
     } catch (caught) {
@@ -99,6 +118,7 @@ export default function CrewManifestScreen() {
           onDrop={(studentId) => void withAction(studentId, 'drop')}
           header={
             <>
+              <OfflineSyncBanner />
               <Text style={styles.role}>
                 {user ? `${crewRoleLabel(user.role)} · ` : ''}
                 {isDriver ? 'Students on board' : 'Boarding & drop'}

@@ -1072,3 +1072,124 @@ describe('NotificationsService push delivery', () => {
     assert.equal(row.delivery_failure_reason, 'provider unavailable');
   });
 });
+
+describe('NotificationsService.pushToUsers (role push, Phase 4)', () => {
+  it('sends one OS push per recipient device without creating an inbox row', async () => {
+    const push = new FakePushProvider('fcm');
+    const harness = makeService({
+      pushProvider: push,
+      activeTokens: [
+        { school_id: SCHOOL_A, user_id: DRIVER_A, token: 'drv-1' },
+        { school_id: SCHOOL_A, user_id: DRIVER_A, token: 'drv-2' },
+      ],
+    });
+
+    await harness.service.pushToUsers({
+      school_id: SCHOOL_A,
+      user_ids: [DRIVER_A, DRIVER_A],
+      roles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+      type: 'CREW_TRIP_CANCELLED',
+      title: 'Trip cancelled',
+      message: 'Your trip was cancelled.',
+      data: { trip_id: TRIP_A, emergency_id: null },
+    });
+
+    assert.equal(push.calls.length, 1);
+    assert.deepEqual(push.calls[0].deviceTokens, ['drv-1', 'drv-2']);
+    assert.equal(push.calls[0].data?.type, 'CREW_TRIP_CANCELLED');
+    assert.equal(push.calls[0].data?.trip_id, TRIP_A);
+    assert.equal(push.calls[0].data?.user_id, DRIVER_A);
+    assert.equal('emergency_id' in (push.calls[0].data ?? {}), false);
+    assert.equal(harness.rows.length, 0);
+  });
+
+  it('skips recipients outside the tenant, the role allow-list or inactive accounts', async () => {
+    const push = new FakePushProvider('fcm');
+    const harness = makeService({
+      pushProvider: push,
+      activeTokens: [
+        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'par-1' },
+        { school_id: SCHOOL_A, user_id: PARENT_INACTIVE_ACCOUNT, token: 'inactive-1' },
+      ],
+    });
+
+    // Parent tokens exist but the allow-list is crew-only.
+    await harness.service.pushToUsers({
+      school_id: SCHOOL_A,
+      user_ids: [PARENT_A, PARENT_INACTIVE_ACCOUNT],
+      roles: [UserRole.DRIVER],
+      type: 'X',
+      title: 't',
+      message: 'm',
+    });
+    // Same ids under the wrong tenant.
+    await harness.service.pushToUsers({
+      school_id: SCHOOL_B,
+      user_ids: [PARENT_A],
+      type: 'X',
+      title: 't',
+      message: 'm',
+    });
+    // Inactive account with no allow-list.
+    await harness.service.pushToUsers({
+      school_id: SCHOOL_A,
+      user_ids: [PARENT_INACTIVE_ACCOUNT],
+      type: 'X',
+      title: 't',
+      message: 'm',
+    });
+
+    assert.equal(push.calls.length, 0);
+  });
+
+  it('is a silent no-op with the NoOp provider and never throws on provider failure', async () => {
+    const noop = makeService({ pushProvider: new FakePushProvider('noop-push') });
+    await noop.service.pushToUsers({
+      school_id: SCHOOL_A,
+      user_ids: [DRIVER_A],
+      type: 'X',
+      title: 't',
+      message: 'm',
+    });
+    assert.equal((noop.push as FakePushProvider).calls.length, 0);
+
+    const failing = new FakePushProvider('fcm');
+    failing.throwOnSend = true;
+    const harness = makeService({
+      pushProvider: failing,
+      activeTokens: [{ school_id: SCHOOL_A, user_id: DRIVER_A, token: 'drv-1' }],
+    });
+    await assert.doesNotReject(() =>
+      harness.service.pushToUsers({
+        school_id: SCHOOL_A,
+        user_ids: [DRIVER_A],
+        type: 'X',
+        title: 't',
+        message: 'm',
+      }),
+    );
+  });
+
+  it('deactivates tokens FCM reports as invalid', async () => {
+    const push = new FakePushProvider('fcm');
+    push.sendResult = {
+      success: false,
+      provider: 'fcm',
+      error: 'unregistered',
+      retryable: false,
+      invalidTokens: ['drv-stale'],
+    };
+    const harness = makeService({
+      pushProvider: push,
+      activeTokens: [{ school_id: SCHOOL_A, user_id: DRIVER_A, token: 'drv-stale' }],
+    });
+    await harness.service.pushToUsers({
+      school_id: SCHOOL_A,
+      user_ids: [DRIVER_A],
+      type: 'X',
+      title: 't',
+      message: 'm',
+    });
+    assert.deepEqual(harness.deactivatedTokens, ['drv-stale']);
+  });
+});

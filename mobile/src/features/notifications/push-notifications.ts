@@ -23,3 +23,7 @@ export async function setupPushNotifications(_user: AuthenticatedUser): Promise<
 export async function unregisterPushDevice(): Promise<void> {
   // No device token was ever registered on this (non-native) path.
 }
+
+export function flushPendingRoute(): void {
+  // Nothing was queued on the non-native path.
+}

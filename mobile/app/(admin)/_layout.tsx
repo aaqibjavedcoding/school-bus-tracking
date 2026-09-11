@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
+import { flushPendingRoute } from '../../src/features/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { RoleGate } from '../../src/features/auth';
@@ -18,6 +19,11 @@ import { useBottomBarMetrics } from '../../src/theme/layout';
  */
 function AdminTabs() {
   const bar = useBottomBarMetrics();
+  // A notification tapped before this navigator existed (cold start) lands
+  // on its screen as soon as the role tabs are mounted.
+  useEffect(() => {
+    flushPendingRoute();
+  }, []);
 
   return (
     <Tabs

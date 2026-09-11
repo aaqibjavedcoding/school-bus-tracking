@@ -6,6 +6,7 @@ import { useAuth } from '../../src/features/auth';
 import { useCrewToday, TripStatusActions, useCrewLocationSharing } from '../../src/features/crew';
 import { GpsSharePanel } from '../../src/features/crew/GpsSharePanel';
 import { SosPanel } from '../../src/features/crew/SosPanel';
+import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { TripNavigationCard } from '../../src/features/crew/TripNavigationCard';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { EtaSummaryCard } from '../../src/features/tracking/EtaViews';
@@ -107,7 +108,8 @@ export default function CrewTripScreen() {
         ) : null}
       </Card>
 
-      <TripStatusActions trip={trip} onApplied={() => void reload()} />
+      <OfflineSyncBanner />
+      <TripStatusActions trip={trip} offlineCapable onApplied={() => void reload()} />
 
       {/**
        * Driver-only: GPS sharing is the driver's job and navigation belongs to

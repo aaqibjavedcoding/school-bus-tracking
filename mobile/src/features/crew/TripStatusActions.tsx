@@ -8,6 +8,8 @@ import { generateIdempotencyKey } from '../../lib/idempotency';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { Button, Field } from '../../components';
 import { nextCrewTransitions, transitionLabel } from './crew-trip';
+import { useOfflineAction } from './offline/useOfflineAction';
+import { useAuth } from '../auth/AuthProvider';
 
 /**
  * Trip lifecycle actions (crew + admin).
@@ -20,10 +22,20 @@ import { nextCrewTransitions, transitionLabel } from './crew-trip';
 export const TripStatusActions: React.FC<{
   trip: TripResponse;
   allowCancel?: boolean;
+  /**
+   * Queue the transition when offline (crew screens). Admin screens leave
+   * this off: a dispatcher's status change is not a field action.
+   */
+  offlineCapable?: boolean;
   onApplied: (trip: TripResponse) => void;
-}> = ({ trip, allowCancel = false, onApplied }) => {
+  /** Called instead of `onApplied` when the transition was queued offline. */
+  onQueued?: (status: TripStatus) => void;
+}> = ({ trip, allowCancel = false, offlineCapable = false, onApplied, onQueued }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [queuedNote, setQueuedNote] = useState<string | null>(null);
+  const offline = useOfflineAction();
+  const { user } = useAuth();
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -33,7 +45,32 @@ export const TripStatusActions: React.FC<{
   const apply = async (next: TripStatus) => {
     setBusy(true);
     setError(null);
+    setQueuedNote(null);
     try {
+      if (offlineCapable) {
+        // The key comes from the queue reservation so an offline replay is
+        // a dedupe hit of this very request, never a second transition.
+        let applied: TripResponse | null = null;
+        const result = await offline.execute(
+          { kind: 'trip_status', userId: user?.id ?? null, tripId: trip.id, tripStatus: next },
+          async (key) => {
+            applied = unwrapEnvelope(
+              await apiClient.updateTripStatus(trip.id, { status: next }, withIdempotencyKey(key)),
+            );
+          },
+        );
+        if (result.mode === 'queued') {
+          setQueuedNote(
+            `${transitionLabel(next)} saved on this phone — it will sync when you are back online.`,
+          );
+          onQueued?.(next);
+          return;
+        }
+        if (applied) {
+          onApplied(applied);
+        }
+        return;
+      }
       // One key per press: a retried transition (flaky network, the client's
       // own 401-refresh replay) replays instead of double-applying.
       const envelope = await apiClient.updateTripStatus(
@@ -138,6 +175,7 @@ export const TripStatusActions: React.FC<{
         </View>
       ) : null}
 
+      {queuedNote ? <Text style={styles.queued}>{queuedNote}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -169,6 +207,10 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.status.danger,
+    fontSize: 13,
+  },
+  queued: {
+    color: colors.neutral[600],
     fontSize: 13,
   },
 });
