@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import React, { useCallback, useState } from 'react';
 import {
   PLAN_FEATURE_LABELS,
-  PLAN_LIMIT_RESOURCE_VALUES,
   PLAN_LIMIT_RESOURCE_LABELS,
   PlanFeature,
+  PlanLimitResource,
   type AdminPlanStatus,
   type AdminPlanSummary,
 } from '@school-bus-tracking/shared-types';
@@ -35,6 +35,116 @@ const BILLING_LABELS: Record<string, string> = {
   monthly: '/ month',
   yearly: '/ year',
 };
+
+/**
+ * Limits are grouped for display only — the underlying data model is untouched
+ * and every resource is still read straight from `plan.limits`.
+ */
+const RESOURCE_GROUPS: Array<{ key: string; label: string; resources: PlanLimitResource[] }> = [
+  {
+    key: 'people',
+    label: 'People & crew',
+    resources: [
+      PlanLimitResource.STUDENTS,
+      PlanLimitResource.PARENTS,
+      PlanLimitResource.DRIVERS,
+      PlanLimitResource.CONDUCTORS,
+      PlanLimitResource.STAFF,
+    ],
+  },
+  {
+    key: 'transport',
+    label: 'Fleet & operations',
+    resources: [
+      PlanLimitResource.BUSES,
+      PlanLimitResource.ROUTES,
+      PlanLimitResource.STOPS,
+      PlanLimitResource.TRIPS,
+      PlanLimitResource.RUNS,
+    ],
+  },
+];
+
+const ICON_PROPS = {
+  width: 18,
+  height: 18,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  'aria-hidden': true,
+} as const;
+
+/** Compact line icon for each plan resource, matching the app's icon style. */
+function LimitIcon({ resource }: { resource: PlanLimitResource }) {
+  switch (resource) {
+    case PlanLimitResource.STUDENTS:
+      return (
+        <svg {...ICON_PROPS}>
+          <circle cx="12" cy="7" r="3" />
+          <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
+        </svg>
+      );
+    case PlanLimitResource.PARENTS:
+      return (
+        <svg {...ICON_PROPS}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+          <circle cx="17" cy="9" r="2.4" />
+          <path d="M16 19a4.8 4.8 0 0 1 5-4.2" />
+        </svg>
+      );
+    case PlanLimitResource.DRIVERS:
+    case PlanLimitResource.CONDUCTORS:
+    case PlanLimitResource.STAFF:
+      return (
+        <svg {...ICON_PROPS}>
+          <circle cx="12" cy="8" r="3" />
+          <path d="M5 19a7 7 0 0 1 14 0" />
+          <path d="M9.5 12.5h5" />
+        </svg>
+      );
+    case PlanLimitResource.BUSES:
+      return (
+        <svg {...ICON_PROPS}>
+          <rect x="4" y="4" width="16" height="12" rx="2" />
+          <path d="M4 12h16M8 20v-1m8 1v-1M7 16h.01M17 16h.01" />
+        </svg>
+      );
+    case PlanLimitResource.ROUTES:
+      return (
+        <svg {...ICON_PROPS}>
+          <circle cx="6" cy="6" r="2" />
+          <circle cx="18" cy="18" r="2" />
+          <path d="M8 7c8 0 0 10 8 10" />
+        </svg>
+      );
+    case PlanLimitResource.STOPS:
+      return (
+        <svg {...ICON_PROPS}>
+          <path d="M12 21s7-6.5 7-11a7 7 0 1 0-14 0c0 4.5 7 11 7 11z" />
+          <circle cx="12" cy="10" r="2.5" />
+        </svg>
+      );
+    case PlanLimitResource.TRIPS:
+      return (
+        <svg {...ICON_PROPS}>
+          <path d="M5 19 19 5M9 5h10v10" />
+        </svg>
+      );
+    case PlanLimitResource.RUNS:
+      return (
+        <svg {...ICON_PROPS}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M10 8l6 4-6 4z" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
 
 type SortKey = 'created_at:desc' | 'price:asc' | 'price:desc' | 'name:asc';
 
@@ -201,87 +311,99 @@ export default function AdminPlansPage() {
             {items.map((plan) => {
               const enabled = Object.entries(plan.features).filter(([, on]) => on);
               return (
-                <Card key={plan.id} title={plan.name} description={plan.description ?? undefined}>
-                  <div
-                    className="row"
-                    style={{ justifyContent: 'space-between', marginBottom: '0.6rem' }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '1.35rem' }}>
-                        {formatCurrency(Number(plan.price), plan.currency)}
-                      </strong>
-                      <span className="muted">
-                        {' '}
-                        {BILLING_LABELS[plan.billing_period] ?? plan.billing_period}
-                      </span>
+                <Card key={plan.id} className="plan-card">
+                  <div className="plan-card__head">
+                    <div className="plan-card__heading">
+                      <Link href={`/admin/plans/${plan.id}`} className="plan-card__title">
+                        {plan.name}
+                      </Link>
+                      <span className="plan-card__code">{plan.code}</span>
                     </div>
                     <Badge tone={plan.is_active ? 'success' : 'warning'}>
                       {plan.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </div>
-                  <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                    Code: <code>{plan.code}</code>
-                  </p>
 
-                  <div style={{ marginBottom: '0.85rem' }}>
-                    <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
-                      Resource limits
-                    </div>
-                    <dl className="detail-grid" style={{ gap: '0.4rem 1rem', margin: 0 }}>
-                      {PLAN_LIMIT_RESOURCE_VALUES.map((resource) => {
-                        const limit = plan.limits[resource];
-                        return (
-                          <div key={resource}>
-                            <dt className="detail-item__label">
-                              {PLAN_LIMIT_RESOURCE_LABELS[resource]}
-                            </dt>
-                            <dd
-                              className="detail-item__value"
-                              style={{
-                                margin: 0,
-                                fontWeight: 650,
-                                color: limit?.unlimited ? '#2563eb' : undefined,
-                              }}
-                            >
-                              {formatLimit(limit)}
-                            </dd>
-                          </div>
-                        );
-                      })}
-                    </dl>
+                  <div className="plan-price">
+                    <span className="plan-price__amount">
+                      {formatCurrency(Number(plan.price), plan.currency)}
+                    </span>
+                    <span className="plan-price__period">
+                      {BILLING_LABELS[plan.billing_period] ?? plan.billing_period}
+                    </span>
                   </div>
 
-                  <div style={{ marginBottom: '0.85rem' }}>
-                    <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
-                      Features ({enabled.length})
+                  <div className="plan-card__section">
+                    <div className="plan-card__section-label">Limits</div>
+                    {RESOURCE_GROUPS.map((group) => (
+                      <div key={group.key} className="plan-card__group">
+                        <span className="plan-card__group-label">{group.label}</span>
+                        <div className="plan-stats">
+                          {group.resources.map((resource) => {
+                            const limit = plan.limits[resource];
+                            return (
+                              <div
+                                key={resource}
+                                className="plan-stat"
+                                title={PLAN_LIMIT_RESOURCE_LABELS[resource]}
+                              >
+                                <span className="plan-stat__icon">
+                                  <LimitIcon resource={resource} />
+                                </span>
+                                <span className="plan-stat__body">
+                                  <span
+                                    className={`plan-stat__value${
+                                      limit?.unlimited ? ' plan-stat__value--unlimited' : ''
+                                    }`}
+                                  >
+                                    {formatLimit(limit)}
+                                  </span>
+                                  <span className="plan-stat__label">
+                                    {PLAN_LIMIT_RESOURCE_LABELS[resource]}
+                                  </span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="plan-card__section">
+                    <div className="plan-card__section-label">
+                      Features <span className="muted">({enabled.length})</span>
                     </div>
                     {enabled.length === 0 ? (
-                      <span className="muted" style={{ fontSize: '0.85rem' }}>
+                      <span className="muted plan-card__empty">
                         No optional feature enabled on this plan.
                       </span>
                     ) : (
-                      <div className="row" style={{ flexWrap: 'wrap', gap: '0.4rem' }}>
-                        {enabled.slice(0, 6).map(([key]) => (
+                      <div className="plan-tags">
+                        {enabled.map(([key]) => (
                           <Badge key={key} tone="info">
                             {PLAN_FEATURE_LABELS[key as PlanFeature] ?? key}
                           </Badge>
                         ))}
-                        {enabled.length > 6 ? (
-                          <span className="muted" style={{ fontSize: '0.8rem' }}>
-                            +{enabled.length - 6} more
-                          </span>
-                        ) : null}
                       </div>
                     )}
                   </div>
 
-                  <div className="row">
-                    <Button
-                      variant="secondary"
-                      onClick={() => router.push(`/admin/plans/${plan.id}`)}
-                    >
-                      Edit plan
-                    </Button>
+                  <div className="plan-card__footer">
+                    <div className="row" style={{ gap: '0.5rem' }}>
+                      <Button
+                        variant="secondary"
+                        onClick={() => router.push(`/admin/plans/${plan.id}`)}
+                      >
+                        Edit plan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => router.push(`/admin/plans/${plan.id}`)}
+                      >
+                        View
+                      </Button>
+                    </div>
                     {plan.is_active ? (
                       <Button
                         variant="danger"
@@ -304,7 +426,8 @@ export default function AdminPlansPage() {
                       </Button>
                     )}
                   </div>
-                  <p className="muted" style={{ fontSize: '0.75rem', marginTop: '0.6rem' }}>
+
+                  <p className="plan-card__updated">
                     Updated {formatDateTime(plan.updated_at)}
                   </p>
                 </Card>

@@ -2054,3 +2054,219 @@ table.data.compact th {
     padding: 0 0.85rem;
   }
 }
+
+/* ==========================================================================
+   Super Admin → Plans: redesigned plan catalogue cards
+   ========================================================================== */
+
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.plan-card:hover {
+  border-color: var(--color-slate-300);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.plan-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.plan-card__heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.plan-card__title {
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-slate-900);
+  line-height: 1.2;
+}
+
+.plan-card__title:hover {
+  color: var(--color-primary-700);
+}
+
+.plan-card__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-slate-600);
+  background: var(--color-slate-100);
+  border: 1px solid var(--color-slate-200);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+/* Price block */
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.plan-price__amount {
+  font-size: 1.85rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--color-navy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.plan-price__period {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-slate-500);
+}
+
+/* Sections (limits, features) */
+.plan-card__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.plan-card__section-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-slate-500);
+}
+
+.plan-card__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.plan-card__group-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-slate-400);
+}
+
+/* Compact icon stat tiles */
+.plan-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 0.5rem;
+}
+
+.plan-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 12px;
+  background: var(--color-slate-50);
+  min-width: 0;
+}
+
+.plan-stat__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.plan-stat__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.plan-stat__value {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--color-slate-900);
+  overflow-wrap: anywhere;
+}
+
+.plan-stat__value--unlimited {
+  color: var(--color-info);
+}
+
+.plan-stat__label {
+  font-size: 0.68rem;
+  color: var(--color-slate-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Feature tags */
+.plan-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.plan-card__empty {
+  font-size: 0.82rem;
+}
+
+/* Footer actions */
+.plan-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--color-slate-100);
+}
+
+.plan-card__updated {
+  font-size: 0.72rem;
+  color: var(--color-slate-400);
+  margin: 0;
+}
+
+/* Keep the plan card usable on the narrowest screens. */
+@media (max-width: 480px) {
+  .plan-stats {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  }
+
+  .plan-price__amount {
+    font-size: 1.6rem;
+  }
+
+  .plan-card__footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .plan-card__footer .row {
+    justify-content: stretch;
+  }
+
+  .plan-card__footer .btn {
+    flex: 1;
+  }
+}
+
