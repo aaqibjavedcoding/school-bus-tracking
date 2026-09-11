@@ -125,6 +125,12 @@ export default function AdminSchoolDetailsPage() {
 
   const { school, stats, subscription } = data;
 
+  // Resource tiles only become links while an assisted-management session is
+  // active FOR THIS SCHOOL: the destination sections (/students, /parents, …)
+  // are tenant-pinned to the active session, so linking from any other state
+  // would either bounce on the route guard or point at a different tenant.
+  const managedHere = managed?.schoolId === schoolId;
+
   const saveProfile = (updated: { id: string }) => {
     setData((current) => {
       if (!current) return current;
@@ -187,30 +193,47 @@ export default function AdminSchoolDetailsPage() {
             label="Students"
             value={number(stats.student_count)}
             hint={`${number(stats.active_student_count)} active`}
+            href={managedHere ? '/students' : undefined}
           />
-          <KpiCard label="Parents / Guardians" value={number(stats.parent_count)} />
+          <KpiCard
+            label="Parents / Guardians"
+            value={number(stats.parent_count)}
+            href={managedHere ? '/parents' : undefined}
+          />
           <KpiCard
             label="Buses"
             value={number(stats.bus_count)}
             hint={`${number(stats.active_bus_count)} active`}
+            href={managedHere ? '/buses' : undefined}
           />
-          <KpiCard label="Drivers" value={number(stats.driver_count)} />
-          <KpiCard label="Conductors" value={number(stats.conductor_count)} />
+          <KpiCard
+            label="Drivers"
+            value={number(stats.driver_count)}
+            href={managedHere ? '/staff' : undefined}
+          />
+          <KpiCard
+            label="Conductors"
+            value={number(stats.conductor_count)}
+            href={managedHere ? '/staff' : undefined}
+          />
           <KpiCard
             label="Routes"
             value={number(stats.route_count)}
             hint={`${number(stats.active_route_count)} active`}
+            href={managedHere ? '/routes' : undefined}
           />
           <KpiCard label="Stops" value={number(stats.stop_count)} />
           <KpiCard
             label="Runs"
             value={number(stats.run_count ?? 0)}
             hint={`${number(stats.active_run_count ?? 0)} active`}
+            href={managedHere ? '/shifts' : undefined}
           />
           <KpiCard
             label="Assignments"
             value={number(stats.assignment_count)}
             hint={`${number(stats.active_assignment_count)} active`}
+            href={managedHere ? '/assignments' : undefined}
           />
           <KpiCard
             label="School admins"

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React from 'react';
 import type { Tone } from '../metrics';
 
@@ -10,6 +11,10 @@ import type { Tone } from '../metrics';
  * label, value, optional hint and an optional tone accent. Rendering the tile
  * as a definition-style block (label above value) keeps screen-reader output
  * meaningful without extra ARIA.
+ *
+ * When `href` is provided the whole tile is rendered as a link to the
+ * corresponding list page; hover/focus/cursor feedback comes from the
+ * `.kpi-card--link` rules in globals.css.
  */
 export interface KpiCardProps {
   label: string;
@@ -18,16 +23,33 @@ export interface KpiCardProps {
   tone?: Tone;
   /** Small caption rendered under the value, e.g. "Estimated". */
   caption?: string;
+  /** When set, the entire tile becomes a link to the corresponding list page. */
+  href?: string;
 }
 
-export const KpiCard: React.FC<KpiCardProps> = ({ label, value, hint, tone, caption }) => (
-  <div className={`kpi-card${tone ? ` kpi-card--${tone}` : ''}`}>
-    <span className="kpi-card__label">{label}</span>
-    <span className="kpi-card__value">{value}</span>
-    {caption ? <span className="kpi-card__caption">{caption}</span> : null}
-    {hint ? <span className="kpi-card__hint muted">{hint}</span> : null}
-  </div>
-);
+export const KpiCard: React.FC<KpiCardProps> = ({ label, value, hint, tone, caption, href }) => {
+  const className = ['kpi-card', tone ? `kpi-card--${tone}` : '', href ? 'kpi-card--link' : '']
+    .filter(Boolean)
+    .join(' ');
+
+  const content = (
+    <>
+      <span className="kpi-card__label">{label}</span>
+      <span className="kpi-card__value">{value}</span>
+      {caption ? <span className="kpi-card__caption">{caption}</span> : null}
+      {hint ? <span className="kpi-card__hint muted">{hint}</span> : null}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link className={className} href={href}>
+        {content}
+      </Link>
+    );
+  }
+  return <div className={className}>{content}</div>;
+};
 
 /** Responsive KPI grid: 4 → 2 → 1 columns as the viewport narrows. */
 export const KpiGrid: React.FC<{ children: React.ReactNode; className?: string }> = ({

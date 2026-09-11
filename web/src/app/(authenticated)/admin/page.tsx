@@ -88,53 +88,66 @@ export default function AdminOverviewPage() {
     <div className="page">
       {header}
 
+      {/* KPI tiles that count a resource with its own console list page are
+          whole-card links to that page. The cross-tenant resource tiles
+          (students, buses, crew, routes) intentionally stay plain: there is
+          no platform-wide list for them — tenant records are only reachable
+          inside an assisted-management session. */}
       <section aria-label="Platform key metrics">
         <KpiGrid>
           <KpiCard
             label="Total schools"
             value={number(data.schools.total)}
             hint="All tenants ever provisioned"
+            href="/admin/schools"
           />
           <KpiCard
             label="Active schools"
             value={number(data.schools.active)}
             tone="success"
             hint="Users can sign in"
+            href="/admin/schools"
           />
           <KpiCard
             label="Inactive schools"
             value={number(data.schools.inactive)}
             tone="warning"
             hint="Suspended, data retained"
+            href="/admin/schools"
           />
           <KpiCard
             label="Trial schools"
             value={number(trialSchools)}
             tone="info"
             hint="Current subscription is trialing"
+            href="/admin/schools"
           />
           <KpiCard
             label="Active subscriptions"
             value={number(data.subscriptions.active)}
             tone="success"
             hint={`${number(data.subscriptions.live)} live incl. trials`}
+            href="/admin/subscriptions"
           />
           <KpiCard
             label="Past due subscriptions"
             value={number(data.subscriptions.past_due)}
             tone="warning"
             hint="Need follow-up"
+            href="/admin/subscriptions"
           />
           <KpiCard
             label="Cancelled subscriptions"
             value={number(data.subscriptions.cancelled)}
             tone="danger"
             hint={`${number(data.subscriptions.expired)} expired`}
+            href="/admin/subscriptions"
           />
           <KpiCard
             label="Active plans"
             value={number(data.plans.active)}
             hint={`${number(data.plans.total)} in the catalogue`}
+            href="/admin/plans"
           />
           <KpiCard label="Students" value={number(data.users.students)} hint="Across all schools" />
           <KpiCard
@@ -166,6 +179,7 @@ export default function AdminOverviewPage() {
                 ? `Based on ${number(primaryRevenue.live_subscriptions)} live subscription${primaryRevenue.live_subscriptions === 1 ? '' : 's'}${otherCurrencies > 0 ? ` · +${otherCurrencies} more currency` : ''}`
                 : 'No live subscriptions yet'
             }
+            href="/admin/revenue"
           />
           <KpiCard
             label="Estimated ARR"
@@ -177,6 +191,7 @@ export default function AdminOverviewPage() {
             tone="info"
             caption="Estimated"
             hint="Estimated MRR × 12 — not billed revenue"
+            href="/admin/revenue"
           />
         </KpiGrid>
       </section>

@@ -100,25 +100,28 @@ export default function DashboardPage() {
         title="Operations dashboard"
         description="Today's fleet, routes and live runs for your school."
       />
+      {/* Every stat card is a whole-card link to the matching list page —
+          same tenant, same role: these routes are the school admin's own
+          sections from the sidebar. */}
       <div className="grid grid-4">
-        <Card className="stat-card">
+        <Link className="card stat-card stat-card--link" href="/students">
           <span className="label">Students</span>
           <span className="value">{data.studentCount}</span>
-        </Card>
-        <Card className="stat-card">
+        </Link>
+        <Link className="card stat-card stat-card--link" href="/buses">
           <span className="label">Buses</span>
           <span className="value">{data.busCount}</span>
-        </Card>
-        <Card className="stat-card">
+        </Link>
+        <Link className="card stat-card stat-card--link" href="/routes">
           <span className="label">Routes</span>
           <span className="value">{data.routeCount}</span>
-        </Card>
-        <Card className="stat-card">
+        </Link>
+        <Link className="card stat-card stat-card--link" href="/trips">
           <span className="label">Live trips</span>
           {/* Server-side count across ALL of today's trips — the old card
               could only see the first page (8 rows) it had loaded. */}
           <span className="value">{data.liveTripCount}</span>
-        </Card>
+        </Link>
       </div>
       <Card title="Today's trips" description={`Scheduled on ${today} (UTC)`}>
         {data.trips.items.length === 0 ? (
