@@ -6,8 +6,6 @@ import type {
 } from '@school-bus-tracking/shared-types';
 import { DeviceToken } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
-import { NOTIFICATIONS_DEVICE_TOKENS_REPOSITORY } from './notifications.constants';
-
 /**
  * Device-token registration for OS-level push notifications.
  *
@@ -19,9 +17,7 @@ import { NOTIFICATIONS_DEVICE_TOKENS_REPOSITORY } from './notifications.constant
  * receiving the previous user's notifications.
  */
 export class DeviceTokensService {
-  constructor(
-    private readonly deviceTokens: typeof DeviceToken,
-  ) {}
+  constructor(private readonly deviceTokens: typeof DeviceToken) {}
 
   /**
    * `POST /api/v1/notifications/devices` — register or refresh a token.

@@ -6,25 +6,28 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, validateDto } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { streamFileResponse } from '../http/file-response';
-import { DataFileFormat, EXPORT_DATASET_LABELS, EXPORT_DATASET_VALUES, UserRole } from '@school-bus-tracking/shared-types';
+import {
+  DataFileFormat,
+  EXPORT_DATASET_LABELS,
+  EXPORT_DATASET_VALUES,
+  UserRole,
+} from '@school-bus-tracking/shared-types';
 import { sanitizeFileName } from '../modules/data-transfer/excel/excel.util';
 import { ExportDatasetParamDto, ExportQueryDto } from '../modules/data-transfer/dto/export.dto';
-import { ExportService } from '../modules/data-transfer/export/export.service';
-
 /** `GET /api/v1/exports` */
 export const getExports: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async () => {
     return {
-    items: EXPORT_DATASET_VALUES.map((dataset) => ({
-    dataset,
-    label: EXPORT_DATASET_LABELS[dataset],
-    })),
+      items: EXPORT_DATASET_VALUES.map((dataset) => ({
+        dataset,
+        label: EXPORT_DATASET_LABELS[dataset],
+      })),
     };
   },
 };
@@ -60,4 +63,5 @@ export const getExportsByDataset: EndpointDefinition<unknown, ExportQueryDto> = 
       totalRecords: plan.total,
       produce: (sink) => plan.stream(sink),
     });
-  },};
+  },
+};

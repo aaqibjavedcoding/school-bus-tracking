@@ -6,14 +6,12 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, parseUuidParam } from '../framework';
 import { container } from '../container';
 import { tenantUser } from '../http/route-runtime';
 import type { EndpointDefinition } from '../http/route-runtime';
-import { UserRole, type DeviceTokenResponse, type DeviceTokenUnregisterResponse } from '@school-bus-tracking/shared-types';
+import { UserRole } from '@school-bus-tracking/shared-types';
 import { RegisterDeviceTokenDto } from '../modules/notifications/dto';
-import { DeviceTokensService } from '../modules/notifications/device-tokens.service';
-import { NotificationsService } from '../modules/notifications/notifications.service';
 import { ListParentNotificationsQueryDto } from '../modules/notifications/dto/list-parent-notifications-query.dto';
 
 /** `POST /api/v1/notifications/devices` */
@@ -26,7 +24,8 @@ export const postNotificationsDevices: EndpointDefinition<RegisterDeviceTokenDto
     const actor = tenantUser(user);
     const dto = body;
     return container().deviceTokens().register(actor, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/notifications/devices/:token` */
 export const deleteNotificationsDevicesByToken: EndpointDefinition = {
@@ -41,14 +40,16 @@ export const deleteNotificationsDevicesByToken: EndpointDefinition = {
 };
 
 /** `GET /api/v1/parent/notifications` */
-export const getParentNotifications: EndpointDefinition<unknown, ListParentNotificationsQueryDto> = {
-  roles: [UserRole.PARENT],
-  status: HttpStatus.OK,
-  queryType: ListParentNotificationsQueryDto,
-  handler: async ({ user, query }) => {
-    const actor = tenantUser(user);
-    return container().notifications().listForParent(actor, query);
-  },};
+export const getParentNotifications: EndpointDefinition<unknown, ListParentNotificationsQueryDto> =
+  {
+    roles: [UserRole.PARENT],
+    status: HttpStatus.OK,
+    queryType: ListParentNotificationsQueryDto,
+    handler: async ({ user, query }) => {
+      const actor = tenantUser(user);
+      return container().notifications().listForParent(actor, query);
+    },
+  };
 
 /** `PATCH /api/v1/parent/notifications/read-all` */
 export const patchParentNotificationsReadall: EndpointDefinition = {

@@ -2,13 +2,10 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
-import {
-  postSchools,
-} from '../../api/schools';
+import { postSchools } from '../../api/schools';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { SchoolsService } from './schools.service';
 import { OnboardSchoolDto } from './dto/onboard-school.dto';

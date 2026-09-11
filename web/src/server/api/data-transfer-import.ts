@@ -9,16 +9,35 @@
 import { BadRequestException, HttpStatus, parseUuidParam, validateDto } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
-import { bufferFileResponse, parseUploadedSpreadsheet, type UploadedSpreadsheet } from '../http/file-response';
-import { DataFileFormat, ImportMode, ImportModule, UserRole } from '@school-bus-tracking/shared-types';
-import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES, AuditService } from '../modules/audit';
-import { IMPORT_ALLOWED_EXTENSIONS, IMPORT_ALLOWED_MIME_TYPES, MAX_IMPORT_FILE_BYTES, sanitizeFileName } from '../modules/data-transfer/excel/excel.util';
-import { IMPORT_FILE_REQUIRED_MESSAGE, IMPORT_FILE_TOO_LARGE_MESSAGE, IMPORT_FILE_TYPE_MESSAGE } from '../modules/data-transfer/data-transfer.constants';
-import { ImportModuleParamDto, ImportTemplateQueryDto, ImportUploadDto, ListImportJobsQueryDto } from '../modules/data-transfer/dto/import.dto';
-import { ImportHistoryService } from '../modules/data-transfer/import/import-history.service';
-import { ImportTemplateService } from '../modules/data-transfer/import/import-template.service';
-import { ImportService } from '../modules/data-transfer/import/import.service';
-
+import {
+  bufferFileResponse,
+  parseUploadedSpreadsheet,
+  type UploadedSpreadsheet,
+} from '../http/file-response';
+import {
+  DataFileFormat,
+  ImportMode,
+  ImportModule,
+  UserRole,
+} from '@school-bus-tracking/shared-types';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit';
+import {
+  IMPORT_ALLOWED_EXTENSIONS,
+  IMPORT_ALLOWED_MIME_TYPES,
+  MAX_IMPORT_FILE_BYTES,
+  sanitizeFileName,
+} from '../modules/data-transfer/excel/excel.util';
+import {
+  IMPORT_FILE_REQUIRED_MESSAGE,
+  IMPORT_FILE_TOO_LARGE_MESSAGE,
+  IMPORT_FILE_TYPE_MESSAGE,
+} from '../modules/data-transfer/data-transfer.constants';
+import {
+  ImportModuleParamDto,
+  ImportTemplateQueryDto,
+  ImportUploadDto,
+  ListImportJobsQueryDto,
+} from '../modules/data-transfer/dto/import.dto';
 /** `GET /api/v1/imports/modules` */
 export const getImportsModules: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
@@ -37,7 +56,8 @@ export const getImportsHistory: EndpointDefinition<unknown, ListImportJobsQueryD
   handler: async ({ user, query }) => {
     const schoolId = user.school_id as string;
     return container().importHistory().list(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/imports/history/:id` */
 export const getImportsHistoryById: EndpointDefinition = {
@@ -110,21 +130,24 @@ export const getImportsByModuleTemplate: EndpointDefinition<unknown, ImportTempl
       .importTemplates()
       .buildTemplate(routeParams.module, typedQuery.format);
 
-    await container().audit().log({
-      school_id: schoolId,
-      actor_user_id: user.id,
-      action: AUDIT_ACTIONS.IMPORT_TEMPLATE_DOWNLOAD,
-      entity_type: AUDIT_ENTITY_TYPES.IMPORT_JOB,
-      entity_id: null,
-      metadata: { module: routeParams.module, format: typedQuery.format },
-    });
+    await container()
+      .audit()
+      .log({
+        school_id: schoolId,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.IMPORT_TEMPLATE_DOWNLOAD,
+        entity_type: AUDIT_ENTITY_TYPES.IMPORT_JOB,
+        entity_id: null,
+        metadata: { module: routeParams.module, format: typedQuery.format },
+      });
 
     return bufferFileResponse(
       file.buffer,
       sanitizeFileName(file.fileName, `download.${file.format}`),
       file.format,
     );
-  },};
+  },
+};
 
 /** `POST /api/v1/imports/:module/validate` — dry run, writes nothing. */
 export const postImportsByModuleValidate: EndpointDefinition<unknown, ImportUploadDto> = {
@@ -147,7 +170,8 @@ export const postImportsByModuleValidate: EndpointDefinition<unknown, ImportUplo
         typedQuery.mode ?? ImportMode.CREATE,
         upload,
       );
-  },};
+  },
+};
 
 /** `POST /api/v1/imports/:module/commit` — writes the valid rows. */
 export const postImportsByModuleCommit: EndpointDefinition<unknown, ImportUploadDto> = {
@@ -170,4 +194,5 @@ export const postImportsByModuleCommit: EndpointDefinition<unknown, ImportUpload
         typedQuery.mode ?? ImportMode.CREATE,
         upload,
       );
-  },};
+  },
+};

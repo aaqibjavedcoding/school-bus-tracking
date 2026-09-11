@@ -12,13 +12,9 @@ import { deriveDocumentStatus, documentDaysRemaining } from '@school-bus-trackin
 import { Op } from 'sequelize';
 import { Bus, BusDocument, DriverDocument, User } from '../../database/models';
 import {
-  BUS_DOCUMENTS_REPOSITORY,
   DOCUMENTS_BUS_NOT_FOUND_MESSAGE,
-  DOCUMENTS_BUS_REPOSITORY,
   DOCUMENTS_DRIVER_NOT_FOUND_MESSAGE,
   DOCUMENT_CREW_ROLES,
-  DOCUMENTS_USER_REPOSITORY,
-  DRIVER_DOCUMENTS_REPOSITORY,
 } from './documents.constants';
 import { DocumentRequirementsService, ResolvedRequirement } from './document-requirements.service';
 import { DocumentOverviewQueryDto } from './dto';

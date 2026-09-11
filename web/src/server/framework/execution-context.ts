@@ -17,9 +17,16 @@ import 'reflect-metadata';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Type<T = any> = new (...args: any[]) => T;
 
+/**
+ * Any callable metadata can be read from. Handlers are only ever used as
+ * `reflect-metadata` carriers (never invoked through this type), so the
+ * parameter list is `never[]` — assignable from any real function while
+ * forbidding accidental calls.
+ */
+export type AnyFunction = (...args: never[]) => unknown;
+
 /** Handler/class pair metadata can be read from. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MetadataTarget = Function | Type<any>;
+type MetadataTarget = AnyFunction | Type;
 
 /** The HTTP half of an execution context. */
 export interface HttpArgumentsHost {
@@ -30,8 +37,7 @@ export interface HttpArgumentsHost {
 /** Mirrors the subset of Nest's `ExecutionContext` the guards consume. */
 export interface ExecutionContext {
   switchToHttp(): HttpArgumentsHost;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getHandler(): Function;
+  getHandler(): AnyFunction;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getClass(): Type<any>;
   getType(): string;
@@ -138,10 +144,8 @@ export class Reflector {
 export function createExecutionContext(options: {
   request: unknown;
   response: unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler?: Function;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handlerClass?: Type<any>;
+  handler?: AnyFunction;
+  handlerClass?: Type;
   type?: string;
 }): ExecutionContext {
   const noop = function anonymousHandler() {};

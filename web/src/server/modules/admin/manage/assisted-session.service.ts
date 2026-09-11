@@ -11,11 +11,7 @@ import {
   AUDIT_ENTITY_TYPES,
   AuditService,
 } from '../../audit';
-import {
-  ADMIN_MANAGE_SESSIONS_REPOSITORY,
-  ADMIN_MANAGE_SEQUELIZE,
-  type ManagedSchoolContext,
-} from './admin-manage.constants';
+import { type ManagedSchoolContext } from './admin-manage.constants';
 
 /** `WHERE` clause matching the actor's still-open session in the school. */
 function openSessionWhere(schoolId: string, actorUserId: string): Record<string, unknown> {

@@ -13,8 +13,6 @@ import { hashPassword, normalizeEmail } from '../../auth';
 import { School, User } from '../../database/models';
 import {
   ADMIN_ADMIN_EMAIL_TAKEN_MESSAGE,
-  ADMIN_SCHOOLS_REPOSITORY,
-  ADMIN_USERS_REPOSITORY,
   SCHOOL_ADMIN_NOT_FOUND_MESSAGE,
   SCHOOL_ADMIN_PASSWORD_RESET_MESSAGE,
   SCHOOL_NOT_FOUND_MESSAGE,

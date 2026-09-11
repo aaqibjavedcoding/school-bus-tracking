@@ -14,7 +14,6 @@ import {
   PARENT_DELETED_MESSAGE,
   PARENT_EMAIL_TAKEN_MESSAGE,
   PARENT_NOT_FOUND_MESSAGE,
-  PARENTS_REPOSITORY,
 } from './parents.constants';
 import { CreateParentDto } from './dto/create-parent.dto';
 import { ListParentsQueryDto } from './dto/list-parents-query.dto';

@@ -12,12 +12,7 @@ import {
 import { hashPassword, normalizeEmail } from '../../auth';
 import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
 import {
-  STAFF_BUSES_REPOSITORY,
   STAFF_EMAIL_TAKEN_MESSAGE,
-  STAFF_REPOSITORY,
-  STAFF_ROUTE_ASSIGNMENTS_REPOSITORY,
-  STAFF_ROUTES_REPOSITORY,
-  STAFF_TRIPS_REPOSITORY,
   staffDeletedMessage,
   staffNotFoundMessage,
 } from './staff.constants';
@@ -267,10 +262,7 @@ export class StaffService {
       this.trips.findAll({
         where: {
           school_id: schoolId,
-          [Op.or]: [
-            { driver_id: { [Op.in]: userIds } },
-            { conductor_id: { [Op.in]: userIds } },
-          ],
+          [Op.or]: [{ driver_id: { [Op.in]: userIds } }, { conductor_id: { [Op.in]: userIds } }],
           scheduled_start_at: todayRange(),
         },
         order: [['scheduled_start_at', 'ASC']],

@@ -20,13 +20,6 @@ import {
   DEFAULT_NOTIFICATION_LIMIT,
   MAX_NOTIFICATION_LIMIT,
   NOOP_PUSH_PROVIDER_NAME,
-  NOTIFICATIONS_GUARDIANS_REPOSITORY,
-  NOTIFICATIONS_PUSH_PROVIDER,
-  NOTIFICATIONS_REPOSITORY,
-  NOTIFICATIONS_STOPS_REPOSITORY,
-  NOTIFICATIONS_STUDENTS_REPOSITORY,
-  NOTIFICATIONS_TRIPS_REPOSITORY,
-  NOTIFICATIONS_USERS_REPOSITORY,
   NOTIFICATION_NOT_FOUND_MESSAGE,
   PUSH_NO_DEVICE_REASON,
   PUSH_STATUS_FAILED,
@@ -597,7 +590,10 @@ export class NotificationsService {
       where: { school_id: schoolId, role: UserRole.SCHOOL_ADMIN },
       attributes: ['id', 'is_active'],
     });
-    return rows.filter((row) => row.is_active !== false).map((row) => row.id).sort();
+    return rows
+      .filter((row) => row.is_active !== false)
+      .map((row) => row.id)
+      .sort();
   }
 
   /** The rostered driver/conductor user ids of one trip (crew recipients). */

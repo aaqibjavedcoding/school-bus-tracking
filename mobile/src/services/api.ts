@@ -110,8 +110,7 @@ function resolveApiBaseUrlSafe(env: ApiEnv): UrlResolution {
 }
 
 export function resolveApiBaseUrl(env: ApiEnv): string {
-  const apiPort =
-    process.env.EXPO_PUBLIC_API_PORT?.trim() || String(APP_CONFIG.defaultApiPort);
+  const apiPort = process.env.EXPO_PUBLIC_API_PORT?.trim() || String(APP_CONFIG.defaultApiPort);
 
   const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim();
   if (fromEnv) {
@@ -155,7 +154,6 @@ function warnIfHttpReleaseUrl(env: ApiEnv, url: string): void {
   }
   const host = hostFromUri(url);
   if (url.startsWith('http://') && !isLoopbackHost(host) && host !== '10.0.2.2') {
-    // eslint-disable-next-line no-console
     console.warn(
       '[api] EXPO_PUBLIC_API_URL is plain http://. An API running with NODE_ENV=production issues ' +
         'its refresh cookie with the Secure attribute, which no device cookie jar sends over HTTP — ' +
@@ -212,7 +210,7 @@ function requireApiClient(): ApiClient {
   if (activeClient) {
     return activeClient;
   }
-  throw (configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE));
+  throw configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE);
 }
 
 /**
@@ -222,7 +220,9 @@ function requireApiClient(): ApiClient {
  * requests that can only fail.
  */
 export function getApiConfigurationError(): ApiConfigurationError | null {
-  return activeClient ? null : (configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE));
+  return activeClient
+    ? null
+    : (configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE));
 }
 
 /**
@@ -236,7 +236,9 @@ export const apiClient: ApiClient = new Proxy({} as ApiClient, {
   get(_target, prop) {
     const client = requireApiClient() as unknown as Record<PropertyKey, unknown>;
     const member = client[prop];
-    return typeof member === 'function' ? (member as (...a: unknown[]) => unknown).bind(client) : member;
+    return typeof member === 'function'
+      ? (member as (...a: unknown[]) => unknown).bind(client)
+      : member;
   },
   set(_target, prop, value) {
     (requireApiClient() as unknown as Record<PropertyKey, unknown>)[prop] = value;
@@ -356,7 +358,7 @@ export function applyResponseCache(client: ApiClient): ApiClient {
  */
 export function socketOrigin(apiBaseUrl: string | null = API_BASE_URL): string {
   if (!apiBaseUrl) {
-    throw (configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE));
+    throw configError ?? new ApiConfigurationError(API_URL_NOT_CONFIGURED_MESSAGE);
   }
   const withoutTrailingSlash = apiBaseUrl.replace(/\/+$/, '');
   return withoutTrailingSlash.replace(/\/api\/v1$/, '');

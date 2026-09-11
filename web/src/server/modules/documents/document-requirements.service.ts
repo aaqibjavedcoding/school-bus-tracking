@@ -9,10 +9,7 @@ import {
   DocumentRequirement as DocumentRequirementModel,
   DocumentRequirementAttributes,
 } from '../../database/models';
-import {
-  DOCUMENT_REQUIREMENTS_REPOSITORY,
-  DOCUMENT_REQUIREMENT_TYPE_INVALID_MESSAGE,
-} from './documents.constants';
+import { DOCUMENT_REQUIREMENT_TYPE_INVALID_MESSAGE } from './documents.constants';
 import { isDocumentTypeValid, documentCatalogue } from './document-catalogue';
 import { UpdateDocumentRequirementsDto } from './dto';
 
@@ -37,9 +34,7 @@ export interface ResolvedRequirement {
  * never be read or written by another.
  */
 export class DocumentRequirementsService {
-  constructor(
-    private readonly requirements: typeof DocumentRequirementModel,
-  ) {}
+  constructor(private readonly requirements: typeof DocumentRequirementModel) {}
 
   /**
    * Effective configuration of one catalogue: every built-in type in

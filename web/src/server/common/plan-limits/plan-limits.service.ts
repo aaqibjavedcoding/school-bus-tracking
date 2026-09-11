@@ -26,19 +26,6 @@ import {
   resolveSubscriptionEntitlement,
 } from '../subscriptions';
 import { PlanLimitReachedException } from './plan-limit-reached.exception';
-import {
-  PLAN_LIMITS_BUSES_REPOSITORY,
-  PLAN_LIMITS_PLANS_REPOSITORY,
-  PLAN_LIMITS_ROUTES_REPOSITORY,
-  PLAN_LIMITS_RUNS_REPOSITORY,
-  PLAN_LIMITS_SEQUELIZE,
-  PLAN_LIMITS_STOPS_REPOSITORY,
-  PLAN_LIMITS_STUDENTS_REPOSITORY,
-  PLAN_LIMITS_SUBSCRIPTIONS_REPOSITORY,
-  PLAN_LIMITS_TRIPS_REPOSITORY,
-  PLAN_LIMITS_USERS_REPOSITORY,
-} from './plan-limits.constants';
-
 /** Work executed under the plan-limit reservation, inside its transaction. */
 export type PlanLimitedWork<T> = (transaction?: Transaction) => Promise<T>;
 
@@ -386,7 +373,10 @@ export class PlanLimitsService {
 }
 
 /** Numeric cap, or `null` when the resource is unlimited / unconfigured. */
-function resolveCap(limits: PlanLimitsConfig | undefined, resource: PlanLimitResource): number | null {
+function resolveCap(
+  limits: PlanLimitsConfig | undefined,
+  resource: PlanLimitResource,
+): number | null {
   const entry = limits?.[resource] as PlanLimitValue | undefined;
   if (!entry || entry.unlimited) {
     return null;

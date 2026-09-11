@@ -19,7 +19,6 @@ import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import type { DeprecationDeclaration } from '../http/deprecation';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { RouteAssignmentsService } from '../modules/assignments/assignments.service';
 import { ListRouteAssignmentsQueryDto } from '../modules/assignments/dto/list-route-assignments-query.dto';
 import {
   ROUTE_ASSIGNMENTS_DEPRECATED_SUNSET,
@@ -56,7 +55,8 @@ export const getRouteassignments: EndpointDefinition<unknown, ListRouteAssignmen
   handler: async ({ user, query }) => {
     const schoolId = user.school_id as string;
     return container().routeAssignments().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/route-assignments/:id` */
 export const getRouteassignmentsById: EndpointDefinition = {
@@ -77,7 +77,8 @@ export const patchRouteassignmentsById: EndpointDefinition = {
   status: HttpStatus.GONE,
   handler: async () => {
     throw new Error('unreachable');
-  },};
+  },
+};
 
 /** `DELETE /api/v1/route-assignments/:id` — retired. */
 export const deleteRouteassignmentsById: EndpointDefinition = {
@@ -96,7 +97,8 @@ export const postAssignments: EndpointDefinition = {
   status: HttpStatus.GONE,
   handler: async () => {
     throw new Error('unreachable');
-  },};
+  },
+};
 
 /** `GET /api/v1/assignments` — readable mirror alias. */
 export const getAssignments: EndpointDefinition<unknown, ListRouteAssignmentsQueryDto> = {
@@ -107,7 +109,8 @@ export const getAssignments: EndpointDefinition<unknown, ListRouteAssignmentsQue
   handler: async ({ user, query }) => {
     const schoolId = user.school_id as string;
     return container().routeAssignments().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/assignments/:id` */
 export const getAssignmentsById: EndpointDefinition = {
@@ -128,7 +131,8 @@ export const patchAssignmentsById: EndpointDefinition = {
   status: HttpStatus.GONE,
   handler: async () => {
     throw new Error('unreachable');
-  },};
+  },
+};
 
 /** `DELETE /api/v1/assignments/:id` — retired alias. */
 export const deleteAssignmentsById: EndpointDefinition = {

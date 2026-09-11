@@ -2,9 +2,7 @@ import 'reflect-metadata';
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
-import { callHandler, makeGuardContext } from '../../http/route-testing';
-import type { EndpointDefinition } from '../../http/route-runtime';
+import { callHandler } from '../../http/route-testing';
 import { overrideContainer } from '../../container';
 import {
   deleteStudentsByStudentIdGuardiansByParentId,
@@ -25,9 +23,7 @@ const ADMIN = { id: ADMIN_ID, school_id: SCHOOL_ID, role: UserRole.SCHOOL_ADMIN 
 
 describe('StudentGuardiansController', () => {
   it('restricts student-centred relationship management to SCHOOL_ADMIN', () => {
-    assert.deepEqual(postStudentsByStudentIdGuardians.roles, [
-      UserRole.SCHOOL_ADMIN,
-    ]);
+    assert.deepEqual(postStudentsByStudentIdGuardians.roles, [UserRole.SCHOOL_ADMIN]);
   });
 
   it('delegates resource ids and JWT school scope without accepting a tenant id', async () => {

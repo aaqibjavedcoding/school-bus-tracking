@@ -7,7 +7,6 @@ import {
   RouteAssignmentRole,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -92,9 +91,7 @@ function assignmentDto(): CreateRouteAssignmentDto {
 
 describe('RouteAssignmentsController authorization', () => {
   it('restricts the controller to SCHOOL_ADMIN', () => {
-    assert.deepEqual(postRouteassignments.roles, [
-      UserRole.SCHOOL_ADMIN,
-    ]);
+    assert.deepEqual(postRouteassignments.roles, [UserRole.SCHOOL_ADMIN]);
   });
 
   it('allows an admin and rejects every other authenticated role with 403', async () => {
@@ -160,7 +157,10 @@ describe('RouteAssignmentsController authorization', () => {
     const restore = overrideContainer('routeAssignments', service);
     try {
       // Reads still reach the mirror service, pinned to the JWT school.
-      await callHandler(getRouteassignments, { user: ADMIN_B, query: new ListRouteAssignmentsQueryDto() });
+      await callHandler(getRouteassignments, {
+        user: ADMIN_B,
+        query: new ListRouteAssignmentsQueryDto(),
+      });
       await callHandler(getRouteassignmentsById, { user: ADMIN_B, params: { id: ASSIGNMENT_ID } });
     } finally {
       restore();

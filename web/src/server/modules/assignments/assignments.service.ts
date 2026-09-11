@@ -20,10 +20,6 @@ import {
   ROUTE_ASSIGNMENT_ROLE_MISMATCH_MESSAGE,
   ROUTE_ASSIGNMENT_ROUTE_INVALID_MESSAGE,
   ROUTE_ASSIGNMENT_USER_INVALID_MESSAGE,
-  ROUTE_ASSIGNMENTS_BUSES_REPOSITORY,
-  ROUTE_ASSIGNMENTS_REPOSITORY,
-  ROUTE_ASSIGNMENTS_ROUTES_REPOSITORY,
-  ROUTE_ASSIGNMENTS_USERS_REPOSITORY,
 } from './assignments.constants';
 import { findAssignmentConflict } from './assignment-conflicts';
 import { CreateRouteAssignmentDto } from './dto/create-route-assignment.dto';

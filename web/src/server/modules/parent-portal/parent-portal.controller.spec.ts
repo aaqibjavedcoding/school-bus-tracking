@@ -3,7 +3,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';

@@ -1,6 +1,4 @@
 import { School, User } from '../../database/models';
-import { SCHOOLS_PLATFORM_REPOSITORY, USERS_PLATFORM_REPOSITORY } from './access.constants';
-
 /**
  * Generic business error returned when a school tenant has been deactivated.
  *

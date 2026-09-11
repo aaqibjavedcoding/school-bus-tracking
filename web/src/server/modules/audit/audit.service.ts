@@ -4,8 +4,6 @@ import { AuditLog, User } from '../../database/models';
 import {
   AUDIT_METADATA_MAX_BYTES,
   AUDIT_REDACTED_FIELDS,
-  AUDIT_REPOSITORY,
-  AUDIT_USER_REPOSITORY,
   type AuditAction,
   type AuditEntityType,
 } from './audit.constants';
@@ -138,9 +136,7 @@ export class AuditService {
         range[Op.gte] = new Date(`${query.date_from}T00:00:00.000Z`);
       }
       if (query.date_to) {
-        range[Op.lt] = new Date(
-          new Date(`${query.date_to}T00:00:00.000Z`).getTime() + 86_400_000,
-        );
+        range[Op.lt] = new Date(new Date(`${query.date_to}T00:00:00.000Z`).getTime() + 86_400_000);
       }
       (where as Record<string, unknown>).created_at = range;
     }
@@ -179,9 +175,10 @@ export class AuditService {
         request_id: row.request_id,
         metadata: row.metadata,
         ip_address: row.ip_address,
-        created_at: row.created_at instanceof Date
-          ? row.created_at.toISOString()
-          : new Date(row.created_at).toISOString(),
+        created_at:
+          row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : new Date(row.created_at).toISOString(),
       })),
       total: count,
       page,

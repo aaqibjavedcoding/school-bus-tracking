@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -134,11 +133,14 @@ describe('StopsController (authorization)', () => {
     } as unknown as StopsService;
     const restore = overrideContainer('stops', service);
     try {
-
       await callHandler(postStops, { user: ADMIN_USER, body: new CreateStopDto() });
       await callHandler(getStops, { user: ADMIN_USER, query: makeQuery() });
       await callHandler(getStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
-      await callHandler(patchStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateStopDto() });
+      await callHandler(patchStopsById, {
+        user: ADMIN_USER,
+        params: { id: ROUTE_ID },
+        body: new UpdateStopDto(),
+      });
       await callHandler(deleteStopsById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
     } finally {
       restore();
@@ -161,7 +163,6 @@ describe('StopsController (authorization)', () => {
     } as unknown as StopsService;
     const restore = overrideContainer('stops', service);
     try {
-
       const dto = new CreateStopDto();
       dto.route_id = '11111111-1111-4111-8111-111111111111';
       dto.name = 'Main Gate';

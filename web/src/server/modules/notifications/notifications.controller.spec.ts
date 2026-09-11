@@ -7,7 +7,6 @@ import {
   NotificationReadFilter,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -126,7 +125,10 @@ describe('NotificationsController authorization', () => {
       query.page = 2;
       query.status = NotificationReadFilter.UNREAD;
       await callHandler(getParentNotifications, { user: actor, query: query });
-      await callHandler(patchParentNotificationsByIdRead, { user: actor, params: { id: NOTIFICATION_ID } });
+      await callHandler(patchParentNotificationsByIdRead, {
+        user: actor,
+        params: { id: NOTIFICATION_ID },
+      });
       await callHandler(patchParentNotificationsReadall, { user: actor });
     } finally {
       restore();

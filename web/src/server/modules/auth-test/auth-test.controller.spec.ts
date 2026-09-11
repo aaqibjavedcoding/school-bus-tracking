@@ -12,7 +12,6 @@ import {
   getAuthtestMe,
   getAuthtestStaffonly,
 } from '../../api/auth-test';
-import { ROLES_KEY } from '../../common/decorators';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';

@@ -6,14 +6,11 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, NotFoundException, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, NotFoundException, parseUuidParam } from '../framework';
 import { container } from '../container';
 import { tenantUser } from '../http/route-runtime';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { LiveTrackingService } from '../modules/live-tracking/live-tracking.service';
-import { EtaService } from '../modules/eta/eta.service';
-import { StopArrivalsService } from '../modules/eta/stop-arrivals.service';
 import { ETA_TRIP_NOT_FOUND_MESSAGE } from '../modules/eta/eta.constants';
 import type { Trip } from '../database/models';
 import type { TenantRequestUser } from '../common/guards';
@@ -40,7 +37,9 @@ export const getTripsByTripIdEta: EndpointDefinition = {
     const actor = tenantUser(user);
     const tripId = parseUuidParam(params['tripId']);
     const trip = await resolveTripForReader(actor, tripId);
-    const latest = await container().liveTracking().getLatestLocationResponse(trip.school_id, trip.id);
+    const latest = await container()
+      .liveTracking()
+      .getLatestLocationResponse(trip.school_id, trip.id);
     return container().eta().computeTripEta({ trip, latest });
   },
 };
@@ -65,7 +64,9 @@ export const getTripsByTripIdProgress: EndpointDefinition = {
     const actor = tenantUser(user);
     const tripId = parseUuidParam(params['tripId']);
     const trip = await resolveTripForReader(actor, tripId);
-    const latest = await container().liveTracking().getLatestLocationResponse(trip.school_id, trip.id);
+    const latest = await container()
+      .liveTracking()
+      .getLatestLocationResponse(trip.school_id, trip.id);
     return container().stopArrivals().getProgress(trip, latest);
   },
 };

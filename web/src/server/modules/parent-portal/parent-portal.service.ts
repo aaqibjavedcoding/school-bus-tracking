@@ -34,17 +34,7 @@ import type { TenantRequestUser } from '../../common/guards';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { EtaService } from '../eta/eta.service';
 import { TripAttendanceService } from '../trip-attendance/trip-attendance.service';
-import {
-  PARENT_PORTAL_BUSES_REPOSITORY,
-  PARENT_PORTAL_CHILD_NOT_FOUND_MESSAGE,
-  PARENT_PORTAL_GUARDIANS_REPOSITORY,
-  PARENT_PORTAL_ROUTES_REPOSITORY,
-  PARENT_PORTAL_SCHOOLS_REPOSITORY,
-  PARENT_PORTAL_STOPS_REPOSITORY,
-  PARENT_PORTAL_STUDENTS_REPOSITORY,
-  PARENT_PORTAL_TRIPS_REPOSITORY,
-  PARENT_PORTAL_USERS_REPOSITORY,
-} from './parent-portal.constants';
+import { PARENT_PORTAL_CHILD_NOT_FOUND_MESSAGE } from './parent-portal.constants';
 
 /** Ranked preference when several trips exist on the same route today. */
 const TRIP_PREFERENCE: Record<TripStatus, number> = {
@@ -329,7 +319,10 @@ export class ParentPortalService {
   private async buildSummaries(
     user: TenantRequestUser,
     pairs: Array<{ student: Student; link: StudentGuardian }>,
-  ): Promise<{ summaries: ParentChildSummary[]; standingCrewByStudent: Map<string, { driverId: string | null; conductorId: string | null }> }> {
+  ): Promise<{
+    summaries: ParentChildSummary[];
+    standingCrewByStudent: Map<string, { driverId: string | null; conductorId: string | null }>;
+  }> {
     const students = pairs.map((pair) => pair.student);
     const linkByStudent = new Map(pairs.map((pair) => [pair.student.id, pair.link]));
 
@@ -364,7 +357,9 @@ export class ParentPortalService {
           })
         : [];
     const runById = new Map(runs.map((run) => [run.id, run]));
-    const defaultByRoute = new Map(runs.filter((run) => run.is_default).map((run) => [run.route_id, run]));
+    const defaultByRoute = new Map(
+      runs.filter((run) => run.is_default).map((run) => [run.route_id, run]),
+    );
 
     const resolveRun = (student: Student, routeId: string | null): Run | null => {
       if (student.run_id) {
@@ -372,7 +367,7 @@ export class ParentPortalService {
         if (allocated) return allocated;
         // `run_id` pointed at a retired run — fall through to the default.
       }
-      return routeId ? defaultByRoute.get(routeId) ?? null : null;
+      return routeId ? (defaultByRoute.get(routeId) ?? null) : null;
     };
 
     const tripListsByRoute = await this.loadTodayTripsByRoute(user.school_id, routeIds);
@@ -396,14 +391,15 @@ export class ParentPortalService {
       const routeId = student.home_stop_id
         ? stopById.get(student.home_stop_id)?.route_id
         : undefined;
-      const candidates = routeId ? tripListsByRoute.get(routeId) ?? [] : [];
+      const candidates = routeId ? (tripListsByRoute.get(routeId) ?? []) : [];
       const run = resolveRun(student, routeId ?? null);
       const matched = run
-        ? candidates.filter((trip) => (trip.run_id ?? defaultByRoute.get(trip.route_id)?.id ?? null) === run.id)
+        ? candidates.filter(
+            (trip) => (trip.run_id ?? defaultByRoute.get(trip.route_id)?.id ?? null) === run.id,
+          )
         : candidates;
       if (matched.length > 0) tripByChild.set(student.id, pickTodayTrip(matched));
     }
-    const trips = [...tripByChild.values()];
 
     const attendance = await this.loadAttendance(user, students, tripByChild);
 
@@ -414,7 +410,7 @@ export class ParentPortalService {
     const summaries = students.map((student) => {
       const stop = student.home_stop_id ? stopById.get(student.home_stop_id) : undefined;
       const routeId = stop?.route_id ?? null;
-      const route = routeId ? routeById.get(routeId) ?? null : null;
+      const route = routeId ? (routeById.get(routeId) ?? null) : null;
       const trip = tripByChild.get(student.id) ?? null;
       const run = resolveRun(student, routeId);
       const tripBus = trip?.bus_id ? busById.get(trip.bus_id) : undefined;
@@ -431,7 +427,7 @@ export class ParentPortalService {
         stop ?? null,
         route,
         trip,
-        tripBus ?? (run?.bus_id ? busById.get(run.bus_id) ?? null : null),
+        tripBus ?? (run?.bus_id ? (busById.get(run.bus_id) ?? null) : null),
         trip && attendance.get(`${trip.id}:${student.id}`)
           ? attendance.get(`${trip.id}:${student.id}`)!
           : null,
@@ -450,10 +446,7 @@ export class ParentPortalService {
     runs: Run[],
   ): Promise<{
     shiftById: Map<string, Shift>;
-    crewByRun: Map<
-      string,
-      { driver?: RunCrew; conductor?: RunCrew }
-    >;
+    crewByRun: Map<string, { driver?: RunCrew; conductor?: RunCrew }>;
     crewUserById: Map<string, User>;
   }> {
     const shiftById = new Map<string, Shift>();

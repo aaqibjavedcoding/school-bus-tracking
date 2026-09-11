@@ -1,5 +1,14 @@
-import { CanActivate, ExecutionContext, ForbiddenException, HttpException, HttpStatus, NotFoundException, Reflector, SetMetadata, isUuid } from '../../../framework';
-import { ADMIN_MANAGE_SCHOOLS_REPOSITORY } from './admin-manage.constants';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  Reflector,
+  SetMetadata,
+  isUuid,
+} from '../../../framework';
 import {
   MANAGED_SCHOOL_INACTIVE_MESSAGE,
   MANAGED_SCHOOL_NOT_FOUND_MESSAGE,
