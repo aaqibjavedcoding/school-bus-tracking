@@ -191,8 +191,8 @@ export default function ManageDocumentsScreen() {
           />
         )
       }
-      refresh={() => void list.reload()}
-      refreshing={list.loading}
+      refresh={() => void list.refresh()}
+      refreshing={list.refreshing}
     />
   );
 }

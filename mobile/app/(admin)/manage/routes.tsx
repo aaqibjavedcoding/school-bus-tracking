@@ -221,8 +221,8 @@ export default function ManageRoutesScreen() {
             />
           )
         }
-        refresh={() => void list.reload()}
-        refreshing={list.loading}
+        refresh={() => void list.refresh()}
+        refreshing={list.refreshing}
         extraBottomSpace={72}
       />
 

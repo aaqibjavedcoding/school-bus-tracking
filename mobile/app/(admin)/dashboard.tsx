@@ -36,7 +36,7 @@ export default function AdminDashboardScreen() {
   const router = useRouter();
   const { user } = useAuth();
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     trips: TripResponse[];
     studentCount: number;
     busCount: number;
@@ -137,7 +137,7 @@ export default function AdminDashboardScreen() {
   ];
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <View style={styles.hero}>
         <Text style={styles.heroGreeting}>
           {user ? `Welcome, ${user.first_name}` : 'Welcome'}

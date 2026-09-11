@@ -31,8 +31,10 @@ export default function CrewStopsScreen() {
   const {
     data: today,
     loading: todayLoading,
+    refreshing: todayRefreshing,
     error: todayError,
     reload: reloadToday,
+    refresh: refreshToday,
   } = useCrewToday();
   const trip = today?.trip ?? null;
 
@@ -60,7 +62,7 @@ export default function CrewStopsScreen() {
   }
   if (!trip) {
     return (
-      <Screen refresh={() => void reloadToday()} refreshing={todayLoading}>
+      <Screen refresh={() => void refreshToday()} refreshing={todayRefreshing}>
         <EmptyState
           title="No trip today"
           description="Stops and ETAs appear once a trip is dispatched."
@@ -74,10 +76,10 @@ export default function CrewStopsScreen() {
   return (
     <Screen
       refresh={() => {
-        void reloadToday();
-        void arrivalsLoad.reload();
+        void refreshToday();
+        void arrivalsLoad.refresh();
       }}
-      refreshing={todayLoading || arrivalsLoad.loading}
+      refreshing={todayRefreshing || arrivalsLoad.refreshing}
     >
       <View style={styles.headerRow}>
         <ConnectionIndicator connection={live.connection} />

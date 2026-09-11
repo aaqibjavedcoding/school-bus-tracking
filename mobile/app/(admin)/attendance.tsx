@@ -91,7 +91,7 @@ export default function AdminAttendanceScreen() {
 
   if (tripsLoad.data.trips.length === 0) {
     return (
-      <Screen refresh={() => void tripsLoad.reload()} refreshing={tripsLoad.loading}>
+      <Screen refresh={() => void tripsLoad.refresh()} refreshing={tripsLoad.refreshing}>
         <EmptyState
           title="No trips today"
           description="Attendance can be recorded once a trip is scheduled for today."
@@ -153,15 +153,15 @@ export default function AdminAttendanceScreen() {
               </Text>
             ) : null
           }
-          refresh={() => void manifestLoad.reload()}
-          refreshing={manifestLoad.loading}
+          refresh={() => void manifestLoad.refresh()}
+          refreshing={manifestLoad.refreshing}
         />
       </View>
     );
   }
 
   return (
-    <Screen refresh={() => void manifestLoad.reload()} refreshing={manifestLoad.loading}>
+    <Screen refresh={() => void manifestLoad.refresh()} refreshing={manifestLoad.refreshing}>
       {selector}
       {manifestLoad.loading && !manifestLoad.data ? (
         <LoadingView label="Loading manifest…" />

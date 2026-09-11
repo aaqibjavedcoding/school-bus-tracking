@@ -24,6 +24,7 @@ import {
   getApiErrorMessage,
 } from '../src/lib/errors';
 import { homeRoute } from '../src/lib/roles';
+import { getApiConfigurationError } from '../src/services/api';
 import {
   keyboardBehavior,
   keyboardTopEdge,
@@ -47,6 +48,14 @@ export default function LoginScreen() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Release builds without EXPO_PUBLIC_API_URL can never reach an API: name
+  // the misconfiguration on the sign-in screen instead of letting every
+  // attempt fail with a generic network error. Read once — registration of
+  // the runtime environment happens before the first render.
+  const [configError] = useState<string | null>(() => {
+    const error = getApiConfigurationError();
+    return error ? error.message : null;
+  });
 
   // --- Keyboard-aware form plumbing -------------------------------------
   // `KeyboardAvoidingView` alone never scrolls a *specific* input into view,
@@ -225,9 +234,15 @@ export default function LoginScreen() {
             }}
           />
 
+          {configError ? <Text style={styles.formError}>{configError}</Text> : null}
           {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
-          <Button label="Sign in" onPress={() => void onSubmit()} busy={busy} disabled={busy} />
+          <Button
+            label="Sign in"
+            onPress={() => void onSubmit()}
+            busy={busy}
+            disabled={busy || configError !== null}
+          />
         </View>
 
         <View>

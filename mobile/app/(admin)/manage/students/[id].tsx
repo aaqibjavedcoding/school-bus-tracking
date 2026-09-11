@@ -52,7 +52,7 @@ export default function ManageStudentDetailScreen() {
   const studentId = typeof id === 'string' ? id : '';
   const usableId = isUuid(studentId);
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     student: StudentResponse;
     guardians: StudentGuardianResponse[];
     parents: ParentResponse[];
@@ -155,7 +155,7 @@ export default function ManageStudentDetailScreen() {
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading}>
+      <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button">
           <Text style={styles.backText}>‹ Back to roster</Text>
         </Pressable>

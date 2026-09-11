@@ -28,8 +28,10 @@ export default function CrewManifestScreen() {
   const {
     data: today,
     loading: todayLoading,
+    refreshing: todayRefreshing,
     error: todayError,
     reload: reloadToday,
+    refresh: refreshToday,
   } = useCrewToday();
   const trip = today?.trip ?? null;
 
@@ -77,7 +79,7 @@ export default function CrewManifestScreen() {
   }
   if (!trip) {
     return (
-      <Screen refresh={() => void reloadToday()} refreshing={todayLoading}>
+      <Screen refresh={() => void refreshToday()} refreshing={todayRefreshing}>
         <EmptyState title="No trip today" description="There is no manifest without a trip." />
       </Screen>
     );
@@ -115,10 +117,10 @@ export default function CrewManifestScreen() {
             </>
           }
           refresh={() => {
-            void reloadToday();
-            void manifestLoad.reload();
+            void refreshToday();
+            void manifestLoad.refresh();
           }}
-          refreshing={manifestLoad.loading || todayLoading}
+          refreshing={manifestLoad.refreshing || todayRefreshing}
         />
       </View>
     );
@@ -127,10 +129,10 @@ export default function CrewManifestScreen() {
   return (
     <Screen
       refresh={() => {
-        void reloadToday();
-        void manifestLoad.reload();
+        void refreshToday();
+        void manifestLoad.refresh();
       }}
-      refreshing={manifestLoad.loading || todayLoading}
+      refreshing={manifestLoad.refreshing || todayRefreshing}
     >
       {manifest ? (
         <EmptyState

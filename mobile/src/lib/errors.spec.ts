@@ -56,3 +56,36 @@ describe('mobile raw document error bodies', () => {
     );
   });
 });
+
+describe('mobile 403 surface', () => {
+  /**
+   * Pins the documented diagnosis contract (docs/mobile-operations.md): the
+   * API's four 403 sources always carry their own reason in the envelope, and
+   * the screens show exactly that reason — never the opaque
+   * "Request failed with status 403" string and never masked as success.
+   */
+  it('shows the exact server reason for every 403 the API can produce', () => {
+    const reasons = [
+      'Insufficient role permissions',
+      'User account is inactive',
+      'School is inactive',
+      'Request origin is not allowed',
+    ];
+    for (const message of reasons) {
+      const error = new ApiClientError('Request failed with status 403', 403, {
+        success: false,
+        error: { code: 'Forbidden', message },
+      });
+      assert.equal(getApiErrorMessage(error), message);
+    }
+  });
+
+  it('does not leak the raw client message for an envelope-less 403', () => {
+    // A proxy/CDN edge 403 (no API envelope) falls back to the generic
+    // sentence instead of the internal "Request failed with status 403".
+    const message = getApiErrorMessage(
+      new ApiClientError('Request failed with status 403', 403, ''),
+    );
+    assert.equal(message, 'You do not have permission to do that.');
+  });
+});
