@@ -1,4 +1,12 @@
-export { setupPushNotifications, unregisterPushDevice } from './push-notifications';
+export { setupPushNotifications, unregisterPushDevice, flushPendingRoute } from './push-notifications';
+export {
+  PUSH_EVENT_TYPES,
+  isPushForUser,
+  readPushData,
+  resolvePushRoute,
+  shouldPresentForeground,
+  type PushData,
+} from './push-routing';
 export {
   PUSH_CHANNEL_ID,
   buildDeviceTokenRequest,

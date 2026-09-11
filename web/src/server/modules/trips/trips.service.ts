@@ -449,7 +449,47 @@ export class TripsService {
       status: trip.status,
       cancellation_reason: trip.cancellation_reason ?? null,
     });
+    if (next === TripStatus.CANCELLED) {
+      await this.pushTripCancelledToCrew(trip);
+    }
     return this.toResponse(trip);
+  }
+
+  /**
+   * Phase 4: the rostered driver/conductor get an OS push when their trip is
+   * cancelled (typically by the dispatcher) so they do not set off. Uses the
+   * notifications service's role push; best-effort and optional in tests.
+   */
+  private async pushTripCancelledToCrew(trip: Trip): Promise<void> {
+    const push = this.notifications as Partial<
+      Pick<NotificationsService, 'pushToUsers' | 'resolveCrewUserIdsForTrip'>
+    >;
+    if (typeof push.pushToUsers !== 'function' || typeof push.resolveCrewUserIdsForTrip !== 'function') {
+      return;
+    }
+    try {
+      const crewIds = await push.resolveCrewUserIdsForTrip.call(
+        this.notifications,
+        trip.school_id,
+        trip.id,
+      );
+      if (crewIds.length === 0) {
+        return;
+      }
+      await push.pushToUsers.call(this.notifications, {
+        school_id: trip.school_id,
+        user_ids: crewIds,
+        roles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+        type: 'CREW_TRIP_CANCELLED',
+        title: 'Trip cancelled',
+        message: trip.cancellation_reason
+          ? `Your trip was cancelled: ${trip.cancellation_reason}`
+          : 'Your trip was cancelled.',
+        data: { trip_id: trip.id },
+      });
+    } catch {
+      // Best-effort.
+    }
   }
 
   /**

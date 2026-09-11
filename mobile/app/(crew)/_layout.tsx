@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs } from 'expo-router';
+import { flushPendingRoute } from '../../src/features/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { colors } from '@school-bus-tracking/design-tokens';
@@ -7,6 +8,7 @@ import { RoleGate, useAuth } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { useBottomBarMetrics } from '../../src/theme/layout';
+import { startSyncManager, stopSyncManager } from '../../src/features/crew/offline';
 
 /**
  * Shared crew tab navigator (DRIVER + CONDUCTOR).
@@ -24,7 +26,22 @@ import { useBottomBarMetrics } from '../../src/theme/layout';
 function CrewTabs() {
   const { user } = useAuth();
   const bar = useBottomBarMetrics();
+  // A notification tapped before this navigator existed (cold start) lands
+  // on its screen as soon as the role tabs are mounted.
+  useEffect(() => {
+    flushPendingRoute();
+  }, []);
   const isDriver = user?.role === UserRole.DRIVER;
+
+  // Offline queue replay lives for exactly as long as a crew member is signed
+  // in: it is bound to this user's id so another account on the same phone
+  // never submits their pending actions.
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    if (!userId) return;
+    startSyncManager(userId);
+    return () => stopSyncManager();
+  }, [userId]);
 
   return (
     <Tabs

@@ -1202,6 +1202,30 @@ describe('TripsService lifecycle', () => {
     assert.equal(stopped.cancellation_reason, null);
   });
 
+  it('pushes a cancellation to the rostered crew devices (Phase 4)', async () => {
+    const pushes: Array<{ user_ids: string[]; type: string; data?: Record<string, unknown> }> = [];
+    const notifications = Object.assign(makeNotificationsStub(), {
+      resolveCrewUserIdsForTrip: async (_schoolId: string, _tripId: string) => [DRIVER_A, CONDUCTOR_A],
+      pushToUsers: async (input: { user_ids: string[]; type: string; data?: Record<string, unknown> }) => {
+        pushes.push(input);
+      },
+    }) as unknown as import('../notifications/notifications.service').NotificationsService;
+
+    const service = makeService(makeRepositories([makeTrip()]), undefined, notifications);
+    await service.updateStatus(SCHOOL_A, TRIP_A, statusDto(TripStatus.IN_PROGRESS));
+    assert.equal(pushes.length, 0, 'a normal transition does not push the crew');
+
+    await service.cancel(
+      SCHOOL_A,
+      TRIP_A,
+      Object.assign(new CancelTripDto(), { cancellation_reason: 'Vehicle fault' }),
+    );
+    assert.equal(pushes.length, 1);
+    assert.deepEqual(pushes[0].user_ids, [DRIVER_A, CONDUCTOR_A]);
+    assert.equal(pushes[0].type, 'CREW_TRIP_CANCELLED');
+    assert.equal(pushes[0].data?.trip_id, TRIP_A);
+  });
+
   it('refuses to cancel a terminal trip', async () => {
     const service = makeService(makeRepositories([makeTrip({ status: TripStatus.COMPLETED })]));
 

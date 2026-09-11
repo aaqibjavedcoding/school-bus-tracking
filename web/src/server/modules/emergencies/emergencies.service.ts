@@ -83,8 +83,32 @@ const ACTIVE_TRIP_STATUSES: TripStatus[] = [
  * - Every list/detail query is pinned with `school_id`, so cross-tenant probes
  *   see the same generic `404` as a missing record.
  */
+/**
+ * Optional OS-push sink (Phase 4). Installed by the container from
+ * `NotificationsService.pushToUsers`; absent in unit tests → no push.
+ */
+export interface EmergencyPushSink {
+  pushToUsers(input: {
+    school_id: string;
+    user_ids: string[];
+    roles?: UserRole[];
+    type: string;
+    title: string;
+    message: string;
+    data?: Record<string, string | null | undefined>;
+  }): Promise<void>;
+  resolveSchoolAdminUserIds(schoolId: string): Promise<string[]>;
+}
+
+/** FCM `data.type` values the mobile app deep-links on (crew + admin). */
+export const EMERGENCY_PUSH_TYPES = {
+  sosRaised: 'EMERGENCY_SOS',
+  sosUpdated: 'EMERGENCY_STATUS',
+} as const;
+
 export class EmergenciesService {
   private broadcaster: EmergencyBroadcaster | null = null;
+  private pushSink: EmergencyPushSink | null = null;
 
   constructor(
     private readonly events: typeof EmergencyEvent,
@@ -97,6 +121,11 @@ export class EmergenciesService {
   /** Installed by {@link EmergenciesGateway} once the namespace is up. */
   attachBroadcaster(broadcaster: EmergencyBroadcaster): void {
     this.broadcaster = broadcaster;
+  }
+
+  /** Installs the OS-push sink (container wiring); best-effort delivery. */
+  attachPushSink(sink: EmergencyPushSink): void {
+    this.pushSink = sink;
   }
 
   /**
@@ -147,6 +176,9 @@ export class EmergenciesService {
     const event = await this.events.create(values);
     const response = await this.toResponse(event);
     this.broadcast(EMERGENCY_EVENTS.new, response);
+    // School admins get an OS-level push in addition to the live dashboard
+    // feed: an SOS must reach them even with the console closed.
+    await this.pushSosRaised(response);
     return response;
   }
 
@@ -282,7 +314,58 @@ export class EmergenciesService {
     await event.update(updates);
     const response = await this.toResponse(event);
     this.broadcast(EMERGENCY_EVENTS.updated, response);
+    // The crew member who raised it learns the school is handling it (an
+    // admin's ack/resolve); a crew's own cancel needs no push to themselves.
+    if (actor.id !== event.raised_by_user_id) {
+      await this.pushSosUpdated(response);
+    }
     return response;
+  }
+
+  private async pushSosRaised(event: EmergencyEventResponse): Promise<void> {
+    if (!this.pushSink) {
+      return;
+    }
+    try {
+      const adminIds = await this.pushSink.resolveSchoolAdminUserIds(event.school_id);
+      if (adminIds.length === 0) {
+        return;
+      }
+      const who = event.raised_by_name ? ` from ${event.raised_by_name}` : '';
+      await this.pushSink.pushToUsers({
+        school_id: event.school_id,
+        user_ids: adminIds,
+        roles: [UserRole.SCHOOL_ADMIN],
+        type: EMERGENCY_PUSH_TYPES.sosRaised,
+        title: `SOS: ${event.type_label}`,
+        message: `Emergency${who}${event.message ? `: ${event.message}` : ''}`,
+        data: { emergency_id: event.id, trip_id: event.trip_id },
+      });
+    } catch {
+      // Push is best-effort; the socket broadcast already happened.
+    }
+  }
+
+  private async pushSosUpdated(event: EmergencyEventResponse): Promise<void> {
+    if (!this.pushSink) {
+      return;
+    }
+    try {
+      await this.pushSink.pushToUsers({
+        school_id: event.school_id,
+        user_ids: [event.raised_by_user_id],
+        roles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+        type: EMERGENCY_PUSH_TYPES.sosUpdated,
+        title: `SOS ${event.status_label.toLowerCase()}`,
+        message:
+          event.status === EmergencyStatus.ACKNOWLEDGED
+            ? 'The school has seen your emergency and is responding.'
+            : `Your emergency was marked ${event.status_label.toLowerCase()}.`,
+        data: { emergency_id: event.id, trip_id: event.trip_id },
+      });
+    } catch {
+      // Best-effort.
+    }
   }
 
   // --------------------------------------------------------------- helpers --

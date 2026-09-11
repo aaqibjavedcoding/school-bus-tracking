@@ -74,6 +74,22 @@ export interface StopArrivalNotificationInput {
   occurred_at: Date;
 }
 
+/**
+ * Input of a role push (no inbox row): who, what, and the string-only FCM
+ * `data` the app uses to deep-link (`trip_id`, `emergency_id`, ...).
+ */
+export interface RolePushInput {
+  school_id: string;
+  user_ids: string[];
+  /** Optional role allow-list; recipients outside it are skipped. */
+  roles?: UserRole[];
+  /** Deep-link type carried in `data.type` (see `PUSH_EVENT_TYPES`). */
+  type: string;
+  title: string;
+  message: string;
+  data?: Record<string, string | null | undefined>;
+}
+
 /** Room-scoped broadcast sink attached by the gateway once sockets are up. */
 export type NotificationBroadcaster = (
   room: string,
@@ -505,6 +521,96 @@ export class NotificationsService {
       .filter((user) => user.is_active !== false)
       .map((user) => user.id)
       .sort();
+  }
+
+  // -------------------------------------------------------------------
+  // Role push (Phase 4): OS-level push without an inbox row
+  // -------------------------------------------------------------------
+
+  /**
+   * Sends an OS-level push to every active device of the given users of one
+   * tenant. Used for the role-appropriate alerts that have no parent inbox
+   * row (school admins on SOS, crew on trip cancellation / SOS handling):
+   * the `notifications` table stays parent-only, so no schema change.
+   *
+   * Recipient ids are always resolved server-side by the caller from
+   * tenant-pinned rows and re-filtered here to active accounts of the
+   * same `school_id` — a cross-tenant id can never receive a push.
+   * Best-effort: never throws, and a NoOp provider is a silent no-op.
+   */
+  async pushToUsers(input: RolePushInput): Promise<void> {
+    try {
+      if (this.pushProvider.name === NOOP_PUSH_PROVIDER_NAME) {
+        return;
+      }
+      const uniqueIds = Array.from(new Set(input.user_ids)).filter(Boolean);
+      if (uniqueIds.length === 0) {
+        return;
+      }
+      const users = await this.users.findAll({
+        where: {
+          school_id: input.school_id,
+          id: { [Op.in]: uniqueIds },
+          ...(input.roles && input.roles.length > 0 ? { role: { [Op.in]: input.roles } } : {}),
+        },
+        attributes: ['id', 'is_active'],
+      });
+      const data: Record<string, string> = { school_id: input.school_id, type: input.type };
+      for (const [key, value] of Object.entries(input.data ?? {})) {
+        if (value) {
+          data[key] = value;
+        }
+      }
+
+      for (const user of users) {
+        if (user.is_active === false) {
+          continue;
+        }
+        const tokens = await this.deviceTokens.findActiveTokenStrings(input.school_id, user.id);
+        if (tokens.length === 0) {
+          continue;
+        }
+        const result = await this.pushProvider.send({
+          recipientId: user.id,
+          title: input.title,
+          body: input.message,
+          data: { ...data, user_id: user.id },
+          deviceTokens: tokens,
+          priority: 'high',
+        });
+        if (result.invalidTokens && result.invalidTokens.length > 0) {
+          await this.deviceTokens.deactivateTokens(input.school_id, user.id, result.invalidTokens);
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to deliver role push (${input.type}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /** Every active SCHOOL_ADMIN account id of one tenant (SOS recipients). */
+  async resolveSchoolAdminUserIds(schoolId: string): Promise<string[]> {
+    const rows = await this.users.findAll({
+      where: { school_id: schoolId, role: UserRole.SCHOOL_ADMIN },
+      attributes: ['id', 'is_active'],
+    });
+    return rows.filter((row) => row.is_active !== false).map((row) => row.id).sort();
+  }
+
+  /** The rostered driver/conductor user ids of one trip (crew recipients). */
+  async resolveCrewUserIdsForTrip(schoolId: string, tripId: string): Promise<string[]> {
+    const trip = await this.trips.findOne({
+      where: { id: tripId, school_id: schoolId },
+      attributes: ['id', 'driver_id', 'conductor_id'],
+    });
+    if (!trip) {
+      return [];
+    }
+    const row = trip as unknown as { driver_id?: string | null; conductor_id?: string | null };
+    return [row.driver_id, row.conductor_id].filter((id): id is string => Boolean(id));
   }
 
   // -------------------------------------------------------------------
