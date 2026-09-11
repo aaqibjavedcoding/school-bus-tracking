@@ -48,6 +48,19 @@ describe('web security headers', () => {
     assert.match(buildContentSecurityPolicy({ isProduction: false }), /'unsafe-eval'/);
   });
 
+  it('allows exactly the OpenStreetMap tile origin the map fetches from', () => {
+    for (const isProduction of [true, false]) {
+      const csp = buildContentSecurityPolicy({ isProduction });
+      const imgSrc = String(
+        csp.split(';').find((directive) => directive.trim().startsWith('img-src')),
+      );
+      // The one trusted tile origin is present…
+      assert.match(imgSrc, /https:\/\/tile\.openstreetmap\.org/);
+      // …and the policy never opens img-src to arbitrary hosts.
+      assert.ok(!imgSrc.includes('*'), `img-src must not use a wildcard: ${imgSrc}`);
+    }
+  });
+
   it('upgrades insecure requests in production only', () => {
     assert.match(buildContentSecurityPolicy({ isProduction: true }), /upgrade-insecure-requests/);
     assert.doesNotMatch(

@@ -293,3 +293,41 @@ describe('DocumentRequirementsQueryDto / DocumentOverviewQueryDto validation', (
     );
   });
 });
+
+describe('file_url https-only enforcement', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  const build = () =>
+    plainToInstance(CreateBusDocumentDto, {
+      ...VALID_BUS_DOCUMENT,
+      file_url: 'http://files.example.test/insurance.pdf',
+    });
+
+  it('accepts an http file_url in non-production environments', async () => {
+    process.env.NODE_ENV = 'development';
+    try {
+      assert.deepEqual(await errorsOf(build()), []);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('rejects an http file_url in production while keeping https accepted', async () => {
+    process.env.NODE_ENV = 'production';
+    try {
+      assert.deepEqual(await errorsOf(build()), ['file_url']);
+
+      assert.deepEqual(
+        await errorsOf(
+          plainToInstance(CreateBusDocumentDto, {
+            ...VALID_BUS_DOCUMENT,
+            file_url: 'https://files.example.test/insurance.pdf',
+          }),
+        ),
+        [],
+      );
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+});

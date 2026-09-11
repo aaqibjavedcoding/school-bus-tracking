@@ -20,6 +20,44 @@ import type { Options } from 'sequelize';
 dotenv.config({ path: '.env.local' });
 dotenv.config({ path: '.env' });
 
+/**
+ * Mirrors `assertSafeProductionDatabaseConfig` from `database.config.ts`
+ * (kept inline because this ESM file cannot import the compiled CommonJS
+ * app config). Migrations and seeds in production must fail loudly instead
+ * of silently using the insecure development defaults.
+ */
+function assertSafeProductionCliDatabaseConfig(): void {
+  if (process.env.NODE_ENV !== 'production') {
+    return;
+  }
+
+  const problems: string[] = [];
+  for (const name of ['DB_HOST', 'DB_NAME', 'DB_USERNAME', 'DB_PASSWORD'] as const) {
+    const value = process.env[name];
+    if (!value || value.trim().length === 0) {
+      problems.push(
+        `${name} is not set. Production refuses the insecure development default; configure it explicitly.`,
+      );
+    }
+  }
+  if (process.env.DB_SSL !== 'true') {
+    problems.push(
+      'DB_SSL must be "true" in production so credentials travel over TLS. Set DB_SSL=true (and provide the provider CA if required).',
+    );
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      [
+        'Unsafe production database configuration — refusing to run migrations/seeds.',
+        ...problems.map((problem) => `  - ${problem}`),
+        'Development defaults are never applied when NODE_ENV=production.',
+      ].join('\n'),
+    );
+  }
+}
+
+assertSafeProductionCliDatabaseConfig();
+
 const baseConfig: Options = {
   dialect: 'postgres',
   host: process.env.DB_HOST || 'localhost',

@@ -1,5 +1,14 @@
 import { Transform } from 'class-transformer';
-import { IsDateString, IsOptional, IsString, IsUrl, Matches, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Matches,
+  MaxLength,
+  registerDecorator,
+  type ValidationArguments,
+} from 'class-validator';
 import {
   DOCUMENT_FILE_NAME_MAX_LENGTH,
   DOCUMENT_FILE_URL_MAX_LENGTH,
@@ -39,6 +48,47 @@ function IsDocumentDate(): PropertyDecorator {
       { strict: true },
       { message: `${String(propertyKey)} must be a valid calendar date` },
     )(target, propertyKey);
+  };
+}
+
+/**
+ * Production hardening for externally supplied document links: `http://` is
+ * rejected in production (a plaintext link can leak session context through
+ * intermediaries and be silently downgraded), while `https://` keeps working
+ * and local development still accepts `http://` so internal file stores and
+ * object-storage sandboxes without TLS keep working.
+ */
+export function IsFileUrl(): PropertyDecorator {
+  return (target: object, propertyKey: string | symbol) => {
+    IsUrl(
+      { protocols: ['http', 'https'], require_protocol: true },
+      { message: 'file_url must be a valid http(s) URL' },
+    )(target, propertyKey);
+    registerDecorator({
+      name: 'fileUrlHttpsOnlyInProduction',
+      target: target.constructor,
+      propertyName: String(propertyKey),
+      validator: {
+        validate(value: unknown): boolean {
+          // `IsOptional` / `IsUrl` own the empty, non-string and shape cases.
+          if (typeof value !== 'string' || value.length === 0) {
+            return true;
+          }
+          if (process.env.NODE_ENV !== 'production') {
+            return true;
+          }
+          try {
+            return new URL(value).protocol === 'https:';
+          } catch {
+            // Malformed URLs are reported by `IsUrl`.
+            return true;
+          }
+        },
+        defaultMessage(args: ValidationArguments): string {
+          return `${args.property} must use https in production`;
+        },
+      },
+    });
   };
 }
 
@@ -93,13 +143,11 @@ export abstract class DocumentFieldsDto {
    * Reference to the document file in the school's own store. Only http(s)
    * URLs are accepted: the platform never stores binary uploads, and a
    * `javascript:` / `data:` style value must never be rendered as a link.
+   * In production only `https://` is accepted (`IsFileUrl`).
    */
   @IsOptional()
   @IsString({ message: 'file_url must be a string' })
-  @IsUrl(
-    { protocols: ['http', 'https'], require_protocol: true },
-    { message: 'file_url must be a valid http(s) URL' },
-  )
+  @IsFileUrl()
   @MaxLength(DOCUMENT_FILE_URL_MAX_LENGTH, {
     message: `file_url must be at most ${DOCUMENT_FILE_URL_MAX_LENGTH} characters`,
   })

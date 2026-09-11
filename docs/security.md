@@ -122,6 +122,71 @@ Comprehensive E2E tests verify:
 - CSP (configurable)
 - Permissions-Policy
 - Referrer-Policy
+- The web CSP allows exactly one external image origin by default:
+  `https://tile.openstreetmap.org` — the OpenStreetMap tile host the live
+  tracking map is pinned to. Extra origins can be added per deployment via
+  `CSP_EXTRA_IMG_SRC` / `CSP_EXTRA_CONNECT_SRC` (comma-separated, no wildcards).
+
+## Dependency Security (Phase 2)
+
+Status of `npm audit --omit=dev` after the Phase 2 hardening:
+
+- **`postcss` (HIGH — fixed).** Next.js 14.2.35 pins `postcss@8.4.31` exactly,
+  which is affected by source-map disclosure / XSS advisories
+  (GHSA-qx2v-qp2m-jg93, GHSA-6g55-p6wh-862q, GHSA-fxqj-rqcc-2cmp,
+  GHSA-r28c-9q8g-f849). The root `overrides.postcss: 8.5.28` forces the
+  vendor-patched 8.x release everywhere, including Next's nested copy.
+- **`firebase-admin` (moderate chain — fixed).** Updated in-range
+  ^14.3.0 → ^14.4.0, which dropped the vulnerable `@google-cloud/storage` /
+  `teeny-request` / `retry-request` / `uuid` chain from the dependency tree.
+  The app only uses `firebase-admin/app` and `firebase-admin/messaging`.
+- **`next` 14.2.35 (CRITICAL — accepted mitigation, upgrade scheduled).**
+  14.2.35 is the **final** release of the Next.js 14.x line; Vercel has stated
+  no further 14.x patches will be published. The advisories aggregated by
+  `npm audit` (RCE/SSRF/DoS classes) are fixed only in **15.5.21+ / 16.2.6+**,
+  which require React 19 and an App Router migration — a dedicated later phase,
+  deliberately out of scope here. Mitigations in place for this deployment:
+  - `images.unoptimized: true` (`web/next.config.js`) removes the entire
+    `/_next/image` optimizer attack surface (image SSRF/DoS, AVIF RCE, disk
+    cache growth). The app renders no `next/image` at all.
+  - The app uses **no** `middleware.ts`, **no** rewrites and **no** Server
+    Actions, so the middleware-bypass, rewrite-smuggling/SSRF and Server-Action
+    advisories have no applicable code path.
+  - Self-host on Linux (the Windows-only RCE advisory does not apply) behind a
+    reverse proxy with rate limiting for the DoS-class advisories.
+  - **Follow-up (required):** migrate to Next.js 15.5.21+ / 16.x + React 19 in
+    a dedicated phase.
+- **Remaining moderates (accepted, no safe in-range fix).** The Expo SDK
+  build-tooling chain (`expo`, `@expo/*`, `expo-router`, `decode-uri-component`,
+  `query-string`, `xcode`) — fixes require an Expo SDK major upgrade, which
+  would change mobile behaviour; and `uuid` (< 11.1.1, buffer bounds check) as
+  a transitive dependency of `exceljs`/`sequelize` — the vendor fix is a
+  downgrade of `exceljs` to 3.4.0 or an unsupported `uuid` override across
+  packages that use its API. None of these are reachable from the web/API
+  production runtime with attacker-controlled input.
+
+## Production Database Configuration (Phase 2)
+
+- With `NODE_ENV=production`, the API server **and** the migration/seed CLI
+  refuse to start unless `DB_HOST`, `DB_NAME`, `DB_USERNAME` and `DB_PASSWORD`
+  are set explicitly and `DB_SSL=true`. The development defaults
+  (`postgres`/`postgres` on `localhost`, TLS off) are never silently applied in
+  production; a single startup error lists every offending variable.
+- Development and test environments keep their defaults; tests/smoke scripts
+  (which run with `NODE_ENV=test` or unset) are unaffected.
+
+## Document URL Hardening (Phase 2)
+
+- `file_url` on every bus/driver document accepts only `http(s)` URLs (never
+  `javascript:`/`data:`). In production only `https://` is accepted;
+  development still allows `http://` for internal file stores.
+
+## Seeding (Phase 2)
+
+- Seeders never print passwords, emails' matching passwords, or any
+  credential/secret. Success messages are generic; super admin credentials come
+  from `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` and production refuses to
+  seed without them.
 
 ## Rate Limiting
 
