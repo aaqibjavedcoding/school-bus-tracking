@@ -27,7 +27,7 @@ import { fullName } from '../../src/lib/format';
  */
 export default function ParentHomeScreen() {
   const router = useRouter();
-  const { data, loading, error, reload } = useLoad<ParentDashboardResponse>(async () => {
+  const { data, loading, refreshing, error, reload, refresh } = useLoad<ParentDashboardResponse>(async () => {
     return unwrapEnvelope(await apiClient.getParentDashboard());
   }, []);
   const [search, setSearch] = useState('');
@@ -66,7 +66,7 @@ export default function ParentHomeScreen() {
   }
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <SectionTitle>{data.school ? data.school.name : 'Your school'}</SectionTitle>
       <Text style={styles.greeting}>
         Hi {data.parent.first_name} — {data.count === 1 ? 'one child' : `${data.count} children`} to

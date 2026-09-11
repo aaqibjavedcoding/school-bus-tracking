@@ -106,10 +106,10 @@ export default function ParentTrackingScreen() {
   return (
     <Screen
       refresh={() => {
-        void childrenLoad.reload();
-        void trackingLoad.reload();
+        void childrenLoad.refresh();
+        void trackingLoad.refresh();
       }}
-      refreshing={trackingLoad.loading}
+      refreshing={childrenLoad.refreshing || trackingLoad.refreshing}
     >
       <View style={styles.picker}>
         {children.map((child: ParentChildSummary) => (

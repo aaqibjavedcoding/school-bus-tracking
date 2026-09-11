@@ -27,7 +27,10 @@ import {
  */
 interface NotificationsContextValue {
   state: NotificationsState;
+  /** True only during the initial load — the blocking skeleton state. */
   loading: boolean;
+  /** True only while a user-initiated pull-to-refresh is in flight. */
+  refreshing: boolean;
   connected: boolean;
   /** The newest push, surfaced as an in-app banner (dismissable). */
   latestEvent: NotificationRealtimeEvent | null;
@@ -42,10 +45,13 @@ const NotificationsContext = createContext<NotificationsContextValue | null>(nul
 export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<NotificationsState>(initialNotificationsState);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [connected, setConnected] = useState(false);
   const [latestEvent, setLatestEvent] = useState<NotificationRealtimeEvent | null>(null);
 
-  const refresh = useCallback(async () => {
+  const runLoad = useCallback(async (signal: 'loading' | 'refreshing') => {
+    const setFlag = signal === 'loading' ? setLoading : setRefreshing;
+    setFlag(true);
     try {
       const envelope = await apiClient.listParentNotifications({ page: 1, limit: 30 });
       const payload = envelope.data;
@@ -56,13 +62,18 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       // Offline parents simply keep the previous snapshot; pull-to-refresh
       // on the notifications screen retries.
     } finally {
-      setLoading(false);
+      setFlag(false);
     }
   }, []);
 
+  /** Pull-to-refresh: only the pull indicator reports progress. */
+  const refresh = useCallback(async () => {
+    await runLoad('refreshing');
+  }, [runLoad]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void runLoad('loading');
+  }, [runLoad]);
 
   useEffect(() => {
     const socket = getNotificationsSocket();
@@ -119,6 +130,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     () => ({
       state,
       loading,
+      refreshing,
       connected,
       latestEvent,
       dismissLatest,
@@ -126,7 +138,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       markRead,
       markAllRead,
     }),
-    [state, loading, connected, latestEvent, dismissLatest, refresh, markRead, markAllRead],
+    [state, loading, refreshing, connected, latestEvent, dismissLatest, refresh, markRead, markAllRead],
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

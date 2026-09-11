@@ -20,7 +20,7 @@ import { formatDateTime } from '../../src/lib/format';
  * follows the same unread count.
  */
 export default function ParentNotificationsScreen() {
-  const { state, loading, connected, markRead, markAllRead, refresh } = useParentNotifications();
+  const { state, loading, refreshing, connected, markRead, markAllRead, refresh } = useParentNotifications();
   const [search, setSearch] = useState('');
   const [readFilter, setReadFilter] = useState<'ALL' | 'UNREAD' | 'READ'>('ALL');
 
@@ -126,7 +126,7 @@ export default function ParentNotificationsScreen() {
         )
       }
       refresh={() => void refresh()}
-      refreshing={loading}
+      refreshing={refreshing}
     />
   );
 }

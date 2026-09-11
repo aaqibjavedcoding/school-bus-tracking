@@ -46,10 +46,18 @@ export interface PagedResource<T> {
   /** Clears the search box (and therefore the query) immediately. */
   clearSearch: () => void;
   loading: boolean;
+  /**
+   * True only while a user-initiated pull-to-refresh (`refresh()`) is in
+   * flight. Query-driven loads keep using `loading` — background fetches must
+   * never surface as a top-of-screen "refreshing" indicator.
+   */
+  refreshing: boolean;
   /** True between a keystroke and the debounced request being issued. */
   searching: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  /** User-initiated refresh of the current page/search (pull-to-refresh). */
+  refresh: () => Promise<void>;
   setItems: React.Dispatch<React.SetStateAction<T[]>>;
 }
 
@@ -63,6 +71,7 @@ export function usePagedResource<T>(
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const loaderRef = useRef(loader);
@@ -126,6 +135,31 @@ export function usePagedResource<T>(
     }
   }, [page, debouncedSearch, depsKey]);
 
+  /**
+   * Pull-to-refresh of the current page: identical request/guards to
+   * `reload`, but reports progress on `refreshing` and never clears the
+   * visible list while running. Errors land on `error` while the last good
+   * page stays on screen.
+   */
+  const refresh = useCallback(async () => {
+    const id = ++requestId.current;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const result = await loaderRef.current(page, debouncedSearch);
+      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      setItems(result.items);
+      setMeta(result.meta ?? EMPTY_META);
+    } catch (caught) {
+      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      setError(getApiErrorMessage(caught));
+    } finally {
+      if (mounted.current && isLatestRequest(id, requestId.current)) {
+        setRefreshing(false);
+      }
+    }
+  }, [page, debouncedSearch]);
+
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -147,9 +181,11 @@ export function usePagedResource<T>(
       activeSearch: debouncedSearch,
       clearSearch,
       loading,
+      refreshing,
       searching,
       error,
       reload,
+      refresh,
       setItems,
     }),
     [
@@ -160,9 +196,11 @@ export function usePagedResource<T>(
       debouncedSearch,
       clearSearch,
       loading,
+      refreshing,
       searching,
       error,
       reload,
+      refresh,
     ],
   );
 }

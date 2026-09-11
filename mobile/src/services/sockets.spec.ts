@@ -5,7 +5,7 @@ import {
   LIVE_TRACKING_NAMESPACE,
   NOTIFICATIONS_NAMESPACE,
 } from '@school-bus-tracking/shared-types';
-import { socketOrigin } from './api.ts';
+import { socketOrigin, registerApiEnv } from './api.ts';
 import { buildNamespaceSocketConfig } from './socket-options.ts';
 import { setAccessToken } from './session.ts';
 import {
@@ -23,6 +23,11 @@ import { disconnectEmergenciesSocket, getEmergenciesSocket } from './emergencies
  * `/notifications` gateways, the engine.io path, and the JWT bearer token
  * carried in the handshake auth bag (never a cookie, never a query string).
  */
+
+// Plain Node has no Metro dev server and no EXPO_PUBLIC_API_URL; registration
+// of a dev runtime mirrors what `api-env.ts` does at app startup (otherwise
+// resolving the API base in a release-like runtime is a configuration error).
+registerApiEnv({ dev: true, platform: null, devHost: null });
 
 describe('socketOrigin', () => {
   it('derives the socket origin from the REST base URL', () => {

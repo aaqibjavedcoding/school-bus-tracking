@@ -80,7 +80,7 @@ export default function AdminEmergenciesScreen() {
     return data.items;
   }, [filter]);
 
-  const { data, loading, error, reload } = useLoad<EmergencyEventResponse[]>(load, [load]);
+  const { data, loading, refreshing, error, reload, refresh } = useLoad<EmergencyEventResponse[]>(load, [load]);
 
   // Live feed: the gateway puts this socket in the school's room from the
   // verified JWT, so a new SOS or a status change arrives without polling.
@@ -222,8 +222,8 @@ export default function AdminEmergenciesScreen() {
             />
           )
         }
-        refresh={() => void reload()}
-        refreshing={loading}
+        refresh={() => void refresh()}
+        refreshing={refreshing}
       />
 
       {/**

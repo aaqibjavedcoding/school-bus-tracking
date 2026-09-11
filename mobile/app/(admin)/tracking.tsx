@@ -36,7 +36,7 @@ export default function AdminTrackingScreen() {
   const [selectedId, setSelectedId] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     trips: TripResponse[];
   }> => {
     const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() });
@@ -74,7 +74,7 @@ export default function AdminTrackingScreen() {
 
   if (data.trips.length === 0) {
     return (
-      <Screen refresh={() => void reload()} refreshing={loading}>
+      <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <EmptyState
           title="No trips to track"
           description="When a trip is scheduled for today it will appear here to follow live."
@@ -94,7 +94,7 @@ export default function AdminTrackingScreen() {
   }));
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <FilterChips<TripStatus | 'ALL'>
         options={[
           { value: 'ALL', label: `All · ${data.trips.length}` },

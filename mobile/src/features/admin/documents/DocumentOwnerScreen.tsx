@@ -86,7 +86,7 @@ export const DocumentOwnerScreen: React.FC<DocumentOwnerScreenProps> = ({ ownerT
     };
   }, [isBus, ownerId]);
 
-  const { data, loading, error, reload } = useLoad(load, [load]);
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(load, [load]);
 
   const startCreate = () => {
     setEditing(null);
@@ -179,7 +179,7 @@ export const DocumentOwnerScreen: React.FC<DocumentOwnerScreenProps> = ({ ownerT
 
   return (
     <View style={styles.flex}>
-      <Screen refresh={() => void reload()} refreshing={loading} extraBottomSpace={88}>
+      <Screen refresh={() => void refresh()} refreshing={refreshing} extraBottomSpace={88}>
         {data.compliance.owner_label ? (
           <Text style={styles.owner}>{data.compliance.owner_label}</Text>
         ) : null}

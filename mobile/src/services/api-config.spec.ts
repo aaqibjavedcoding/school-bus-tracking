@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { resolveApiBaseUrl, type ApiEnv } from './api.ts';
+import { ApiConfigurationError, resolveApiBaseUrl, type ApiEnv } from './api.ts';
 
 /**
  * Pins the API base-URL resolution: env override wins, then the Metro
@@ -57,12 +57,51 @@ describe('resolveApiBaseUrl', () => {
     );
   });
 
-  it('falls back to localhost on iOS simulator, web and non-dev runtimes', () => {
+  it('falls back to localhost only on dev runtimes (iOS simulator, web)', () => {
     assert.equal(resolveApiBaseUrl(env({ devHost: 'localhost:8081' })), 'http://localhost:3001/api/v1');
-    assert.equal(
-      resolveApiBaseUrl(env({ devHost: '192.168.1.20:8081', dev: false })),
-      'http://localhost:3001/api/v1',
+  });
+
+  it('never falls back to localhost in a release build: missing URL is a configuration error', () => {
+    assert.throws(
+      () => resolveApiBaseUrl(env({ devHost: '192.168.1.20:8081', dev: false })),
+      (error: unknown) =>
+        error instanceof ApiConfigurationError &&
+        /EXPO_PUBLIC_API_URL/.test((error as Error).message),
     );
-    assert.equal(resolveApiBaseUrl({ dev: false, platform: null, devHost: null }), 'http://localhost:3001/api/v1');
+    assert.throws(
+      () => resolveApiBaseUrl({ dev: false, platform: null, devHost: null }),
+      (error: unknown) => error instanceof ApiConfigurationError,
+    );
+  });
+
+  it('rejects a loopback EXPO_PUBLIC_API_URL in a release build', () => {
+    process.env.EXPO_PUBLIC_API_URL = 'http://localhost:3001/api/v1';
+    assert.throws(
+      () => resolveApiBaseUrl({ dev: false, platform: 'android', devHost: null }),
+      (error: unknown) =>
+        error instanceof ApiConfigurationError && /localhost/.test((error as Error).message),
+    );
+    process.env.EXPO_PUBLIC_API_URL = 'http://127.0.0.1:3001/api/v1';
+    assert.throws(
+      () => resolveApiBaseUrl({ dev: false, platform: 'android', devHost: null }),
+      (error: unknown) => error instanceof ApiConfigurationError,
+    );
+  });
+
+  it('accepts a real EXPO_PUBLIC_API_URL in a release build', () => {
+    process.env.EXPO_PUBLIC_API_URL = 'https://api.example.com/api/v1';
+    assert.equal(
+      resolveApiBaseUrl({ dev: false, platform: 'android', devHost: null }),
+      'https://api.example.com/api/v1',
+    );
+  });
+
+  it('treats an empty EXPO_PUBLIC_API_URL as missing', () => {
+    process.env.EXPO_PUBLIC_API_URL = '   ';
+    assert.throws(
+      () => resolveApiBaseUrl({ dev: false, platform: 'android', devHost: null }),
+      (error: unknown) => error instanceof ApiConfigurationError,
+    );
+    assert.equal(resolveApiBaseUrl(env()), 'http://localhost:3001/api/v1');
   });
 });

@@ -37,7 +37,7 @@ export default function ParentChildDetailScreen() {
   // children *list* endpoint, whose payload would crash this screen below.
   const usableId = isUuid(childId);
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     detail: ParentChildDetailResponse;
     today: ParentChildTodayResponse | null;
   }> => {
@@ -78,7 +78,7 @@ export default function ParentChildDetailScreen() {
   };
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       {/* Detail routes hidden from the tab bar get no automatic back button
           (the group is a tab navigator, not a stack) — offer one explicitly. */}
       <Pressable

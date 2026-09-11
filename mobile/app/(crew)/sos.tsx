@@ -20,7 +20,7 @@ import { EmptyState, ErrorState, LoadingView, Screen } from '../../src/component
  */
 export default function CrewSosScreen() {
   const { user } = useAuth();
-  const { data, loading, error, reload } = useCrewToday();
+  const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
   const trip = data?.trip ?? null;
   const role = user ? crewRoleLabel(user.role) : 'Crew';
 
@@ -36,7 +36,7 @@ export default function CrewSosScreen() {
   }
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <Text style={styles.role}>{role} emergency</Text>
       {trip ? (
         <View style={styles.context}>

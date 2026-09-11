@@ -40,7 +40,7 @@ import { crewRoleLabel } from '../../src/lib/roles';
 export default function CrewTripScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { data, loading, error, reload } = useCrewToday();
+  const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
   const trip = data?.trip ?? null;
   const sharing = useCrewLocationSharing(trip);
   const live = useLiveTripTracking(trip?.id ?? null);
@@ -66,7 +66,7 @@ export default function CrewTripScreen() {
   }
   if (!trip) {
     return (
-      <Screen refresh={() => void reload()} refreshing={loading}>
+      <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <EmptyState
           title="No trip scheduled today"
           description="You have no runs assigned for today. Trips appear here as soon as the school dispatches them."
@@ -79,7 +79,7 @@ export default function CrewTripScreen() {
   const bus = data.bus;
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <SectionTitle>Today's trip</SectionTitle>
 
       <Card title={route ? `${route.code} · ${route.name}` : 'Route details'}>

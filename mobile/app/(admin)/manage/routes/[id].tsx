@@ -59,7 +59,7 @@ export default function ManageRouteStopsScreen() {
   const routeId = typeof id === 'string' ? id : '';
   const usableId = isUuid(routeId);
 
-  const { data, loading, error, reload, setData } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh, setData } = useLoad(async (): Promise<{
     route: RouteResponse;
     stops: StopResponse[];
   }> => {
@@ -300,7 +300,7 @@ export default function ManageRouteStopsScreen() {
           />
         }
         refresh={() => void reload()}
-        refreshing={loading}
+        refreshing={refreshing}
         extraBottomSpace={72}
       />
 

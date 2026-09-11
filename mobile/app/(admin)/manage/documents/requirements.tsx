@@ -118,7 +118,7 @@ export default function DocumentRequirementsScreen() {
   }
 
   return (
-    <Screen refresh={() => void load.reload()} refreshing={load.loading}>
+    <Screen refresh={() => void load.refresh()} refreshing={load.refreshing}>
       <SegmentedControl<OwnerTab> value={ownerType} onChange={setOwnerType} options={OWNER_TABS} />
 
       <Card

@@ -46,7 +46,7 @@ export default function AdminTripDetailScreen() {
   const usableId = isUuid(tripId);
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
 
-  const { data, loading, error, reload } = useLoad(async (): Promise<{
+  const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     trip: TripResponse;
     route: RouteResponse | null;
     stops: StopResponse[];
@@ -110,7 +110,7 @@ export default function AdminTripDetailScreen() {
   }
 
   return (
-    <Screen refresh={() => void reload()} refreshing={loading}>
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
       {/* Detail routes hidden from the tab bar get no automatic back button
           (the group is a tab navigator, not a stack) — offer one explicitly. */}
       <Pressable
