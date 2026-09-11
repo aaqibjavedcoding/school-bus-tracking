@@ -41,11 +41,6 @@ import {
   TRIP_NOT_FOUND_MESSAGE,
   TRIP_QUERY_DATE_RANGE_MESSAGE,
   TRIP_ROUTE_INVALID_MESSAGE,
-  TRIPS_BUSES_REPOSITORY,
-  TRIPS_REPOSITORY,
-  TRIPS_ROUTE_ASSIGNMENTS_REPOSITORY,
-  TRIPS_ROUTES_REPOSITORY,
-  TRIPS_USERS_REPOSITORY,
 } from './trips.constants';
 import { CancelTripDto } from './dto/cancel-trip.dto';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -464,7 +459,10 @@ export class TripsService {
     const push = this.notifications as Partial<
       Pick<NotificationsService, 'pushToUsers' | 'resolveCrewUserIdsForTrip'>
     >;
-    if (typeof push.pushToUsers !== 'function' || typeof push.resolveCrewUserIdsForTrip !== 'function') {
+    if (
+      typeof push.pushToUsers !== 'function' ||
+      typeof push.resolveCrewUserIdsForTrip !== 'function'
+    ) {
       return;
     }
     try {
@@ -943,7 +941,10 @@ export class TripsService {
       this.users.findAll({
         where: {
           school_id: schoolId,
-          [Op.or]: [{ first_name: { [Op.iLike]: pattern } }, { last_name: { [Op.iLike]: pattern } }],
+          [Op.or]: [
+            { first_name: { [Op.iLike]: pattern } },
+            { last_name: { [Op.iLike]: pattern } },
+          ],
         },
         attributes: ['id'],
       }),

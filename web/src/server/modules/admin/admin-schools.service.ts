@@ -33,16 +33,7 @@ import { SchoolsService } from '../schools/schools.service';
 import { AdminSubscriptionsService } from './admin-subscriptions.service';
 import { NO_SUBSCRIPTION_INFO } from './admin-subscriptions.constants';
 import {
-  ADMIN_ASSIGNMENTS_REPOSITORY,
-  ADMIN_BUSES_REPOSITORY,
-  ADMIN_REFRESH_TOKENS_REPOSITORY,
-  ADMIN_ROUTES_REPOSITORY,
   ADMIN_SCHOOL_CODE_TAKEN_MESSAGE,
-  ADMIN_SCHOOLS_REPOSITORY,
-  ADMIN_STOPS_REPOSITORY,
-  ADMIN_STUDENTS_REPOSITORY,
-  ADMIN_TRIPS_REPOSITORY,
-  ADMIN_USERS_REPOSITORY,
   SCHOOL_ACTIVATED_MESSAGE,
   SCHOOL_DEACTIVATED_MESSAGE,
   SCHOOL_NOT_FOUND_MESSAGE,
@@ -429,92 +420,89 @@ export class AdminSchoolsService {
 
   /** Full tenant statistics for the details page — grouped aggregates only. */
   private async collectSchoolStats(schoolId: string): Promise<AdminSchoolStats> {
-    const [
-      userRows,
-      studentRows,
-      busRows,
-      routeRows,
-      tripRows,
-      stopRows,
-      assignmentRows,
-      runRows,
-    ] = await Promise.all([
-      this.users.findAll({
-        attributes: [
-          'role',
-          'is_active',
-          [this.users.sequelize!.fn('COUNT', this.users.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['role', 'is_active'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      this.students.findAll({
-        attributes: [
-          'is_active',
-          [this.students.sequelize!.fn('COUNT', this.students.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['is_active'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      this.buses.findAll({
-        attributes: [
-          'is_active',
-          [this.buses.sequelize!.fn('COUNT', this.buses.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['is_active'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      this.routes.findAll({
-        attributes: [
-          'is_active',
-          [this.routes.sequelize!.fn('COUNT', this.routes.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['is_active'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      this.trips.findAll({
-        attributes: [
-          'status',
-          [this.trips.sequelize!.fn('COUNT', this.trips.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['status'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      // Stops and route assignments complete the resource overview of the
-      // School 360 view. Both are plain grouped counts scoped to this tenant.
-      this.stops.findAll({
-        attributes: [[this.stops.sequelize!.fn('COUNT', this.stops.sequelize!.col('id')), 'count']],
-        where: { school_id: schoolId },
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      this.assignments.findAll({
-        attributes: [
-          'is_active',
-          [this.assignments.sequelize!.fn('COUNT', this.assignments.sequelize!.col('id')), 'count'],
-        ],
-        where: { school_id: schoolId },
-        group: ['is_active'],
-        raw: true,
-      }) as unknown as Promise<GroupCount[]>,
-      // Runs are a plan-limited resource (`docs/operating-model.md` §9); the
-      // School 360 usage table needs the real count, not a placeholder 0.
-      this.runs
-        ? (this.runs.findAll({
-            attributes: [
-              'is_active',
-              [this.runs.sequelize!.fn('COUNT', this.runs.sequelize!.col('id')), 'count'],
+    const [userRows, studentRows, busRows, routeRows, tripRows, stopRows, assignmentRows, runRows] =
+      await Promise.all([
+        this.users.findAll({
+          attributes: [
+            'role',
+            'is_active',
+            [this.users.sequelize!.fn('COUNT', this.users.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          group: ['role', 'is_active'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        this.students.findAll({
+          attributes: [
+            'is_active',
+            [this.students.sequelize!.fn('COUNT', this.students.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          group: ['is_active'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        this.buses.findAll({
+          attributes: [
+            'is_active',
+            [this.buses.sequelize!.fn('COUNT', this.buses.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          group: ['is_active'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        this.routes.findAll({
+          attributes: [
+            'is_active',
+            [this.routes.sequelize!.fn('COUNT', this.routes.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          group: ['is_active'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        this.trips.findAll({
+          attributes: [
+            'status',
+            [this.trips.sequelize!.fn('COUNT', this.trips.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          group: ['status'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        // Stops and route assignments complete the resource overview of the
+        // School 360 view. Both are plain grouped counts scoped to this tenant.
+        this.stops.findAll({
+          attributes: [
+            [this.stops.sequelize!.fn('COUNT', this.stops.sequelize!.col('id')), 'count'],
+          ],
+          where: { school_id: schoolId },
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        this.assignments.findAll({
+          attributes: [
+            'is_active',
+            [
+              this.assignments.sequelize!.fn('COUNT', this.assignments.sequelize!.col('id')),
+              'count',
             ],
-            where: { school_id: schoolId },
-            group: ['is_active'],
-            raw: true,
-          }) as unknown as Promise<GroupCount[]>)
-        : Promise.resolve([] as GroupCount[]),
-    ]);
+          ],
+          where: { school_id: schoolId },
+          group: ['is_active'],
+          raw: true,
+        }) as unknown as Promise<GroupCount[]>,
+        // Runs are a plan-limited resource (`docs/operating-model.md` §9); the
+        // School 360 usage table needs the real count, not a placeholder 0.
+        this.runs
+          ? (this.runs.findAll({
+              attributes: [
+                'is_active',
+                [this.runs.sequelize!.fn('COUNT', this.runs.sequelize!.col('id')), 'count'],
+              ],
+              where: { school_id: schoolId },
+              group: ['is_active'],
+              raw: true,
+            }) as unknown as Promise<GroupCount[]>)
+          : Promise.resolve([] as GroupCount[]),
+      ]);
 
     const stats: AdminSchoolStats = {
       admin_count: 0,

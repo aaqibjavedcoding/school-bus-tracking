@@ -20,7 +20,6 @@ import {
   RUN_CREW_DUPLICATE_MESSAGE,
   RUN_CREW_INACTIVE_RESOURCE_MESSAGE,
   RUN_CREW_NOT_FOUND_MESSAGE,
-  RUN_CREW_ROLE_CONFLICT_MESSAGE,
   RUN_CREW_ROLE_INVALID_MESSAGE,
   RUN_CREW_ROLE_MISMATCH_MESSAGE,
   RUN_CREW_USER_INVALID_MESSAGE,
@@ -88,7 +87,14 @@ export class RunCrewService {
         throw new NotFoundException(RUN_NOT_FOUND_MESSAGE);
       }
       const values = this.normalizedCreateValues(run.id, dto);
-      await this.assertRelatedResources(schoolId, run, values.user_id, values.role, values.is_active, options);
+      await this.assertRelatedResources(
+        schoolId,
+        run,
+        values.user_id,
+        values.role,
+        values.is_active,
+        options,
+      );
       await this.assertNoConflicts(schoolId, run, values, undefined, options);
 
       try {
@@ -177,7 +183,14 @@ export class RunCrewService {
         throw new NotFoundException(RUN_NOT_FOUND_MESSAGE);
       }
       const values = this.normalizedUpdateValues(row, dto);
-      await this.assertRelatedResources(schoolId, run, values.user_id, values.role, values.is_active, options);
+      await this.assertRelatedResources(
+        schoolId,
+        run,
+        values.user_id,
+        values.role,
+        values.is_active,
+        options,
+      );
       await this.assertNoConflicts(schoolId, run, values, id, options);
 
       try {

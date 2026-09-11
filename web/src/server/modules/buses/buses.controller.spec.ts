@@ -14,6 +14,7 @@ import {
   postBuses,
 } from '../../api/buses';
 import { BusesService } from './buses.service';
+import { overrideContainer } from '../../container';
 import { CreateBusDto } from './dto/create-bus.dto';
 import { ListBusesQueryDto } from './dto/list-buses-query.dto';
 import { UpdateBusDto } from './dto/update-bus.dto';
@@ -191,8 +192,6 @@ describe('Buses endpoints (authorization)', () => {
 });
 
 function overrideBuses(service: BusesService): () => void {
-  // Imported lazily so the container is only touched by the tests that stub it.
-  const { overrideContainer } = require('../../container') as typeof import('../../container');
   return overrideContainer('buses', service);
 }
 

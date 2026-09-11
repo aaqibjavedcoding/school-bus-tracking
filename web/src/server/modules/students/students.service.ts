@@ -31,12 +31,6 @@ import {
   STUDENT_RUN_INVALID_MESSAGE,
   STUDENT_RUN_INACTIVE_MESSAGE,
   STUDENT_RUN_ROUTE_MISMATCH_MESSAGE,
-  STUDENTS_BUSES_REPOSITORY,
-  STUDENTS_GUARDIANS_REPOSITORY,
-  STUDENTS_REPOSITORY,
-  STUDENTS_ROUTE_ASSIGNMENTS_REPOSITORY,
-  STUDENTS_ROUTES_REPOSITORY,
-  STUDENTS_STOPS_REPOSITORY,
 } from './students.constants';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
@@ -450,10 +444,12 @@ export class StudentsService {
     const runById = new Map(runs.map((run) => [run.id, run]));
 
     const busIds = [
-      ...new Set([
-        ...assignments.map((assignment) => assignment.bus_id),
-        ...runs.map((run) => run.bus_id),
-      ].filter(isId)),
+      ...new Set(
+        [
+          ...assignments.map((assignment) => assignment.bus_id),
+          ...runs.map((run) => run.bus_id),
+        ].filter(isId),
+      ),
     ];
     const buses = busIds.length
       ? await this.buses.findAll({

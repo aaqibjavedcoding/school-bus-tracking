@@ -6,12 +6,9 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, ServiceUnavailableException, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, ServiceUnavailableException } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
-import { HealthService } from '../modules/health/health.service';
-import type { HealthResponse, ReadinessResponse } from '@school-bus-tracking/shared-types';
-
 /** `GET /api/v1/health` */
 export const getHealth: EndpointDefinition = {
   // Liveness probes (load balancers, container orchestrators, uptime monitors)

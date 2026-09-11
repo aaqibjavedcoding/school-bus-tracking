@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -16,7 +15,6 @@ import {
   deleteRoutesById,
   getRoutes,
   getRoutesById,
-  getRoutesByIdDetails,
   getRoutesByIdStops,
   patchRoutesById,
   postRoutes,
@@ -165,14 +163,21 @@ describe('RoutesController (authorization)', () => {
     } as unknown as RoutesService;
     const restore = overrideContainer('routes', service);
     try {
-
       await callHandler(postRoutes, { user: ADMIN_USER, body: new CreateRouteDto() });
       await callHandler(getRoutes, { user: ADMIN_USER, query: makeQuery() });
       await callHandler(getRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
-      await callHandler(patchRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new UpdateRouteDto() });
+      await callHandler(patchRoutesById, {
+        user: ADMIN_USER,
+        params: { id: ROUTE_ID },
+        body: new UpdateRouteDto(),
+      });
       await callHandler(deleteRoutesById, { user: ADMIN_USER, params: { id: ROUTE_ID } });
       await callHandler(getRoutesByIdStops, { user: ADMIN_USER, params: { id: ROUTE_ID } });
-      await callHandler(putRoutesByIdStops, { user: ADMIN_USER, params: { id: ROUTE_ID }, body: new ReorderRouteStopsDto() });
+      await callHandler(putRoutesByIdStops, {
+        user: ADMIN_USER,
+        params: { id: ROUTE_ID },
+        body: new ReorderRouteStopsDto(),
+      });
     } finally {
       restore();
     }
@@ -194,7 +199,6 @@ describe('RoutesController (authorization)', () => {
     } as unknown as RoutesService;
     const restore = overrideContainer('routes', service);
     try {
-
       const dto = new CreateRouteDto();
       dto.name = 'North Loop';
       dto.code = 'NORTH-AM';

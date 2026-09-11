@@ -37,15 +37,8 @@ import { IDEMPOTENCY_ENDPOINTS } from '../../common/idempotency/idempotency.cons
 import { StopArrivalsService } from '../eta/stop-arrivals.service';
 import {
   DEFAULT_HISTORY_LIMIT,
-  LIVE_TRACKING_ASSIGNMENTS_REPOSITORY,
-  LIVE_TRACKING_CONFIG,
-  LIVE_TRACKING_GUARDIANS_REPOSITORY,
   LIVE_TRACKING_NO_LOCATION_MESSAGE,
-  LIVE_TRACKING_REPOSITORY,
-  LIVE_TRACKING_STOPS_REPOSITORY,
-  LIVE_TRACKING_STUDENTS_REPOSITORY,
   LIVE_TRACKING_TRIP_NOT_FOUND_MESSAGE,
-  LIVE_TRACKING_TRIPS_REPOSITORY,
 } from './live-tracking.constants';
 
 /** Environment-backed tuning of the tracking pipeline (see `config/`). */

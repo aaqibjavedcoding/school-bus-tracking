@@ -20,15 +20,12 @@ import {
 import { SCHOOL_INACTIVE_MESSAGE, SchoolAccessService } from '../../common/access';
 import { RefreshToken, School, User } from '../../database/models';
 import {
-  AUTH_SCHOOLS_REPOSITORY,
   DEFAULT_REFRESH_COOKIE_NAME,
   EXPIRED_REFRESH_TOKEN_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
   INVALID_REFRESH_TOKEN_MESSAGE,
   LOGOUT_SUCCESS_MESSAGE,
-  REFRESH_TOKENS_REPOSITORY,
   REVOKED_REFRESH_TOKEN_MESSAGE,
-  USERS_REPOSITORY,
 } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 

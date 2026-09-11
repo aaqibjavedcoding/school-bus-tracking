@@ -18,11 +18,6 @@ import {
   BUS_NOT_FOUND_MESSAGE,
   BUS_NUMBER_TAKEN_MESSAGE,
   BUS_REGISTRATION_NUMBER_TAKEN_MESSAGE,
-  BUSES_REPOSITORY,
-  BUSES_ROUTE_ASSIGNMENTS_REPOSITORY,
-  BUSES_ROUTES_REPOSITORY,
-  BUSES_TRIPS_REPOSITORY,
-  BUSES_USERS_REPOSITORY,
 } from './buses.constants';
 import { CreateBusDto } from './dto/create-bus.dto';
 import { ListBusesQueryDto } from './dto/list-buses-query.dto';
@@ -66,34 +61,38 @@ export class BusesService {
   async create(schoolId: string, dto: CreateBusDto): Promise<BusResponse> {
     // The quota check and the INSERT share one transaction + advisory lock so
     // two concurrent creates cannot both consume the last slot.
-    return this.planLimits.runWithinLimit(schoolId, PlanLimitResource.BUSES, async (transaction) => {
-      const registrationNumber = dto.registration_number.trim();
-      const busNumber = nullableTrim(dto.bus_number);
+    return this.planLimits.runWithinLimit(
+      schoolId,
+      PlanLimitResource.BUSES,
+      async (transaction) => {
+        const registrationNumber = dto.registration_number.trim();
+        const busNumber = nullableTrim(dto.bus_number);
 
-      await this.assertRegistrationNumberFree(schoolId, registrationNumber);
-      if (busNumber) {
-        await this.assertBusNumberFree(schoolId, busNumber);
-      }
-
-      try {
-        const bus = await this.buses.create(
-          {
-            school_id: schoolId,
-            registration_number: registrationNumber,
-            bus_number: busNumber,
-            capacity: dto.capacity,
-            is_active: dto.is_active ?? true,
-          },
-          transaction ? { transaction } : {},
-        );
-        return this.toBusResponse(bus);
-      } catch (error) {
-        if (error instanceof UniqueConstraintError) {
-          throw new ConflictException(this.uniqueConflictMessage(error));
+        await this.assertRegistrationNumberFree(schoolId, registrationNumber);
+        if (busNumber) {
+          await this.assertBusNumberFree(schoolId, busNumber);
         }
-        throw error;
-      }
-    });
+
+        try {
+          const bus = await this.buses.create(
+            {
+              school_id: schoolId,
+              registration_number: registrationNumber,
+              bus_number: busNumber,
+              capacity: dto.capacity,
+              is_active: dto.is_active ?? true,
+            },
+            transaction ? { transaction } : {},
+          );
+          return this.toBusResponse(bus);
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) {
+            throw new ConflictException(this.uniqueConflictMessage(error));
+          }
+          throw error;
+        }
+      },
+    );
   }
 
   /**
@@ -310,7 +309,11 @@ export class BusesService {
         order: [['effective_from', 'ASC']],
       }),
       this.trips.findAll({
-        where: { school_id: schoolId, bus_id: { [Op.in]: busIds }, scheduled_start_at: todayRange() },
+        where: {
+          school_id: schoolId,
+          bus_id: { [Op.in]: busIds },
+          scheduled_start_at: todayRange(),
+        },
         order: [['scheduled_start_at', 'ASC']],
       }),
     ]);

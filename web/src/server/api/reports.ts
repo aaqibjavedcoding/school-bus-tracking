@@ -6,15 +6,13 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, validateDto } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { bufferFileResponse } from '../http/file-response';
 import { DataFileFormat, UserRole } from '@school-bus-tracking/shared-types';
 import { sanitizeFileName } from '../modules/data-transfer/excel/excel.util';
 import { ReportParamDto, ReportQueryDto } from '../modules/reports/dto/report-query.dto';
-import { ReportsService } from '../modules/reports/reports.service';
-
 /** `GET /api/v1/reports` */
 export const getReports: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],
@@ -45,7 +43,8 @@ export const getReportsByReport: EndpointDefinition<unknown, ReportQueryDto> = {
     const schoolId = user.school_id as string;
     const routeParams = await validateDto(ReportParamDto, params, 'param');
     return container().reports().run(schoolId, routeParams.report, query);
-  },};
+  },
+};
 
 /**
  * `GET /api/v1/reports/:report/export`
@@ -71,4 +70,5 @@ export const getReportsByReportExport: EndpointDefinition<unknown, ReportQueryDt
     const format = typedQuery.format ?? DataFileFormat.XLSX;
     const safeName = sanitizeFileName(file.fileName, `report.${format}`);
     return bufferFileResponse(file.buffer, safeName, format);
-  },};
+  },
+};

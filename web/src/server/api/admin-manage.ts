@@ -21,8 +21,14 @@ import type { ManagedSchoolContext } from '../modules/admin/manage/admin-manage.
 import type { AssistedManagementSession } from '../database/models';
 import { ReportQueryDto } from '../modules/reports/dto/report-query.dto';
 import { ImportTemplateQueryDto, ImportUploadDto } from '../modules/data-transfer/dto/import.dto';
-import { DataFileFormat, EXPORT_DATASET_LABELS, EXPORT_DATASET_VALUES, ImportMode, ImportModule, StaffRole, UserRole } from '@school-bus-tracking/shared-types';
-import { RouteAssignmentsService } from '../modules/assignments/assignments.service';
+import {
+  DataFileFormat,
+  EXPORT_DATASET_LABELS,
+  EXPORT_DATASET_VALUES,
+  ImportMode,
+  ImportModule,
+  UserRole,
+} from '@school-bus-tracking/shared-types';
 import { ListRouteAssignmentsQueryDto } from '../modules/assignments/dto/list-route-assignments-query.dto';
 import type { DeprecationDeclaration } from '../http/deprecation';
 import {
@@ -44,47 +50,49 @@ const routeAssignmentsDeprecation: DeprecationDeclaration = {
   retiredWrite: true,
   retiredMessage: ROUTE_ASSIGNMENTS_RETIRED_WRITE_MESSAGE,
 };
-import { AssistedMutationAuditInterceptor } from '../modules/admin/manage/assisted-mutation-audit.interceptor';
 import { MANAGED_SCHOOL_PARAM } from '../modules/admin/manage/admin-manage.constants';
-import { ManagedSchoolGuard } from '../modules/admin/manage/managed-school.guard';
-import { BusesService } from '../modules/buses/buses.service';
 import { CreateBusDto } from '../modules/buses/dto/create-bus.dto';
 import { ListBusesQueryDto } from '../modules/buses/dto/list-buses-query.dto';
 import { UpdateBusDto } from '../modules/buses/dto/update-bus.dto';
-import { IMPORT_ALLOWED_EXTENSIONS, IMPORT_ALLOWED_MIME_TYPES, MAX_IMPORT_FILE_BYTES, sanitizeFileName } from '../modules/data-transfer/excel/excel.util';
+import {
+  IMPORT_ALLOWED_EXTENSIONS,
+  IMPORT_ALLOWED_MIME_TYPES,
+  MAX_IMPORT_FILE_BYTES,
+  sanitizeFileName,
+} from '../modules/data-transfer/excel/excel.util';
 import { ExportQueryDto } from '../modules/data-transfer/dto/export.dto';
-import { AdminManageExportDatasetParamDto, AdminManageImportModuleParamDto, AdminManageReportParamDto } from '../modules/admin/manage/admin-manage.dto';
-import { ExportService } from '../modules/data-transfer/export/export.service';
-import { AssistedSessionService } from '../modules/admin/manage/assisted-session.service';
-import { AUDIT_ACTIONS, AUDIT_CONTEXT_ASSISTED_MANAGEMENT, AUDIT_ENTITY_TYPES, AuditService } from '../modules/audit';
-import { IMPORT_FILE_REQUIRED_MESSAGE, IMPORT_FILE_TOO_LARGE_MESSAGE, IMPORT_FILE_TYPE_MESSAGE } from '../modules/data-transfer/data-transfer.constants';
+import {
+  AdminManageExportDatasetParamDto,
+  AdminManageImportModuleParamDto,
+  AdminManageReportParamDto,
+} from '../modules/admin/manage/admin-manage.dto';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+  AUDIT_ENTITY_TYPES,
+} from '../modules/audit';
+import {
+  IMPORT_FILE_REQUIRED_MESSAGE,
+  IMPORT_FILE_TOO_LARGE_MESSAGE,
+  IMPORT_FILE_TYPE_MESSAGE,
+} from '../modules/data-transfer/data-transfer.constants';
 import { ListImportJobsQueryDto } from '../modules/data-transfer/dto/import.dto';
-import { ImportHistoryService } from '../modules/data-transfer/import/import-history.service';
-import { ImportTemplateService } from '../modules/data-transfer/import/import-template.service';
-import { ImportService } from '../modules/data-transfer/import/import.service';
-import { ParentGuardiansService } from '../modules/parents/parent-guardians.service';
-import { ParentsService } from '../modules/parents/parents.service';
 import { CreateParentDto } from '../modules/parents/dto/create-parent.dto';
 import { CreateParentStudentRelationshipDto } from '../modules/parents/dto/create-parent-student-relationship.dto';
 import { ListParentsQueryDto } from '../modules/parents/dto/list-parents-query.dto';
 import { UpdateParentDto } from '../modules/parents/dto/update-parent.dto';
 import { UpdateParentStudentRelationshipDto } from '../modules/parents/dto/update-parent-student-relationship.dto';
-import { ReportsService } from '../modules/reports/reports.service';
-import { RoutesService } from '../modules/routes/routes.service';
 import { CreateRouteDto } from '../modules/routes/dto/create-route.dto';
 import { ListRoutesQueryDto } from '../modules/routes/dto/list-routes-query.dto';
 import { ReorderRouteStopsDto } from '../modules/routes/dto/reorder-route-stops.dto';
 import { UpdateRouteDto } from '../modules/routes/dto/update-route.dto';
-import { StaffService } from '../modules/staff/staff.service';
 import { CreateStaffDto } from '../modules/staff/dto/create-staff.dto';
 import { ListStaffQueryDto } from '../modules/staff/dto/list-staff-query.dto';
 import { UpdateStaffDto } from '../modules/staff/dto/update-staff.dto';
-import { StopsService } from '../modules/stops/stops.service';
 import { CreateStopDto } from '../modules/stops/dto/create-stop.dto';
 import { ListStopsQueryDto } from '../modules/stops/dto/list-stops-query.dto';
 import { UpdateStopDto } from '../modules/stops/dto/update-stop.dto';
 import { CreateStudentGuardianDto } from '../modules/parents/dto/create-student-guardian.dto';
-import { StudentsService } from '../modules/students/students.service';
 import { CreateStudentDto } from '../modules/students/dto/create-student.dto';
 import { ListStudentsQueryDto } from '../modules/students/dto/list-students-query.dto';
 import { UpdateStudentDto } from '../modules/students/dto/update-student.dto';
@@ -110,7 +118,10 @@ export const postAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinitio
 };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments` — readable mirror. */
-export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<unknown, ListRouteAssignmentsQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition<
+  unknown,
+  ListRouteAssignmentsQueryDto
+> = {
   deprecation: routeAssignmentsDeprecation,
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
@@ -119,7 +130,8 @@ export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().routeAssignments().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/route-assignments/:id` */
 export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefinition = {
@@ -178,7 +190,10 @@ export const postAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<CreateSh
 };
 
 /** `GET /admin/.../manage/shifts` */
-export const getAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<unknown, ListShiftsQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<
+  unknown,
+  ListShiftsQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -296,7 +311,10 @@ export const deleteAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition = {
  * mutated by id under `/manage/run-crew/:id` below, mirroring the tenant
  * surface (no new nested endpoints).
  */
-export const getAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<unknown, ListRunCrewQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<
+  unknown,
+  ListRunCrewQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -368,19 +386,22 @@ export const postAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<CreateBus
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().buses().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/buses` */
-export const getAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<unknown, ListBusesQueryDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  rateLimit: 'read_heavy',
-  status: HttpStatus.OK,
-  queryType: ListBusesQueryDto,
-  handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    return container().buses().findAll(schoolId, query);
-  },};
+export const getAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<unknown, ListBusesQueryDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    rateLimit: 'read_heavy',
+    status: HttpStatus.OK,
+    queryType: ListBusesQueryDto,
+    handler: async ({ query, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      return container().buses().findAll(schoolId, query);
+    },
+  };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/buses/:busId` */
 export const getAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
@@ -405,7 +426,8 @@ export const patchAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition<Upda
     const id = parseUuidParam(params['busId']);
     const dto = body;
     return container().buses().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/buses/:busId` */
 export const deleteAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
@@ -426,10 +448,10 @@ export const getAdminSchoolsBySchoolIdManageExports: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async () => {
     return {
-    items: EXPORT_DATASET_VALUES.map((dataset) => ({
-    dataset,
-    label: EXPORT_DATASET_LABELS[dataset],
-    })),
+      items: EXPORT_DATASET_VALUES.map((dataset) => ({
+        dataset,
+        label: EXPORT_DATASET_LABELS[dataset],
+      })),
     };
   },
 };
@@ -445,7 +467,10 @@ export const getAdminSchoolsBySchoolIdManageImportsModules: EndpointDefinition =
 };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/imports/history` */
-export const getAdminSchoolsBySchoolIdManageImportsHistory: EndpointDefinition<unknown, ListImportJobsQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageImportsHistory: EndpointDefinition<
+  unknown,
+  ListImportJobsQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -454,7 +479,8 @@ export const getAdminSchoolsBySchoolIdManageImportsHistory: EndpointDefinition<u
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().importHistory().list(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/imports/history/:id` */
 export const getAdminSchoolsBySchoolIdManageImportsHistoryById: EndpointDefinition = {
@@ -478,10 +504,14 @@ export const postAdminSchoolsBySchoolIdManageParents: EndpointDefinition<CreateP
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().parents().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/parents` */
-export const getAdminSchoolsBySchoolIdManageParents: EndpointDefinition<unknown, ListParentsQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageParents: EndpointDefinition<
+  unknown,
+  ListParentsQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -490,7 +520,8 @@ export const getAdminSchoolsBySchoolIdManageParents: EndpointDefinition<unknown,
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().parents().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/parents/:parentId` */
 export const getAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinition = {
@@ -505,17 +536,19 @@ export const getAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinitio
 };
 
 /** `PATCH /api/v1/admin/schools/:schoolId/manage/parents/:parentId` */
-export const patchAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinition<UpdateParentDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: UpdateParentDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
-    const dto = body;
-    return container().parents().update(schoolId, parentId, dto);
-  },};
+export const patchAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinition<UpdateParentDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    bodyType: UpdateParentDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const parentId = parseUuidParam(params['parentId']);
+      const dto = body;
+      return container().parents().update(schoolId, parentId, dto);
+    },
+  };
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/parents/:parentId` */
 export const deleteAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinition = {
@@ -530,17 +563,19 @@ export const deleteAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefini
 };
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/parents/:parentId/students` */
-export const postAdminSchoolsBySchoolIdManageParentsByParentIdStudents: EndpointDefinition<CreateParentStudentRelationshipDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.CREATED,
-  bodyType: CreateParentStudentRelationshipDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
-    const dto = body;
-    return container().parentGuardians().createForParent(schoolId, parentId, dto);
-  },};
+export const postAdminSchoolsBySchoolIdManageParentsByParentIdStudents: EndpointDefinition<CreateParentStudentRelationshipDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.CREATED,
+    bodyType: CreateParentStudentRelationshipDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const parentId = parseUuidParam(params['parentId']);
+      const dto = body;
+      return container().parentGuardians().createForParent(schoolId, parentId, dto);
+    },
+  };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/parents/:parentId/students` */
 export const getAdminSchoolsBySchoolIdManageParentsByParentIdStudents: EndpointDefinition = {
@@ -555,31 +590,34 @@ export const getAdminSchoolsBySchoolIdManageParentsByParentIdStudents: EndpointD
 };
 
 /** `PATCH /api/v1/admin/schools/:schoolId/manage/parents/:parentId/students/:studentId` */
-export const patchAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStudentId: EndpointDefinition<UpdateParentStudentRelationshipDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: UpdateParentStudentRelationshipDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
-    const studentId = parseUuidParam(params['studentId']);
-    const dto = body;
-    return container().parentGuardians().updateForParent(schoolId, parentId, studentId, dto);
-  },};
+export const patchAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStudentId: EndpointDefinition<UpdateParentStudentRelationshipDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    bodyType: UpdateParentStudentRelationshipDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const parentId = parseUuidParam(params['parentId']);
+      const studentId = parseUuidParam(params['studentId']);
+      const dto = body;
+      return container().parentGuardians().updateForParent(schoolId, parentId, studentId, dto);
+    },
+  };
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/parents/:parentId/students/:studentId` */
-export const deleteAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStudentId: EndpointDefinition = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
-    const studentId = parseUuidParam(params['studentId']);
-    return container().parentGuardians().removeForParent(schoolId, parentId, studentId);
-  },
-};
+export const deleteAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStudentId: EndpointDefinition =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    handler: async ({ params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const parentId = parseUuidParam(params['parentId']);
+      const studentId = parseUuidParam(params['studentId']);
+      return container().parentGuardians().removeForParent(schoolId, parentId, studentId);
+    },
+  };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/reports` */
 export const getAdminSchoolsBySchoolIdManageReports: EndpointDefinition = {
@@ -604,7 +642,10 @@ export const getAdminSchoolsBySchoolIdManageReportsOverview: EndpointDefinition 
 };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/reports/:report` */
-export const getAdminSchoolsBySchoolIdManageReportsByReport: EndpointDefinition<unknown, ReportQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageReportsByReport: EndpointDefinition<
+  unknown,
+  ReportQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'report_read',
@@ -614,7 +655,8 @@ export const getAdminSchoolsBySchoolIdManageReportsByReport: EndpointDefinition<
     const schoolId = params['schoolId'] as string;
     const routeParams = await validateDto(AdminManageReportParamDto, params, 'param');
     return container().reports().run(schoolId, routeParams.report, query);
-  },};
+  },
+};
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/routes` */
 export const postAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<CreateRouteDto> = {
@@ -626,10 +668,14 @@ export const postAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<CreateRo
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().routes().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/routes` */
-export const getAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<unknown, ListRoutesQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<
+  unknown,
+  ListRoutesQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -638,7 +684,8 @@ export const getAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<unknown, 
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().routes().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/routes/:id` */
 export const getAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition = {
@@ -675,7 +722,8 @@ export const patchAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition<Upd
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().routes().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/routes/:id` */
 export const deleteAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition = {
@@ -702,17 +750,19 @@ export const getAdminSchoolsBySchoolIdManageRoutesByIdStops: EndpointDefinition 
 };
 
 /** `PUT /api/v1/admin/schools/:schoolId/manage/routes/:id/stops` */
-export const putAdminSchoolsBySchoolIdManageRoutesByIdStops: EndpointDefinition<ReorderRouteStopsDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: ReorderRouteStopsDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
-    const dto = body;
-    return container().routes().reorderRouteStops(schoolId, id, dto);
-  },};
+export const putAdminSchoolsBySchoolIdManageRoutesByIdStops: EndpointDefinition<ReorderRouteStopsDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    bodyType: ReorderRouteStopsDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const id = parseUuidParam(params['id']);
+      const dto = body;
+      return container().routes().reorderRouteStops(schoolId, id, dto);
+    },
+  };
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/drivers` */
 export const postAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<CreateStaffDto> = {
@@ -724,10 +774,14 @@ export const postAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<CreateS
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().staff().create(schoolId, UserRole.DRIVER, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/drivers` */
-export const getAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<unknown, ListStaffQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<
+  unknown,
+  ListStaffQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -736,7 +790,8 @@ export const getAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<unknown,
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().staff().findAll(schoolId, UserRole.DRIVER, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/drivers/:driverId` */
 export const getAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition = {
@@ -761,7 +816,8 @@ export const patchAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition<Up
     const id = parseUuidParam(params['driverId']);
     const dto = body;
     return container().staff().update(schoolId, UserRole.DRIVER, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/drivers/:driverId` */
 export const deleteAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition = {
@@ -785,10 +841,14 @@ export const postAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<Crea
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().staff().create(schoolId, UserRole.CONDUCTOR, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/conductors` */
-export const getAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<unknown, ListStaffQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<
+  unknown,
+  ListStaffQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -797,7 +857,8 @@ export const getAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<unkno
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().staff().findAll(schoolId, UserRole.CONDUCTOR, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/conductors/:id` */
 export const getAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinition = {
@@ -822,7 +883,8 @@ export const patchAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinition
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().staff().update(schoolId, UserRole.CONDUCTOR, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/conductors/:id` */
 export const deleteAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinition = {
@@ -846,19 +908,22 @@ export const postAdminSchoolsBySchoolIdManageStops: EndpointDefinition<CreateSto
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().stops().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/stops` */
-export const getAdminSchoolsBySchoolIdManageStops: EndpointDefinition<unknown, ListStopsQueryDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  rateLimit: 'read_heavy',
-  status: HttpStatus.OK,
-  queryType: ListStopsQueryDto,
-  handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    return container().stops().findAll(schoolId, query);
-  },};
+export const getAdminSchoolsBySchoolIdManageStops: EndpointDefinition<unknown, ListStopsQueryDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    rateLimit: 'read_heavy',
+    status: HttpStatus.OK,
+    queryType: ListStopsQueryDto,
+    handler: async ({ query, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      return container().stops().findAll(schoolId, query);
+    },
+  };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/stops/:id` */
 export const getAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition = {
@@ -883,7 +948,8 @@ export const patchAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition<Upda
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().stops().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/stops/:id` */
 export const deleteAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition = {
@@ -898,17 +964,19 @@ export const deleteAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition = {
 };
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/students/:studentId/guardians` */
-export const postAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: EndpointDefinition<CreateStudentGuardianDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.CREATED,
-  bodyType: CreateStudentGuardianDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const studentId = parseUuidParam(params['studentId']);
-    const dto = body;
-    return container().parentGuardians().createForStudent(schoolId, studentId, dto);
-  },};
+export const postAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: EndpointDefinition<CreateStudentGuardianDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.CREATED,
+    bodyType: CreateStudentGuardianDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const studentId = parseUuidParam(params['studentId']);
+      const dto = body;
+      return container().parentGuardians().createForStudent(schoolId, studentId, dto);
+    },
+  };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/students/:studentId/guardians` */
 export const getAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: EndpointDefinition = {
@@ -923,31 +991,34 @@ export const getAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: Endpoi
 };
 
 /** `PATCH /api/v1/admin/schools/:schoolId/manage/students/:studentId/guardians/:parentId` */
-export const patchAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByParentId: EndpointDefinition<UpdateParentStudentRelationshipDto> = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  bodyType: UpdateParentStudentRelationshipDto,
-  handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const studentId = parseUuidParam(params['studentId']);
-    const parentId = parseUuidParam(params['parentId']);
-    const dto = body;
-    return container().parentGuardians().updateForStudent(schoolId, studentId, parentId, dto);
-  },};
+export const patchAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByParentId: EndpointDefinition<UpdateParentStudentRelationshipDto> =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    bodyType: UpdateParentStudentRelationshipDto,
+    handler: async ({ body, params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const studentId = parseUuidParam(params['studentId']);
+      const parentId = parseUuidParam(params['parentId']);
+      const dto = body;
+      return container().parentGuardians().updateForStudent(schoolId, studentId, parentId, dto);
+    },
+  };
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/students/:studentId/guardians/:parentId` */
-export const deleteAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByParentId: EndpointDefinition = {
-  managedSchool: true,
-  roles: [UserRole.SUPER_ADMIN],
-  status: HttpStatus.OK,
-  handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const studentId = parseUuidParam(params['studentId']);
-    const parentId = parseUuidParam(params['parentId']);
-    return container().parentGuardians().removeForStudent(schoolId, studentId, parentId);
-  },
-};
+export const deleteAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByParentId: EndpointDefinition =
+  {
+    managedSchool: true,
+    roles: [UserRole.SUPER_ADMIN],
+    status: HttpStatus.OK,
+    handler: async ({ params }) => {
+      const schoolId = parseUuidParam(params['schoolId']);
+      const studentId = parseUuidParam(params['studentId']);
+      const parentId = parseUuidParam(params['parentId']);
+      return container().parentGuardians().removeForStudent(schoolId, studentId, parentId);
+    },
+  };
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/students` */
 export const postAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<CreateStudentDto> = {
@@ -959,10 +1030,14 @@ export const postAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<Create
     const schoolId = parseUuidParam(params['schoolId']);
     const dto = body;
     return container().students().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/students` */
-export const getAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<unknown, ListStudentsQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<
+  unknown,
+  ListStudentsQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'read_heavy',
@@ -971,7 +1046,8 @@ export const getAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<unknown
   handler: async ({ query, params }) => {
     const schoolId = parseUuidParam(params['schoolId']);
     return container().students().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/students/:studentId` */
 export const getAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition = {
@@ -996,7 +1072,8 @@ export const patchAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition<U
     const id = parseUuidParam(params['studentId']);
     const dto = body;
     return container().students().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/admin/schools/:schoolId/manage/students/:studentId` */
 export const deleteAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition = {
@@ -1050,7 +1127,10 @@ function requireSpreadsheet(file: UploadedSpreadsheet | undefined): {
 }
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/exports/:dataset` */
-export const getAdminSchoolsBySchoolIdManageExportsByDataset: EndpointDefinition<unknown, ExportQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageExportsByDataset: EndpointDefinition<
+  unknown,
+  ExportQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'data_export',
@@ -1076,7 +1156,8 @@ export const getAdminSchoolsBySchoolIdManageExportsByDataset: EndpointDefinition
       totalRecords: plan.total,
       produce: (sink) => plan.stream(sink),
     });
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/imports/history/:id/error-file` */
 export const getAdminSchoolsBySchoolIdManageImportsHistoryByIdErrorfile: EndpointDefinition = {
@@ -1087,9 +1168,7 @@ export const getAdminSchoolsBySchoolIdManageImportsHistoryByIdErrorfile: Endpoin
     const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
     const id = parseUuidParam(params['id'], '4');
     const context = await assistedContext(schoolId, user.id);
-    const file = await container()
-      .importHistory()
-      .buildErrorFile(schoolId, user.id, id, context);
+    const file = await container().importHistory().buildErrorFile(schoolId, user.id, id, context);
     return bufferFileResponse(
       file.buffer,
       sanitizeFileName(file.fileName, 'download.xlsx'),
@@ -1099,7 +1178,10 @@ export const getAdminSchoolsBySchoolIdManageImportsHistoryByIdErrorfile: Endpoin
 };
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/imports/:module/template` */
-export const getAdminSchoolsBySchoolIdManageImportsByModuleTemplate: EndpointDefinition<unknown, ImportTemplateQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageImportsByModuleTemplate: EndpointDefinition<
+  unknown,
+  ImportTemplateQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
@@ -1114,29 +1196,35 @@ export const getAdminSchoolsBySchoolIdManageImportsByModuleTemplate: EndpointDef
       .importTemplates()
       .buildTemplate(routeParams.module, typedQuery.format);
 
-    await container().audit().log({
-      school_id: schoolId,
-      actor_user_id: user.id,
-      action: AUDIT_ACTIONS.IMPORT_TEMPLATE_DOWNLOAD,
-      entity_type: AUDIT_ENTITY_TYPES.IMPORT_JOB,
-      entity_id: null,
-      metadata: {
-        module: routeParams.module,
-        format: typedQuery.format,
-        context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
-        assisted_session_id: context?.assisted_session_id ?? null,
-      },
-    });
+    await container()
+      .audit()
+      .log({
+        school_id: schoolId,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.IMPORT_TEMPLATE_DOWNLOAD,
+        entity_type: AUDIT_ENTITY_TYPES.IMPORT_JOB,
+        entity_id: null,
+        metadata: {
+          module: routeParams.module,
+          format: typedQuery.format,
+          context: AUDIT_CONTEXT_ASSISTED_MANAGEMENT,
+          assisted_session_id: context?.assisted_session_id ?? null,
+        },
+      });
 
     return bufferFileResponse(
       file.buffer,
       sanitizeFileName(file.fileName, `download.${file.format}`),
       file.format,
     );
-  },};
+  },
+};
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/imports/:module/validate` */
-export const postAdminSchoolsBySchoolIdManageImportsByModuleValidate: EndpointDefinition<unknown, ImportUploadDto> = {
+export const postAdminSchoolsBySchoolIdManageImportsByModuleValidate: EndpointDefinition<
+  unknown,
+  ImportUploadDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'data_import',
@@ -1157,10 +1245,14 @@ export const postAdminSchoolsBySchoolIdManageImportsByModuleValidate: EndpointDe
         typedQuery.mode ?? ImportMode.CREATE,
         upload,
       );
-  },};
+  },
+};
 
 /** `POST /api/v1/admin/schools/:schoolId/manage/imports/:module/commit` */
-export const postAdminSchoolsBySchoolIdManageImportsByModuleCommit: EndpointDefinition<unknown, ImportUploadDto> = {
+export const postAdminSchoolsBySchoolIdManageImportsByModuleCommit: EndpointDefinition<
+  unknown,
+  ImportUploadDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'data_import',
@@ -1181,10 +1273,14 @@ export const postAdminSchoolsBySchoolIdManageImportsByModuleCommit: EndpointDefi
         typedQuery.mode ?? ImportMode.CREATE,
         upload,
       );
-  },};
+  },
+};
 
 /** `GET /api/v1/admin/schools/:schoolId/manage/reports/:report/export` */
-export const getAdminSchoolsBySchoolIdManageReportsByReportExport: EndpointDefinition<unknown, ReportQueryDto> = {
+export const getAdminSchoolsBySchoolIdManageReportsByReportExport: EndpointDefinition<
+  unknown,
+  ReportQueryDto
+> = {
   managedSchool: true,
   roles: [UserRole.SUPER_ADMIN],
   rateLimit: 'report_read',
@@ -1209,7 +1305,8 @@ export const getAdminSchoolsBySchoolIdManageReportsByReportExport: EndpointDefin
       sanitizeFileName(file.fileName, `report.${format}`),
       format,
     );
-  },};
+  },
+};
 
 /* --- Session lifecycle ---------------------------------------------------
  * The only assisted endpoints that stay usable while the managed school is

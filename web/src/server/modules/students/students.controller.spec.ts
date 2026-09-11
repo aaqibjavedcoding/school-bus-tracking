@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { JwtService, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, StudentGender, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -119,7 +118,6 @@ describe('StudentsController (authorization)', () => {
     } as unknown as StudentsService;
     const restore = overrideContainer('students', service);
     try {
-
       await callHandler(postStudents, { user: ADMIN_USER, body: new CreateStudentDto() });
     } finally {
       restore();
@@ -150,15 +148,13 @@ describe('StudentsController (authorization)', () => {
     } as unknown as StudentsService;
     const restore = overrideContainer('students', service);
     try {
-
-      const actor: AuthenticatedRequestUser = {
-        id: USER_ID,
-        school_id: SCHOOL_A,
-        role: UserRole.SCHOOL_ADMIN,
-      };
       await callHandler(getStudents, { user: ADMIN_USER, query: makeQuery() });
       await callHandler(getStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID } });
-      await callHandler(patchStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID }, body: new UpdateStudentDto() });
+      await callHandler(patchStudentsById, {
+        user: ADMIN_USER,
+        params: { studentId: ROUTE_ID },
+        body: new UpdateStudentDto(),
+      });
       await callHandler(deleteStudentsById, { user: ADMIN_USER, params: { studentId: ROUTE_ID } });
     } finally {
       restore();
@@ -181,7 +177,6 @@ describe('StudentsController (authorization)', () => {
     } as unknown as StudentsService;
     const restore = overrideContainer('students', service);
     try {
-
       const dto = new CreateStudentDto();
       dto.admission_number = 'STU-101';
       dto.first_name = 'Alice';

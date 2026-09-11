@@ -18,17 +18,6 @@ import {
   Trip,
   User,
 } from '../../database/models';
-import {
-  ADMIN_BUSES_REPOSITORY,
-  ADMIN_PLANS_REPOSITORY,
-  ADMIN_ROUTES_REPOSITORY,
-  ADMIN_SCHOOLS_REPOSITORY,
-  ADMIN_STOPS_REPOSITORY,
-  ADMIN_STUDENTS_REPOSITORY,
-  ADMIN_SUBSCRIPTIONS_REPOSITORY,
-  ADMIN_TRIPS_REPOSITORY,
-  ADMIN_USERS_REPOSITORY,
-} from './admin.constants';
 import { toAdminSchoolSubscriptionPlanRef } from './admin-plans.mapper';
 import type { ListAdminSubscriptionsQueryDto } from './dto';
 
@@ -112,10 +101,13 @@ export class AdminGlobalSubscriptionsService {
           })) as unknown as PlanModel[])
         : [];
     const planById = new Map(plans.map((plan) => [plan.id, plan]));
-    const usage = pageRows.length > 0 ? await this.collectUsage(pageRows.map((item) => item.school_id)) : new Map();
+    const usage =
+      pageRows.length > 0
+        ? await this.collectUsage(pageRows.map((item) => item.school_id))
+        : new Map();
 
     const items: AdminSubscriptionListItem[] = pageRows.map((item) => {
-      const plan = item.plan_id ? planById.get(item.plan_id) ?? null : null;
+      const plan = item.plan_id ? (planById.get(item.plan_id) ?? null) : null;
       return {
         subscription_id: item.subscriptionId,
         school_id: item.school_id,
@@ -245,7 +237,9 @@ export class AdminGlobalSubscriptionsService {
     for (const [schoolId, count] of driverCounts) bucket(schoolId, { drivers: count });
     for (const [schoolId, count] of conductorCounts) bucket(schoolId, { conductors: count });
     for (const schoolId of new Set([...driverCounts.keys(), ...conductorCounts.keys()])) {
-      bucket(schoolId, { staff: (driverCounts.get(schoolId) ?? 0) + (conductorCounts.get(schoolId) ?? 0) });
+      bucket(schoolId, {
+        staff: (driverCounts.get(schoolId) ?? 0) + (conductorCounts.get(schoolId) ?? 0),
+      });
     }
     bucketCount(result, students, 'students');
     bucketCount(result, buses, 'buses');

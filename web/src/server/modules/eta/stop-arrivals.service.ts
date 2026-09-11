@@ -13,7 +13,6 @@ import {
 import { getTripTrackingState, isTripTrackingActive } from '@school-bus-tracking/validation';
 import { Stop, Trip, TripLocation, TripStopArrival } from '../../database/models';
 import { NotificationsService } from '../notifications/notifications.service';
-import { ETA_ARRIVALS_REPOSITORY, ETA_STOPS_REPOSITORY } from './eta.constants';
 import { EtaService, type EtaLocationFix } from './eta.service';
 import { haversineMeters } from './geo.util';
 

@@ -6,11 +6,10 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, parseUuidParam } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { StopsService } from '../modules/stops/stops.service';
 import { CreateStopDto } from '../modules/stops/dto/create-stop.dto';
 import { ListStopsQueryDto } from '../modules/stops/dto/list-stops-query.dto';
 import { UpdateStopDto } from '../modules/stops/dto/update-stop.dto';
@@ -24,7 +23,8 @@ export const postStops: EndpointDefinition<CreateStopDto> = {
     const schoolId = user.school_id as string;
     const dto = body;
     return container().stops().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/stops` */
 export const getStops: EndpointDefinition<unknown, ListStopsQueryDto> = {
@@ -35,7 +35,8 @@ export const getStops: EndpointDefinition<unknown, ListStopsQueryDto> = {
   handler: async ({ user, query }) => {
     const schoolId = user.school_id as string;
     return container().stops().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/stops/:id` */
 export const getStopsById: EndpointDefinition = {
@@ -58,7 +59,8 @@ export const patchStopsById: EndpointDefinition<UpdateStopDto> = {
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().stops().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/stops/:id` */
 export const deleteStopsById: EndpointDefinition = {

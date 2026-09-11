@@ -20,15 +20,11 @@ import {
 import { ZodError } from 'zod';
 import { ConfigService } from '../../framework';
 import { Plan, School, SchoolSubscription } from '../../database/models';
-import {
-  pastDueGraceMsFromDays,
-  resolveSubscriptionEntitlement,
-} from '../../common/subscriptions';
-import { ADMIN_PLANS_REPOSITORY, PLAN_NOT_FOUND_MESSAGE } from './admin-plans.constants';
+import { pastDueGraceMsFromDays, resolveSubscriptionEntitlement } from '../../common/subscriptions';
+import { PLAN_NOT_FOUND_MESSAGE } from './admin-plans.constants';
 import { toAdminPlanResponse, toAdminSchoolSubscriptionPlanRef } from './admin-plans.mapper';
-import { ADMIN_SCHOOLS_REPOSITORY, SCHOOL_NOT_FOUND_MESSAGE } from './admin.constants';
+import { SCHOOL_NOT_FOUND_MESSAGE } from './admin.constants';
 import {
-  ADMIN_SUBSCRIPTIONS_REPOSITORY,
   NO_SUBSCRIPTION_INFO,
   SUBSCRIPTION_ALREADY_EXISTS_MESSAGE,
   SUBSCRIPTION_NOT_ACTIVE_MESSAGE,
@@ -97,9 +93,7 @@ export class AdminSubscriptionsService {
    * subscription, and needs no cron job. The write is best effort — if it
    * fails, the row is still treated as not live for this request.
    */
-  private async expireIfLapsed(
-    row: SchoolSubscription | null,
-  ): Promise<SchoolSubscription | null> {
+  private async expireIfLapsed(row: SchoolSubscription | null): Promise<SchoolSubscription | null> {
     if (!row) {
       return null;
     }

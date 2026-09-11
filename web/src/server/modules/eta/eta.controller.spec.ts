@@ -4,7 +4,6 @@ import * as assert from 'node:assert/strict';
 import { NotFoundException, Reflector } from '../../framework';
 import { JwtService } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
-import { ROLES_KEY } from '../../common/decorators';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
@@ -175,11 +174,14 @@ describe('EtaController authorization', () => {
       observation: { ok: false, reason: 'unauthorized' },
     });
     try {
-      await assert.rejects(callHandler(getTripsByTripIdEta, { user: PARENT, params: { tripId: TRIP_A } }), (error: unknown) => {
-        assert.ok(error instanceof NotFoundException);
-        assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
-        return true;
-      });
+      await assert.rejects(
+        callHandler(getTripsByTripIdEta, { user: PARENT, params: { tripId: TRIP_A } }),
+        (error: unknown) => {
+          assert.ok(error instanceof NotFoundException);
+          assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
+          return true;
+        },
+      );
       assert.equal(etaCalls.length, 0);
     } finally {
       restore();
@@ -192,11 +194,14 @@ describe('EtaController authorization', () => {
     });
     try {
       const otherTenantParent = { id: USER_ID, school_id: SCHOOL_B, role: UserRole.PARENT };
-      await assert.rejects(callHandler(getTripsByTripIdEta, { user: otherTenantParent, params: { tripId: TRIP_A } }), (error: unknown) => {
-        assert.ok(error instanceof NotFoundException);
-        assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
-        return true;
-      });
+      await assert.rejects(
+        callHandler(getTripsByTripIdEta, { user: otherTenantParent, params: { tripId: TRIP_A } }),
+        (error: unknown) => {
+          assert.ok(error instanceof NotFoundException);
+          assert.equal((error as NotFoundException).message, ETA_TRIP_NOT_FOUND_MESSAGE);
+          return true;
+        },
+      );
       assert.equal(etaCalls.length, 0);
     } finally {
       restore();

@@ -5,7 +5,6 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { getTripTrackingState } from '@school-bus-tracking/validation';
 import { Stop, Trip, TripStopArrival } from '../../database/models';
-import { ETA_ARRIVALS_REPOSITORY, ETA_CONFIG, ETA_STOPS_REPOSITORY } from './eta.constants';
 import {
   cumulativeStopDistancesMeters,
   effectiveSpeedKmh,

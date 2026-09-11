@@ -18,15 +18,11 @@ import {
   PLAN_LIMIT_RESOURCE_LABELS,
   PLAN_LIMIT_RESOURCE_VALUES,
 } from '@school-bus-tracking/shared-types';
-import {
-  adminPlanCreateSchema,
-  adminPlanUpdateSchema,
-} from '@school-bus-tracking/validation';
+import { adminPlanCreateSchema, adminPlanUpdateSchema } from '@school-bus-tracking/validation';
 import { ZodError } from 'zod';
 import { Plan } from '../../database/models';
 import { toAdminPlanResponse } from './admin-plans.mapper';
 import {
-  ADMIN_PLANS_REPOSITORY,
   CENTS_PER_UNIT,
   PLAN_ACTIVATED_MESSAGE,
   PLAN_CODE_TAKEN_MESSAGE,
@@ -57,9 +53,7 @@ const SUMMARY_LIMIT_ORDER: PlanLimitResource[] = [
  * value so clients never see the cents column.
  */
 export class AdminPlansService {
-  constructor(
-    private readonly plans: typeof Plan,
-  ) {}
+  constructor(private readonly plans: typeof Plan) {}
 
   /** Creates a new plan after deep validation of features/limits. */
   async create(dto: AdminPlanCreateRequest): Promise<AdminPlanResponse> {
@@ -335,10 +329,15 @@ function sanitizeLimits(input: PlanLimitsConfig | undefined): PlanLimitsConfig {
       unlimited: Boolean(value.unlimited),
       value: value.unlimited ? null : value.value == null ? null : Number(value.value),
     };
-    if (!entry.unlimited && (entry.value === null || !Number.isInteger(entry.value) || entry.value < 0)) {
+    if (
+      !entry.unlimited &&
+      (entry.value === null || !Number.isInteger(entry.value) || entry.value < 0)
+    ) {
       throw new BadRequestException({
         message: 'Plan limit value must be a non-negative integer when unlimited is false',
-        details: { limits: { [key]: 'value is required and must be >= 0 when unlimited is false' } },
+        details: {
+          limits: { [key]: 'value is required and must be >= 0 when unlimited is false' },
+        },
       });
     }
     out[key as PlanLimitResource] = entry;

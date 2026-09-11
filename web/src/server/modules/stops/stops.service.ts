@@ -15,8 +15,6 @@ import {
   STOP_NOT_FOUND_MESSAGE,
   STOP_ROUTE_INVALID_MESSAGE,
   STOP_SEQUENCE_TAKEN_MESSAGE,
-  STOPS_REPOSITORY,
-  STOPS_ROUTES_REPOSITORY,
 } from './stops.constants';
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
@@ -53,35 +51,39 @@ export class StopsService {
    * route's current last stop.
    */
   async create(schoolId: string, dto: CreateStopDto): Promise<StopResponse> {
-    return this.planLimits.runWithinLimit(schoolId, PlanLimitResource.STOPS, async (transaction) => {
-      await this.assertRouteInSchool(schoolId, dto.route_id);
-      const sequenceNumber =
-        dto.sequence_number ?? (await this.nextSequenceNumber(schoolId, dto.route_id));
+    return this.planLimits.runWithinLimit(
+      schoolId,
+      PlanLimitResource.STOPS,
+      async (transaction) => {
+        await this.assertRouteInSchool(schoolId, dto.route_id);
+        const sequenceNumber =
+          dto.sequence_number ?? (await this.nextSequenceNumber(schoolId, dto.route_id));
 
-      try {
-        const stop = await this.stops.create(
-          {
-            school_id: schoolId,
-            route_id: dto.route_id,
-            name: dto.name.trim(),
-            address: nullableTrim(dto.address),
-            latitude: dto.latitude ?? null,
-            longitude: dto.longitude ?? null,
-            geofence_radius_meters: dto.geofence_radius_meters ?? 100,
-            sequence_number: sequenceNumber,
-            estimated_arrival_time: dto.estimated_arrival_time ?? null,
-            is_active: dto.is_active ?? true,
-          },
-          transaction ? { transaction } : {},
-        );
-        return this.toStopResponse(stop);
-      } catch (error) {
-        if (error instanceof UniqueConstraintError) {
-          throw new ConflictException(STOP_SEQUENCE_TAKEN_MESSAGE);
+        try {
+          const stop = await this.stops.create(
+            {
+              school_id: schoolId,
+              route_id: dto.route_id,
+              name: dto.name.trim(),
+              address: nullableTrim(dto.address),
+              latitude: dto.latitude ?? null,
+              longitude: dto.longitude ?? null,
+              geofence_radius_meters: dto.geofence_radius_meters ?? 100,
+              sequence_number: sequenceNumber,
+              estimated_arrival_time: dto.estimated_arrival_time ?? null,
+              is_active: dto.is_active ?? true,
+            },
+            transaction ? { transaction } : {},
+          );
+          return this.toStopResponse(stop);
+        } catch (error) {
+          if (error instanceof UniqueConstraintError) {
+            throw new ConflictException(STOP_SEQUENCE_TAKEN_MESSAGE);
+          }
+          throw error;
         }
-        throw error;
-      }
-    });
+      },
+    );
   }
 
   /**

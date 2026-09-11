@@ -18,16 +18,6 @@ import {
   Trip,
   User,
 } from '../../database/models';
-import {
-  ADMIN_BUSES_REPOSITORY,
-  ADMIN_PLANS_REPOSITORY,
-  ADMIN_ROUTES_REPOSITORY,
-  ADMIN_SCHOOLS_REPOSITORY,
-  ADMIN_STUDENTS_REPOSITORY,
-  ADMIN_SUBSCRIPTIONS_REPOSITORY,
-  ADMIN_TRIPS_REPOSITORY,
-  ADMIN_USERS_REPOSITORY,
-} from './admin.constants';
 import { toAdminPlanResponse } from './admin-plans.mapper';
 
 /** Result of one grouped COUNT(*) query. */
@@ -260,8 +250,11 @@ export class AdminDashboardService {
     const planBucket = new Map<string, { planId: string; schools: number; live_schools: number }>();
     for (const row of chosen.values()) {
       if (!row.plan_id) continue;
-      const bucket =
-        planBucket.get(row.plan_id) ?? { planId: row.plan_id, schools: 0, live_schools: 0 };
+      const bucket = planBucket.get(row.plan_id) ?? {
+        planId: row.plan_id,
+        schools: 0,
+        live_schools: 0,
+      };
       bucket.schools += 1;
       if ((LIVE_SUBSCRIPTION_STATUS_VALUES as string[]).includes(row.status)) {
         bucket.live_schools += 1;
@@ -310,7 +303,8 @@ export class AdminDashboardService {
         sumArrCents: 0,
         liveSubscriptions: 0,
       };
-      const monthly = row.billing_period === PlanBillingPeriod.YEARLY ? priceCents / 12 : priceCents;
+      const monthly =
+        row.billing_period === PlanBillingPeriod.YEARLY ? priceCents / 12 : priceCents;
       bucket.sumMrrCents += monthly;
       bucket.sumArrCents += monthly * 12;
       bucket.liveSubscriptions += 1;
@@ -325,7 +319,8 @@ export class AdminDashboardService {
         live_subscriptions: bucket.liveSubscriptions,
       }))
       .sort(
-        (a, b) => b.live_subscriptions - a.live_subscriptions || a.currency.localeCompare(b.currency),
+        (a, b) =>
+          b.live_subscriptions - a.live_subscriptions || a.currency.localeCompare(b.currency),
       );
 
     return {

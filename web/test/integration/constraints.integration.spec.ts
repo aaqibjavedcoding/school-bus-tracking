@@ -6,10 +6,8 @@ import { RouteAssignmentRole, UserRole } from '@school-bus-tracking/shared-types
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
 import {
-  createAssignment,
   createBus,
   createEmergency,
-  createFullSchool,
   createRun,
   createRoute,
   createRunCrew,
@@ -20,7 +18,7 @@ import {
   createTrip,
   createUser,
 } from '../support/fixtures';
-import { EmergencyEvent, Run, RunCrew, Student, Trip, User } from '../../src/server/database/models';
+import { Student, User } from '../../src/server/database/models';
 
 /**
  * Sequelize's error message names the constraint but does not include the
@@ -63,7 +61,7 @@ describe('database constraints (real PostgreSQL)', () => {
     await assert.rejects(createStop(school.id, randomUUID()), /foreign key|violates/i);
   });
 
-  it('refuses to attach a student to another tenant\'s stop (composite FK)', async () => {
+  it("refuses to attach a student to another tenant's stop (composite FK)", async () => {
     const schoolA = await createSchool();
     const schoolB = await createSchool();
     const routeB = await createRoute(schoolB.id);
@@ -158,8 +156,16 @@ describe('database constraints (real PostgreSQL)', () => {
     const school = await createSchool();
     const route = await createRoute(school.id);
     const bus = await createBus(school.id);
-    const morning = await createShift(school.id, { name: 'AM', start_time: '07:00:00', end_time: '11:00:00' });
-    const afternoon = await createShift(school.id, { name: 'PM', start_time: '12:00:00', end_time: '17:00:00' });
+    const morning = await createShift(school.id, {
+      name: 'AM',
+      start_time: '07:00:00',
+      end_time: '11:00:00',
+    });
+    const afternoon = await createShift(school.id, {
+      name: 'PM',
+      start_time: '12:00:00',
+      end_time: '17:00:00',
+    });
 
     // The same bus in two disjoint windows is the point of the refactor.
     await createRun(school.id, route.id, { shift_id: morning.id, bus_id: bus.id, code: 'T-1' });
@@ -203,7 +209,7 @@ describe('database constraints (real PostgreSQL)', () => {
     assert.notEqual(replacement.id, run.id);
   });
 
-  it('refuses to attach a run to another tenant\'s route (composite FK)', async () => {
+  it("refuses to attach a run to another tenant's route (composite FK)", async () => {
     const schoolA = await createSchool();
     const schoolB = await createSchool();
     const routeB = await createRoute(schoolB.id);
@@ -243,7 +249,12 @@ describe('database constraints (real PostgreSQL)', () => {
     });
 
     await roster.destroy();
-    const replacement = await createRunCrew(school.id, run.id, driver.id, RouteAssignmentRole.DRIVER);
+    const replacement = await createRunCrew(
+      school.id,
+      run.id,
+      driver.id,
+      RouteAssignmentRole.DRIVER,
+    );
     assert.notEqual(replacement.id, roster.id);
   });
 
@@ -273,7 +284,16 @@ describe('database constraints (real PostgreSQL)', () => {
     const driver = await createUser(school.id, UserRole.DRIVER);
     const departure = new Date('2026-09-20T07:00:00Z');
 
-    const first = await createTrip(school.id, route.id, bus.id, driver.id, null, undefined, departure, run.id);
+    const first = await createTrip(
+      school.id,
+      route.id,
+      bus.id,
+      driver.id,
+      null,
+      undefined,
+      departure,
+      run.id,
+    );
     assert.equal(first.run_id, run.id);
     // A run belongs to exactly one route, so this clash is caught by whichever
     // of `uq_trips_run_scheduled_start` / `uq_trips_route_scheduled_start`
@@ -284,7 +304,7 @@ describe('database constraints (real PostgreSQL)', () => {
     );
   });
 
-  it('refuses to point a student at another tenant\'s run (composite FK)', async () => {
+  it("refuses to point a student at another tenant's run (composite FK)", async () => {
     const schoolA = await createSchool();
     const schoolB = await createSchool();
     const routeB = await createRoute(schoolB.id);
@@ -346,10 +366,9 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
     const run = await createRun(school.id, route.id);
     await createStudent(school.id, null, { admission_number: 'STU-NO-ACT-1' });
     // Set the student's run to the created run
-    await sequelize.query(
-      `UPDATE students SET run_id = :runId WHERE school_id = :school`,
-      { replacements: { runId: run.id, school: school.id } },
-    );
+    await sequelize.query(`UPDATE students SET run_id = :runId WHERE school_id = :school`, {
+      replacements: { runId: run.id, school: school.id },
+    });
 
     await assert.rejects(
       sequelize.query(`DELETE FROM runs WHERE id = $id`, { bind: { id: run.id } }),
@@ -422,10 +441,9 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
     const tripBus = await createBus(school.id);
     const trip = await createTrip(school.id, route.id, tripBus.id, driver.id);
     const emergency = await createEmergency(school.id, trip.id, driver.id);
-    await sequelize.query(
-      `UPDATE emergency_events SET bus_id = :bus WHERE id = :id`,
-      { replacements: { bus: bus.id, id: emergency.id } },
-    );
+    await sequelize.query(`UPDATE emergency_events SET bus_id = :bus WHERE id = :id`, {
+      replacements: { bus: bus.id, id: emergency.id },
+    });
 
     await assert.rejects(
       sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),

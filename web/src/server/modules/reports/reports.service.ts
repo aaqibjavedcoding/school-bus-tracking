@@ -36,20 +36,6 @@ import type {
   TripStudentAttendance,
   User,
 } from '../../database/models';
-import {
-  REPORTS_ASSIGNMENTS_REPOSITORY,
-  REPORTS_ATTENDANCE_REPOSITORY,
-  REPORTS_BUSES_REPOSITORY,
-  REPORTS_BUS_DOCUMENTS_REPOSITORY,
-  REPORTS_DRIVER_DOCUMENTS_REPOSITORY,
-  REPORTS_GUARDIANS_REPOSITORY,
-  REPORTS_NOTIFICATIONS_REPOSITORY,
-  REPORTS_ROUTES_REPOSITORY,
-  REPORTS_STOPS_REPOSITORY,
-  REPORTS_STUDENTS_REPOSITORY,
-  REPORTS_TRIPS_REPOSITORY,
-  REPORTS_USERS_REPOSITORY,
-} from './reports.constants';
 import { getReportDefinition, reportCatalogue } from './definitions';
 import { card, dateRange, type ReportRepositories } from './report.types';
 import {

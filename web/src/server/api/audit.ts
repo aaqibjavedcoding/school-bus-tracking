@@ -6,11 +6,11 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { AuditService, type AuditLogListResponse, type ListAuditLogsQuery } from '../modules/audit/audit.service';
+import { type ListAuditLogsQuery } from '../modules/audit/audit.service';
 
 /** `GET /api/v1/audit-logs` */
 export const getAuditlogs: EndpointDefinition = {
@@ -20,9 +20,8 @@ export const getAuditlogs: EndpointDefinition = {
     // School Admin is always scoped to their own school.
     const typedQuery = query as ListAuditLogsQuery;
     const schoolId =
-      user.role === UserRole.SCHOOL_ADMIN
-        ? (user.school_id ?? undefined)
-        : typedQuery.school_id;
+      user.role === UserRole.SCHOOL_ADMIN ? (user.school_id ?? undefined) : typedQuery.school_id;
 
     return container().audit().list(typedQuery, { schoolId });
-  },};
+  },
+};

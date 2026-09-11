@@ -6,13 +6,11 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, parseUuidParam } from '../framework';
 import { container } from '../container';
 import { tenantUser } from '../http/route-runtime';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { ParentPortalService } from '../modules/parent-portal/parent-portal.service';
-
 /** `GET /api/v1/parent/dashboard` */
 export const getParentDashboard: EndpointDefinition = {
   roles: [UserRole.PARENT],

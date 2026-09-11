@@ -18,8 +18,6 @@ import {
   AuditService,
 } from '../../audit';
 import {
-  DATA_TRANSFER_IMPORT_JOBS_REPOSITORY,
-  DATA_TRANSFER_USERS_REPOSITORY,
   IMPORT_ERROR_FILE_UNAVAILABLE_MESSAGE,
   IMPORT_JOB_NOT_FOUND_MESSAGE,
 } from '../data-transfer.constants';

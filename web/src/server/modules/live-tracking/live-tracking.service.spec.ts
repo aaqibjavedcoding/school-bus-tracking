@@ -1195,7 +1195,7 @@ describe('LiveTrackingService — parent run scope', () => {
               ? ([{ id: LT_STOP, route_id: LT_ROUTE }] as never)
               : ([] as never);
           }
-          return ([{ id: LT_STOP, route_id: LT_ROUTE }] as never);
+          return [{ id: LT_STOP, route_id: LT_ROUTE }] as never;
         },
       } as never,
       {
@@ -1220,7 +1220,7 @@ describe('LiveTrackingService — parent run scope', () => {
               ? r.id === q.where.id
               : r.route_id === q.where.route_id && q.where.is_default === true && r.is_default,
           ) ?? null) as never,
-        findAll: async (q: { where: Record<string, unknown> }) =>
+        findAll: async (_q: { where: Record<string, unknown> }) =>
           fixture.runs.filter((r) => r.route_id === LT_ROUTE) as never,
       } as never,
     );

@@ -9,12 +9,9 @@ import {
 import { Student, StudentGuardian, User } from '../../database/models';
 import {
   PARENT_NOT_FOUND_MESSAGE,
-  PARENTS_REPOSITORY,
-  PARENTS_STUDENTS_REPOSITORY,
   STUDENT_GUARDIAN_ALREADY_EXISTS_MESSAGE,
   STUDENT_GUARDIAN_DELETED_MESSAGE,
   STUDENT_GUARDIAN_NOT_FOUND_MESSAGE,
-  STUDENT_GUARDIANS_REPOSITORY,
 } from './parents.constants';
 import { CreateParentStudentRelationshipDto } from './dto/create-parent-student-relationship.dto';
 import { CreateStudentGuardianDto } from './dto/create-student-guardian.dto';

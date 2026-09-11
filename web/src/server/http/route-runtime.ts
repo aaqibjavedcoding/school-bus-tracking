@@ -20,7 +20,6 @@
 import type { UserRole } from '@school-bus-tracking/shared-types';
 import {
   BadRequestException,
-  GoneException,
   HttpStatus,
   Logger,
   createExecutionContext,

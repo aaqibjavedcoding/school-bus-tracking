@@ -6,11 +6,10 @@
  * the body/query DTOs — plus the handler itself. `route.ts` files under
  * `src/app/api/v1` re-export these as App Router verb handlers.
  */
-import { HttpStatus, parseUuidParam, validateDto } from '../framework';
+import { HttpStatus, parseUuidParam } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition } from '../http/route-runtime';
 import { UserRole } from '@school-bus-tracking/shared-types';
-import { RoutesService } from '../modules/routes/routes.service';
 import { CreateRouteDto } from '../modules/routes/dto/create-route.dto';
 import { ListRoutesQueryDto } from '../modules/routes/dto/list-routes-query.dto';
 import { UpdateRouteDto } from '../modules/routes/dto/update-route.dto';
@@ -25,7 +24,8 @@ export const postRoutes: EndpointDefinition<CreateRouteDto> = {
     const schoolId = user.school_id as string;
     const dto = body;
     return container().routes().create(schoolId, dto);
-  },};
+  },
+};
 
 /** `GET /api/v1/routes` */
 export const getRoutes: EndpointDefinition<unknown, ListRoutesQueryDto> = {
@@ -36,7 +36,8 @@ export const getRoutes: EndpointDefinition<unknown, ListRoutesQueryDto> = {
   handler: async ({ user, query }) => {
     const schoolId = user.school_id as string;
     return container().routes().findAll(schoolId, query);
-  },};
+  },
+};
 
 /** `GET /api/v1/routes/:id` */
 export const getRoutesById: EndpointDefinition = {
@@ -70,7 +71,8 @@ export const patchRoutesById: EndpointDefinition<UpdateRouteDto> = {
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().routes().update(schoolId, id, dto);
-  },};
+  },
+};
 
 /** `DELETE /api/v1/routes/:id` */
 export const deleteRoutesById: EndpointDefinition = {
@@ -104,4 +106,5 @@ export const putRoutesByIdStops: EndpointDefinition<ReorderRouteStopsDto> = {
     const id = parseUuidParam(params['id']);
     const dto = body;
     return container().routes().reorderRouteStops(schoolId, id, dto);
-  },};
+  },
+};
