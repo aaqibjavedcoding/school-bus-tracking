@@ -9,11 +9,12 @@ import { useBottomBarMetrics } from '../../src/theme/layout';
 /**
  * School-admin mobile experience — full feature parity with the web console.
  *
- * Five primary tabs cover the daily workflow: the operations dashboard, the
- * trip schedule, live tracking, attendance, and a "Manage" hub that opens
- * the complete CRUD surfaces (students, buses, routes & stops, drivers &
- * conductors, guardians and assignments). Detail/management routes are hidden
- * from the tab bar with `href: null` and pushed programmatically.
+ * Six primary tabs cover the daily workflow: the operations dashboard, the
+ * trip schedule, live tracking, attendance, the reports area, and a "Manage"
+ * hub that opens the complete CRUD surfaces (students, buses, routes & stops,
+ * drivers & conductors, guardians, assignments, shifts and the runs of a
+ * route). Detail/management routes are hidden from the tab bar with
+ * `href: null` and pushed programmatically.
  */
 function AdminTabs() {
   const bar = useBottomBarMetrics();
@@ -88,6 +89,16 @@ function AdminTabs() {
         }}
       />
       <Tabs.Screen
+        name="reports"
+        options={{
+          title: 'Reports',
+          tabBarLabel: 'Reports',
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="stats-chart" size={bar.iconSize} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="manage"
         options={{
           title: 'Manage',
@@ -103,6 +114,8 @@ function AdminTabs() {
       <Tabs.Screen name="manage/buses" options={{ title: 'Buses', href: null }} />
       <Tabs.Screen name="manage/routes" options={{ title: 'Routes', href: null }} />
       <Tabs.Screen name="manage/routes/[id]" options={{ title: 'Route stops', href: null }} />
+      <Tabs.Screen name="manage/routes/[id]/runs" options={{ title: 'Route runs', href: null }} />
+      <Tabs.Screen name="manage/shifts" options={{ title: 'Shifts', href: null }} />
       <Tabs.Screen name="manage/staff" options={{ title: 'Drivers & conductors', href: null }} />
       <Tabs.Screen name="manage/assignments" options={{ title: 'Assignments', href: null }} />
       <Tabs.Screen name="manage/guardians" options={{ title: 'Guardians', href: null }} />
@@ -125,6 +138,9 @@ function AdminTabs() {
 
       {/* Task 44 — the school's end of the crew SOS feed. */}
       <Tabs.Screen name="emergencies" options={{ title: 'Emergencies', href: null }} />
+
+      {/* Phase 3 — a single report, pushed from the Reports tab. */}
+      <Tabs.Screen name="reports/[report]" options={{ title: 'Report', href: null }} />
     </Tabs>
   );
 }

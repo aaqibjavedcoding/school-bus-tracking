@@ -124,6 +124,24 @@ enforcements, and the app must show the server's own message — never mask a
 Role consistency is verified: each screen only mounts endpoints its role is
 granted (see the role-gated route groups), so a healthy session cannot 403.
 
+### School-admin surfaces (Phase 3)
+
+- **Reports** — a dedicated tab: the landing screen shows the live overview
+  figures plus the catalogue grouped by category; each report opens with a
+  filter sheet (only the inputs the report declares), summary cards and a
+  paginated result view rendered as per-row cards. Spreadsheet export stays
+  on the web console (it sends the identical query); the app is for reading.
+- **Shifts** — `Manage → Shifts`: full CRUD of the bell windows, with
+  server-side active/inactive filtering; the 409 refusal while runs are
+  attached surfaces verbatim.
+- **Runs & run crew** — `Manage → Routes → <route> → Runs`: run CRUD for the
+  route (code, shift window, bus, active flag; bus-window overlap is only
+  pre-warned — the API owns the verdict) and the per-run crew roster
+  (add/edit/remove with role-scoped person pickers).
+- **Student run allocation** — the student form offers the runs of the
+  chosen home stop's route and clears a stale run when the stop moves to
+  another route, matching the web console.
+
 ### Critical Attendance Actions
 
 For Driver/Conductor, attendance actions survive temporary network errors:
