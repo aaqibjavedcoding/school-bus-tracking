@@ -91,6 +91,67 @@ export function subscriptionStatusSlices(
     }));
 }
 
+/**
+ * One tile of the subscription console's summary band.
+ *
+ * The tile *is* the filter: `status` is the exact value `GET
+ * /admin/subscriptions?status=` accepts, so clicking a count always shows the
+ * schools it counted. `''` means "no status filter" (every school).
+ */
+export interface SubscriptionSummaryCard {
+  key: string;
+  label: string;
+  status: '' | SubscriptionStatus;
+  value: number;
+  tone: Tone;
+  hint: string;
+}
+
+/**
+ * Count tiles for `/admin/subscriptions`, ordered most-live-first.
+ *
+ * Counts deliberately come from `school_subscription_status` — schools grouped
+ * by their *current* (or newest historical) subscription — because that is
+ * precisely what the list endpoint filters on. The raw `subscriptions.*`
+ * counters in the same payload count subscription *rows*, so a school with
+ * cancelled history would inflate a card and the click would then land on a
+ * shorter list than the number promised.
+ */
+export function subscriptionSummaryCards(
+  data: Pick<AdminDashboardResponse, 'schools' | 'school_subscription_status'>,
+): SubscriptionSummaryCard[] {
+  const schoolsByStatus = new Map(
+    data.school_subscription_status.map((row) => [row.status, row.schools]),
+  );
+  const lifecycle: Array<{ status: SubscriptionStatus; hint: string }> = [
+    { status: SubscriptionStatus.TRIALING, hint: 'Free trial in progress' },
+    { status: SubscriptionStatus.ACTIVE, hint: 'Live and in good standing' },
+    { status: SubscriptionStatus.PAST_DUE, hint: 'Payment follow-up needed' },
+    { status: SubscriptionStatus.CANCELLED, hint: 'Cancelled, kept for history' },
+    { status: SubscriptionStatus.EXPIRED, hint: 'Period ended, kept for history' },
+    { status: SubscriptionStatus.NONE, hint: 'No plan assigned yet' },
+  ];
+
+  return [
+    {
+      key: 'all',
+      label: 'Schools',
+      status: '',
+      value: data.schools.total,
+      tone: 'neutral' as Tone,
+      hint: 'Every tenant, any subscription state',
+    },
+    ...lifecycle.map(({ status, hint }) => ({
+      key: status,
+      label: SUBSCRIPTION_STATUS_LABELS[status],
+      status: status as '' | SubscriptionStatus,
+      value: schoolsByStatus.get(status) ?? 0,
+      tone: subscriptionTone(status),
+      hint,
+    })),
+  ];
+}
+
 /** Schools grouped by the plan of their current subscription. */
 export function planDistributionBars(
   data: Pick<AdminDashboardResponse, 'plan_distribution'>,

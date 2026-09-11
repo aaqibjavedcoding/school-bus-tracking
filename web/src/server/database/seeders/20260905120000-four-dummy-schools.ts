@@ -91,6 +91,18 @@ export function makeLegacyUuid(schoolIdx: number, typeCode: number, itemIdx: num
 // -----------------------------------------------------------------------------
 // 1. PLANS
 // -----------------------------------------------------------------------------
+
+/**
+ * Currency of the demo plan catalogue.
+ *
+ * Every seeded school is an Indian tenant (`country: 'IN'`, Mumbai/Delhi/
+ * Bangalore/Chennai), so the catalogue is priced in rupees. The code — not a
+ * symbol — is what the UI renders with: `formatCurrency` reads each plan's own
+ * `currency`, so a plan priced elsewhere still shows its own symbol. Amounts
+ * are intentionally untouched: a currency code is a label, never a conversion.
+ */
+const DEMO_PLAN_CURRENCY = 'INR';
+
 export const PLAN_IDS = {
   BASIC: makeUuid(0, 0x20, 1),
   GROWTH: makeUuid(0, 0x20, 2),
@@ -113,7 +125,7 @@ const PLANS = [
     name: 'Basic Plan',
     description: 'Essential bus tracking and student safety for small schools.',
     price_cents: 4900,
-    currency: 'USD',
+    currency: DEMO_PLAN_CURRENCY,
     billing_period: 'monthly',
     is_active: true,
     features: JSON.stringify({
@@ -144,7 +156,7 @@ const PLANS = [
     name: 'Growth Plan',
     description: 'Expanded fleet management with document compliance and reporting.',
     price_cents: 9900,
-    currency: 'USD',
+    currency: DEMO_PLAN_CURRENCY,
     billing_period: 'monthly',
     is_active: true,
     features: JSON.stringify({
@@ -176,7 +188,7 @@ const PLANS = [
     name: 'Pro Plan',
     description: 'Full-featured suite with SOS alerts, compliance automation and analytics.',
     price_cents: 19900,
-    currency: 'USD',
+    currency: DEMO_PLAN_CURRENCY,
     billing_period: 'monthly',
     is_active: true,
     features: JSON.stringify({
@@ -209,7 +221,7 @@ const PLANS = [
     name: 'Enterprise Plan',
     description: 'Unlimited institutional scale with premium SLA and assisted onboarding.',
     price_cents: 199900,
-    currency: 'USD',
+    currency: DEMO_PLAN_CURRENCY,
     billing_period: 'yearly',
     is_active: true,
     features: JSON.stringify({
@@ -502,6 +514,30 @@ async function migrateLegacyPlanIds(queryInterface: QueryInterface): Promise<voi
   }
 }
 
+/**
+ * Re-labels the demo catalogue rows onto {@link DEMO_PLAN_CURRENCY}.
+ *
+ * `bulkInsert(..., { ignoreDuplicates: true })` skips a plan that already
+ * exists, so a database seeded before the catalogue was India-focused keeps
+ * its old `USD` rows — and the Plans console, the platform dashboard and the
+ * revenue screens would still render `$`. This only rewrites the *currency
+ * code* of the eight known demo ids (current + legacy); `price_cents` is
+ * untouched and no plan created through the UI is ever matched.
+ */
+async function relabelDemoPlanCurrency(queryInterface: QueryInterface): Promise<void> {
+  await queryInterface.sequelize.query(
+    `UPDATE "plans" SET "currency" = :currency
+      WHERE "id" IN (:ids)
+        AND "currency" <> :currency`,
+    {
+      replacements: {
+        currency: DEMO_PLAN_CURRENCY,
+        ids: [...Object.values(PLAN_IDS), ...Object.values(LEGACY_PLAN_IDS)],
+      },
+    },
+  );
+}
+
 export async function up(queryInterface: QueryInterface): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Refusing to insert seed test data into a production database.');
@@ -517,6 +553,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     await purgeSchool(queryInterface, makeLegacyUuid(cfg.index, 1, 1));
   }
   await migrateLegacyPlanIds(queryInterface);
+  await relabelDemoPlanCurrency(queryInterface);
   console.log('✅ Cleanup complete\n');
 
   // ---------------------------------------------------------------------------

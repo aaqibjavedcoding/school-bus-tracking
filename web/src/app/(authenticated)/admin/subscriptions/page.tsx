@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useCallback, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import React, { Suspense, useCallback, useMemo } from 'react';
 import {
   SUBSCRIPTION_STATUS_LABELS,
   SubscriptionStatus,
@@ -26,10 +27,15 @@ import { formatCurrency, formatDateTime } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
 import {
   billingPeriodSuffix,
+  buildSubscriptionFilterQuery,
+  parseSubscriptionPlanParam,
+  parseSubscriptionStatusParam,
   subscriptionStatusTone,
 } from '../../../../features/admin/subscriptions/helpers';
-import { compactUsage } from '../../../../features/admin/metrics';
-import { KpiCard, KpiGrid } from '../../../../features/admin/components/KpiCard';
+import { compactUsage, subscriptionSummaryCards } from '../../../../features/admin/metrics';
+import { KpiCard, KpiGrid, KpiGridSkeleton } from '../../../../features/admin/components/KpiCard';
+
+const number = (value: number): string => new Intl.NumberFormat().format(value);
 
 /** Quick filters a platform owner reaches for every day. */
 const QUICK_FILTERS: Array<{ value: '' | SubscriptionStatus; label: string }> = [
@@ -52,11 +58,39 @@ const STATUS_OPTIONS = Object.entries(SUBSCRIPTION_STATUS_LABELS).map(([value, l
  * Lists every school exactly once with its current (or latest) subscription,
  * as returned by `GET /admin/subscriptions`. Search, status and plan filters
  * are all applied server-side; the summary band re-uses the dashboard
- * aggregate so the counts always match the platform overview.
+ * aggregate — schools grouped by that same current-or-latest status — so a
+ * count is always exactly how many rows its filter returns.
+ *
+ * Each count in that band doubles as the filter it describes: the whole tile
+ * is a button that applies its status to the list below (`Expired` shows the
+ * expired schools, `Schools` clears the status filter again). The band, the
+ * `<Select>`, the quick chips and the URL are driven by the same two values,
+ * so they can never disagree — and search plus pagination survive every click.
  */
-export default function AdminSubscriptionsPage() {
-  const [status, setStatus] = useState<'' | SubscriptionStatus>('');
-  const [planId, setPlanId] = useState('');
+function SubscriptionsConsole() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // The query string is the single source of truth for the two list filters:
+  // `?status=` / `?plan=`. A count tile, the selects, a refresh, the back
+  // button and a shared link therefore all describe the same view, and an
+  // unknown or hand-edited value degrades to "no filter" instead of an API
+  // error (see `parseSubscriptionStatusParam`).
+  const status = parseSubscriptionStatusParam(searchParams?.get('status'));
+  const planId = parseSubscriptionPlanParam(searchParams?.get('plan'));
+
+  /** Writes the next filters back as a shallow URL update (no scroll jump). */
+  const applyFilters = useCallback(
+    (next: { status?: '' | SubscriptionStatus; planId?: string }) => {
+      const query = buildSubscriptionFilterQuery({
+        status: next.status ?? status,
+        planId: next.planId ?? planId,
+      });
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, planId, router, status],
+  );
 
   const { items, meta, setPage, search, setSearch, loading, searching, error, reload } =
     usePagedResource<AdminSubscriptionListItem>(
@@ -89,10 +123,9 @@ export default function AdminSubscriptionsPage() {
 
   const clearFilters = useCallback(() => {
     setSearch('');
-    setStatus('');
-    setPlanId('');
+    applyFilters({ status: '', planId: '' });
     setPage(1);
-  }, [setPage, setSearch]);
+  }, [applyFilters, setPage, setSearch]);
 
   const summary = useMemo(() => {
     if (meta.total === 0) return 'No schools match these filters';
@@ -102,6 +135,7 @@ export default function AdminSubscriptionsPage() {
   }, [items.length, meta]);
 
   const counts = summaryState.data;
+  const cards = useMemo(() => (counts ? subscriptionSummaryCards(counts) : []), [counts]);
 
   return (
     <div className="page">
@@ -116,14 +150,42 @@ export default function AdminSubscriptionsPage() {
       />
 
       {counts ? (
-        <KpiGrid>
-          <KpiCard label="Schools" value={counts.schools.total} hint="On the platform" />
-          <KpiCard label="Trialing" value={counts.subscriptions.trialing} tone="info" />
-          <KpiCard label="Active" value={counts.subscriptions.active} tone="success" />
-          <KpiCard label="Past due" value={counts.subscriptions.past_due} tone="warning" />
-          <KpiCard label="Cancelled" value={counts.subscriptions.cancelled} tone="danger" />
-          <KpiCard label="Expired" value={counts.subscriptions.expired} hint="Kept for history" />
-        </KpiGrid>
+        <>
+          <p className="result-count" style={{ marginBottom: '0.5rem' }}>
+            Schools by current subscription — select a count to filter the list below.
+          </p>
+          <KpiGrid>
+            {cards.map((card) => {
+              // The tile is "on" whenever its status *is* the applied filter —
+              // including `Schools`, which is what "no status filter" means
+              // (the same rule the `All` quick chip follows). Clicking an
+              // already-active count clears back to every school.
+              const isApplied = status === card.status;
+              return (
+                <KpiCard
+                  key={card.key}
+                  label={card.label}
+                  value={number(card.value)}
+                  tone={card.tone}
+                  hint={card.hint}
+                  selected={isApplied}
+                  onSelect={() =>
+                    applyFilters({ status: isApplied && card.status !== '' ? '' : card.status })
+                  }
+                  title={
+                    card.status === ''
+                      ? 'Show every school, whatever its subscription state'
+                      : isApplied
+                        ? `Showing ${card.label.toLowerCase()} schools — select to clear`
+                        : `Show ${card.label.toLowerCase()} schools`
+                  }
+                />
+              );
+            })}
+          </KpiGrid>
+        </>
+      ) : summaryState.loading ? (
+        <KpiGridSkeleton count={QUICK_FILTERS.length + 1} />
       ) : null}
 
       <div className="toolbar" style={{ margin: '1rem 0 0.6rem' }}>
@@ -137,7 +199,7 @@ export default function AdminSubscriptionsPage() {
           aria-label="Filter by subscription status"
           value={status}
           onChange={(event) => {
-            setStatus(event.target.value as '' | SubscriptionStatus);
+            applyFilters({ status: event.target.value as '' | SubscriptionStatus });
             setPage(1);
           }}
           options={STATUS_OPTIONS}
@@ -148,7 +210,7 @@ export default function AdminSubscriptionsPage() {
           aria-label="Filter by plan"
           value={planId}
           onChange={(event) => {
-            setPlanId(event.target.value);
+            applyFilters({ planId: event.target.value });
             setPage(1);
           }}
           options={(plansState.data ?? []).map((plan) => ({ value: plan.id, label: plan.name }))}
@@ -171,7 +233,7 @@ export default function AdminSubscriptionsPage() {
             className="filter-chip"
             aria-pressed={status === filter.value}
             onClick={() => {
-              setStatus(filter.value);
+              applyFilters({ status: filter.value });
               setPage(1);
             }}
           >
@@ -315,6 +377,32 @@ export default function AdminSubscriptionsPage() {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * `useSearchParams` is read inside a Suspense boundary — the same arrangement
+ * the tracking screens use — so the console stays prerenderable while the
+ * filtered view is resolved from the URL on the client.
+ */
+export default function AdminSubscriptionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="page">
+          <PageHeader
+            title="Subscriptions"
+            description="Every school's current plan, period and usage in one platform-wide view."
+          />
+          <KpiGridSkeleton count={QUICK_FILTERS.length + 1} />
+          <Card>
+            <Skeleton lines={10} />
+          </Card>
+        </div>
+      }
+    >
+      <SubscriptionsConsole />
+    </Suspense>
   );
 }
 

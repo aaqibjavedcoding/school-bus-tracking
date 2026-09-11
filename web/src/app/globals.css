@@ -314,50 +314,9 @@ img {
   font-size: 0.9rem;
 }
 
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.stat-card .label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-slate-500);
-}
-
-.stat-card .value {
-  font-size: 1.7rem;
-  font-weight: 750;
-  letter-spacing: -0.04em;
-}
-
-/* Clickable stat cards (school operations dashboard): the whole card is a
-   link to the matching list page, so it needs link semantics plus clear
-   hover/focus affordances on top of the plain card look. */
-.stat-card--link {
-  cursor: pointer;
-  text-decoration: none;
-  color: inherit;
-  transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
-}
-
-.stat-card--link:hover {
-  border-color: var(--color-slate-300);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
-}
-
-.stat-card--link:focus-visible {
-  outline: 2px solid var(--color-primary-500);
-  outline-offset: 2px;
-  box-shadow: var(--shadow-md);
-}
+/* Headline count cards live in one place: the `.kpi-card` tiles further down,
+   shared by the Super Admin console and the school operations dashboard so the
+   two dashboards cannot drift apart. */
 
 .btn {
   display: inline-flex;
@@ -1473,11 +1432,51 @@ table.data tbody tr:hover {
 }
 
 .kpi-card__label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
   font-size: 0.72rem;
   font-weight: 650;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-slate-500);
+}
+
+/* Optional leading glyph. The chip picks up the tile's tone so a card stays
+   readable at a glance even when the value itself is a bare count. */
+.kpi-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--color-slate-100);
+  color: var(--color-slate-600);
+}
+
+.kpi-card__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.kpi-card--success .kpi-card__icon {
+  background: var(--color-success-soft);
+  color: #15803d;
+}
+.kpi-card--info .kpi-card__icon {
+  background: var(--color-info-soft);
+  color: #1d4ed8;
+}
+.kpi-card--warning .kpi-card__icon {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.kpi-card--danger .kpi-card__icon {
+  background: var(--color-danger-soft);
+  color: #b91c1c;
 }
 
 .kpi-card__value {
@@ -1525,6 +1524,65 @@ table.data tbody tr:hover {
   outline: 2px solid var(--color-primary-500);
   outline-offset: 2px;
   box-shadow: var(--shadow-md);
+}
+
+/* Filter tiles (subscriptions console): a count that *applies* a filter rather
+   than navigating. Reset the UA button styling so the tile is visually
+   identical to the plain/link tiles, then share their hover lift. */
+.kpi-card--button {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.kpi-card--button:hover {
+  border-top-color: var(--color-slate-300);
+  border-right-color: var(--color-slate-300);
+  border-bottom-color: var(--color-slate-300);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.kpi-card--button:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-md);
+}
+
+/* The filter this tile represents is the one currently applied to the list.
+   Tone-tinted so the pressed state reads at a glance, and never relies on
+   colour alone: `aria-pressed` carries it for assistive tech. */
+.kpi-card--selected {
+  background: var(--color-slate-50);
+  border-top-color: var(--color-slate-300);
+  border-right-color: var(--color-slate-300);
+  border-bottom-color: var(--color-slate-300);
+  box-shadow: inset 0 0 0 1px var(--color-slate-200), var(--shadow-sm);
+  transform: none;
+}
+
+.kpi-card--success.kpi-card--selected {
+  background: #f0fdf4;
+  box-shadow: inset 0 0 0 1px #bbf7d0, var(--shadow-sm);
+}
+.kpi-card--info.kpi-card--selected {
+  background: #eff6ff;
+  box-shadow: inset 0 0 0 1px #bfdbfe, var(--shadow-sm);
+}
+.kpi-card--warning.kpi-card--selected {
+  background: #fffbeb;
+  box-shadow:
+    inset 0 0 0 1px var(--color-primary-200),
+    var(--shadow-sm);
+}
+.kpi-card--danger.kpi-card--selected {
+  background: #fef2f2;
+  box-shadow: inset 0 0 0 1px #fecaca, var(--shadow-sm);
 }
 
 .chart-donut {
@@ -2098,10 +2156,8 @@ table.data.compact th {
     padding: 0.85rem;
   }
 
-  .stat-card .value {
-    font-size: 1.4rem;
-  }
-
+  /* `.kpi-card__value` (the shared stat/count tiles) already scales down in
+     the 720px block above — no dashboard-specific override needed here. */
   .topbar {
     padding: 0 0.85rem;
   }

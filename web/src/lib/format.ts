@@ -49,19 +49,38 @@ export function stopCode(routeCode: string, sequenceNumber: number): string {
   return `${routeCode}-${String(sequenceNumber).padStart(3, '0')}`;
 }
 
-/** Formats a price (in major units, e.g. USD) using the browser's locale. Falls back to simple code+number. */
-export function formatCurrency(value: number | string, currency: string): string {
+/**
+ * Platform display currency for this India-focused deployment (ISO 4217).
+ *
+ * Prices stay *per record*: every plan and subscription carries its own
+ * `currency` code and is rendered with it. This constant is only used where
+ * the UI has to pick something before any record exists — the "Create plan"
+ * form default, and a missing/blank currency on a row — so a rupee is never
+ * swapped for a dollar and no amount is ever converted.
+ */
+export const PLATFORM_CURRENCY = 'INR';
+
+/**
+ * Formats a price in the record's own currency, in major units.
+ *
+ * Rupee amounts use `en-IN` so they get Indian digit grouping
+ * (`₹1,99,900.00`, not `₹199,900.00`); every other currency keeps the
+ * browser's locale, which is what the console has always done. Falls back to
+ * `CODE 12.00` when the runtime has no data for that currency code.
+ */
+export function formatCurrency(value: number | string, currency?: string | null): string {
+  const code = (currency ?? '').trim().toUpperCase() || PLATFORM_CURRENCY;
   const num = typeof value === 'string' ? Number(value) : value;
-  if (!Number.isFinite(num)) return `${currency} 0`;
+  if (!Number.isFinite(num)) return `${code} 0`;
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(code === PLATFORM_CURRENCY ? 'en-IN' : undefined, {
       style: 'currency',
-      currency,
+      currency: code,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(num);
   } catch {
-    return `${currency} ${num.toFixed(2)}`;
+    return `${code} ${num.toFixed(2)}`;
   }
 }
 
