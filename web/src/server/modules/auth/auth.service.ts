@@ -44,6 +44,35 @@ const TIMING_EQUALIZATION_HASH = '$2b$12$soESu/j94RmCRdbw9np7i.i3xYN/EEH.2t.q0Fl
  * UUID apart from a human-friendly school `code` at login. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Upper bound on rotation-lineage traversal when deciding whether a revoked
+ * token was merely superseded by a live concurrent rotation. Tokens rotate
+ * once per successful refresh, so any longer walk (or cycle) is a corrupted
+ * lineage and falls back to the plain "dead session" behaviour.
+ */
+const MAX_ROTATION_CHAIN_HOPS = 64;
+
+/**
+ * Raised when a *revoked* refresh token is presented but the session it
+ * belongs to is still alive: the token was superseded by a **concurrent**
+ * rotation (another tab, or a doubled boot request) whose successor token is
+ * unrevoked and unexpired.
+ *
+ * The HTTP surface is deliberately identical to a plain revocation — same
+ * 401, same `REVOKED_REFRESH_TOKEN_MESSAGE`. A stale token is never accepted
+ * again: rotation is the replay defence and this exception must not weaken
+ * it. The subclass exists so the route handler can distinguish "duplicate of
+ * a live rotation" from "the session is dead" and keep the readable
+ * session-presence marker in the first case. Clearing that marker on a
+ * rotation conflict would log every tab out on its next reload even though a
+ * valid rotated session still exists.
+ */
+export class RefreshTokenRotationConflictException extends UnauthorizedException {
+  constructor() {
+    super(REVOKED_REFRESH_TOKEN_MESSAGE);
+  }
+}
+
 export interface AuthSessionResult<T = LoginResponse | RefreshResponse> {
   response: T;
   refreshToken: string;
@@ -195,7 +224,17 @@ export class AuthService {
     }
 
     if (storedToken.revoked_at !== null) {
-      throw new UnauthorizedException(REVOKED_REFRESH_TOKEN_MESSAGE);
+      // A revocation is a *dead session* only when the rotation lineage has
+      // no live head. When this token was superseded by a concurrent refresh
+      // whose successor is still valid, a plain 401 would make the route drop
+      // the session-presence marker — logging every tab out on its next
+      // reload while a perfectly good session exists. The conflict subclass
+      // keeps the 401 semantics intact (stale tokens are never accepted)
+      // while telling the route the session survived.
+      const rotationConflict = await this.isSessionLiveThroughRotationChain(storedToken);
+      throw rotationConflict
+        ? new RefreshTokenRotationConflictException()
+        : new UnauthorizedException(REVOKED_REFRESH_TOKEN_MESSAGE);
     }
 
     if (new Date(storedToken.expires_at).getTime() <= Date.now()) {
@@ -253,6 +292,59 @@ export class AuthService {
       },
       refreshToken: newRawRefreshToken,
     };
+  }
+
+  /**
+   * True when a revoked token's rotation lineage ends in a token that would
+   * pass every refresh check (unrevoked, unexpired, active user, accessible
+   * school) — i.e. the presented token was a duplicate of a concurrent
+   * rotation and the session still exists.
+   *
+   * The walk follows `replaced_by_token_id` pointers with a visited set and
+   * a hop cap, so a corrupted or cyclic lineage always falls back to the
+   * plain "dead session" behaviour. Only reached for already-revoked tokens
+   * (the rare path), never on a successful refresh.
+   */
+  private async isSessionLiveThroughRotationChain(revokedToken: RefreshToken): Promise<boolean> {
+    let head: RefreshToken | null = null;
+    let nextId: string | null = revokedToken.replaced_by_token_id;
+    const visited = new Set<string>([revokedToken.id]);
+
+    while (nextId !== null && !visited.has(nextId) && visited.size <= MAX_ROTATION_CHAIN_HOPS) {
+      visited.add(nextId);
+      const token = await this.refreshTokens.unscoped().findOne({ where: { id: nextId } });
+      if (!token) {
+        return false;
+      }
+      head = token;
+      nextId = token.replaced_by_token_id;
+    }
+
+    // A healthy lineage always ends at the token without a successor. Reaching
+    // the hop cap or revisiting a token means a corrupted lineage — treat the
+    // session as dead rather than guess at a "head".
+    if (nextId !== null || !head || head.revoked_at !== null) {
+      return false;
+    }
+    if (new Date(head.expires_at).getTime() <= Date.now()) {
+      return false;
+    }
+
+    const user = await this.users.unscoped().findOne({
+      where: { id: head.user_id, school_id: head.school_id },
+    });
+    if (!user || !user.is_active) {
+      return false;
+    }
+
+    if (user.role !== UserRole.SUPER_ADMIN && this.schoolAccess) {
+      const accessible = await this.schoolAccess.isSchoolAccessible(user.school_id);
+      if (!accessible) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

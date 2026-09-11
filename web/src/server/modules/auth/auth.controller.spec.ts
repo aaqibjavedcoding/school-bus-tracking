@@ -6,8 +6,9 @@ import {
   RefreshResponse,
   UserRole,
 } from '@school-bus-tracking/shared-types';
-import { AuthService } from './auth.service';
+import { RefreshTokenRotationConflictException, AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { UnauthorizedException } from '../../framework';
 import { LOGOUT_SUCCESS_MESSAGE } from './auth.constants';
 import { CookieJar } from '../../http/cookies';
 import { callHandler } from '../../http/route-testing';
@@ -233,6 +234,70 @@ describe('auth endpoints', () => {
     assert.equal(result.access_token, 'new-access-token');
     const { cookies } = readJar(jar);
     assert.equal(cookies['refresh_token'].val, 'new-rotated-refresh-token-456');
+  });
+
+  it('POST /refresh keeps the session-presence marker when the failure is a rotation conflict', async () => {
+    const jar = new CookieJar();
+    const restore = withAuth({
+      ...makeMockAuthService(),
+      refresh: async () => {
+        throw new RefreshTokenRotationConflictException();
+      },
+    } as unknown as AuthService);
+    try {
+      await assert.rejects(
+        callHandler(postAuthRefresh, {
+          request: makeMockRequest({ cookies: { refresh_token: 'stale-rotated-token' } }),
+          cookies: jar,
+        }),
+        (error: unknown) => error instanceof RefreshTokenRotationConflictException,
+        'the 401 revocation must still be rethrown unchanged',
+      );
+    } finally {
+      restore();
+    }
+
+    const { cookies, clearedCookies } = readJar(jar);
+    assert.ok(
+      !('sb_session' in clearedCookies),
+      'a rotation conflict must NOT clear the marker — the rotated session is still live',
+    );
+    assert.ok(
+      !('refresh_token' in clearedCookies),
+      'the httpOnly refresh cookie is left untouched, same as a dead session',
+    );
+    assert.ok(!('refresh_token' in cookies), 'a failed refresh must not set a new refresh cookie');
+  });
+
+  it('POST /refresh clears the session-presence marker for any other refresh failure', async () => {
+    const jar = new CookieJar();
+    const restore = withAuth({
+      ...makeMockAuthService(),
+      refresh: async () => {
+        throw new UnauthorizedException('Invalid refresh token');
+      },
+    } as unknown as AuthService);
+    try {
+      await assert.rejects(
+        callHandler(postAuthRefresh, {
+          request: makeMockRequest({ cookies: { refresh_token: 'dead-token' } }),
+          cookies: jar,
+        }),
+        (error: unknown) => error instanceof UnauthorizedException,
+      );
+    } finally {
+      restore();
+    }
+
+    const { clearedCookies } = readJar(jar);
+    assert.ok(
+      clearedCookies['sb_session'],
+      'a dead session must clear the marker so future page loads skip the refresh attempt',
+    );
+    assert.ok(
+      !('refresh_token' in clearedCookies),
+      'the httpOnly refresh cookie is left untouched',
+    );
   });
 
   it('POST /logout revokes session, clears cookie, and returns LogoutResponse', async () => {

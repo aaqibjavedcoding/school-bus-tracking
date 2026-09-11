@@ -449,7 +449,7 @@ export class ApiClient {
   private readonly csrfTokenPath: string;
   private readonly csrfBootstrap?: boolean;
   private readonly resolveManagedSchoolId?: () => string | null;
-  private refreshInFlight: Promise<boolean> | null = null;
+  private refreshInFlight: Promise<ApiResponse<RefreshResponse>> | null = null;
   private csrfBootstrapInFlight: Promise<string | null> | null = null;
 
   constructor(config: ApiClientConfig) {
@@ -617,7 +617,24 @@ export class ApiClient {
     return headers;
   }
 
-  private async refreshSession(): Promise<boolean> {
+  /**
+   * Single-flight `/auth/refresh`.
+   *
+   * Exactly one refresh request may be in flight per client at a time. The
+   * API rotates the presented refresh token on every success — and thereby
+   * revokes it — so a second concurrent request carrying the same cookie is
+   * guaranteed to fail with `401 revoked` and log the user out. Every refresh
+   * entry point funnels through this method: the explicit {@link refresh}
+   * (the AuthProvider boot, which React StrictMode runs twice on mount) and
+   * the 401-retry paths of {@link request} and {@link downloadFile}.
+   * Concurrent callers therefore share the same in-flight promise and its
+   * outcome instead of racing the rotation.
+   *
+   * The promise is released in `finally`, so a failed refresh does not poison
+   * later attempts: the next call after settlement sends a fresh request with
+   * the cookie the server last wrote.
+   */
+  private refreshOnce(): Promise<ApiResponse<RefreshResponse>> {
     if (this.refreshInFlight) {
       return this.refreshInFlight;
     }
@@ -630,21 +647,33 @@ export class ApiClient {
           true,
         );
         const token = envelope.data?.access_token ?? null;
-        if (!token) {
-          this.setAccessToken?.(null);
-          return false;
-        }
         this.setAccessToken?.(token);
-        return true;
-      } catch {
+        return envelope;
+      } catch (error) {
+        // Whatever stopped the refresh, the previous token cannot be trusted
+        // from here on — drop it rather than keep sending a known-dead bearer.
         this.setAccessToken?.(null);
-        return false;
+        throw error;
       }
     })().finally(() => {
       this.refreshInFlight = null;
     });
 
     return this.refreshInFlight;
+  }
+
+  /**
+   * 401-retry helper: resolves `true` when a fresh access token is available,
+   * `false` when the session is unrecoverable. Shares the single-flight
+   * promise with explicit {@link refresh} calls.
+   */
+  private async refreshSession(): Promise<boolean> {
+    try {
+      const envelope = await this.refreshOnce();
+      return Boolean(envelope.data?.access_token);
+    } catch {
+      return false;
+    }
   }
 
   private async request<T>(
@@ -789,12 +818,16 @@ export class ApiClient {
     return envelope;
   }
 
-  public async refresh(): Promise<ApiResponse<RefreshResponse>> {
-    const envelope = await this.post<RefreshResponse>('/auth/refresh');
-    if (envelope.data?.access_token) {
-      this.setAccessToken?.(envelope.data.access_token);
-    }
-    return envelope;
+  /**
+   * Explicit session refresh (the AuthProvider boot).
+   *
+   * Single-flight: concurrent callers — React StrictMode's double effect, a
+   * parallel 401 retry — all share the one in-flight `POST /auth/refresh`
+   * instead of sending a duplicate that the server's rotation would reject
+   * with `401 revoked` and log the user out of.
+   */
+  public refresh(): Promise<ApiResponse<RefreshResponse>> {
+    return this.refreshOnce();
   }
 
   public async logout(): Promise<ApiResponse<LogoutResponse>> {

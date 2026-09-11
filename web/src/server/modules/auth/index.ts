@@ -1,4 +1,4 @@
-export { AuthService } from './auth.service';
+export { AuthService, RefreshTokenRotationConflictException } from './auth.service';
 export { LoginDto } from './dto/login.dto';
 export {
   DEFAULT_REFRESH_COOKIE_NAME,

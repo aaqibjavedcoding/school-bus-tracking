@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { ApiClient } from '@school-bus-tracking/api-client';
-import { AuthService } from './auth.service';
+import { RefreshTokenRotationConflictException, AuthService } from './auth.service';
 import { LOGOUT_SUCCESS_MESSAGE } from './auth.constants';
 import { CSRF_INVALID_MESSAGE } from '../../common/security';
 import { startTestServer, type RunningTestServer } from '../../http/test-server';
@@ -378,6 +378,99 @@ describe('web CSRF flow against the real auth handlers and guard', () => {
       session.has('sb_session'),
       false,
       'a failed refresh must clear the marker so future page loads stay cheap',
+    );
+  });
+
+  it('sends exactly one refresh request for a doubled (StrictMode) boot', async () => {
+    // React StrictMode runs the AuthProvider effect twice on mount: two
+    // `ensureCsrfToken()` + `refresh()` pairs fired back to back. The
+    // single-flight client must collapse that into one CSRF bootstrap and
+    // one `POST /auth/refresh` — a second refresh would lose the rotation
+    // race against the first and log the user out on reload.
+    const session = new BrowserSession(baseUrl);
+    session.set('refresh_token', 'boot-token', true);
+    session.set('sb_session', '1', false);
+    let refreshCalls = 0;
+    const undoAuth = overrideContainer('auth', {
+      ...makeMockAuthService(),
+      refresh: async (token?: string) => {
+        refreshCalls += 1;
+        if (!token) {
+          throw new Error('missing refresh token');
+        }
+        return {
+          response: {
+            access_token: 'boot-access-token',
+            token_type: 'Bearer' as const,
+            expires_in: 900,
+            user: authUser,
+          },
+          refreshToken: `boot-rotated-${refreshCalls}`,
+        };
+      },
+    } as unknown as AuthService);
+    const restore = installBrowser(session, baseUrl);
+
+    try {
+      const client = new ApiClient({ baseUrl });
+      const [first, second] = await Promise.all([
+        (async () => {
+          await client.ensureCsrfToken();
+          return client.refresh();
+        })(),
+        (async () => {
+          await client.ensureCsrfToken();
+          return client.refresh();
+        })(),
+      ]);
+
+      assert.equal(refreshCalls, 1, 'the doubled boot must send exactly one POST /auth/refresh');
+      assert.equal(first.data?.access_token, 'boot-access-token');
+      assert.equal(second.data?.access_token, 'boot-access-token');
+      assert.ok(session.has('sb_session'), 'the successful boot refresh keeps the marker');
+    } finally {
+      restore();
+      undoAuth();
+    }
+  });
+
+  it('keeps the session-presence marker when the refresh lost a rotation race', async () => {
+    // A concurrent refresh (another tab, or a doubled boot request) rotated
+    // the session behind this request's back. The server still rejects the
+    // stale token with 401 — rotation is the replay defence and must not be
+    // weakened — but the rotated session is alive. The old behaviour cleared
+    // the `sb_session` marker in that response, which logged every tab out on
+    // its next reload; the marker must now survive while the httpOnly refresh
+    // cookie stays untouched.
+    const session = new BrowserSession(baseUrl);
+    session.set('refresh_token', 'stale-rotated-token', true);
+    session.set('sb_session', '1', false);
+    session.set('csrf_token', 'csrf-already-present', false);
+    const undoAuth = overrideContainer('auth', {
+      ...makeMockAuthService(),
+      refresh: async () => {
+        throw new RefreshTokenRotationConflictException();
+      },
+    } as unknown as AuthService);
+    const restore = installBrowser(session, baseUrl);
+
+    try {
+      const client = new ApiClient({ baseUrl });
+      await assert.rejects(client.refresh(), /401/, 'the stale token must still be rejected');
+    } finally {
+      restore();
+      undoAuth();
+    }
+
+    assert.equal(
+      session.has('sb_session'),
+      true,
+      'a rotation conflict must not clear the marker — the rotated session is alive',
+    );
+    assert.equal(
+      session.get('refresh_token'),
+      'stale-rotated-token',
+      'the httpOnly refresh cookie is left untouched by the failed response',
     );
   });
 
