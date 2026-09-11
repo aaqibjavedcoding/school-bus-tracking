@@ -274,6 +274,15 @@ export default function ManageRouteStopsScreen() {
               <Text style={styles.subtitle}>{data.route.description}</Text>
             ) : null}
             <Text style={styles.hint}>Order is the boarding sequence used for trip manifests.</Text>
+            <Pressable
+              onPress={() => router.push(`/manage/routes/${routeId}/runs` as never)}
+              style={styles.runsLink}
+              accessibilityRole="button"
+            >
+              <Ionicons name="bus-outline" size={16} color={colors.primary[700]} />
+              <Text style={styles.runsLinkText}>Runs — bell windows, buses & crew</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary[700]} />
+            </Pressable>
             {data.stops.length > 0 ? (
               <SearchBar
                 value={search}
@@ -299,7 +308,7 @@ export default function ManageRouteStopsScreen() {
             }
           />
         }
-        refresh={() => void reload()}
+        refresh={() => void refresh()}
         refreshing={refreshing}
         extraBottomSpace={72}
       />
@@ -406,7 +415,20 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.xs,
     color: colors.neutral[500],
     marginTop: spacing.xs,
+  },
+  runsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+    marginTop: spacing.xs,
     marginBottom: spacing.md,
+  },
+  runsLinkText: {
+    color: colors.primary[700],
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '700',
   },
   stopCard: {
     backgroundColor: '#ffffff',

@@ -7,9 +7,10 @@ import { Screen, SectionTitle } from '../../src/components';
 
 /**
  * School-admin "Manage" hub — one tap to every management surface the web
- * console exposes: students, buses, routes & stops, drivers & conductors,
- * guardians, route assignments (dispatch), compliance documents and the
- * emergency feed. Each item opens a full create / edit / delete screen.
+ * console exposes: students, buses, routes (stops & runs), shifts (bell
+ * windows), drivers & conductors, guardians, route assignments (dispatch),
+ * compliance documents and the emergency feed. Each item opens a full
+ * create / edit / delete screen.
  */
 
 interface ManageItem {
@@ -38,8 +39,15 @@ const ITEMS: ManageItem[] = [
   {
     href: '/manage/routes',
     title: 'Routes & stops',
-    description: 'Runs and boarding sequence',
+    description: 'Stops, runs & boarding sequence',
     icon: 'git-branch',
+    tone: colors.status.info,
+  },
+  {
+    href: '/manage/shifts',
+    title: 'Shifts',
+    description: 'Bell windows for run tiering',
+    icon: 'time',
     tone: colors.status.info,
   },
   {

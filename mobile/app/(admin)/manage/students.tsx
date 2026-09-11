@@ -5,6 +5,8 @@ import {
   StudentGender,
   type RouteListResponse,
   type RouteResponse,
+  type RunListResponse,
+  type RunResponse,
   type StopListResponse,
   type StopResponse,
   type StudentCreateRequest,
@@ -22,6 +24,12 @@ import {
   unwrapEnvelope,
 } from '../../../src/lib/errors';
 import { stopCode } from '../../../src/lib/format';
+import {
+  runLabel,
+  runStaleForRoute,
+  runsForHomeStop,
+  studentRunLabel,
+} from '../../../src/lib/runs';
 import { useLoad } from '../../../src/hooks/useLoad';
 import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
@@ -58,6 +66,7 @@ const EMPTY = {
   gender: '',
   grade_level: '',
   home_stop_id: '',
+  run_id: '',
   emergency_contact_name: '',
   emergency_contact_phone: '',
   medical_notes: '',
@@ -75,6 +84,9 @@ function toPayload(form: FormState): StudentCreateRequest {
     gender: form.gender ? (form.gender as StudentGender) : null,
     grade_level: emptyToNull(form.grade_level),
     home_stop_id: emptyToNull(form.home_stop_id),
+    // Empty means "no run": the server keeps the route's default run (legacy
+    // behaviour) for a fresh allocation and detaches the student otherwise.
+    run_id: emptyToNull(form.run_id),
     emergency_contact_name: emptyToNull(form.emergency_contact_name),
     emergency_contact_phone: emptyToNull(form.emergency_contact_phone),
     medical_notes: emptyToNull(form.medical_notes),
@@ -87,16 +99,21 @@ export default function ManageStudentsScreen() {
   const router = useRouter();
   const toast = useToast();
 
-  const lookups = useLoad(async (): Promise<{ stops: StopResponse[]; routes: RouteResponse[] }> => {
-    const [stops, routes] = await Promise.all([
-      apiClient.listStops({ page: 1, limit: 100 }),
-      apiClient.listRoutes({ page: 1, limit: 100 }),
-    ]);
-    return {
-      stops: unwrapEnvelope<StopListResponse>(stops).items,
-      routes: unwrapEnvelope<RouteListResponse>(routes).items,
-    };
-  }, []);
+  const lookups = useLoad(
+    async (): Promise<{ stops: StopResponse[]; routes: RouteResponse[]; runs: RunResponse[] }> => {
+      const [stops, routes, runs] = await Promise.all([
+        apiClient.listStops({ page: 1, limit: 100 }),
+        apiClient.listRoutes({ page: 1, limit: 100 }),
+        apiClient.listRuns({ page: 1, limit: 100 }),
+      ]);
+      return {
+        stops: unwrapEnvelope<StopListResponse>(stops).items,
+        routes: unwrapEnvelope<RouteListResponse>(routes).items,
+        runs: unwrapEnvelope<RunListResponse>(runs).items,
+      };
+    },
+    [],
+  );
 
   const list = usePagedResource<StudentResponse>(
     async (page, search) => unwrapEnvelope(await apiClient.listStudents({ page, limit: 20, search })),
@@ -137,6 +154,8 @@ export default function ManageStudentsScreen() {
       gender: student.gender ?? '',
       grade_level: student.grade_level ?? '',
       home_stop_id: student.home_stop_id ?? '',
+      // No stale run: always re-derive from the loaded record.
+      run_id: student.run_id ?? '',
       emergency_contact_name: student.emergency_contact_name ?? '',
       emergency_contact_phone: student.emergency_contact_phone ?? '',
       medical_notes: student.medical_notes ?? '',
@@ -199,6 +218,18 @@ export default function ManageStudentsScreen() {
     ...(lookups.data?.stops ?? []).map((stop) => ({ value: stop.id, label: stopLabel(stop) })),
   ];
 
+  // Runs offered for the student's home stop: only the stop's route, active
+  // only, defaults first (same shortlist the web console renders).
+  const homeRouteId =
+    lookups.data?.stops.find((stop) => stop.id === form.home_stop_id)?.route_id ?? null;
+  const runOptions = [
+    { value: '', label: 'Route default' },
+    ...runsForHomeStop(lookups.data?.runs ?? [], homeRouteId).map((run) => ({
+      value: run.id,
+      label: runLabel(run),
+    })),
+  ];
+
   return (
     <View style={styles.flex}>
       <ListScreen
@@ -208,7 +239,13 @@ export default function ManageStudentsScreen() {
           <ListCard
             title={`${item.first_name} ${item.last_name}`}
             subtitle={item.home_stop_name ? `Stop: ${item.home_stop_name}` : null}
-            meta={`${item.admission_number}${item.grade_level ? ` · Grade ${item.grade_level}` : ''}`}
+            meta={[
+              item.admission_number,
+              item.grade_level ? `Grade ${item.grade_level}` : null,
+              studentRunLabel(item),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             right={
               <Badge
                 label={item.is_active ? 'Active' : 'Inactive'}
@@ -358,11 +395,35 @@ export default function ManageStudentsScreen() {
         <Select
           label="Home stop"
           value={form.home_stop_id}
-          onChange={(value) => setForm({ ...form, home_stop_id: value })}
+          onChange={(value) => {
+            // Keep the two selects coherent: a run that belongs to the old
+            // stop's route must not linger on a student who just moved.
+            const nextRouteId =
+              lookups.data?.stops.find((stop) => stop.id === value)?.route_id ?? null;
+            const clearRun = runStaleForRoute(
+              (lookups.data?.runs ?? []).find((run) => run.id === form.run_id),
+              nextRouteId,
+            );
+            setForm({
+              ...form,
+              home_stop_id: value,
+              ...(clearRun ? { run_id: '' } : {}),
+            });
+          }}
           options={stopOptions}
           placeholder="No home stop"
           error={fieldErrors.home_stop_id}
         />
+        {form.home_stop_id ? (
+          <Select
+            label="Run"
+            value={form.run_id}
+            onChange={(value) => setForm({ ...form, run_id: value })}
+            options={runOptions}
+            placeholder="Route default"
+            error={fieldErrors.run_id}
+          />
+        ) : null}
         <Field
           label="Emergency contact name"
           value={form.emergency_contact_name}

@@ -32,6 +32,7 @@ import {
   visibleTrips,
   type TripStatusFilter,
 } from '../../src/lib/trips-list';
+import { dispatchableRuns } from '../../src/lib/runs';
 import { useLoad } from '../../src/hooks/useLoad';
 import { usePagedResource } from '../../src/hooks/usePagedResource';
 import {
@@ -101,18 +102,11 @@ const EMPTY_FORM = {
 };
 
 /**
- * Mirror of the web app's `dispatchableRuns`: active runs only, sorted by
+ * `dispatchableRuns` (shared `src/lib/runs`): active runs only, sorted by
  * route code then run code so the picker reads like the route board. The
  * server owns the real verdict (bus/crew/window checks); this list is only
  * the set worth offering.
  */
-function dispatchableRuns(runs: RunResponse[]): RunResponse[] {
-  return [...runs]
-    .filter((run) => run.is_active)
-    .sort((a, b) =>
-      `${a.route_code ?? ''}|${a.code}`.localeCompare(`${b.route_code ?? ''}|${b.code}`),
-    );
-}
 
 /** Web-identical run picker label (`R-02 · RT-1 — North Loop · 07:00–08:00 · Bus 7`). */
 function runLabel(run: RunResponse): string {
