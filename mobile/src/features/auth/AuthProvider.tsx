@@ -42,7 +42,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
     disconnectEmergenciesSocket();
-    // Fire-and-forget: unregistering the push token must never delay logout.
+    // Local push binding is dropped synchronously (the API call, if any,
+    // already ran in `logout` while the JWT was valid).
     void unregisterPushDevice();
     clearAccessToken();
     setUser(null);
@@ -91,6 +92,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(async () => {
+    // The device token must be released *before* the session is revoked:
+    // `DELETE /notifications/devices/:token` is JWT-scoped. Bounded so a dead
+    // network can never hold the user on the screen.
+    await Promise.race([
+      unregisterPushDevice(),
+      new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+    ]);
     try {
       await apiClient.logout();
     } catch {
