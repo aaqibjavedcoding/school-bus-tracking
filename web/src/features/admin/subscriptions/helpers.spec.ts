@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  SUBSCRIPTION_STATUS_VALUES,
   SubscriptionStatus,
   type AdminSchoolSubscriptionResponse,
 } from '@school-bus-tracking/shared-types';
@@ -8,7 +9,10 @@ import { adminSchoolSubscriptionCreateSchema } from '@school-bus-tracking/valida
 import { fieldErrorsFromZod } from '../../../lib/errors.ts';
 import {
   billingPeriodSuffix,
+  buildSubscriptionFilterQuery,
   datetimeLocalToIso,
+  parseSubscriptionPlanParam,
+  parseSubscriptionStatusParam,
   EMPTY_ASSIGN_FORM,
   isLiveSubscriptionStatus,
   subscriptionStatusTone,
@@ -186,6 +190,56 @@ describe('assign-form validation uses the shared schema (fast feedback only)', (
     if (!parsed.success) {
       const errors = fieldErrorsFromZod(parsed.error);
       assert.ok(errors.plan_id, 'plan_id must carry the message');
+    }
+  });
+});
+
+describe('subscription console URL filters', () => {
+  /** The status values the list endpoint (`ListAdminSubscriptionsQueryDto`) accepts. */
+  it('accepts every real status and nothing else', () => {
+    for (const status of SUBSCRIPTION_STATUS_VALUES) {
+      assert.equal(parseSubscriptionStatusParam(status), status);
+    }
+  });
+
+  it('degrades an unusable ?status= to "no filter"', () => {
+    for (const junk of [null, undefined, '', '  ', 'all', 'ACTIVE!', 'nope', '5']) {
+      assert.equal(
+        parseSubscriptionStatusParam(junk),
+        '',
+        `"${junk}" must never reach the API as a filter`,
+      );
+    }
+    // Case and padding are tolerated, because a hand-typed link is a real thing.
+    assert.equal(parseSubscriptionStatusParam('  Past_Due '), SubscriptionStatus.PAST_DUE);
+  });
+
+  it('only forwards a plausible plan id from ?plan=', () => {
+    assert.equal(parseSubscriptionPlanParam(PLAN_ID), PLAN_ID);
+    assert.equal(parseSubscriptionPlanParam(` ${PLAN_ID.toUpperCase()}`), PLAN_ID.toUpperCase());
+    for (const junk of [null, undefined, '', 'all', 'pro-plan', '1']) {
+      assert.equal(parseSubscriptionPlanParam(junk), '');
+    }
+  });
+
+  it('writes back exactly the filters that are in force', () => {
+    assert.equal(buildSubscriptionFilterQuery({ status: '', planId: '' }), '');
+    assert.equal(
+      buildSubscriptionFilterQuery({ status: SubscriptionStatus.EXPIRED, planId: '' }),
+      'status=expired',
+    );
+    assert.equal(buildSubscriptionFilterQuery({ status: '', planId: PLAN_ID }), `plan=${PLAN_ID}`);
+    assert.equal(
+      buildSubscriptionFilterQuery({ status: SubscriptionStatus.ACTIVE, planId: PLAN_ID }),
+      `status=active&plan=${PLAN_ID}`,
+    );
+  });
+
+  it('round-trips: a card filter survives its own URL', () => {
+    for (const status of SUBSCRIPTION_STATUS_VALUES) {
+      const query = buildSubscriptionFilterQuery({ status, planId: '' });
+      const params = new URLSearchParams(query);
+      assert.equal(parseSubscriptionStatusParam(params.get('status')), status);
     }
   });
 });

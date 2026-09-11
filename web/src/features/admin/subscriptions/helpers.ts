@@ -1,6 +1,7 @@
 import {
   ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES,
   LIVE_SUBSCRIPTION_STATUS_VALUES,
+  SUBSCRIPTION_STATUS_VALUES,
   SubscriptionStatus,
   type AdminSchoolSubscriptionCreateRequest,
   type AdminSchoolSubscriptionResponse,
@@ -115,9 +116,7 @@ export function toAssignSubscriptionRequest(
   form: AssignPlanFormState,
 ): AdminSchoolSubscriptionCreateRequest {
   const body: AdminSchoolSubscriptionCreateRequest = { plan_id: form.plan_id.trim() };
-  if (
-    (ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES as string[]).includes(form.status)
-  ) {
+  if ((ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES as string[]).includes(form.status)) {
     body.status = form.status as SubscriptionStatus;
   }
   const trialStart = datetimeLocalToIso(form.trial_start);
@@ -129,4 +128,56 @@ export function toAssignSubscriptionRequest(
   if (periodStart) body.current_period_start = periodStart;
   if (periodEnd) body.current_period_end = periodEnd;
   return body;
+}
+
+/**
+ * The two list filters of `/admin/subscriptions`, as a query string.
+ *
+ * `status` and `plan` are read *from* the URL and written back to it, so a
+ * summary count, the status `<Select>`, the quick chips, a refresh, the back
+ * button and a shared link all describe the same view. Search and page stay
+ * inside `usePagedResource` — clicking a count never touches them — and every
+ * URL value passes through the two parsers below, so a hand-edited link can
+ * only ever mean "a filter the API accepts" or "no filter".
+ */
+
+/**
+ * `?status=` → the value the list filter accepts.
+ *
+ * Unknown, blank and `all` values collapse to `''` (= no status filter), so a
+ * hand-edited or stale link can never put the console into a state the API
+ * would reject.
+ */
+export function parseSubscriptionStatusParam(
+  raw: string | null | undefined,
+): '' | SubscriptionStatus {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (!value || value === 'all') return '';
+  return (SUBSCRIPTION_STATUS_VALUES as string[]).includes(value)
+    ? (value as SubscriptionStatus)
+    : '';
+}
+
+/** `?plan=` → a plan id filter, or `''` when absent. */
+export function parseSubscriptionPlanParam(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim();
+  // Only a plausible UUID is forwarded; anything else would fail `plan_id`
+  // validation server-side and surface as a list error instead of a filter.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? value : '';
+}
+
+/**
+ * The console's filters → the query string that represents them.
+ *
+ * Keys are omitted when the filter is inactive, so the bare page stays
+ * `/admin/subscriptions` and "no filter" has exactly one URL.
+ */
+export function buildSubscriptionFilterQuery(filters: {
+  status: '' | SubscriptionStatus;
+  planId: string;
+}): string {
+  const params = new URLSearchParams();
+  if (filters.status) params.set('status', filters.status);
+  if (filters.planId) params.set('plan', filters.planId);
+  return params.toString();
 }

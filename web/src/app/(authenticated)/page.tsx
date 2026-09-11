@@ -4,11 +4,15 @@ import Link from 'next/link';
 import React from 'react';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { Badge, Button, Card, PageHeader, Skeleton, ErrorState } from '../../components/ui';
+import { NavIcon } from '../../components/layout/icons';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useLoad } from '../../hooks/useLoad';
 import { unwrapEnvelope } from '../../lib/errors';
 import { formatDateTime, tripStatusLabel, tripStatusTone, utcDateOnly } from '../../lib/format';
 import { apiClient } from '../../services/api';
+import { KpiCard, KpiGrid, KpiGridSkeleton } from '../../features/admin/components/KpiCard';
+
+const number = (value: number): string => new Intl.NumberFormat().format(value);
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -45,7 +49,10 @@ export default function DashboardPage() {
           description="SaaS-wide operations across all customer schools, plans and subscriptions."
         />
         <div className="grid grid-2" style={{ gap: '1rem' }}>
-          <Card title="Platform overview" description="Aggregate schools, users, transport and subscription metrics.">
+          <Card
+            title="Platform overview"
+            description="Aggregate schools, users, transport and subscription metrics."
+          >
             <Link href="/admin">
               <Button>Open overview</Button>
             </Link>
@@ -55,7 +62,10 @@ export default function DashboardPage() {
               <Button>Open schools</Button>
             </Link>
           </Card>
-          <Card title="Subscriptions" description="Global view of plans, statuses and usage across all schools.">
+          <Card
+            title="Subscriptions"
+            description="Global view of plans, statuses and usage across all schools."
+          >
             <Link href="/admin/subscriptions">
               <Button>Open subscriptions</Button>
             </Link>
@@ -78,10 +88,21 @@ export default function DashboardPage() {
     );
   }
 
+  const header = (
+    <PageHeader
+      title="Operations dashboard"
+      description="Today's fleet, routes and live runs for your school."
+    />
+  );
+
   if (loading && !data) {
     return (
       <div className="page">
-        <Skeleton lines={10} />
+        {header}
+        <KpiGridSkeleton count={4} />
+        <Card title="Loading today's trips">
+          <Skeleton lines={6} />
+        </Card>
       </div>
     );
   }
@@ -89,6 +110,7 @@ export default function DashboardPage() {
   if (error || !data) {
     return (
       <div className="page">
+        {header}
         <ErrorState message={error || 'Dashboard failed to load'} onRetry={() => void reload()} />
       </div>
     );
@@ -96,33 +118,53 @@ export default function DashboardPage() {
 
   return (
     <div className="page">
-      <PageHeader
-        title="Operations dashboard"
-        description="Today's fleet, routes and live runs for your school."
-      />
-      {/* Every stat card is a whole-card link to the matching list page —
-          same tenant, same role: these routes are the school admin's own
-          sections from the sidebar. */}
-      <div className="grid grid-4">
-        <Link className="card stat-card stat-card--link" href="/students">
-          <span className="label">Students</span>
-          <span className="value">{data.studentCount}</span>
-        </Link>
-        <Link className="card stat-card stat-card--link" href="/buses">
-          <span className="label">Buses</span>
-          <span className="value">{data.busCount}</span>
-        </Link>
-        <Link className="card stat-card stat-card--link" href="/routes">
-          <span className="label">Routes</span>
-          <span className="value">{data.routeCount}</span>
-        </Link>
-        <Link className="card stat-card stat-card--link" href="/trips">
-          <span className="label">Live trips</span>
-          {/* Server-side count across ALL of today's trips — the old card
-              could only see the first page (8 rows) it had loaded. */}
-          <span className="value">{data.liveTripCount}</span>
-        </Link>
-      </div>
+      {header}
+      {/* Same tile component the Super Admin platform console builds on, so the
+          two dashboards share tone accents, iconography, typography, spacing
+          and the whole-card link affordance. Every card links to the school
+          admin's own section — same tenant, same role, no new data or
+          permission is introduced here. */}
+      <section aria-label="School key metrics">
+        <KpiGrid>
+          <KpiCard
+            label="Students"
+            value={number(data.studentCount)}
+            tone="info"
+            icon={<NavIcon name="users" />}
+            hint="Enrolled in your school"
+            href="/students"
+            title="Open students"
+          />
+          <KpiCard
+            label="Buses"
+            value={number(data.busCount)}
+            tone="success"
+            icon={<NavIcon name="bus" />}
+            hint="Fleet on record"
+            href="/buses"
+            title="Open buses"
+          />
+          <KpiCard
+            label="Routes"
+            value={number(data.routeCount)}
+            tone="warning"
+            icon={<NavIcon name="route" />}
+            hint="Mapped stops and timetables"
+            href="/routes"
+            title="Open routes"
+          />
+          <KpiCard
+            label="Live trips"
+            value={number(data.liveTripCount)}
+            icon={<NavIcon name="trip" />}
+            /* Server-side count across ALL of today's trips — the old card
+               could only see the first page (8 rows) it had loaded. */
+            hint={`${number(data.trips.meta.total)} trip${data.trips.meta.total === 1 ? '' : 's'} scheduled today`}
+            href="/trips"
+            title="Open trips"
+          />
+        </KpiGrid>
+      </section>
       <Card title="Today's trips" description={`Scheduled on ${today} (UTC)`}>
         {data.trips.items.length === 0 ? (
           <p className="muted">No trips scheduled today.</p>

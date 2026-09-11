@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import {
   PlanBillingPeriod,
   PlanLimitResource,
+  SUBSCRIPTION_STATUS_LABELS,
   SubscriptionStatus,
   type AdminDashboardResponse,
   type AdminSchoolStats,
@@ -10,6 +11,7 @@ import {
 import {
   compactUsage,
   formatLimit,
+  subscriptionSummaryCards,
   monthlyPriceOf,
   planDistributionBars,
   resourceBars,
@@ -139,6 +141,64 @@ describe('admin dashboard metrics', () => {
     const bars = resourceBars(dashboard);
     assert.equal(bars[0].key, 'students');
     assert.ok(bars[0].value >= bars[1].value);
+  });
+});
+
+describe('subscription summary band', () => {
+  it('makes every count the exact filter it applies', () => {
+    const cards = subscriptionSummaryCards(dashboard);
+    assert.deepEqual(
+      cards.map((card) => card.status),
+      [
+        '',
+        SubscriptionStatus.TRIALING,
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.PAST_DUE,
+        SubscriptionStatus.CANCELLED,
+        SubscriptionStatus.EXPIRED,
+        SubscriptionStatus.NONE,
+      ],
+    );
+    // The first tile is "no status filter", which is what the list shows when
+    // it is asked for every school — so its count is the unfiltered total.
+    assert.equal(cards[0].value, dashboard.schools.total);
+    // Labels are the ones the status <Select> offers for the same value.
+    for (const card of cards.slice(1)) {
+      assert.equal(
+        card.label,
+        SUBSCRIPTION_STATUS_LABELS[card.status as SubscriptionStatus],
+        `tile "${card.label}" must read like its filter option`,
+      );
+    }
+  });
+
+  it('counts schools by current subscription, not subscription rows', () => {
+    const byKey = new Map(
+      subscriptionSummaryCards(dashboard).map((card) => [card.key, card.value]),
+    );
+    // The payload reports 2 cancelled and 1 expired *rows*, but no school's
+    // current subscription is in either state. Counting rows is how a tile
+    // ends up promising two schools and filtering to none.
+    assert.equal(dashboard.subscriptions.cancelled, 2);
+    assert.equal(byKey.get(SubscriptionStatus.CANCELLED), 0);
+    assert.equal(dashboard.subscriptions.expired, 1);
+    assert.equal(byKey.get(SubscriptionStatus.EXPIRED), 0);
+    // Live states match the list's own filter semantics exactly.
+    assert.equal(byKey.get(SubscriptionStatus.ACTIVE), 2);
+    assert.equal(byKey.get(SubscriptionStatus.TRIALING), 1);
+    assert.equal(byKey.get(SubscriptionStatus.PAST_DUE), 1);
+    assert.equal(byKey.get(SubscriptionStatus.NONE), 1);
+  });
+
+  it('tones each tile the way the status badges are toned', () => {
+    const cards = subscriptionSummaryCards(dashboard);
+    const toneOf = (key: string) => cards.find((card) => card.key === key)?.tone;
+    assert.equal(toneOf(SubscriptionStatus.ACTIVE), 'success');
+    assert.equal(toneOf(SubscriptionStatus.TRIALING), 'info');
+    assert.equal(toneOf(SubscriptionStatus.PAST_DUE), 'warning');
+    assert.equal(toneOf(SubscriptionStatus.CANCELLED), 'danger');
+    assert.equal(toneOf(SubscriptionStatus.EXPIRED), 'neutral');
+    assert.equal(toneOf('all'), 'neutral');
   });
 });
 

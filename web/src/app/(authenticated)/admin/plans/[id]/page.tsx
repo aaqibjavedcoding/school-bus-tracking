@@ -18,7 +18,7 @@ import {
   useToast,
 } from '../../../../../components/ui';
 import { useLoad } from '../../../../../hooks/useLoad';
-import { formatCurrency, formatDateTime } from '../../../../../lib/format';
+import { PLATFORM_CURRENCY, formatCurrency, formatDateTime } from '../../../../../lib/format';
 import {
   emptyToNull,
   fieldErrorsFromUnknown,
@@ -300,12 +300,18 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
                 error={Boolean(fieldErrors.price)}
               />
             </Field>
-            <Field id="currency" label="Currency (ISO 4217)" error={fieldErrors.currency}>
+            <Field
+              id="currency"
+              label="Currency (ISO 4217)"
+              error={fieldErrors.currency}
+              hint={`3-letter code. This deployment is India-focused, so ${PLATFORM_CURRENCY} (₹) is the house currency.`}
+            >
               <Input
                 id="currency"
                 value={form.currency}
                 onChange={(event) => updateForm({ currency: event.target.value })}
                 error={Boolean(fieldErrors.currency)}
+                placeholder={PLATFORM_CURRENCY}
                 maxLength={3}
               />
             </Field>

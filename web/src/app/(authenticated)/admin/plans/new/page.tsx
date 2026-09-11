@@ -27,6 +27,7 @@ import {
   formErrorsFromZod,
   getApiErrorMessage,
 } from '../../../../../lib/errors';
+import { PLATFORM_CURRENCY } from '../../../../../lib/format';
 import { apiClient } from '../../../../../services/api';
 import { adminPlanCreateSchema } from '@school-bus-tracking/validation';
 
@@ -75,7 +76,7 @@ const EMPTY: FormState = {
   name: '',
   description: '',
   price: '',
-  currency: 'USD',
+  currency: PLATFORM_CURRENCY,
   billing_period: PlanBillingPeriod.MONTHLY,
   is_active: true,
   features: defaultFeatures(),
@@ -223,7 +224,12 @@ export default function NewPlanPage() {
 
         <Card title="Pricing & billing" description="Commercial terms of the tier.">
           <div className="grid grid-2">
-            <Field id="price" label="Price" error={fieldErrors.price} hint="Per billing period.">
+            <Field
+              id="price"
+              label="Price"
+              error={fieldErrors.price}
+              hint="Per billing period, in major units (e.g. rupees, not paise)."
+            >
               <Input
                 id="price"
                 type="number"
@@ -232,16 +238,21 @@ export default function NewPlanPage() {
                 value={form.price}
                 onChange={set('price')}
                 error={Boolean(fieldErrors.price)}
-                placeholder="19.99"
+                placeholder="4999"
               />
             </Field>
-            <Field id="currency" label="Currency (ISO 4217)" error={fieldErrors.currency}>
+            <Field
+              id="currency"
+              label="Currency (ISO 4217)"
+              error={fieldErrors.currency}
+              hint={`3-letter code. This deployment is India-focused, so new plans default to ${PLATFORM_CURRENCY} (₹).`}
+            >
               <Input
                 id="currency"
                 value={form.currency}
                 onChange={set('currency')}
                 error={Boolean(fieldErrors.currency)}
-                placeholder="USD"
+                placeholder={PLATFORM_CURRENCY}
                 maxLength={3}
               />
             </Field>

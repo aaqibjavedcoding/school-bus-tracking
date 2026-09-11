@@ -89,7 +89,10 @@ export default function AdminOverviewPage() {
       {header}
 
       {/* KPI tiles that count a resource with its own console list page are
-          whole-card links to that page. The cross-tenant resource tiles
+          whole-card links to that page. The subscription tiles also carry the
+          status they counted (`?status=`), so the list opens pre-filtered to
+          exactly the number that was clicked — the same filter value the
+          subscriptions console reads. The cross-tenant resource tiles
           (students, buses, crew, routes) intentionally stay plain: there is
           no platform-wide list for them — tenant records are only reachable
           inside an assisted-management session. */}
@@ -127,21 +130,21 @@ export default function AdminOverviewPage() {
             value={number(data.subscriptions.active)}
             tone="success"
             hint={`${number(data.subscriptions.live)} live incl. trials`}
-            href="/admin/subscriptions"
+            href="/admin/subscriptions?status=active"
           />
           <KpiCard
             label="Past due subscriptions"
             value={number(data.subscriptions.past_due)}
             tone="warning"
             hint="Need follow-up"
-            href="/admin/subscriptions"
+            href="/admin/subscriptions?status=past_due"
           />
           <KpiCard
             label="Cancelled subscriptions"
             value={number(data.subscriptions.cancelled)}
             tone="danger"
             hint={`${number(data.subscriptions.expired)} expired`}
-            href="/admin/subscriptions"
+            href="/admin/subscriptions?status=cancelled"
           />
           <KpiCard
             label="Active plans"
