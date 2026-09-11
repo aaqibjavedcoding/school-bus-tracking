@@ -24,6 +24,15 @@
 
 const SELF = "'self'";
 
+/**
+ * The only external image origin the app needs out of the box: the
+ * OpenStreetMap tile server used by the live-tracking map. The app pins
+ * `TileLayer` to this exact host (no `{s}` subdomains) so the CSP can stay
+ * narrow — a wildcard `https://*.tile.openstreetmap.org` would also trust
+ * unrelated subdomains.
+ */
+const MAP_TILE_IMG_SRC = 'https://tile.openstreetmap.org';
+
 /** Builds the CSP directive list for the web app. */
 function buildContentSecurityPolicy(options = {}) {
   const isProduction = options.isProduction === true;
@@ -46,7 +55,7 @@ function buildContentSecurityPolicy(options = {}) {
     `object-src 'none'`,
     `script-src ${scriptSrc.join(' ')}`,
     `style-src ${SELF} 'unsafe-inline'`,
-    `img-src ${SELF} data: blob: ${extraImgSrc.join(' ')}`.trim(),
+    `img-src ${SELF} data: blob: ${MAP_TILE_IMG_SRC} ${extraImgSrc.join(' ')}`.trim(),
     `font-src ${SELF} data:`,
     `connect-src ${connectSrc.join(' ')}`,
     `manifest-src ${SELF}`,

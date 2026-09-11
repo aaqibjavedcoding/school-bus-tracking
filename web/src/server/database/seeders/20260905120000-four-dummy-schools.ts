@@ -1806,11 +1806,11 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   console.log('🚀 SCHOOL BUS TRACKING — COMPLETE SEED DATA GENERATED SUCCESSFULLY');
   console.log('='.repeat(80));
 
+  // No credentials in log output: these lines can end up in CI/container logs.
   console.log('\n👑 PLATFORM SUPER ADMIN:');
   console.log('   Role        : SUPER_ADMIN (Platform Console / All Schools)');
   console.log('   School Code : (Leave blank on login page)');
-  console.log('   Email       : superadmin@gmail.com');
-  console.log('   Password    : superadmin@gmail.com');
+  console.log('   Status      : Seeded. Credentials are NOT printed to logs.');
   console.log('   Login URL   : /login');
 
   console.log('\n' + '-'.repeat(80));
@@ -1822,7 +1822,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     console.log(`   School Code : ${cfg.code}`);
     console.log(`   Admin Name  : ${cfg.adminName.first} ${cfg.adminName.last}`);
     console.log(`   Admin Email : ${cfg.adminEmail}`);
-    console.log(`   Password    : ${cfg.adminEmail}`);
+    console.log('   Password    : (not printed — see the seed credentials store)');
     console.log(
       `   City / Plan : ${cfg.city}, ${cfg.state} (${cfg.planId === PLAN_IDS.ENTERPRISE ? 'Enterprise' : cfg.planId === PLAN_IDS.PRO ? 'Pro' : cfg.planId === PLAN_IDS.GROWTH ? 'Growth' : 'Basic'})`,
     );
@@ -1832,16 +1832,9 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   });
 
   console.log('\n' + '-'.repeat(80));
-  console.log('🔑 CREDENTIALS RULE FOR ALL SEEDED ACCOUNTS:');
-  console.log('   Password is ALWAYS IDENTICAL to the Email address.');
-  console.log('   Examples:');
-  console.log('   - School 1 Admin : green@gmail.com            / green@gmail.com');
-  console.log('   - School 2 Admin : riverside@gmail.com        / riverside@gmail.com');
-  console.log('   - School 3 Admin : oakwood@gmail.com          / oakwood@gmail.com');
-  console.log('   - School 4 Admin : maple@gmail.com            / maple@gmail.com');
-  console.log('   - Drivers        : driver1.green@gmail.com    / driver1.green@gmail.com');
-  console.log('   - Conductors     : conductor1.green@gmail.com / conductor1.green@gmail.com');
-  console.log('   - Parents        : parent1.green@gmail.com    / parent1.green@gmail.com');
+  console.log('🔑 CREDENTIALS FOR ALL SEEDED ACCOUNTS:');
+  console.log('   Passwords are NOT printed to logs. Retrieve them from the');
+  console.log('   seed configuration / credentials store used to run this seeder.');
   console.log('='.repeat(80) + '\n');
 }
 

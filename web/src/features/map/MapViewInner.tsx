@@ -9,7 +9,10 @@ import { formatRelative, formatSpeedKmh } from '../../lib/format';
 import type { LiveFix } from '../tracking/useLiveTripTracking';
 import type { MapViewProps } from './types';
 
-const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+// Pinned to the single canonical tile host (no `{s}` subdomains) so the CSP
+// `img-src` allowlist in `security-headers.js` stays exact:
+// `https://tile.openstreetmap.org`. OpenStreetMap serves this host directly.
+const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 const DEFAULT_CENTER: [number, number] = [20, 0];

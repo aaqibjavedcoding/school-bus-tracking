@@ -16,6 +16,19 @@ const nextConfig = {
   ],
   poweredByHeader: false,
   /**
+   * SECURITY (Phase 2): the Next.js 14.x line ended at 14.2.35 and a class of
+   * image-optimizer advisories (SSRF/DoS, GHSA-9g9p-9gw9-jx7f, GHSA-h64f-5h5j-jqjh,
+   * GHSA-3x4c-7xq6-9pq8, GHSA-2xp9-vwfh-vxw4) is only patched in 15.5.21+/16.x,
+   * which this app cannot take without a React 19 migration (deliberately out
+   * of scope here). The app renders no `next/image` at all, so switching the
+   * optimizer off has zero rendering impact while it removes the whole
+   * `/_next/image` attack surface (no SVG/AVIF parsing, no remote fetch, no
+   * unbounded disk cache) from the self-hosted deployment.
+   */
+  images: {
+    unoptimized: true,
+  },
+  /**
    * Keep the whole backend out of the webpack bundle.
    *
    * `src/server` is decorator-heavy Sequelize code with genuinely circular

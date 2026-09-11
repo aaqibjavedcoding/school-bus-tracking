@@ -57,13 +57,17 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     options,
   );
 
+  // Success message is deliberately generic: this log line can end up in CI
+  // output, container logs or terminal scrollback, so it must never contain
+  // the password (or any other credential/secret).
   console.log('============================================================');
-  console.log('👑 PLATFORM SUPER ADMIN CREDENTIALS');
+  console.log('👑 PLATFORM SUPER ADMIN BOOTSTRAP');
   console.log('============================================================');
   console.log('  Role:        SUPER_ADMIN');
   console.log('  School Code: (Leave blank)');
-  console.log(`  Email:       ${email}`);
-  console.log(`  Password:    ${password}`);
+  console.log('  Status:      Account created or already present.');
+  console.log('  Credentials are NOT printed. Configure them via');
+  console.log('  SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD environment variables.');
   console.log('============================================================');
 }
 

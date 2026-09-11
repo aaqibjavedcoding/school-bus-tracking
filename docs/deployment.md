@@ -73,6 +73,20 @@ IDEMPOTENCY_KEY_RETENTION_DAYS=7
 SUBSCRIPTION_GRACE_PERIOD_DAYS=7
 ```
 
+### Content-Security-Policy and map tiles
+
+The web app renders its live-tracking map with OpenStreetMap tiles. The CSP in
+`web/security-headers.js` already allows exactly one tile origin by default —
+`https://tile.openstreetmap.org` — and the map (`web/src/features/map/MapViewInner.tsx`)
+is pinned to that host, so no extra configuration is needed for the map to work
+in production. If a deployment adds further image sources (e.g. school avatars
+on a CDN), extend `img-src` with `CSP_EXTRA_IMG_SRC=https://cdn.example.com`
+(comma-separated). Do not use a wildcard. Similarly, `CSP_EXTRA_CONNECT_SRC`
+extends `connect-src` for extra API/websocket origins. All other security
+headers (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`) are always emitted; HSTS only in
+production.
+
 ## Build
 
 ```bash
