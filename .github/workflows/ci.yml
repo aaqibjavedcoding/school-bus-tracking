@@ -15,8 +15,8 @@ concurrency:
 # (.github/actions/setup-node-deps) which checks out the repo and installs the
 # full workspace from the lockfile.  Permissions are intentionally minimal:
 # the workflow only needs to read the repository contents.
-permissions: contents: read
-
+permissions:
+  contents: read
 jobs:
   # ── Gates ────────────────────────────────────────────────────────────────
   lint:
