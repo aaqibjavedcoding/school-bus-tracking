@@ -1,17 +1,16 @@
 name: Setup Node.js and workspace dependencies
 
 description: >-
-  Check out the repository, install the npm workspace tree from
-  package-lock.json and build the shared packages (via the lockfile-driven
-  `npm ci` postinstall). Node is pinned from .nvmrc (the project's supported
-  production version) and the npm download cache is enabled.
+  Install the npm workspace tree from package-lock.json and build the shared
+  packages (via the lockfile-driven `npm ci` postinstall). Node is pinned from
+  .nvmrc (the project's supported production version) and the npm download
+  cache is enabled. Workflows MUST check out the repository with
+  actions/checkout before calling this action — the runner loads this
+  composite action's definition from the repo, so it cannot check out for you.
 
 runs:
   using: composite
   steps:
-    - name: Check out repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
     - name: Setup Node.js (pinned via .nvmrc)
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
       with:
