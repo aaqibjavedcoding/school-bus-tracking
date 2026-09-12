@@ -36,6 +36,11 @@ web/test
 **/*.spec.tsx
 **/*.sim.spec.ts
 
+# Dev-only smoke scripts: they import from web/test (excluded above), so they
+# can never compile inside the image and would break `next build`'s typecheck.
+# The image keeps the remaining web/scripts/* needed by `npm run db:migrate`.
+web/scripts/smoke
+
 # Logs, caches, coverage
 coverage
 **/.cache

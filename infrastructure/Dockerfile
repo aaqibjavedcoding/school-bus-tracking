@@ -29,7 +29,9 @@ COPY packages/validation/package.json packages/validation/package.json
 COPY packages/api-client/package.json packages/api-client/package.json
 RUN npm ci --ignore-scripts
 
-# Compile the shared packages to their dist/ outputs.
+# Compile the shared packages to their dist/ outputs. Every packages/*/tsconfig.json
+# extends the root tsconfig.base.json, so it must be present before `tsc` runs.
+COPY tsconfig.base.json ./
 COPY packages ./packages
 RUN npm run build:packages
 
