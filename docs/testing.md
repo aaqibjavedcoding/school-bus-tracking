@@ -78,15 +78,59 @@ Default: `postgres://postgres:postgres@localhost:5432/school_bus_tracking_test`
 
 ## CI
 
-GitHub Actions runs all tests against a PostgreSQL service container:
+Continuous integration runs on GitHub Actions (`.github/workflows/ci.yml`) on
+every push and pull request targeting `main`. Each gate is a separate job so
+it can be enabled as an individual required status check:
+
+| Job                  | Command (run from the repository root)            | Notes                                                              |
+| -------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| Lint                 | `npm run lint`                                    | ESLint, zero warnings allowed                                      |
+| Typecheck            | `npm run typecheck`                               | Builds shared packages, typechecks packages, web client and mobile |
+| Server typecheck     | `npm --prefix web run typecheck:server`           | `tsc -p web/tsconfig.server.json`                                  |
+| Server tests         | `npm --prefix web run test:server`                | Server-side unit suites                                            |
+| Web tests            | `npm --prefix web run test:web`                   | Client/utility unit suites                                         |
+| Mobile tests         | `npm --prefix mobile test`                        | Mobile unit suites                                                 |
+| Mobile simulations   | `npm --prefix mobile run test:sim`                | Offline-queue and push-lifecycle simulations                       |
+| DB integration + E2E | `npm --prefix web run test:db`                    | Real PostgreSQL service container (below)                          |
+| Web production build | `npm --prefix web run build`                      | `web/dist` server build + `web/.next` production bundle            |
+| Android Expo export  | `cd mobile && npx expo export --platform android` | Metro bundles every route; no device needed                        |
+| Production image     | `docker build -f infrastructure/Dockerfile .`     | Also validates `infrastructure/docker-compose.prod.yml`            |
+
+Node is pinned via `.nvmrc` (the project's supported production version,
+Node 22), dependencies install deterministically with `npm ci` from
+`package-lock.json`, and the npm download cache is enabled.
+
+### CI database service
+
+The DB job runs a **PostgreSQL 16 with PostGIS 3.4** service container, using
+the same image as `infrastructure/docker-compose.yml`:
 
 ```yaml
-# .github/workflows/ci.yml
 services:
   postgres:
-    image: postgres:16
+    image: postgis/postgis:16-3.4
     env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: school_bus_tracking_test
+    ports:
+      - 5432:5432
+    options: >-
+      --health-cmd "pg_isready -U postgres -d school_bus_tracking_test"
+```
+
+The service container does not execute `infrastructure/postgres/init.sql`, so
+`scripts/ci-enable-postgis.mjs` installs the same `postgis` and `uuid-ossp`
+extensions into `template1` (from which the test harness's
+`CREATE DATABASE` copies) and the test database itself, giving CI exact
+database parity with local development. The suites then connect with:
+
+```bash
+TEST_DB_HOST=localhost
+TEST_DB_PORT=5432
+TEST_DB_USERNAME=postgres
+TEST_DB_PASSWORD=postgres
+TEST_DB_NAME=school_bus_tracking_test
 ```
 
 ## Test Coverage

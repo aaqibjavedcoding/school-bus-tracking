@@ -8,8 +8,8 @@ This document describes how to deploy the School Bus Tracking platform.
 
 ## Prerequisites
 
-- Node.js >= 22.0.0
-- PostgreSQL 16+
+- Node.js >= 22.0.0 (pinned via `.nvmrc`; CI builds on the same major)
+- PostgreSQL 16 with PostGIS 3.4 (parity image: `postgis/postgis:16-3.4`)
 - npm or yarn
 
 ## Environment Variables
@@ -199,6 +199,72 @@ inside it.
 cd infrastructure
 docker compose up -d
 ```
+
+## Production container deployment (single instance)
+
+The minimum production configuration for the supported topology (one app
+process + one PostgreSQL, no paid managed services) lives in
+`infrastructure/`:
+
+| File                      | Purpose                                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`              | Multi-stage production image (Node 22). Builds packages + web, runs the same `web/server.js` entrypoint unprivileged. |
+| `docker-compose.prod.yml` | App, one-shot `migrate`, PostgreSQL 16 + PostGIS 3.4 with persistent volumes.                                         |
+| `.env.production.example` | Every required environment value with placeholders; no secrets.                                                       |
+
+The build context is the repository root (the image spans npm workspaces):
+
+```bash
+cd infrastructure
+cp .env.production.example .env.production
+# Edit .env.production: CORS_ORIGIN, DB_PASSWORD, JWT_SECRET at minimum.
+# Generate the JWT secret with: openssl rand -hex 64
+
+docker compose --env-file .env.production -f docker-compose.prod.yml build
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm migrate
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+What the compose stack provides and why:
+
+- **Migrations first.** A `migrate` container runs `npm run db:migrate` against
+  the healthy database and exits; `app` starts only after it completes
+  successfully. Seeding remains optional
+  (`docker compose --env-file .env.production -f docker-compose.prod.yml run --rm app npm run db:seed`).
+- **TLS to the database.** The production startup guard requires `DB_SSL=true`.
+  A one-shot `db-tls-init` container generates a self-signed certificate into
+  a volume (the key is never committed) and PostgreSQL enables TLS on the
+  internal Docker network. The app requires TLS without pinning the internal CA.
+- **Browser TLS terminates in front of the app.** The app port is published on
+  `127.0.0.1:${APP_PORT:-3001}` only. Put a reverse proxy (Caddy/nginx, or the
+  host's edge) in front for HTTPS; plain HTTP cannot sustain sessions because
+  the refresh cookie is `Secure`/`SameSite=None`.
+- **Persistence.** Named volumes hold the database (`db_data`), the internal
+  TLS certificate (`db_certs`) and local document uploads
+  (`app_documents` → `/app/web/.document-storage`). Document storage stays on
+  the local filesystem in the single-instance topology; object storage is a
+  later phase and would be required before scaling out.
+- **Health checks.** The image defines a container health check against
+  `/api/v1/health`; the database uses `pg_isready`.
+- **No secrets in the image or repository.** Everything secret arrives via
+  `.env.production` (git-ignored) or the eventual orchestrator's secret store.
+  The FCM service-account JSON is supplied the same way at deployment time;
+  leaving it empty keeps the no-op push provider and is a valid configuration.
+
+Nothing here is deployed automatically — these files only prepare the
+single-instance deployment. Redis, horizontal scaling, object storage,
+monitoring and backups remain out of scope for this phase.
+
+### Building the image without Compose
+
+```bash
+docker build -f infrastructure/Dockerfile -t school-bus-tracking:latest .
+```
+
+The runtime image contains the compiled `web/dist` server tree, the `web/.next`
+production bundle and the TypeScript migrations (run through `ts-node`, same as
+`npm run db:migrate` on a host install). The startup build check refuses to
+run if the compiled tree is incomplete.
 
 ## Health Checks
 
