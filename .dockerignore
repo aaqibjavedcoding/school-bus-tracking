@@ -1,0 +1,53 @@
+# Keep the build context small and deterministic — everything the image needs
+# is installed or compiled inside the Docker build.
+
+# VCS / CI
+.git
+.github
+
+# Dependencies (freshly installed inside the image)
+**/node_modules
+
+# Build artifacts (freshly compiled inside the image)
+**/dist
+**/build
+**/out
+**/.next
+**/.expo
+**/.expo-shared
+**/web-build
+**/*.tsbuildinfo
+
+# Expo prebuild output
+mobile/android
+mobile/ios
+
+# Local environment files and secrets must never enter the image
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.production
+**/*.pem
+**/*.key
+
+# Tests, specs and test databases are not part of the runtime image
+web/test
+**/*.spec.ts
+**/*.spec.tsx
+**/*.sim.spec.ts
+
+# Logs, caches, coverage
+coverage
+**/.cache
+logs
+*.log
+npm-debug.log*
+
+# OS/IDE noise
+.DS_Store
+.idea
+.vscode
+
+# Not needed inside the image
+docs
+mobile/assets
