@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel the in-progress run for the same PR / branch when a new commit
+# arrives — no point finishing stale CI.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job uses the reusable setup composite action
+# (.github/actions/setup-node-deps) which checks out the repo and installs the
+# full workspace from the lockfile.  Permissions are intentionally minimal:
+# the workflow only needs to read the repository contents.
+permissions: contents: read
+
+jobs:
+  # ── Gates ────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: ESLint
+        run: npm run lint
+
+  workspace-typecheck:
+    name: Workspace typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+  server-typecheck:
+    name: Server typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Typecheck server
+        run: npm --prefix web run typecheck:server
+
+  server-tests:
+    name: Server tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Run server unit tests
+        run: npm --prefix web run test:server
+
+  web-tests:
+    name: Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Run web unit tests
+        run: npm --prefix web run test:web
+
+  mobile-tests:
+    name: Mobile tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Run mobile unit tests
+        run: npm --prefix mobile test
+
+  mobile-simulations:
+    name: Mobile simulations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Run mobile simulations
+        run: npm --prefix mobile run test:sim
+
+  # ── Database integration / E2E ──────────────────────────────────────────
+  db-integration:
+    name: DB integration / E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: school_bus_tracking
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d school_bus_tracking"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_DB_HOST: localhost
+      TEST_DB_PORT: "5432"
+      TEST_DB_USERNAME: postgres
+      TEST_DB_PASSWORD: postgres
+
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+
+      - name: Enable PostGIS extensions in CI
+        run: node scripts/ci-enable-postgis.mjs
+
+      - name: Run integration + E2E tests
+        run: npm --prefix web run test:db
+        env:
+          TEST_DB_HOST: localhost
+          TEST_DB_PORT: "5432"
+          TEST_DB_USERNAME: postgres
+          TEST_DB_PASSWORD: postgres
+
+  # ── Build gates ─────────────────────────────────────────────────────────
+  web-build:
+    name: Web production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Build
+        run: npm --prefix web run build
+
+  android-expo-export:
+    name: Android Expo export
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Setup
+        uses: ./.github/actions/setup-node-deps
+      - name: Export
+        working-directory: mobile
+        run: npx expo export --platform android
+      - name: Upload export artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: android-export
+          path: mobile/dist
+          retention-days: 7
+
+  docker-build:
+    name: Production Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+      - name: Build production image
+        run: docker build -f infrastructure/Dockerfile -t school-bus-tracking:ci .
+      - name: Validate compose file loads
+        run: docker compose -f infrastructure/docker-compose.prod.yml config
