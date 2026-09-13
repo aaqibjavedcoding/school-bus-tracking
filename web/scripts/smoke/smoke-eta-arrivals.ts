@@ -24,7 +24,6 @@
  */
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { Op } from 'sequelize';
 import { JwtService } from '../../src/server/framework';
 import {
   JwtAccessTokenPayload,
@@ -33,6 +32,7 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { createSmokeApp } from './support/smoke-app';
+import { assertStubsCoverDependencies, attachSequelize, matchesWhere, stubTable } from './support/smoke-stubs';
 import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
 import { NotificationsService } from '../../src/server/modules/notifications/notifications.service';
 import { EtaService } from '../../src/server/modules/eta/eta.service';
@@ -93,36 +93,6 @@ async function main(): Promise<void> {
   const arrivals: Row[] = [];
   const locations: Row[] = [];
   const schoolActive = new Map<string, boolean>();
-
-  function matchesWhere(row: Row, where: Row | undefined): boolean {
-    if (!where) return true;
-    return Object.entries(where).every(([key, expected]) => {
-      if (expected && typeof expected === 'object') {
-        const ops = expected as Record<symbol | string, unknown>;
-        if (ops[Op.in]) return (ops[Op.in] as unknown[]).includes(row[key]);
-        if (ops[Op.gte] !== undefined || ops[Op.lt] !== undefined) {
-          const value = row[key] as unknown;
-          const t = value instanceof Date ? value.getTime() : new Date(value as string).getTime();
-          const gte = ops[Op.gte] as Date | undefined;
-          const lt = ops[Op.lt] as Date | undefined;
-          if (gte && t < gte.getTime()) return false;
-          if (lt && t >= lt.getTime()) return false;
-          return true;
-        }
-      }
-      return row[key] === expected;
-    });
-  }
-
-  function tableRepo(list: Row[]) {
-    const repo = {
-      findAll: async (options: { where?: Row } = {}) =>
-        list.filter((row) => matchesWhere(row, options.where)) as Row[],
-      findOne: async (options: { where?: Row } = {}) =>
-        (list.find((row) => matchesWhere(row, options.where)) ?? null) as Row | null,
-    };
-    return { ...repo, unscoped: () => repo };
-  }
 
   schools.push(
     { id: SCHOOL_A, name: 'Demo High', code: 'demo-high', is_active: true },
@@ -240,12 +210,19 @@ async function main(): Promise<void> {
   // ---- App bootstrap --------------------------------------------------
   const app = await createSmokeApp();
 
-  const patchService = (service: unknown, stubs: Record<string, unknown>) => {
+  // Runs: `LiveTrackingService.hasLinkedChildOnTrip` narrows a parent's
+  // visibility by run (Phase 3 operating-model change), so the model has to be
+  // stubbed here — this is what used to make the parent ETA read 500.
+  const runs: Row[] = [];
+
+  const patchService = (service: object, stubs: Record<string, unknown>, label: string) => {
+    assertStubsCoverDependencies(service, stubs, label);
     for (const [key, value] of Object.entries(stubs)) {
       (service as Record<string, unknown>)[key] = value;
     }
   };
 
+  const arrivalsTable = stubTable(arrivals, { name: 'trip_stop_arrivals' });
   const arrivalsRepo = {
     findAll: async (options: { where?: Row } = {}) =>
       arrivals.filter((row) => matchesWhere(row, options.where)) as Row[],
@@ -320,49 +297,93 @@ async function main(): Promise<void> {
     update: async () => [0],
   };
 
+  // Shared, Sequelize-shaped in-memory tables (one place to keep them in
+  // sync with the services — see scripts/smoke/support/smoke-stubs.ts).
+  const usersTable = stubTable(users, { name: 'users' });
+  const guardiansTable = stubTable(guardians, { name: 'student_guardians' });
+  const studentsTable = stubTable(students, { name: 'students' });
+  const stopsTable = stubTable(stops, { name: 'stops' });
+  const tripsTable = stubTable(trips, { name: 'trips' });
+  const runsTable = stubTable(runs, { name: 'runs' });
+  const emptyAssignments = stubTable([], { name: 'route_assignments' });
+  attachSequelize(
+    usersTable,
+    guardiansTable,
+    studentsTable,
+    stopsTable,
+    tripsTable,
+    runsTable,
+    emptyAssignments,
+    arrivalsTable,
+  );
+
   // Task 21 service over in-memory tables (the same instance the arrival
   // pipeline notifies).
-  patchService(app.get(NotificationsService), {
-    notifications: notificationsRepo,
-    users: tableRepo(users),
-    guardians: tableRepo(guardians),
-    students: tableRepo(students),
-    stops: tableRepo(stops),
-    trips: tableRepo(trips),
-  });
+  patchService(
+    app.get(NotificationsService),
+    {
+      notifications: notificationsRepo,
+      users: usersTable,
+      guardians: guardiansTable,
+      students: studentsTable,
+      stops: stopsTable,
+      trips: tripsTable,
+    },
+    'NotificationsService',
+  );
 
   // Task 22 services share the same in-memory tables.
-  patchService(app.get(EtaService), {
-    stops: tableRepo(stops),
-    arrivals: arrivalsRepo,
-  });
-  patchService(app.get(StopArrivalsService), {
-    stops: tableRepo(stops),
-    arrivals: arrivalsRepo,
-  });
+  patchService(
+    app.get(EtaService),
+    {
+      stops: stopsTable,
+      arrivals: arrivalsRepo,
+    },
+    'EtaService',
+  );
+  patchService(
+    app.get(StopArrivalsService),
+    {
+      stops: stopsTable,
+      arrivals: arrivalsRepo,
+    },
+    'StopArrivalsService',
+  );
 
   // Live-tracking reads used by the ETA controller and the arrival pipeline.
-  patchService(app.get(LiveTrackingService), {
-    trips: tableRepo(trips),
-    assignments: tableRepo([]),
-    students: tableRepo(students),
-    stops: tableRepo(stops),
-    guardians: tableRepo(guardians),
-    locations: locationsRepo,
-  });
+  patchService(
+    app.get(LiveTrackingService),
+    {
+      trips: tripsTable,
+      assignments: emptyAssignments,
+      students: studentsTable,
+      stops: stopsTable,
+      guardians: guardiansTable,
+      locations: locationsRepo,
+      // Phase 3: parent visibility is narrowed per run, so the run model is a
+      // real dependency of `hasLinkedChildOnTrip` — this stub is the fix for
+      // the parent ETA read that used to 500.
+      runs: runsTable,
+    },
+    'LiveTrackingService',
+  );
 
   const accessService = app.get(SchoolAccessService);
-  patchService(accessService, {
-    schools: {
-      findOne: async ({ where }: { where: { id: string } }) =>
-        schoolActive.has(where.id)
-          ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as Row)
-          : null,
+  patchService(
+    accessService,
+    {
+      schools: {
+        findOne: async ({ where }: { where: { id: string } }) =>
+          schoolActive.has(where.id)
+            ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as Row)
+            : null,
+      },
+      // The container always wires the user repository, so the
+      // account-active check needs a stub too.
+      users: undefined,
     },
-    // The container always wires the user repository, so the
-    // account-active check needs a stub too.
-    users: undefined,
-  });
+    'SchoolAccessService',
+  );
 
   await app.listen(0);
   const address = app.getHttpServer().address();

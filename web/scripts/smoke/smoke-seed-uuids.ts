@@ -71,7 +71,13 @@ async function main(): Promise<void> {
   }
   console.log(`✔ cleanup purges ${deletedSchoolIds.size} school ids (4 current + 4 pre-fix)`);
 
-  const planMoves = rawQueries.filter((entry) => entry.sql.includes('UPDATE "plans"'));
+  // Only the id re-points count as "plan id migrations". The same seeder also
+  // issues `UPDATE "plans" SET "currency" = …` (the India-focused catalogue
+  // relabel), which is an update on the same table but moves no id — matching
+  // on the table name alone made this assertion read 5 moves for 4 plans.
+  const planMoves = rawQueries.filter((entry) =>
+    entry.sql.includes('UPDATE "plans" SET "id" = :next'),
+  );
   if (planMoves.length !== Object.keys(PLAN_IDS).length) {
     fail(`expected ${Object.keys(PLAN_IDS).length} plan id migrations, got ${planMoves.length}`);
   }
