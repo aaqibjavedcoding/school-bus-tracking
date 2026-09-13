@@ -13,7 +13,6 @@
  *   node -r ts-node/register/transpile-only scripts/smoke/smoke-parent.ts
  */
 import 'reflect-metadata';
-import { Op } from 'sequelize';
 import { JwtService } from '../../src/server/framework';
 import {
   JwtAccessTokenPayload,
@@ -23,6 +22,11 @@ import {
 } from '@school-bus-tracking/shared-types';
 import * as bcrypt from 'bcryptjs';
 import { createSmokeApp } from './support/smoke-app';
+import {
+  assertStubsCoverDependencies,
+  attachSequelize,
+  stubTable,
+} from './support/smoke-stubs';
 import { School } from '../../src/server/database/models';
 import { AuthService } from '../../src/server/modules/auth/auth.service';
 import { LiveTrackingService } from '../../src/server/modules/live-tracking/live-tracking.service';
@@ -73,39 +77,6 @@ async function main(): Promise<void> {
   const schools: Row[] = [];
   const schoolActive = new Map<string, boolean>();
   let revokedSessions = 0;
-
-  // Helper: compare a row to a Sequelize where clause (equality + Op.in +
-  // Op.gte / Op.lt date-range windows).
-  function matchesWhere(row: Row, where: Row | undefined): boolean {
-    if (!where) return true;
-    return Object.entries(where).every(([key, expected]) => {
-      if (expected && typeof expected === 'object') {
-        const ops = expected as Record<symbol | string, unknown>;
-        if (ops[Op.in]) return (ops[Op.in] as unknown[]).includes(row[key]);
-        if (ops[Op.gte] !== undefined) {
-          const value = row[key] as unknown;
-          const gte = ops[Op.gte] as Date;
-          const lt = ops[Op.lt] as Date | undefined;
-          const t = value instanceof Date ? value.getTime() : new Date(value as string).getTime();
-          if (t < gte.getTime()) return false;
-          if (lt !== undefined && t >= lt.getTime()) return false;
-          return true;
-        }
-      }
-      return row[key] === expected;
-    });
-  }
-
-  function tableRepo(list: Row[]) {
-    const repo = {
-      findAll: async (options: { where?: Row; order?: unknown } = {}) =>
-        list.filter((row) => matchesWhere(row, options.where)) as Row[],
-      findOne: async (options: { where?: Row } = {}) =>
-        (list.find((row) => matchesWhere(row, options.where)) ?? null) as Row | null,
-    };
-    // AuthService queries users/refresh tokens through `.unscoped()`.
-    return { ...repo, unscoped: () => repo };
-  }
 
   // Seed: school A (active) + parent A + linked student A on route A.
   schools.push({
@@ -257,75 +228,117 @@ async function main(): Promise<void> {
   // ---- App bootstrap --------------------------------------------------
   const app = await createSmokeApp();
 
-  const guardiansRepo = tableRepo(guardians);
-  const studentsRepo = tableRepo(students);
-  const stopsRepo = tableRepo(stops);
-  const routesRepo = tableRepo(routes);
-  const busesRepo = tableRepo(buses);
-  const tripsRepo = tableRepo(trips);
-  const usersRepo = tableRepo(users);
-  const schoolsRepo = tableRepo(schools);
+  // In-memory tables (shared Sequelize-shaped fakes). `attachSequelize` gives
+  // every table the `model.sequelize.fn()/col()` facade the services use for
+  // grouped COUNT aggregates.
+  const runCrew: Row[] = [];
+  const shifts: Row[] = [];
+  // No run is allocated in this scenario: the child's bus + crew therefore come
+  // from today's trip (the documented fallback), which is what the checks below
+  // assert. The tables still have to exist — `ParentPortalService` reads them.
+  const runs: Row[] = [];
 
-  const patchService = (service: unknown, stubs: Record<string, unknown>) => {
+  const guardiansRepo = stubTable(guardians, { name: 'guardians' });
+  const studentsRepo = stubTable(students, { name: 'students' });
+  const stopsRepo = stubTable(stops, { name: 'stops' });
+  const routesRepo = stubTable(routes, { name: 'routes' });
+  const busesRepo = stubTable(buses, { name: 'buses' });
+  const tripsRepo = stubTable(trips, { name: 'trips' });
+  const usersRepo = stubTable(users, { name: 'users' });
+  const schoolsRepo = stubTable(schools, { name: 'schools' });
+  const runsRepo = stubTable(runs, { name: 'runs' });
+  const runCrewRepo = stubTable(runCrew, { name: 'run_crew' });
+  const shiftsRepo = stubTable(shifts, { name: 'shifts' });
+  const emptyAssignmentsRepo = stubTable([], { name: 'route_assignments' });
+  attachSequelize(
+    guardiansRepo,
+    studentsRepo,
+    stopsRepo,
+    routesRepo,
+    busesRepo,
+    tripsRepo,
+    usersRepo,
+    schoolsRepo,
+    runsRepo,
+    runCrewRepo,
+    shiftsRepo,
+    emptyAssignmentsRepo,
+  );
+
+  const patchService = (service: object, stubs: Record<string, unknown>, label: string) => {
+    // Guard against the drift that used to break this script silently: a
+    // service that gained a dependency the smoke never stubbed.
+    assertStubsCoverDependencies(service, stubs, label);
     for (const [key, value] of Object.entries(stubs)) {
       (service as Record<string, unknown>)[key] = value;
     }
   };
 
   const parentService = app.get(ParentPortalService);
-  patchService(parentService, {
-    guardians: guardiansRepo,
-    students: studentsRepo,
-    stops: stopsRepo,
-    routes: routesRepo,
-    buses: busesRepo,
-    trips: tripsRepo,
-    users: usersRepo,
-    schools: schoolsRepo,
-    liveTracking: {
-      // Read-only snapshot: latest fix or null (never fabricated).
-      getLatestLocationResponse: async () => ({
-        id: 'loc-1',
-        school_id: SCHOOL_A,
-        trip_id: TRIP_A,
-        latitude: 40.712,
-        longitude: -74.003,
-        accuracy: 10,
-        speed: 32,
-        heading: 90,
-        recorded_at: now().toISOString(),
-        received_at: now().toISOString(),
-      }),
+  patchService(
+    parentService,
+    {
+      guardians: guardiansRepo,
+      students: studentsRepo,
+      stops: stopsRepo,
+      routes: routesRepo,
+      buses: busesRepo,
+      trips: tripsRepo,
+      users: usersRepo,
+      schools: schoolsRepo,
+      // Phase 3 dependencies: the child's run is the source of truth for bus +
+      // crew, so the portal reads runs/run_crew/shifts too (see
+      // `docs/operating-model.md`). Nothing is allocated in this scenario, so
+      // bus + crew fall back to today's trip — which is what the checks assert.
+      runs: runsRepo,
+      runCrew: runCrewRepo,
+      shifts: shiftsRepo,
+      liveTracking: {
+        // Read-only snapshot: latest fix or null (never fabricated).
+        getLatestLocationResponse: async () => ({
+          id: 'loc-1',
+          school_id: SCHOOL_A,
+          trip_id: TRIP_A,
+          latitude: 40.712,
+          longitude: -74.003,
+          accuracy: 10,
+          speed: 32,
+          heading: 90,
+          recorded_at: now().toISOString(),
+          received_at: now().toISOString(),
+        }),
+      },
+      // Task 22 ETA is out of scope for this smoke: the portal tracking read
+      // stays independent of the ETA feature (its own smoke covers it).
+      eta: {
+        computeTripEta: async () => null,
+      },
+      tripAttendance: {
+        // Read-only attendance: child already boarded today.
+        getStudent: async () => ({
+          id: 'att-1',
+          school_id: SCHOOL_A,
+          trip_id: TRIP_A,
+          student_id: STUDENT_A,
+          admission_number: 'S-1001',
+          first_name: 'Alex',
+          last_name: 'Rivera',
+          grade_level: 'Grade 5',
+          stop_id: STOP_A,
+          stop_name: 'Maple St & 5th Ave',
+          stop_sequence_number: 2,
+          status: TripAttendanceStatus.BOARDED,
+          boarded_at: now().toISOString(),
+          boarded_by: DRIVER_A,
+          dropped_at: null,
+          dropped_by: null,
+          created_at: now().toISOString(),
+          updated_at: now().toISOString(),
+        }),
+      },
     },
-    // Task 22 ETA is out of scope for this smoke: the portal tracking read
-    // stays independent of the ETA feature (its own smoke covers it).
-    eta: {
-      computeTripEta: async () => null,
-    },
-    tripAttendance: {
-      // Read-only attendance: child already boarded today.
-      getStudent: async () => ({
-        id: 'att-1',
-        school_id: SCHOOL_A,
-        trip_id: TRIP_A,
-        student_id: STUDENT_A,
-        admission_number: 'S-1001',
-        first_name: 'Alex',
-        last_name: 'Rivera',
-        grade_level: 'Grade 5',
-        stop_id: STOP_A,
-        stop_name: 'Maple St & 5th Ave',
-        stop_sequence_number: 2,
-        status: TripAttendanceStatus.BOARDED,
-        boarded_at: now().toISOString(),
-        boarded_by: DRIVER_A,
-        dropped_at: null,
-        dropped_by: null,
-        created_at: now().toISOString(),
-        updated_at: now().toISOString(),
-      }),
-    },
-  });
+    'ParentPortalService',
+  );
 
   const authService = app.get(AuthService);
   const refreshStore: Row[] = [];
@@ -349,40 +362,48 @@ async function main(): Promise<void> {
       return [1];
     },
   } as unknown;
-  patchService(authService, {
-    users: usersRepo,
-    refreshTokens: refreshRepo,
-    schools: schoolsRepo,
-  });
+  patchService(
+    authService,
+    {
+      users: usersRepo,
+      refreshTokens: refreshRepo,
+      schools: schoolsRepo,
+    },
+    'AuthService',
+  );
 
   // The trips location controller uses the real LiveTrackingService; give it
   // the same in-memory repos so parent observation authorization works.
   const liveTrackingService = app.get(LiveTrackingService);
-  patchService(liveTrackingService, {
-    trips: tripsRepo,
-    students: studentsRepo,
-    stops: stopsRepo,
-    guardians: guardiansRepo,
-    assignments: tableRepo([]),
-    locations: {
-      findAll: async () => [],
-      findOne: async () => null,
-      create: async () => ({}),
+  patchService(
+    liveTrackingService,
+    {
+      trips: tripsRepo,
+      students: studentsRepo,
+      stops: stopsRepo,
+      guardians: guardiansRepo,
+      assignments: emptyAssignmentsRepo,
+      locations: stubTable([], { name: 'trip_locations' }),
     },
-  });
+    'LiveTrackingService',
+  );
 
   const accessService = app.get(SchoolAccessService);
-  patchService(accessService, {
-    schools: {
-      findOne: async ({ where }: { where: { id: string } }) =>
-        schoolActive.has(where.id)
-          ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as School)
-          : null,
+  patchService(
+    accessService,
+    {
+      schools: {
+        findOne: async ({ where }: { where: { id: string } }) =>
+          schoolActive.has(where.id)
+            ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as School)
+            : null,
+      },
+      // The container always wires the user repository, so the
+      // account-active check needs a stub too.
+      users: undefined,
     },
-    // The container always wires the user repository, so the
-    // account-active check needs a stub too.
-    users: undefined,
-  });
+    'SchoolAccessService',
+  );
 
   const server = app.getHttpServer();
   await app.listen(0);

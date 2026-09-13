@@ -17,6 +17,7 @@ import { JwtService } from '../../src/server/framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import * as bcrypt from 'bcryptjs';
 import { createSmokeApp } from './support/smoke-app';
+import { assertStubsCoverDependencies } from './support/smoke-stubs';
 import { School, User } from '../../src/server/database/models';
 import { AdminSchoolsService } from '../../src/server/modules/admin/admin-schools.service';
 import { AdminDashboardService } from '../../src/server/modules/admin/admin-dashboard.service';
@@ -317,7 +318,10 @@ async function main(): Promise<void> {
         transaction: async (cb: (t: unknown) => Promise<unknown>) => cb({}),
       },
       findOne: async (options: { where: Row; order?: Array<[string, string]> }) =>
-        sorted(subscriptions.filter((r) => matches(r, options.where)), options.order)[0] ?? null,
+        sorted(
+          subscriptions.filter((r) => matches(r, options.where)),
+          options.order,
+        )[0] ?? null,
       findAll: async (options: { where?: Row; order?: Array<[string, string]> } = {}) =>
         sorted(
           options.where ? subscriptions.filter((r) => matches(r, options.where!)) : subscriptions,
@@ -370,7 +374,11 @@ async function main(): Promise<void> {
   const refreshRepo = refreshTokenStub();
 
   // Swap a service's constructor-injected model repositories for stubs.
-  const patchService = (service: unknown, stubs: Record<string, unknown>) => {
+  // The guard makes a newly added *model* dependency fail loudly instead of
+  // surfacing as an opaque `Cannot read properties of undefined (reading 'fn')`
+  // 500 in a DB-less run (which is exactly how `runs` broke this script).
+  const patchService = (service: object, stubs: Record<string, unknown>, label: string) => {
+    assertStubsCoverDependencies(service, stubs, label);
     for (const [key, value] of Object.entries(stubs)) {
       (service as Record<string, unknown>)[key] = value;
     }
@@ -384,68 +392,97 @@ async function main(): Promise<void> {
   const authService = app.get(AuthService);
   const accessService = app.get(SchoolAccessService);
 
-  patchService(adminSchoolsService, {
-    schools: schoolsRepo,
-    users: usersRepo,
-    students: simpleCountStub(12, 11),
-    buses: simpleCountStub(4, 3),
-    routes: simpleCountStub(3, 3),
-    trips: simpleCountStub(5, 5),
-    // School 360 resource overview: route stops and crew assignments.
-    stops: simpleCountStub(18, 18),
-    assignments: simpleCountStub(6, 5),
-    refreshTokens: refreshRepo,
-    onboarding: onboardingService,
-  });
-  patchService(dashboardService, {
-    schools: schoolsRepo,
-    users: usersRepo,
-    students: simpleCountStub(12),
-    buses: simpleCountStub(4, 3),
-    routes: simpleCountStub(3, 3),
-    trips: simpleCountStub(7, 5),
-    plans: planStub(),
-    subscriptions: subscriptionStub(),
-  });
-  patchService(adminsService, { schools: schoolsRepo, users: usersRepo });
+  patchService(
+    adminSchoolsService,
+    {
+      schools: schoolsRepo,
+      users: usersRepo,
+      students: simpleCountStub(12, 11),
+      buses: simpleCountStub(4, 3),
+      routes: simpleCountStub(3, 3),
+      trips: simpleCountStub(5, 5),
+      // School 360 resource overview: route stops and crew assignments.
+      stops: simpleCountStub(18, 18),
+      assignments: simpleCountStub(6, 5),
+      // Runs are a plan-limited resource (`docs/operating-model.md` §9), so the
+      // School 360 usage table counts them too. This model was the missing
+      // dependency: `collectSchoolStats` reads `runs.sequelize.fn(...)`, which is
+      // undefined without an attached connection, so every school read 500'd.
+      runs: simpleCountStub(9, 8),
+      refreshTokens: refreshRepo,
+      onboarding: onboardingService,
+    },
+    'AdminSchoolsService',
+  );
+  patchService(
+    dashboardService,
+    {
+      schools: schoolsRepo,
+      users: usersRepo,
+      students: simpleCountStub(12),
+      buses: simpleCountStub(4, 3),
+      routes: simpleCountStub(3, 3),
+      trips: simpleCountStub(7, 5),
+      plans: planStub(),
+      subscriptions: subscriptionStub(),
+    },
+    'AdminDashboardService',
+  );
+  patchService(
+    adminsService,
+    { schools: schoolsRepo, users: usersRepo },
+    'AdminSchoolAdminsService',
+  );
   const subscriptionsService = app.get(AdminSubscriptionsService);
-  patchService(subscriptionsService, {
-    subscriptions: subscriptionStub(),
-    schools: schoolsRepo,
-    plans: planStub(),
-  });
+  patchService(
+    subscriptionsService,
+    {
+      subscriptions: subscriptionStub(),
+      schools: schoolsRepo,
+      plans: planStub(),
+    },
+    'AdminSubscriptionsService',
+  );
   const globalSubscriptionsService = app.get(AdminGlobalSubscriptionsService);
   const emptyRawRepo = () =>
     ({
       findAll: async () => [],
     }) as unknown;
-  patchService(globalSubscriptionsService, {
-    subscriptions: subscriptionStub(),
-    schools: schoolsRepo,
-    plans: planStub(),
-    users: emptyRawRepo(),
-    students: emptyRawRepo(),
-    buses: emptyRawRepo(),
-    routes: emptyRawRepo(),
-    stops: emptyRawRepo(),
-    trips: emptyRawRepo(),
-  });
-  patchService(onboardingService, { schools: schoolsRepo, users: usersRepo });
+  patchService(
+    globalSubscriptionsService,
+    {
+      subscriptions: subscriptionStub(),
+      schools: schoolsRepo,
+      plans: planStub(),
+      users: emptyRawRepo(),
+      students: emptyRawRepo(),
+      buses: emptyRawRepo(),
+      routes: emptyRawRepo(),
+      stops: emptyRawRepo(),
+      trips: emptyRawRepo(),
+    },
+    'AdminGlobalSubscriptionsService',
+  );
+  patchService(onboardingService, { schools: schoolsRepo, users: usersRepo }, 'SchoolsService');
   // Auth service repos are indexed by their token names; patch directly.
-  patchService(authService, { users: usersRepo, refreshTokens: refreshRepo });
+  patchService(authService, { users: usersRepo, refreshTokens: refreshRepo }, 'AuthService');
   // The SchoolAccessService uses the platform school repo; make it honor the
   // live active map so deactivation blocks access.
-  patchService(accessService, {
-    schools: {
-      findOne: async ({ where }: { where: { id: string } }) =>
-        schoolActive.has(where.id)
-          ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as School)
-          : null,
+  patchService(
+    accessService,
+    {
+      schools: {
+        findOne: async ({ where }: { where: { id: string } }) =>
+          schoolActive.has(where.id)
+            ? ({ id: where.id, is_active: schoolActive.get(where.id) } as unknown as School)
+            : null,
+      },
+      // The container always wires the user repository, so the
+      // account-active check needs a stub too.
+      users: undefined,
     },
-    // The container always wires the user repository, so the
-    // account-active check needs a stub too.
-    users: undefined,
-  });
+    'SchoolAccessService',
+  );
 
   const server = app.getHttpServer();
   await app.listen(0);
@@ -875,12 +912,15 @@ async function main(): Promise<void> {
       throw new Error('none state must be empty');
   });
 
-  await check('subscription: unknown school returns 404 (never a subscription orphan)', async () => {
-    const res = await call('GET', `/admin/schools/${UNKNOWN_ID}/subscription`, {
-      token: superToken,
-    });
-    if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
-  });
+  await check(
+    'subscription: unknown school returns 404 (never a subscription orphan)',
+    async () => {
+      const res = await call('GET', `/admin/schools/${UNKNOWN_ID}/subscription`, {
+        token: superToken,
+      });
+      if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
+    },
+  );
 
   await check('subscription: an inactive plan cannot be assigned (409)', async () => {
     const res = await call('POST', subscriptionPath, {
