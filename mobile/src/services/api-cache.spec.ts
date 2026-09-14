@@ -91,4 +91,33 @@ describe('ApiCache', () => {
     assert.equal(cache.peek('a').value, null);
     assert.equal(cache.peek('b').value, null);
   });
+
+  it('a rejected inflight request does not create an unhandled rejection (403 log regression)', async () => {
+    const cache = new ApiCache();
+    const key = cacheKey('GET', '/routes', '-');
+    const unhandled: Array<unknown> = [];
+    const listener = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', listener);
+    try {
+      const promise = Promise.reject(new Error('Request failed with status 403'));
+      const returned = cache.trackInflight(key, promise);
+
+      // The caller still receives the rejection on the promise they await.
+      await assert.rejects(() => returned, /403/);
+      // A deduplicating caller awaiting the tracked copy sees it too.
+      const tracked = cache.inflightFor<unknown>(key);
+      if (tracked) {
+        await assert.rejects(() => tracked, /403/);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      // The cleanup observer must not have become its own unhandled
+      // rejection — previously every failed cached GET logged an extra
+      // `ApiClientError: Request failed with status 403`.
+      assert.equal(unhandled.length, 0);
+      assert.equal(cache.inflightFor(key), null, 'inflight map is cleaned up');
+    } finally {
+      process.off('unhandledRejection', listener);
+    }
+  });
 });

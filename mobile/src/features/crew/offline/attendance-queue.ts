@@ -3,6 +3,7 @@ import type { TripStatus } from '@school-bus-tracking/shared-types';
 import {
   addToQueue,
   applySyncOutcome,
+  isQueuedForUser,
   normalizeQueueItem,
   recoverInterrupted,
   type NewQueuedAction,
@@ -177,7 +178,9 @@ export async function retryFailed(userId: string | null): Promise<number> {
   let reset = 0;
   await mutate((items) =>
     items.map((item) => {
-      if (item.status === 'failed' && (userId === null || item.userId === null || item.userId === userId)) {
+      // Same-account rule: a signed-in user can only retry their own
+      // failures — never a predecessor's `userId: null` leftovers.
+      if (item.status === 'failed' && isQueuedForUser(item, userId)) {
         reset += 1;
         return { ...item, status: 'pending', retryCount: 0, lastError: null };
       }
@@ -192,8 +195,7 @@ export async function discardFailed(userId: string | null): Promise<number> {
   let removed = 0;
   await mutate((items) => {
     const kept = items.filter((item) => {
-      const mine = userId === null || item.userId === null || item.userId === userId;
-      const drop = item.status === 'failed' && mine;
+      const drop = item.status === 'failed' && isQueuedForUser(item, userId);
       if (drop) removed += 1;
       return !drop;
     });

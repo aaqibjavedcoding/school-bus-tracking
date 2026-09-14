@@ -4,11 +4,11 @@ import { getApiErrorMessage } from '../lib/errors';
 import {
   SEARCH_DEBOUNCE_MS,
   filtersKey,
-  isLatestRequest,
   isSearchSettled,
   normaliseSearch,
   shouldResetPage,
 } from '../lib/paged-query';
+import { createLoaderProgressTracker } from './refresh-progress';
 
 /**
  * Mobile port of the web `usePagedResource`: paginated + debounced-search
@@ -76,15 +76,18 @@ export function usePagedResource<T>(
   const [searching, setSearching] = useState(false);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
-  const requestId = useRef(0);
-  const mounted = useRef(true);
+  const trackerRef = useRef<ReturnType<typeof createLoaderProgressTracker> | null>(null);
+  if (!trackerRef.current) {
+    trackerRef.current = createLoaderProgressTracker();
+  }
+  const tracker = trackerRef.current;
 
   useEffect(() => {
-    mounted.current = true;
+    tracker.mount();
     return () => {
-      mounted.current = false;
+      tracker.unmount();
     };
-  }, []);
+  }, [tracker]);
 
   // Debounce the raw input; `searching` drives the inline spinner.
   useEffect(() => {
@@ -114,51 +117,54 @@ export function usePagedResource<T>(
   }, [debouncedSearch, depsKey]);
 
   const reload = useCallback(async () => {
-    const id = ++requestId.current;
+    const id = tracker.startLoad();
     setLoading(true);
     setError(null);
     try {
       const result = await loaderRef.current(page, debouncedSearch);
       // Stale-response guard: a slow request for an older term must never
       // overwrite the results of the newest one.
-      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      if (!tracker.canWriteData(id)) return;
       setItems(result.items);
       setMeta(result.meta ?? EMPTY_META);
     } catch (caught) {
-      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      if (!tracker.canWriteData(id)) return;
       setItems([]);
       setError(getApiErrorMessage(caught));
     } finally {
-      if (mounted.current && isLatestRequest(id, requestId.current)) {
+      if (tracker.endLoad(id) === true) {
         setLoading(false);
       }
     }
-  }, [page, debouncedSearch, depsKey]);
+  }, [page, debouncedSearch, depsKey, tracker]);
 
   /**
    * Pull-to-refresh of the current page: identical request/guards to
    * `reload`, but reports progress on `refreshing` and never clears the
-   * visible list while running. Errors land on `error` while the last good
-   * page stays on screen.
+   * visible list while running. The flag is cleared by the pull's own
+   * completion — a query-driven `reload()` that starts mid-pull (page
+   * change, new search term, filter flip) can no longer strand the
+   * pull indicator at the top of the screen. Errors land on `error` while
+   * the last good page stays on screen.
    */
   const refresh = useCallback(async () => {
-    const id = ++requestId.current;
+    const id = tracker.startRefresh();
     setRefreshing(true);
     setError(null);
     try {
       const result = await loaderRef.current(page, debouncedSearch);
-      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      if (!tracker.canWriteData(id)) return;
       setItems(result.items);
       setMeta(result.meta ?? EMPTY_META);
     } catch (caught) {
-      if (!mounted.current || !isLatestRequest(id, requestId.current)) return;
+      if (!tracker.canWriteData(id)) return;
       setError(getApiErrorMessage(caught));
     } finally {
-      if (mounted.current && isLatestRequest(id, requestId.current)) {
+      if (tracker.endRefresh(id) === true) {
         setRefreshing(false);
       }
     }
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, tracker]);
 
   useEffect(() => {
     void reload();

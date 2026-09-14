@@ -282,14 +282,25 @@ export function applyResponseCache(client: ApiClient): ApiClient {
       const cachedValue: ApiResponse<T> = cached.value;
       if (cached.isStale && !apiCache.inflightFor<ApiResponse<T>>(key)) {
         // Stale-while-revalidate: the caller already got the cached value
-        // above; refresh in the background for the next visit.
-        apiCache.trackInflight<ApiResponse<T>>(
-          key,
-          originalGet<T>(endpoint).then((response) => {
-            apiCache.set(key, response);
-            return response;
-          }),
-        );
+        // above; refresh in the background for the next visit. The background
+        // revalidation is fire-and-forget, so it must own its own failure:
+        // a rejected promise with no handler surfaces as an unhandled
+        // `ApiClientError` rejection in the device log (the "repeated 403"
+        // entries in driver logs). A failed revalidation keeps the stale
+        // entry for the next visit and is logged as a warning — it is not a
+        // caller-facing error (the foreground path still reports failures
+        // normally) and it must never crash or loop.
+        const revalidation = originalGet<T>(endpoint).then((response) => {
+          apiCache.set(key, response);
+          return response;
+        });
+        revalidation.catch((error) => {
+          console.warn(
+            `[api-cache] background revalidation failed for ${endpoint}; keeping the stale value: ` +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        });
+        apiCache.trackInflight(key, revalidation);
       }
       return cachedValue;
     }

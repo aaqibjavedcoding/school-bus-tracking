@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiErrorMessage } from '../lib/errors';
+import { createLoaderProgressTracker } from './refresh-progress';
 
 /**
  * Generic loader hook (mobile port of the web `useLoad`): runs `loader`,
@@ -7,15 +8,16 @@ import { getApiErrorMessage } from '../lib/errors';
  * Errors are already mapped to a user-facing message, including ApiClientError
  * envelopes.
  *
- * Two deliberately separate progress signals:
+ * Two deliberately separate progress signals, tracked by
+ * {@link createLoaderProgressTracker}:
  *
  *  - `loading` — the *blocking* signal: flips for the initial load and every
  *    dependency-driven reload. Screens show their empty/loading state from it
  *    (`loading && !data`).
  *  - `refreshing` — the *user pull* signal, driven exclusively by `refresh()`.
- *    Background work (stale-while-revalidate fetches, socket-triggered
- *    reloads, token refresh behind a 401) never touches it, so no global
- *    "refreshing" indicator can linger on top of genuinely working screens.
+ *    It is cleared when the pull itself finishes, even if a dependency-driven
+ *    `reload()` started in the meantime — a background reload can never leave
+ *    the pull indicator (the blue top bar) stuck on screen.
  *
  * Includes stale-response and unmount guards so rapid navigation or fast
  * dependency changes never write into a component that has already moved on.
@@ -27,56 +29,61 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const [error, setError] = useState<string | null>(null);
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
-  const mounted = useRef(true);
-  const requestId = useRef(0);
+  const trackerRef = useRef<ReturnType<typeof createLoaderProgressTracker> | null>(null);
+  if (!trackerRef.current) {
+    trackerRef.current = createLoaderProgressTracker();
+  }
+  const tracker = trackerRef.current;
 
   useEffect(() => {
-    mounted.current = true;
+    tracker.mount();
     return () => {
-      mounted.current = false;
+      tracker.unmount();
     };
-  }, []);
+  }, [tracker]);
 
   const reload = useCallback(async () => {
-    const id = ++requestId.current;
+    const id = tracker.startLoad();
     setLoading(true);
     setError(null);
     try {
       const result = await loaderRef.current();
-      if (!mounted.current || id !== requestId.current) return;
+      if (!tracker.canWriteData(id)) return;
       setData(result);
     } catch (caught) {
-      if (!mounted.current || id !== requestId.current) return;
+      if (!tracker.canWriteData(id)) return;
       setError(getApiErrorMessage(caught));
     } finally {
-      if (mounted.current && id === requestId.current) {
+      if (tracker.endLoad(id) === true) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [tracker]);
 
   /**
-   * User-initiated refresh (pull-to-refresh). Shares the stale-guard with
-   * `reload` but reports progress on `refreshing` only: the screen stays as
-   * it is and the pull indicator is the only visible feedback.
+   * User-initiated refresh (pull-to-refresh). Shares the stale-data guard
+   * with `reload` but reports progress on `refreshing` only: the screen stays
+   * as it is and the pull indicator is the only visible feedback. The flag is
+   * cleared by the pull's own completion — a concurrent reload cannot strand
+   * it.
    */
   const refresh = useCallback(async () => {
-    const id = ++requestId.current;
+    const id = tracker.startRefresh();
     setRefreshing(true);
     setError(null);
     try {
       const result = await loaderRef.current();
-      if (!mounted.current || id !== requestId.current) return;
+      if (!tracker.canWriteData(id)) return;
       setData(result);
     } catch (caught) {
-      if (!mounted.current || id !== requestId.current) return;
+      if (!tracker.canWriteData(id)) return;
       setError(getApiErrorMessage(caught));
     } finally {
-      if (mounted.current && id === requestId.current) {
+      if (tracker.endRefresh(id) === true) {
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [tracker]);
 
   useEffect(() => {
     void reload();

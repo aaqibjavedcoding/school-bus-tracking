@@ -155,6 +155,9 @@ import {
   postBuses,
 } from '../../src/server/api/buses';
 import {
+  getDashboardStats,
+} from '../../src/server/api/dashboard';
+import {
   getExports,
   getExportsByDataset,
 } from '../../src/server/api/data-transfer-export';
@@ -467,6 +470,7 @@ export const ALL_ROUTES: TestRoute[] = [
   { method: 'GET', path: '/document-requirements', definition: getDocumentrequirements },
   { method: 'PUT', path: '/document-requirements', definition: putDocumentrequirements },
   { method: 'GET', path: '/documents/overview', definition: getDocumentsOverview },
+  { method: 'GET', path: '/dashboard/stats', definition: getDashboardStats },
   { method: 'GET', path: '/drivers', definition: getDrivers },
   { method: 'POST', path: '/drivers', definition: postDrivers },
   { method: 'DELETE', path: '/drivers/:driverId', definition: deleteDriversById },
