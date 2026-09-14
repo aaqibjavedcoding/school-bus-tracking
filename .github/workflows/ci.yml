@@ -195,5 +195,7 @@ jobs:
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
       - name: Build production image
         run: docker build -f infrastructure/Dockerfile -t school-bus-tracking:ci .
+      - name: Prepare production env for compose validation
+        run: cp infrastructure/.env.production.example infrastructure/.env.production
       - name: Validate compose file loads
-        run: docker compose -f infrastructure/docker-compose.prod.yml config
+        run: docker compose --env-file infrastructure/.env.production -f infrastructure/docker-compose.prod.yml config
