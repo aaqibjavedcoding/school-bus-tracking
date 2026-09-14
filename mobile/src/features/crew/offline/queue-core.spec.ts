@@ -9,6 +9,7 @@ import {
   countOpen,
   getBackoffDelay,
   isDueForRetry,
+  isQueuedForUser,
   MAX_RETRY_COUNT,
   normalizeQueueItem,
   recoverInterrupted,
@@ -181,6 +182,64 @@ describe('backoff and due selection', () => {
     ];
     assert.equal(countFailed(items, USER), 1);
     assert.equal(countFailed(items, OTHER), 0);
+  });
+
+  describe('cross-user isolation on a shared device', () => {
+    it('never replays another account’s queued actions under the new session', () => {
+      const t0 = new Date('2026-09-11T10:00:00Z');
+      let items: QueuedAttendanceEvent[] = [];
+      items = addToQueue(items, board('s1', OTHER), t0).items; // previous crew member
+      items = addToQueue(items, board('s2', USER), t0).items; // current user
+      const due = selectDueItems(items, USER, t0);
+      assert.deepEqual(
+        due.map((item) => item.studentId),
+        ['s2'],
+      );
+    });
+
+    it('never attributes legacy (userId: null) items to a signed-in user', () => {
+      // Rows persisted before per-user capture existed have userId: null.
+      // They must not be replayed, counted, retried or dismissed by whoever
+      // signs in next — only by the account that captured them.
+      const t0 = new Date('2026-09-11T10:00:00Z');
+      let items: QueuedAttendanceEvent[] = [];
+      items = addToQueue(items, board('s1', null), t0).items;
+      items = addToQueue(items, board('s2', USER), t0).items;
+
+      assert.deepEqual(
+        selectDueItems(items, USER, t0)
+          .map((item) => item.studentId),
+        ['s2'],
+      );
+      assert.equal(countOpen(items, USER), 1);
+      assert.equal(countOpen(items, OTHER), 0);
+
+      const failedLegacy = applySyncOutcome(items[0], {
+        action: 'fail',
+        error: 'x',
+        statusCode: 404,
+      });
+      const failedMine = applySyncOutcome(items[1], {
+        action: 'fail',
+        error: 'x',
+        statusCode: 404,
+      });
+      const all = [failedLegacy, failedMine];
+      assert.equal(countFailed(all, USER), 1);
+      assert.equal(countFailed(all, OTHER), 0);
+      // A signed-in user only sees their own legacy-adjacent failures.
+      assert.equal(isQueuedForUser(failedLegacy, USER), false);
+      assert.equal(isQueuedForUser(failedMine, USER), true);
+    });
+
+    it('a null caller (diagnostics) still sees every item', () => {
+      const t0 = new Date('2026-09-11T10:00:00Z');
+      let items: QueuedAttendanceEvent[] = [];
+      items = addToQueue(items, board('s1', null), t0).items;
+      items = addToQueue(items, board('s2', USER), t0).items;
+      assert.equal(selectDueItems(items, null, t0).length, 2);
+      assert.equal(countOpen(items, null), 2);
+    });
   });
 });
 

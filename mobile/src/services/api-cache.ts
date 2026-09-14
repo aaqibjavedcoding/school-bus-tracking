@@ -140,12 +140,18 @@ export class ApiCache {
   }
 
   trackInflight<T>(key: string, promise: Promise<T>): Promise<T> {
-    this.inflight.set(
-      key,
-      promise.finally(() => {
-        this.inflight.delete(key);
-      }),
-    );
+    const tracked = promise.finally(() => {
+      this.inflight.delete(key);
+    });
+    // `tracked` is an observer: it exists only to clean up the map. When the
+    // operation rejects, its rejection belongs to the promise the caller
+    // received — leaving `tracked` without a handler of its own would turn
+    // every failed request into an extra unhandled `ApiClientError`
+    // rejection in the device log (the repeated 403 noise in the driver
+    // logs). Swallowing it here changes nothing for callers: they still
+    // receive the rejection on the promise they are awaiting.
+    tracked.catch(() => undefined);
+    this.inflight.set(key, tracked);
     return promise;
   }
 

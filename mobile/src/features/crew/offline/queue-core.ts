@@ -249,6 +249,25 @@ export function isDueForRetry(item: QueuedAttendanceEvent, now: Date = new Date(
 }
 
 /**
+ * Same-account ownership rule for queued actions.
+ *
+ * A queued action is only ever attributed to the account that captured it.
+ * A signed-in user (`userId` non-null) therefore sees only items recorded
+ * with that exact `userId` — including **not** items whose `userId` is
+ * `null` (rows persisted before per-user capture existed): replaying or
+ * counting another account's leftover actions under the new session would
+ * submit them with the new user's JWT, which is exactly the cross-user
+ * leak a handed-over device must never produce. A `null` caller (no session
+ * — diagnostics/tests only) sees everything.
+ */
+export function isQueuedForUser(item: QueuedAttendanceEvent, userId: string | null): boolean {
+  if (userId === null) {
+    return true;
+  }
+  return item.userId === userId;
+}
+
+/**
  * The items to replay now, oldest first, for one user. Trip lifecycle and
  * attendance are order-sensitive (board before drop, BOARDING before
  * IN_PROGRESS), so callers replay this list sequentially.
@@ -260,7 +279,7 @@ export function selectDueItems(
 ): QueuedAttendanceEvent[] {
   return items
     .filter((item) => item.status === 'pending')
-    .filter((item) => userId === null || item.userId === null || item.userId === userId)
+    .filter((item) => isQueuedForUser(item, userId))
     .filter((item) => isDueForRetry(item, now))
     .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
 }
@@ -270,17 +289,14 @@ export function countOpen(items: QueuedAttendanceEvent[], userId: string | null)
   return items.filter(
     (item) =>
       (item.status === 'pending' || item.status === 'syncing') &&
-      (userId === null || item.userId === null || item.userId === userId),
+      isQueuedForUser(item, userId),
   ).length;
 }
 
 /** Permanently failed count for one user. */
 export function countFailed(items: QueuedAttendanceEvent[], userId: string | null): number {
-  return items.filter(
-    (item) =>
-      item.status === 'failed' &&
-      (userId === null || item.userId === null || item.userId === userId),
-  ).length;
+  return items.filter((item) => item.status === 'failed' && isQueuedForUser(item, userId))
+    .length;
 }
 
 /** Endpoint-agnostic description used for user-facing labels. */
