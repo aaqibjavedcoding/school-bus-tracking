@@ -11,10 +11,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Every job uses the reusable setup composite action
-# (.github/actions/setup-node-deps) which checks out the repo and installs the
-# full workspace from the lockfile.  Permissions are intentionally minimal:
-# the workflow only needs to read the repository contents.
+# ⚠️ KEEP EVERY "Checkout" STEP IN THIS FILE. The setup-node-deps composite
+# action does NOT check out the repository — GitHub loads composite action
+# definitions from the (empty) runner workspace, so each job MUST run
+# actions/checkout as its first step, and only then call
+# ./.github/actions/setup-node-deps. Removing a Checkout step makes that job
+# fail in seconds (setup-node cannot find .nvmrc on an empty workspace).
+# Do not "streamline", clean up, or regenerate this file.
+# Permissions are intentionally minimal: the workflow only needs to read the
+# repository contents.
 permissions:
   contents: read
 jobs:
@@ -24,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: ESLint
@@ -34,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Typecheck all workspaces
@@ -44,6 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Typecheck server
@@ -54,6 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Run server unit tests
@@ -64,6 +77,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Run web unit tests
@@ -74,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Run mobile unit tests
@@ -84,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Run mobile simulations
@@ -117,6 +136,8 @@ jobs:
       TEST_DB_PASSWORD: postgres
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
 
@@ -137,6 +158,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Build
@@ -147,6 +170,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # v4
       - name: Setup
         uses: ./.github/actions/setup-node-deps
       - name: Export
@@ -170,5 +195,7 @@ jobs:
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
       - name: Build production image
         run: docker build -f infrastructure/Dockerfile -t school-bus-tracking:ci .
+      - name: Prepare production env for compose validation
+        run: cp infrastructure/.env.production.example infrastructure/.env.production
       - name: Validate compose file loads
-        run: docker compose -f infrastructure/docker-compose.prod.yml config
+        run: docker compose --env-file infrastructure/.env.production -f infrastructure/docker-compose.prod.yml config
