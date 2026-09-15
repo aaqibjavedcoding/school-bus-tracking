@@ -324,6 +324,21 @@ export class StaffService {
         assigned_route_name: route?.name ?? null,
         assigned_route_code: route?.code ?? null,
         current_trip_status: tripByUser.get(member.id)?.status ?? null,
+        // Derived from `pin_updated_at`, never from `pin_hash`: the digest is
+        // excluded from the default scope, and reading it here would mean an
+        // `unscoped()` query per page just to answer a yes/no question. The
+        // migration's `ck_users_pin_hash_matches_pin_updated_at` CHECK is what
+        // makes the substitution sound — the database guarantees the two columns
+        // are both set or both null, so this cannot report a PIN that does not
+        // exist or hide one that does.
+        //
+        // Truthiness, not `!== null`, and that is deliberate: a query with a
+        // narrow `attributes` list (or a test double) can leave the property
+        // `undefined`, and `undefined !== null` is `true`. Failing towards
+        // `pin_set: true` would tell an administrator a driver can log in when
+        // they cannot; failing towards `false` only invites a harmless re-issue.
+        pin_set: Boolean(member.pin_updated_at),
+        pin_updated_at: member.pin_updated_at?.toISOString() ?? null,
       } as StaffResponse<R>;
     });
   }

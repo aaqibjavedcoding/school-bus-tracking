@@ -7,6 +7,7 @@ import { RouteAssignment } from './route-assignment.model';
 import { RunCrew } from './run-crew.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
+import { CrewPairingToken } from './crew-pairing-token.model';
 import { StudentGuardian } from './student-guardian.model';
 
 export interface UserAttributes extends BaseModelAttributes {
@@ -37,6 +38,28 @@ export interface UserAttributes extends BaseModelAttributes {
    * responses.
    */
   password_hash: string | null;
+  /**
+   * bcrypt hash of the crew mobile-login PIN (Mobile-UX Phase 4).
+   *
+   * Only DRIVER and CONDUCTOR rows may hold one — the database enforces that
+   * with the CHECK constraint `ck_users_pin_hash_crew_only`, so the role gate on
+   * the login endpoint is backed by a data invariant rather than being
+   * application-only. `null` for every other role and for any crew account
+   * whose PIN an administrator has not set (or has cleared), which is the state
+   * every pre-existing user is in after the migration.
+   *
+   * Treated exactly like `password_hash`: the same bcrypt cost factor, excluded
+   * from the default scope, stripped in `toJSON()`, never logged and never
+   * returned by any endpoint. The plaintext PIN is unrecoverable — an
+   * administrator who loses one sets a new one.
+   */
+  pin_hash: string | null;
+  /**
+   * When `pin_hash` was last written (set, reset or cleared). Kept apart from
+   * `updated_at`, which moves on any profile edit, so the admin console can say
+   * "PIN set 3 days ago" truthfully.
+   */
+  pin_updated_at: Date | null;
   /** Set when the email address has been verified. Null until then. */
   email_verified_at: Date | null;
   phone: string | null;
@@ -51,6 +74,8 @@ export type UserCreationAttributes = Optional<
   | 'phone'
   | 'is_active'
   | 'password_hash'
+  | 'pin_hash'
+  | 'pin_updated_at'
   | 'email_verified_at'
 >;
 
@@ -58,6 +83,11 @@ export type UserCreationAttributes = Optional<
  * Person that interacts with the platform on behalf of a school.
  *
  * Credentials: `password_hash` holds a bcrypt digest (see `auth/password.util`).
+ * Crew accounts (DRIVER / CONDUCTOR) additionally carry `pin_hash`, a bcrypt
+ * digest of the 4-digit mobile login PIN introduced in Mobile-UX Phase 4; the
+ * database CHECK constraint `ck_users_pin_hash_crew_only` refuses to store a PIN
+ * for any other role, so the role gate on `POST /auth/crew-login` is a data
+ * invariant and not only an application rule.
  * JWT, sessions and login/register endpoints are later tasks.
  *
  * Tenant scoping: `school_id` is NOT NULL, so a user can never exist outside a
@@ -73,7 +103,9 @@ export type UserCreationAttributes = Optional<
   timestamps: true,
   paranoid: true,
   defaultScope: {
-    attributes: { exclude: ['password_hash'] },
+    // Both credential columns are hidden by default; the login paths opt out
+    // with `unscoped()` when they need to compare a digest.
+    attributes: { exclude: ['password_hash', 'pin_hash'] },
   },
   indexes: [
     // Referenced as (school_id, id) by route_assignments.driver/conductor and
@@ -130,6 +162,12 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
   @Column({ type: DataType.STRING(255), allowNull: true })
   declare password_hash: string | null;
 
+  @Column({ type: DataType.STRING(255), allowNull: true })
+  declare pin_hash: string | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare pin_updated_at: Date | null;
+
   @Column({ type: DataType.DATE, allowNull: true })
   declare email_verified_at: Date | null;
 
@@ -158,15 +196,22 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
   @HasMany(() => RefreshToken, { foreignKey: 'user_id', as: 'refreshTokens' })
   declare refreshTokens?: RefreshToken[];
 
+  @HasMany(() => CrewPairingToken, { foreignKey: 'user_id', as: 'crewPairingTokens' })
+  declare crewPairingTokens?: CrewPairingToken[];
+
   @HasMany(() => StudentGuardian, { foreignKey: 'user_id', as: 'studentGuardians' })
   declare studentGuardians?: StudentGuardian[];
 
   /**
-   * Strip the credential column even if a query opted out of the default scope.
+   * Strip **both** credential columns even if a query opted out of the default
+   * scope. `pin_hash` is a bcrypt digest of a 4-digit secret, so leaking it is
+   * worse than leaking a password hash — the space it came from is only
+   * 10,000 values wide.
    */
   override toJSON(): object {
     const values = { ...this.get() } as Record<string, unknown>;
     delete values.password_hash;
+    delete values.pin_hash;
     return values;
   }
 }

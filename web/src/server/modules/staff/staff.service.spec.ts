@@ -31,6 +31,10 @@ interface StubStaff {
   email: string | null;
   password_hash: string | null;
   email_verified_at: Date | null;
+  /** bcrypt digest of the crew mobile-login PIN; hidden by the default scope. */
+  pin_hash: string | null;
+  /** Set and cleared exactly alongside `pin_hash` — see the migration CHECK. */
+  pin_updated_at: Date | null;
   phone: string | null;
   is_active: boolean;
   created_at: Date;
@@ -50,6 +54,8 @@ function makeStaff(overrides: Partial<StubStaff> = {}): StubStaff {
     email: 'driver@example.org',
     password_hash: null,
     email_verified_at: null,
+    pin_hash: null,
+    pin_updated_at: null,
     phone: null,
     is_active: true,
     created_at: new Date('2026-01-01T00:00:00.000Z'),
@@ -400,5 +406,65 @@ describe('StaffService driver management', () => {
     const response: StaffResponse = await service.findOne(SCHOOL_A, UserRole.DRIVER, DRIVER_A);
     assert.equal(JSON.stringify(response).includes('password_hash'), false);
     assert.equal('password_hash' in response, false);
+  });
+
+  /**
+   * The PIN badge in the admin console.
+   *
+   * `pin_hash` is outside the model's default scope, so the projection derives
+   * `pin_set` from `pin_updated_at` instead. The migration CHECK
+   * `ck_users_pin_hash_matches_pin_updated_at` is what makes that substitution
+   * sound against a real database; these tests pin the projection's own half of
+   * the bargain, including the fail-safe direction.
+   */
+  it('reports pin_set from pin_updated_at, and never exposes the digest', async () => {
+    const withPin = new Date('2026-04-01T08:30:00.000Z');
+    const { repo: users } = makeStaffRepository([
+      makeStaff({
+        id: DRIVER_A,
+        role: UserRole.DRIVER,
+        pin_hash: '$2b$12$not-a-real-digest-but-must-never-escape',
+        pin_updated_at: withPin,
+      }),
+      makeStaff({
+        id: CONDUCTOR_A,
+        role: UserRole.DRIVER,
+        email: 'second@example.org',
+        pin_hash: null,
+        pin_updated_at: null,
+      }),
+    ]);
+    const service = makeService(users);
+    const result = await service.findAll(SCHOOL_A, UserRole.DRIVER, new ListStaffQueryDto());
+
+    const pinned = result.items.find((item) => item.id === DRIVER_A)!;
+    assert.equal(pinned.pin_set, true);
+    assert.equal(pinned.pin_updated_at, withPin.toISOString(), 'the console shows when it was set');
+
+    const unpinned = result.items.find((item) => item.id === CONDUCTOR_A)!;
+    assert.equal(unpinned.pin_set, false, 'an account with no PIN must say so');
+    assert.equal(unpinned.pin_updated_at, null);
+
+    // Neither the digest nor the column name may appear anywhere in the payload.
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('pin_hash'), false);
+    assert.equal(serialized.includes('not-a-real-digest'), false);
+    for (const item of result.items) {
+      assert.equal('pin_hash' in item, false);
+    }
+  });
+
+  it('fails safe when pin_updated_at was never selected', async () => {
+    // A narrow `attributes` list, or a stale test double, leaves the property
+    // absent rather than null. `undefined !== null` is true, so a `!== null`
+    // derivation would advertise a PIN that may not exist; truthiness reports
+    // "no PIN", which at worst invites a harmless re-issue.
+    const member = makeStaff({ id: DRIVER_A, role: UserRole.DRIVER });
+    delete (member as Partial<StubStaff>).pin_updated_at;
+    const { repo: users } = makeStaffRepository([member]);
+    const service = makeService(users);
+    const response = await service.findOne(SCHOOL_A, UserRole.DRIVER, DRIVER_A);
+    assert.equal(response.pin_set, false);
+    assert.equal(response.pin_updated_at, null);
   });
 });

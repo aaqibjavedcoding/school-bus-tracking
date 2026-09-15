@@ -11,6 +11,7 @@ import { Run } from './run.model';
 import { RunCrew } from './run-crew.model';
 import { Trip } from './trip.model';
 import { RefreshToken } from './refresh-token.model';
+import { CrewPairingToken } from './crew-pairing-token.model';
 import { StudentGuardian } from './student-guardian.model';
 import { TripStudentAttendance } from './trip-student-attendance.model';
 import { TripLocation } from './trip-location.model';
@@ -82,6 +83,11 @@ export { Trip } from './trip.model';
 export type { TripAttributes, TripCreationAttributes } from './trip.model';
 export { RefreshToken } from './refresh-token.model';
 export type { RefreshTokenAttributes, RefreshTokenCreationAttributes } from './refresh-token.model';
+export { CrewPairingToken } from './crew-pairing-token.model';
+export type {
+  CrewPairingTokenAttributes,
+  CrewPairingTokenCreationAttributes,
+} from './crew-pairing-token.model';
 export { StudentGuardian } from './student-guardian.model';
 export type {
   StudentGuardianAttributes,
@@ -174,6 +180,7 @@ export const models: ModelCtor<Model>[] = [
   RunCrew,
   Trip,
   RefreshToken,
+  CrewPairingToken,
   StudentGuardian,
   TripStudentAttendance,
   TripLocation,

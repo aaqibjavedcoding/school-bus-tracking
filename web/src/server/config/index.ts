@@ -5,6 +5,7 @@ export { default as liveTrackingConfig } from './live-tracking.config';
 export { default as etaConfig } from './eta.config';
 export { default as securityConfig, parseOriginList } from './security.config';
 export { default as rateLimitConfig } from './rate-limit.config';
+export { default as crewAuthConfig } from './crew-auth.config';
 export type { RateLimitPolicyConfig } from './rate-limit.config';
 export { default as subscriptionConfig } from './subscription.config';
 export { default as retentionConfig } from './retention.config';

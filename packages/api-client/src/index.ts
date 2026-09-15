@@ -73,6 +73,11 @@ import {
   ShiftResponse,
   ShiftUpdateRequest,
   HealthResponse,
+  CrewLoginRequest,
+  CrewLoginResponse,
+  CrewPairingResponse,
+  CrewPinSetRequest,
+  CrewPinSetResponse,
   LoginRequest,
   LoginResponse,
   LogoutResponse,
@@ -307,7 +312,17 @@ export class ApiClientError extends Error {
   }
 }
 
-const AUTH_SKIP_PATHS = new Set(['/auth/login', '/auth/refresh', '/auth/logout']);
+const AUTH_SKIP_PATHS = new Set([
+  '/auth/login',
+  // Crew PIN / QR login (Mobile-UX Phase 4) is an unauthenticated session
+  // request exactly like `/auth/login`: it must not carry a stale bearer token
+  // (which would make the API's CSRF rule treat it as bearer-authenticated) and
+  // a 401 from it must surface to the login screen rather than trigger a
+  // refresh loop.
+  '/auth/crew-login',
+  '/auth/refresh',
+  '/auth/logout',
+]);
 
 /** HTTP methods the API treats as safe (never CSRF-checked). */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
@@ -812,6 +827,25 @@ export class ApiClient {
 
   public async login(body: LoginRequest): Promise<ApiResponse<LoginResponse>> {
     const envelope = await this.post<LoginResponse>('/auth/login', body);
+    if (envelope.data?.access_token) {
+      this.setAccessToken?.(envelope.data.access_token);
+    }
+    return envelope;
+  }
+
+  /**
+   * Crew login — a 4-digit PIN on an already-paired device, or a scanned QR
+   * pairing code (Mobile-UX Phase 4).
+   *
+   * `POST /auth/crew-login`. Available to DRIVER and CONDUCTOR accounts only;
+   * every other role still uses {@link login}.
+   *
+   * The response is the same `LoginResponse` shape, so the token handling below
+   * is identical to `login()` and callers (the mobile `AuthProvider`) can treat
+   * the two interchangeably — a crew session is an ordinary session.
+   */
+  public async crewLogin(body: CrewLoginRequest): Promise<ApiResponse<CrewLoginResponse>> {
+    const envelope = await this.post<CrewLoginResponse>('/auth/crew-login', body);
     if (envelope.data?.access_token) {
       this.setAccessToken?.(envelope.data.access_token);
     }
@@ -1553,6 +1587,33 @@ export class ApiClient {
     return this.delete<DriverDeleteResponse>(`/drivers/${encodeURIComponent(id)}`);
   }
 
+  /**
+   * Sets, resets or clears a driver's mobile login PIN.
+   *
+   * `PUT /drivers/:id/pin`, SCHOOL_ADMIN only. `pin: null` clears it and drops
+   * the driver back to QR pairing. The plaintext is sent once and never comes
+   * back: the response reports only whether a PIN now exists and when it
+   * changed, so an administrator who loses one must set a new one.
+   */
+  public async setDriverPin(
+    id: string,
+    body: CrewPinSetRequest,
+  ): Promise<ApiResponse<CrewPinSetResponse>> {
+    return this.put<CrewPinSetResponse>(`/drivers/${encodeURIComponent(id)}/pin`, body);
+  }
+
+  /**
+   * Mints a short-lived, single-use QR pairing code for a driver.
+   *
+   * `POST /drivers/:id/pairing-qr`, SCHOOL_ADMIN only. `pairing_token` is
+   * returned **once** — only its SHA-256 digest is stored — so the caller must
+   * render `payload` as a QR while the response is on screen. Minting a new code
+   * supersedes the driver's outstanding one.
+   */
+  public async createDriverPairingQr(id: string): Promise<ApiResponse<CrewPairingResponse>> {
+    return this.post<CrewPairingResponse>(`/drivers/${encodeURIComponent(id)}/pairing-qr`);
+  }
+
   public async createConductor(
     body: ConductorCreateRequest,
   ): Promise<ApiResponse<ConductorResponse>> {
@@ -1583,6 +1644,19 @@ export class ApiClient {
 
   public async deleteConductor(id: string): Promise<ApiResponse<ConductorDeleteResponse>> {
     return this.delete<ConductorDeleteResponse>(`/conductors/${encodeURIComponent(id)}`);
+  }
+
+  /** Conductor counterpart of {@link setDriverPin}. `PUT /conductors/:id/pin`. */
+  public async setConductorPin(
+    id: string,
+    body: CrewPinSetRequest,
+  ): Promise<ApiResponse<CrewPinSetResponse>> {
+    return this.put<CrewPinSetResponse>(`/conductors/${encodeURIComponent(id)}/pin`, body);
+  }
+
+  /** Conductor counterpart of {@link createDriverPairingQr}. */
+  public async createConductorPairingQr(id: string): Promise<ApiResponse<CrewPairingResponse>> {
+    return this.post<CrewPairingResponse>(`/conductors/${encodeURIComponent(id)}/pairing-qr`);
   }
 
   /**

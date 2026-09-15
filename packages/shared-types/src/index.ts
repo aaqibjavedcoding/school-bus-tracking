@@ -206,6 +206,113 @@ export interface LogoutResponse {
   message: string;
 }
 
+// ============================================================================
+// Crew PIN + QR login (Mobile-UX Phase 4)
+// ============================================================================
+
+/**
+ * The two ways a DRIVER or CONDUCTOR can authenticate from the mobile app.
+ *
+ * - `pin` — a 4-digit PIN on an already-paired device;
+ * - `qr`  — redeeming a short-lived pairing code an administrator generated.
+ *
+ * Email/password login is unchanged and remains the only path for
+ * SCHOOL_ADMIN, PARENT and the platform SUPER_ADMIN.
+ */
+export type CrewLoginMethod = 'pin' | 'qr';
+
+/**
+ * PIN branch of `POST /api/v1/auth/crew-login`.
+ *
+ * `user_id` identifies the crew account whose stored PIN hash is checked. It
+ * is not a secret: it is the identity the device learned when it scanned that
+ * user's pairing QR, and it exists so a 4-digit PIN is compared against
+ * exactly one hash instead of being searched across a tenant (which would
+ * force PINs to be unique per school and turn them into an enumerable
+ * identifier). `school_id` is required alongside it and must match, so a PIN
+ * can never be verified against a user in another tenant.
+ */
+export interface CrewLoginByPinRequest {
+  method: 'pin';
+  /** Tenant UUID or human tenant code, exactly as for `LoginRequest`. */
+  school_id: string;
+  user_id: string;
+  /** The plaintext 4-digit PIN. Never stored, never logged, never returned. */
+  pin: string;
+}
+
+/**
+ * QR branch of `POST /api/v1/auth/crew-login`.
+ *
+ * The pairing code is single-use, expires in minutes and is persisted only as
+ * a SHA-256 digest, so possession of a live code is the whole proof — no PIN
+ * is involved. This is also the enrolment path for a device that has never
+ * logged in before.
+ */
+export interface CrewLoginByQrRequest {
+  method: 'qr';
+  pairing_token: string;
+}
+
+/** Body of `POST /api/v1/auth/crew-login`. */
+export type CrewLoginRequest = CrewLoginByPinRequest | CrewLoginByQrRequest;
+
+/**
+ * Successful payload of `POST /api/v1/auth/crew-login`.
+ *
+ * Deliberately identical to {@link LoginResponse}: a crew session is an
+ * ordinary session (same JWT claims, same refresh-token rotation, same
+ * sockets), so every client that already handles a login response handles a
+ * crew login response without a second code path.
+ */
+export type CrewLoginResponse = LoginResponse;
+
+/**
+ * Non-secret PIN status of a crew account, safe to show in an admin list.
+ *
+ * The hash is never exposed and the plaintext is never recoverable — an
+ * administrator who has lost a PIN can only set a new one.
+ */
+export interface CrewPinState {
+  pin_set: boolean;
+  /** When the PIN was last set or reset; `null` when none has ever been set. */
+  pin_updated_at: string | null;
+}
+
+/** Body of `PUT /api/v1/{drivers,conductors}/:id/pin`. */
+export interface CrewPinSetRequest {
+  /** The new plaintext PIN, or `null` to clear it (QR pairing only). */
+  pin: string | null;
+}
+
+/** Successful payload of `PUT /api/v1/{drivers,conductors}/:id/pin`. */
+export interface CrewPinSetResponse extends CrewPinState {
+  id: string;
+  role: UserRole;
+}
+
+/**
+ * Successful payload of `POST /api/v1/{drivers,conductors}/:id/pairing-qr`.
+ *
+ * The `pairing_token` is returned in plaintext **once** and only to the
+ * administrator who generated it; the server keeps just its SHA-256 digest, so
+ * a later database read cannot resurrect a live code.
+ */
+export interface CrewPairingResponse {
+  /** Opaque single-use secret. Encode it with `encodeCrewPairingPayload()`. */
+  pairing_token: string;
+  /**
+   * The exact string the QR must encode (`SBT-CREW-1:<token>`), precomputed so
+   * the admin console and the mobile parser cannot disagree about the format.
+   */
+  payload: string;
+  /** Epoch-ms TTL of the code, echoed for the console's countdown. */
+  expires_in_ms: number;
+  expires_at: string;
+  /** The crew account this code will log a device in as. */
+  user: AuthenticatedUser;
+}
+
 /**
  * Body of `POST /api/v1/schools` — the school onboarding flow.
  *
@@ -1272,6 +1379,16 @@ export interface StaffResponse<R extends StaffRole = StaffRole> {
   assigned_route_code?: string | null;
   /** Status of the crew member's active trip today, when one exists. */
   current_trip_status?: TripStatus | null;
+  // --- Crew PIN status (Mobile-UX Phase 4) ---
+  /**
+   * Whether a mobile login PIN is currently set. Non-secret: the hash never
+   * leaves the server and the plaintext is unrecoverable, so this only tells an
+   * administrator who still needs a PIN issued. Populated for DRIVER and
+   * CONDUCTOR rows.
+   */
+  pin_set?: boolean | null;
+  /** When the PIN was last set or reset; `null` when never. */
+  pin_updated_at?: string | null;
 }
 
 /** Public projection of a driver account. Credential columns are never exposed. */

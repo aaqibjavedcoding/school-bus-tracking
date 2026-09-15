@@ -23,6 +23,7 @@ import {
   TripStatus,
   TripTrackingState,
 } from '@school-bus-tracking/shared-types';
+import type { CrewLoginMethod } from '@school-bus-tracking/shared-types';
 
 /**
  * Common validation schemas (Phase 1)
@@ -160,6 +161,233 @@ export const loginSchema = z
   .strict();
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+// ── Crew PIN + QR login (Mobile-UX Phase 4) ─────────────────────────────────
+//
+// A *separate* schema family from `loginSchema` above, deliberately: that one
+// is `.strict()` and is consumed by the web console's email/password form, so
+// widening it to also accept a PIN would either break the web form's
+// unknown-key rejection or make `password` optional for everyone. Nothing
+// below changes `loginSchema`.
+//
+// Both the API and the mobile PIN pad parse with these schemas, so the two
+// sides cannot drift — see `crew-login.dto.spec.ts`, which asserts that every
+// body the server-side DTO accepts is also accepted (or cleanly rejected) by
+// `crewPinLoginSchema`.
+
+/**
+ * Length of a crew PIN, in digits.
+ *
+ * Four digits is a product decision, not a security one: the PIN is typed on
+ * a phone by a driver in a bus depot, often in a hurry, often one-handed.
+ * Everything that makes a 4-digit secret survivable lives *around* it — the
+ * per-user attempt lockout, the rate limiter, the fact that a PIN is only ever
+ * checked against one already-identified user, and the audit trail. See
+ * `CREW_PIN_COMBINATIONS` and `docs/security.md` → "Crew PIN brute force".
+ */
+export const CREW_PIN_LENGTH = 4;
+
+/** Exactly `CREW_PIN_LENGTH` ASCII digits — no spaces, no unicode digits. */
+export const CREW_PIN_PATTERN = /^\d{4}$/;
+
+/**
+ * Size of the secret space a crew PIN covers: `10 ** 4 = 10_000`.
+ *
+ * Exported so the brute-force arithmetic in the specs and in the docs is
+ * computed from the same constant the schema enforces, rather than being a
+ * number someone typed into a markdown file and forgot to update.
+ */
+export const CREW_PIN_COMBINATIONS = 10 ** CREW_PIN_LENGTH;
+
+/** A plaintext crew PIN, as typed on the pad or set by an administrator. */
+export const crewPinSchema = z
+  .string()
+  .regex(CREW_PIN_PATTERN, `PIN must be exactly ${CREW_PIN_LENGTH} digits`);
+
+export type CrewPinInput = z.infer<typeof crewPinSchema>;
+
+/**
+ * Prefix of the string a crew pairing QR encodes.
+ *
+ * A scanned payload is `SBT-CREW-1:<token>`. The version segment exists so a
+ * future format change is detectable by the scanner instead of being parsed as
+ * a token and failing server-side with a confusing "expired code"; an unknown
+ * version is rejected locally with its own message.
+ */
+export const CREW_PAIRING_PAYLOAD_PREFIX = 'SBT-CREW-1';
+
+/**
+ * Upper bound on a submitted pairing token.
+ *
+ * A crew member's camera can scan anything — a 200-character Wi-Fi QR, a parcel
+ * label, a URL. The bound exists so the server rejects a scan that cannot
+ * possibly be a pairing token *before* it becomes a database lookup, which keeps
+ * a misdirected camera from being a cheap way to make the API hash arbitrary
+ * input. It is deliberately generous (the issued token is a 64-character
+ * sha256 hex digest) so a future longer format does not need a coordinated
+ * client release.
+ *
+ * Named and exported because the server DTO has to enforce the identical bound:
+ * an unexported literal in two files is exactly how those two drift apart.
+ */
+export const CREW_PAIRING_TOKEN_MAX_LENGTH = 512;
+
+/**
+ * Builds the exact string a pairing QR must encode.
+ *
+ * Shared by the admin web (which renders the QR) and the mobile app (which
+ * parses a scan), so the two ends of the handshake cannot disagree about the
+ * wire format. The token itself is high-entropy and opaque; nothing else rides
+ * along, because a payload the *client* could influence would let a crafted QR
+ * point the app at a different tenant or endpoint.
+ */
+export function encodeCrewPairingPayload(token: string): string {
+  return `${CREW_PAIRING_PAYLOAD_PREFIX}:${token}`;
+}
+
+export interface CrewPairingPayload {
+  /** The opaque, single-use pairing token to POST to `/auth/crew-login`. */
+  token: string;
+}
+
+/** Why a scanned string was refused, so the UI can say something useful. */
+export type CrewPairingPayloadRejection = 'empty' | 'not-a-pairing-code' | 'unsupported-version';
+
+export type CrewPairingPayloadResult =
+  | ({ ok: true } & CrewPairingPayload)
+  | { ok: false; reason: CrewPairingPayloadRejection };
+
+/**
+ * Parses a scanned QR payload.
+ *
+ * Returns a discriminated result rather than throwing: the caller is a camera
+ * stream that fires on every frame, and a rejected scan is a normal outcome
+ * (someone pointed the phone at the wrong code), not an exception.
+ */
+export function parseCrewPairingPayload(text: string | null | undefined): CrewPairingPayloadResult {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return { ok: false, reason: 'empty' };
+  }
+  const trimmed = text.trim();
+  const separator = trimmed.indexOf(':');
+  if (separator === -1) {
+    return { ok: false, reason: 'not-a-pairing-code' };
+  }
+  const prefix = trimmed.slice(0, separator);
+  const token = trimmed.slice(separator + 1).trim();
+  // Any `SBT-CREW-*` marker is a pairing code from some version of this app;
+  // anything else is simply not ours (a URL, a Wi-Fi code, a product barcode).
+  if (!/^SBT-CREW-\d+$/.test(prefix)) {
+    return { ok: false, reason: 'not-a-pairing-code' };
+  }
+  if (prefix !== CREW_PAIRING_PAYLOAD_PREFIX) {
+    return { ok: false, reason: 'unsupported-version' };
+  }
+  if (token.length === 0) {
+    return { ok: false, reason: 'not-a-pairing-code' };
+  }
+  return { ok: true, token };
+}
+
+/** Canonical UUID of the crew account a PIN is being checked against. */
+const crewUserIdSchema = z.string().uuid('user_id must be a valid UUID');
+
+/**
+ * PIN branch of a crew login: an already-paired device proves it is still the
+ * same crew member.
+ *
+ * `user_id` is **not** a secret and is not a substitute for one — it is the
+ * identity the device learned when it scanned that user's pairing QR, and it
+ * exists so the PIN is compared against exactly one stored hash instead of
+ * being searched across a tenant. Without it a 4-digit PIN would have to be
+ * unique per school to be resolvable at all, which would turn it into an
+ * enumerable identifier. `school_id` is required alongside it and must match,
+ * so a PIN can never be checked against a user in another tenant.
+ */
+export const crewLoginByPinSchema = z
+  .object({
+    method: z.literal('pin'),
+    school_id: loginTenantIdSchema,
+    user_id: crewUserIdSchema,
+    pin: crewPinSchema,
+  })
+  .strict();
+
+export type CrewLoginByPinInput = z.infer<typeof crewLoginByPinSchema>;
+
+/**
+ * QR branch of a crew login: redeem a short-lived pairing code.
+ *
+ * The code is single-use, expires in minutes and is stored only as a SHA-256
+ * digest, so this branch needs no PIN — possession of an unexpired, unused
+ * code that an administrator generated for that specific crew account *is* the
+ * proof. It is also the enrolment path: a fresh device that has no PIN yet
+ * pairs by QR first.
+ */
+export const crewLoginByQrSchema = z
+  .object({
+    method: z.literal('qr'),
+    pairing_token: z
+      .string()
+      .trim()
+      .min(1, 'pairing_token is required')
+      .max(CREW_PAIRING_TOKEN_MAX_LENGTH, 'pairing_token is too long'),
+  })
+  .strict();
+
+export type CrewLoginByQrInput = z.infer<typeof crewLoginByQrSchema>;
+
+/**
+ * Body of `POST /api/v1/auth/crew-login`.
+ *
+ * A discriminated union on `method`, `.strict()` on both arms, so a body can
+ * never carry the other arm's fields: `{ method: 'qr', pin: '1234' }` is
+ * rejected rather than silently downgraded to whichever branch the server
+ * happened to check first.
+ */
+export const crewPinLoginSchema = z.discriminatedUnion('method', [
+  crewLoginByPinSchema,
+  crewLoginByQrSchema,
+]);
+
+export type CrewPinLoginInput = z.infer<typeof crewPinLoginSchema>;
+
+/**
+ * The published crew login methods, **derived from the union above** rather than
+ * written out again.
+ *
+ * The server DTO needs the same list at runtime for its `@IsIn` check, and a
+ * hand-written second copy is how a third login method ends up accepted by the
+ * schema and rejected by the DTO (or the reverse). Reading it back off the
+ * discriminated union makes that impossible: adding a branch here automatically
+ * adds it there.
+ *
+ * `satisfies CrewLoginMethod[]` is what ties this to the shared-types union — if
+ * the two ever disagree about what a method is, this line stops compiling.
+ */
+export const CREW_LOGIN_METHODS = crewPinLoginSchema.options.map(
+  (option) => option.shape.method.value,
+) satisfies CrewLoginMethod[];
+
+/**
+ * Body of `PUT /api/v1/{drivers,conductors}/:id/pin`.
+ *
+ * `pin: null` clears the PIN (the crew member falls back to QR pairing until
+ * an administrator sets a new one). A *reset* is simply setting a different
+ * value — there is no separate endpoint, and the plaintext PIN is never
+ * returned by any API, so an administrator who loses it must set a new one.
+ *
+ * No strength rule beyond "four digits": `crewPinSchema` is the whole policy,
+ * and it is the same policy the login side checks, so a PIN that was settable
+ * yesterday always remains verifiable today.
+ */
+export const crewPinSetSchema = z
+  .object({
+    pin: crewPinSchema.nullable(),
+  })
+  .strict();
+
+export type CrewPinSetInput = z.infer<typeof crewPinSetSchema>;
 
 export const schoolOnboardingSchema = z.object({
   school: z.object({
