@@ -158,13 +158,51 @@ export class AuthService {
     // Centralized lifecycle enforcement: a deactivated tenant cannot log in.
     // Checked only after the password is verified so existence/state of a
     // tenant cannot be probed with an arbitrary email.
-    if (!platformUser && this.schoolAccess) {
-      const accessible = await this.schoolAccess.isSchoolAccessible(user.school_id);
-      if (!accessible) {
-        throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
-      }
-    }
+    await this.assertSchoolAccessible(user);
 
+    return this.issueSession(user);
+  }
+
+  /**
+   * The tenant-lifecycle rule every login path shares: a deactivated school
+   * cannot mint a session, whatever credential was presented.
+   *
+   * A platform `SUPER_ADMIN` belongs to no tenant and is therefore never
+   * tenant-gated. Callers must invoke this **after** the credential check, so
+   * the existence and lifecycle state of a tenant cannot be probed with an
+   * arbitrary identity.
+   *
+   * Extracted from `login()` unchanged so the crew PIN/QR path
+   * (`CrewAuthService`) enforces exactly the same rule instead of growing a
+   * second, subtly different copy of it.
+   */
+  async assertSchoolAccessible(user: User): Promise<void> {
+    if (user.role === UserRole.SUPER_ADMIN) {
+      return;
+    }
+    if (!this.schoolAccess) {
+      return;
+    }
+    const accessible = await this.schoolAccess.isSchoolAccessible(user.school_id);
+    if (!accessible) {
+      throw new ForbiddenException(SCHOOL_INACTIVE_MESSAGE);
+    }
+  }
+
+  /**
+   * Mints a session for an **already authenticated** user: signs the access
+   * token and persists a hashed refresh-token row.
+   *
+   * This is the tail of `login()`, extracted verbatim, and it is the only place
+   * in the application that creates a session. Every login path — email +
+   * password, crew PIN, crew QR pairing — goes through it, which is what makes
+   * a crew session an ordinary session: same JWT claims, same refresh-token
+   * rotation, same cookie handling in the route layer, same sockets.
+   *
+   * It performs no authorization of its own. A caller that reaches this method
+   * has already proven it may act as `user`.
+   */
+  async issueSession(user: User): Promise<AuthSessionResult<LoginResponse>> {
     const payload: JwtAccessTokenPayload = {
       sub: user.id,
       school_id: user.school_id,
@@ -194,6 +232,30 @@ export class AuthService {
       },
       refreshToken: rawRefreshToken,
     };
+  }
+
+  /**
+   * Resolves the tenant identifier supplied at login to a `school_id`.
+   *
+   * A canonical UUID is returned unchanged. Anything else is treated as the
+   * school's tenant `code` and looked up on the `School` model; an unknown
+   * code resolves to `null` so the caller can fall through to the generic
+   * credential failure. Enforces the same trailing/leading space trimming and
+   * lower-casing used at provisioning (`normalizeEmail`-style) so a code a
+   * school admin types is matched consistently.
+   *
+   * Public because the crew PIN/QR path (`CrewAuthService`) resolves the same
+   * tenant identifiers the web login form accepts — one lookup, one rule.
+   */
+  async resolveTenantId(identifier: string): Promise<string | null> {
+    if (UUID_PATTERN.test(identifier)) {
+      return identifier;
+    }
+    if (!this.schools) {
+      return null;
+    }
+    const school = await this.schools.findOne({ where: { code: identifier.toLowerCase() } });
+    return school ? school.id : null;
   }
 
   /**
@@ -379,27 +441,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Resolves the tenant identifier supplied at login to a `school_id`.
-   *
-   * A canonical UUID is returned unchanged. Anything else is treated as the
-   * school's tenant `code` and looked up on the `School` model; an unknown
-   * code resolves to `null` so the caller can fall through to the generic
-   * credential failure. Enforces the same trailing/leading space trimming and
-   * lower-casing used at provisioning (`normalizeEmail`-style) so a code a
-   * school admin types is matched consistently.
-   */
-  private async resolveTenantId(identifier: string): Promise<string | null> {
-    if (UUID_PATTERN.test(identifier)) {
-      return identifier;
-    }
-    if (!this.schools) {
-      return null;
-    }
-    const school = await this.schools.findOne({ where: { code: identifier.toLowerCase() } });
-    return school ? school.id : null;
-  }
-
   getRefreshCookieName(): string {
     return this.configService?.get<string>('jwt.refreshCookieName') ?? DEFAULT_REFRESH_COOKIE_NAME;
   }
@@ -446,8 +487,16 @@ export class AuthService {
     return 0;
   }
 
-  /** Explicit field-by-field projection — credentials can never leak. */
-  private toAuthenticatedUser(user: User): AuthenticatedUser {
+  /**
+   * Explicit field-by-field projection — credentials can never leak.
+   *
+   * Public because every login path projects through it: `CrewAuthService`
+   * returns the identical `AuthenticatedUser` shape, so a crew session is
+   * indistinguishable from an email/password session to every client. Neither
+   * `password_hash` nor `pin_hash` is ever named here, and a field added to the
+   * projection has to be added deliberately.
+   */
+  toAuthenticatedUser(user: User): AuthenticatedUser {
     return {
       id: user.id,
       school_id: user.school_id,

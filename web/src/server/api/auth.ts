@@ -11,8 +11,14 @@
  * deliberately *not*: it fires every few minutes per active user and the
  * session is already bounded by its login/logout events.
  */
-import type { LoginResponse, LogoutResponse, RefreshResponse } from '@school-bus-tracking/shared-types';
-import { HttpStatus } from '../framework';
+import type {
+  CrewLoginRequest,
+  CrewLoginResponse,
+  LoginResponse,
+  LogoutResponse,
+  RefreshResponse,
+} from '@school-bus-tracking/shared-types';
+import { BadRequestException, ForbiddenException, HttpStatus } from '../framework';
 import { container } from '../container';
 import type { EndpointDefinition, HandlerContext } from '../http/route-runtime';
 import type { AdaptedRequest } from '../http/request-adapter';
@@ -21,6 +27,8 @@ import type { CookieOptions } from 'express';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
 import { auditRequestContext } from '../modules/audit/audit-request';
 import { LoginDto } from '../modules/auth/dto/login.dto';
+import { CrewLoginDto, narrowCrewLoginDto } from '../modules/auth/dto/crew-login.dto';
+import { isCrewRole } from '../modules/auth/crew-auth.service';
 import { RefreshTokenRotationConflictException } from '../modules/auth/auth.service';
 import { parseCookieHeader } from '../auth';
 import { buildCsrfClearCookieOptions, buildCsrfCookieOptions, generateCsrfToken } from '../common/security';
@@ -216,6 +224,108 @@ export const postAuthLogin: EndpointDefinition<LoginDto> = {
       metadata: { success: true },
     });
     return response satisfies LoginResponse;
+  },
+};
+
+/**
+ * `POST /api/v1/auth/crew-login` — PIN or QR login for DRIVER / CONDUCTOR
+ * (Mobile-UX Phase 4).
+ *
+ * Unauthenticated and cookie-writing, so it is hand-written here beside the
+ * other three rather than generated: it must set exactly the same refresh
+ * cookie, session-presence marker and CSRF cookie `postAuthLogin` sets, because
+ * a crew session *is* an ordinary session and the rest of the app (sockets,
+ * refresh, logout) cannot tell the difference.
+ *
+ * ### What is deliberately NOT in the audit trail
+ *
+ * Neither the PIN nor the pairing token is ever written to `audit_logs`, to a
+ * log line, or into an error `details` object. A PIN has 10,000 possible values,
+ * so an audit trail that recorded attempted PINs would be a dictionary of the
+ * ones real drivers use; and a live pairing token in a log would be a
+ * replayable credential. The trail records that an attempt happened, which
+ * branch it took, and the identity it claimed — which is everything brute-force
+ * forensics needs.
+ *
+ * ### Failure auditing
+ *
+ * Failures are audited with the same shape as `postAuthLogin`: the actor is
+ * unknown by definition, the attempted identity is recorded because that is the
+ * forensic value, and the original error is rethrown unchanged so auditing can
+ * never alter the auth outcome.
+ */
+export const postAuthCrewLogin: EndpointDefinition<CrewLoginDto> = {
+  auth: false,
+  rateLimit: 'auth_crew_login',
+  status: HttpStatus.OK,
+  bodyType: CrewLoginDto,
+  handler: async ({ body, request, cookies }: HandlerContext<CrewLoginDto>) => {
+    // The DTO is the coarse gate; `narrowCrewLoginDto` maps it onto the shared
+    // discriminated union and is the compile-time link that stops the two from
+    // drifting. A body whose fields do not match its declared `method` — including
+    // one carrying the other branch's fields, which class-validator's
+    // `@ValidateIf` cannot forbid — is rejected here, and `CrewAuthService`
+    // re-parses with the `.strict()` shared schema as the authoritative gate.
+    const crewBody: CrewLoginRequest | null = narrowCrewLoginDto(body);
+    if (!crewBody) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        // Names the declared method and nothing else. The message must not echo
+        // any submitted field back, because on the PIN branch one of those
+        // fields is the PIN.
+        message: `body does not match method "${body.method}"`,
+        error: 'Bad Request',
+      });
+    }
+
+    // Audited identity: what the attempt *claimed*. Never a credential.
+    const attempted =
+      crewBody.method === 'pin'
+        ? { method: 'pin' as const, school_id: crewBody.school_id, user_id: crewBody.user_id }
+        : { method: 'qr' as const };
+
+    let session;
+    try {
+      session = await container().crewAuth().login(crewBody);
+    } catch (error) {
+      await container().audit().log({
+        school_id: null,
+        actor_user_id: null,
+        action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        // `user_id` on the PIN branch is a client claim, not a verified
+        // identity, so it goes in the metadata and never in `entity_id` — an
+        // auditor must not read a failed attempt as an action by that user.
+        entity_id: null,
+        ...auditRequestContext({ request }),
+        metadata: { success: false, ...attempted },
+      });
+      throw error;
+    }
+
+    const { response, refreshToken } = session;
+
+    // Defence in depth on top of the service's own role gate: this endpoint must
+    // never be able to mint a session for a non-crew account, whatever a future
+    // refactor of the service does. Checked before any cookie is written, so a
+    // rejected login leaves no session state behind.
+    if (!isCrewRole(response.user.role)) {
+      throw new ForbiddenException('Crew login is only available to drivers and conductors');
+    }
+
+    setRefreshTokenCookie(request, cookies, refreshToken);
+    setSessionPresentCookie(request, cookies);
+    issueCsrfToken(request, cookies);
+    await container().audit().log({
+      school_id: response.user.school_id,
+      actor_user_id: response.user.id,
+      action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: response.user.id,
+      ...auditRequestContext({ request }),
+      metadata: { success: true, ...attempted },
+    });
+    return response satisfies CrewLoginResponse;
   },
 };
 

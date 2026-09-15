@@ -72,6 +72,17 @@ export class RateLimitGuard implements CanActivate {
           900_000,
         ),
       },
+      {
+        // Crew PIN/QR login has its own identity bucket, configured separately
+        // because its "identity" is a crew account or a pairing code rather than
+        // an email. Falls back to the login numbers when unconfigured so the
+        // guard can never end up with an unbounded crew bucket.
+        identityLimit: this.configService.get<number>('rateLimit.crewLogin.identityLimit', 8),
+        identityWindowMs: this.configService.get<number>(
+          'rateLimit.crewLogin.identityWindowMs',
+          900_000,
+        ),
+      },
     );
 
     let tightestRemaining = Number.POSITIVE_INFINITY;

@@ -13,6 +13,11 @@ import { registerAs } from '../framework';
  * RATE_LIMIT_<POLICY>_WINDOW_MS   e.g. RATE_LIMIT_AUTH_LOGIN_WINDOW_MS=60000
  * ```
  *
+ * The two brute-force identity buckets have their own overrides:
+ * `RATE_LIMIT_LOGIN_IDENTITY_*` (email login) and
+ * `RATE_LIMIT_CREW_LOGIN_IDENTITY_*` (crew PIN/QR login). The crew PIN
+ * **lockout** is configured separately, in `crew-auth.config.ts`.
+ *
  * Defaults are chosen so that a normal school day is never impacted: a bus
  * crew marking 60 students in a minute, a dispatcher refreshing lists, or a
  * parent app polling are all comfortably inside the caps, while credential
@@ -41,6 +46,29 @@ export default registerAs('rateLimit', () => ({
   policies: {
     /** Credential submission — per IP *and* per submitted identity. */
     auth_login: policy('AUTH_LOGIN', 10, 60_000),
+    /**
+     * Crew PIN / QR login (Mobile-UX Phase 4) — per IP *and* per submitted
+     * identity, exactly like `auth_login`.
+     *
+     * This is the **outer** of the two brute-force layers on the PIN path; the
+     * inner one is the per-user attempt lockout in `crew-auth.config.ts`
+     * (5 failures → 15 min lockout), which is tighter and therefore normally
+     * fires first. Both exist on purpose: the lockout is keyed on the crew
+     * account and is what bounds guessing against one driver, while this bucket
+     * is keyed on the identity *as submitted* and also covers the QR branch,
+     * where a replayed or guessed pairing code has no PIN lockout at all.
+     *
+     * 10 per minute per IP is generous for a real depot — a whole bus crew
+     * signing in behind one NAT address is a handful of requests — and far too
+     * tight for a scripted spray.
+     */
+    auth_crew_login: policy('AUTH_CREW_LOGIN', 10, 60_000),
+    /**
+     * Minting a crew login QR (privileged, admin-only, low volume). Each call
+     * writes a row and invalidates the crew member's outstanding code, so it is
+     * capped like `password_reset` rather than like a read.
+     */
+    crew_pairing: policy('CREW_PAIRING', 10, 15 * 60_000),
     /** Session rotation. Generous: every tab refreshes on 401. */
     auth_refresh: policy('AUTH_REFRESH', 60, 60_000),
     auth_logout: policy('AUTH_LOGOUT', 30, 60_000),
@@ -81,6 +109,22 @@ export default registerAs('rateLimit', () => ({
     /** Failed attempts per identity (school + email) before throttling. */
     identityLimit: positiveInt(process.env.RATE_LIMIT_LOGIN_IDENTITY_LIMIT, 8),
     identityWindowMs: positiveInt(process.env.RATE_LIMIT_LOGIN_IDENTITY_WINDOW_MS, 15 * 60_000),
+  },
+  /**
+   * Identity bucket of the `auth_crew_login` policy.
+   *
+   * The "identity" of a crew login is not an email: on the PIN branch it is
+   * `(school_id, user_id)` — the account whose PIN is being guessed — and on the
+   * QR branch it is the presented pairing code itself, so replaying one
+   * consumed or stolen code is throttled per code. Both are hashed before they
+   * become a bucket key, so no raw identifier or token is held in memory.
+   */
+  crewLogin: {
+    identityLimit: positiveInt(process.env.RATE_LIMIT_CREW_LOGIN_IDENTITY_LIMIT, 8),
+    identityWindowMs: positiveInt(
+      process.env.RATE_LIMIT_CREW_LOGIN_IDENTITY_WINDOW_MS,
+      15 * 60_000,
+    ),
   },
 }));
 

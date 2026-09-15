@@ -28,6 +28,18 @@ export interface LoginBruteForceSettings {
 }
 
 /**
+ * Identity-bucket settings of the `auth_crew_login` policy (Mobile-UX Phase 4).
+ *
+ * Structurally the same as {@link LoginBruteForceSettings} but configured
+ * separately (`rateLimit.crewLogin.*`), because what counts as an "identity"
+ * differs — see {@link extractCrewLoginIdentity}.
+ */
+export interface CrewLoginBruteForceSettings {
+  identityLimit: number;
+  identityWindowMs: number;
+}
+
+/**
  * Resolves the client IP.
  *
  * `X-Forwarded-For` is honoured **only** when the deployment declares it is
@@ -58,8 +70,9 @@ export function hashIdentity(value: string): string {
  * Buckets a request is counted against.
  *
  * Every policy gets an IP (or user) bucket. `auth_login` additionally gets an
- * **identity** bucket keyed by `school + email`, which is what actually stops
- * credential stuffing distributed over many IPs. Both buckets are plain
+ * **identity** bucket keyed by `school + email`, and `auth_crew_login` one keyed
+ * by the crew identity (see {@link extractCrewLoginIdentity}) — which is what
+ * actually stops credential stuffing distributed over many IPs. Both buckets are plain
  * fixed windows: a throttled caller always recovers automatically once the
  * window rolls over, so no legitimate user can be locked out permanently.
  */
@@ -67,6 +80,7 @@ export function buildRateLimitBuckets(
   context: RateLimitRequestContext,
   policy: RateLimitPolicySettings,
   login: LoginBruteForceSettings,
+  crew: CrewLoginBruteForceSettings = login,
 ): RateLimitBucket[] {
   const principal = context.userId ? `user:${context.userId}` : `ip:${context.ip}`;
   const buckets: RateLimitBucket[] = [
@@ -88,7 +102,68 @@ export function buildRateLimitBuckets(
     }
   }
 
+  if (context.policy === 'auth_crew_login') {
+    const identity = extractCrewLoginIdentity(context.body);
+    if (identity) {
+      buckets.push({
+        key: `${context.policy}|identity:${hashIdentity(identity)}`,
+        limit: crew.identityLimit,
+        windowMs: crew.identityWindowMs,
+      });
+    }
+  }
+
   return buckets;
+}
+
+/**
+ * Identity of a crew login attempt (Mobile-UX Phase 4), or null when the body
+ * carries nothing usable.
+ *
+ * A crew login has no email to key on, so the identity is whatever the attempt
+ * is actually *about*:
+ *
+ * - **PIN branch** — `(school_id, user_id)`: the account whose 4-digit PIN is
+ *   being guessed. This bucket is what stops one host from walking a list of
+ *   crew user ids, and it survives an attacker rotating source addresses.
+ * - **QR branch** — the presented pairing code. A code is single-use and
+ *   expires in minutes, so the realistic abuse is replaying one captured code;
+ *   keying on the code throttles exactly that, per code.
+ *
+ * The returned string is always passed through {@link hashIdentity} before it
+ * becomes a bucket key, so neither a user id nor a live pairing token is ever
+ * held in the limiter's memory in the clear.
+ */
+export function extractCrewLoginIdentity(body: unknown): string | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const candidate = body as {
+    method?: unknown;
+    school_id?: unknown;
+    user_id?: unknown;
+    pairing_token?: unknown;
+  };
+
+  if (candidate.method === 'pin') {
+    if (typeof candidate.user_id !== 'string' || candidate.user_id.trim() === '') {
+      return null;
+    }
+    const school =
+      typeof candidate.school_id === 'string' && candidate.school_id.trim() !== ''
+        ? candidate.school_id.trim().toLowerCase()
+        : 'unknown-tenant';
+    return `pin:${school}:${candidate.user_id.trim().toLowerCase()}`;
+  }
+
+  if (candidate.method === 'qr') {
+    if (typeof candidate.pairing_token !== 'string' || candidate.pairing_token.trim() === '') {
+      return null;
+    }
+    return `qr:${candidate.pairing_token.trim()}`;
+  }
+
+  return null;
 }
 
 /** `school_id + email` of a login attempt, normalized; null when unusable. */

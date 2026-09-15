@@ -10,8 +10,10 @@ export const RATE_LIMIT_EXCEEDED_CODE = 'RATE_LIMIT_EXCEEDED';
 /** Policy names understood by the rate-limit configuration. */
 export const RATE_LIMIT_POLICIES = [
   'auth_login',
+  'auth_crew_login',
   'auth_refresh',
   'auth_logout',
+  'crew_pairing',
   'password_reset',
   'sos_create',
   'attendance_write',

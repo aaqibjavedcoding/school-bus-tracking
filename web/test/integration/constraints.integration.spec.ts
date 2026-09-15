@@ -2,6 +2,7 @@ import '../support/env';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { randomUUID } from 'crypto';
+import { QueryTypes } from 'sequelize';
 import { RouteAssignmentRole, UserRole } from '@school-bus-tracking/shared-types';
 import type { Sequelize } from 'sequelize-typescript';
 import { prepareDatabase, truncateAll } from '../support/database';
@@ -449,5 +450,106 @@ describe('composite FK NO ACTION constraints (real PostgreSQL)', () => {
       sequelize.query(`DELETE FROM buses WHERE id = $id`, { bind: { id: bus.id } }),
       (err: unknown) => isForeignKeyViolation(err, 'fk_emergency_events_bus'),
     );
+  });
+
+  /**
+   * Crew PIN invariants (Mobile-UX Phase 4).
+   *
+   * Two CHECK constraints guard the pair of columns:
+   *
+   * - `ck_users_pin_hash_crew_only` makes the role gate on
+   *   `POST /auth/crew-login` a *data* invariant rather than an application-only
+   *   rule: even a bug that wrote a PIN onto the wrong account could not
+   *   persist it.
+   * - `ck_users_pin_hash_matches_pin_updated_at` keeps the digest and its
+   *   timestamp in step, which is what lets the staff projection derive
+   *   `pin_set` from the scope-visible timestamp instead of reading the digest.
+   *
+   * Both are verified here rather than in the migrations spec because a
+   * row-level CHECK needs rows.
+   *
+   * Note the deliberate care in the first test: because two constraints now
+   * cover these columns, a write that trips *both* would leave Postgres free to
+   * report either name, and asserting on one would be flaky. So the role test
+   * writes a well-formed pair and only the role rule can fire.
+   */
+  it('ck_users_pin_hash_crew_only: a PIN on a non-crew account is refused', async () => {
+    const school = await createSchool();
+    const parent = await createUser(school.id, UserRole.PARENT);
+
+    // Both columns set, so the pairing constraint is satisfied and the only
+    // rule left to break is the crew-only one.
+    await assert.rejects(
+      sequelize.query(
+        `UPDATE users SET pin_hash = $hash, pin_updated_at = NOW() WHERE id = $id`,
+        {
+          bind: {
+            hash: '$2b$12$haAsEdkQOODaSSistEENOOOlN7eXiw32QUlozHEFDAJ2ZNoHZ99DO',
+            id: parent.id,
+          },
+        },
+      ),
+      /ck_users_pin_hash_crew_only/,
+    );
+  });
+
+  it('ck_users_pin_hash_crew_only: a PIN on a driver is accepted, and NULL is always accepted', async () => {
+    const school = await createSchool();
+    const driver = await createUser(school.id, UserRole.DRIVER);
+    const admin = await createUser(school.id, UserRole.SCHOOL_ADMIN);
+
+    await sequelize.query(
+      `UPDATE users SET pin_hash = $hash, pin_updated_at = NOW() WHERE id = $id`,
+      {
+        bind: {
+          hash: '$2b$12$haAsEdkQOODaSSistEENOOOlN7eXiw32QUlozHEFDAJ2ZNoHZ99DO',
+          id: driver.id,
+        },
+      },
+    );
+    const [read] = (await sequelize.query(
+      `SELECT pin_hash, pin_updated_at FROM users WHERE id = $id`,
+      { bind: { id: driver.id }, type: QueryTypes.SELECT },
+    )) as Array<{ pin_hash: string | null; pin_updated_at: Date | null }>;
+    assert.ok(read.pin_hash, 'a driver must be able to hold a PIN');
+    assert.ok(read.pin_updated_at, 'and the write must record when it was set');
+
+    // Clearing is the same write with NULL on both columns, and must be allowed
+    // for every role — including an account that never held a PIN.
+    await sequelize.query(`UPDATE users SET pin_hash = NULL, pin_updated_at = NULL WHERE id = $id`, {
+      bind: { id: admin.id },
+    });
+  });
+
+  it('ck_users_pin_hash_matches_pin_updated_at: the two columns cannot disagree', async () => {
+    const school = await createSchool();
+    const driver = await createUser(school.id, UserRole.DRIVER);
+    const hash = '$2b$12$haAsEdkQOODaSSistEENOOOlN7eXiw32QUlozHEFDAJ2ZNoHZ99DO';
+
+    // A digest with no timestamp: this is exactly the state that would make the
+    // staff console report "no PIN" for a driver who has one.
+    await assert.rejects(
+      sequelize.query(`UPDATE users SET pin_hash = $hash WHERE id = $id`, {
+        bind: { hash, id: driver.id },
+      }),
+      /ck_users_pin_hash_matches_pin_updated_at/,
+    );
+
+    // And the mirror image: a timestamp with no digest would report a PIN that
+    // cannot be used, locking the driver out of a login the console says works.
+    await assert.rejects(
+      sequelize.query(`UPDATE users SET pin_updated_at = NOW() WHERE id = $id`, {
+        bind: { id: driver.id },
+      }),
+      /ck_users_pin_hash_matches_pin_updated_at/,
+    );
+
+    // Neither write landed, so the row is still in its original all-NULL state.
+    const [read] = (await sequelize.query(
+      `SELECT pin_hash, pin_updated_at FROM users WHERE id = $id`,
+      { bind: { id: driver.id }, type: QueryTypes.SELECT },
+    )) as Array<{ pin_hash: string | null; pin_updated_at: Date | null }>;
+    assert.equal(read.pin_hash, null);
+    assert.equal(read.pin_updated_at, null);
   });
 });

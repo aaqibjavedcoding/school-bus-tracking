@@ -30,6 +30,7 @@ import type { Sequelize } from 'sequelize-typescript';
 import { ConfigService, JwtService, Logger, Reflector } from './framework';
 import {
   appConfig,
+  crewAuthConfig,
   databaseConfig,
   etaConfig,
   jwtConfig,
@@ -47,6 +48,7 @@ import {
   AssistedManagementSession,
   Bus,
   BusDocument,
+  CrewPairingToken,
   DeviceToken,
   DocumentRequirement as DocumentRequirementModel,
   DriverDocument,
@@ -90,6 +92,7 @@ import { AssistedSessionService } from './modules/admin/manage/assisted-session.
 import { RouteAssignmentsService } from './modules/assignments/assignments.service';
 import { AuditService } from './modules/audit/audit.service';
 import { AuthService } from './modules/auth/auth.service';
+import { CrewAuthService } from './modules/auth/crew-auth.service';
 import { BusesService } from './modules/buses/buses.service';
 import { ExportService } from './modules/data-transfer/export/export.service';
 import { ImportHistoryService } from './modules/data-transfer/import/import-history.service';
@@ -160,6 +163,7 @@ export class Container {
     () =>
       new ConfigService([
         appConfig,
+        crewAuthConfig,
         databaseConfig,
         jwtConfig,
         liveTrackingConfig,
@@ -246,6 +250,16 @@ export class Container {
   readonly auth = lazy(
     () =>
       new AuthService(User, RefreshToken, this.jwt(), this.config(), this.schoolAccess(), School),
+  );
+
+  /**
+   * Crew mobile login (PIN + QR pairing). Depends on `auth()` rather than
+   * duplicating it: `AuthService.issueSession()` is the only place in the
+   * application that mints a session, so a crew session is byte-for-byte an
+   * ordinary session.
+   */
+  readonly crewAuth = lazy(
+    () => new CrewAuthService(User, CrewPairingToken, this.auth(), this.config()),
   );
 
   readonly schools = lazy(() => new SchoolsService(School, User));

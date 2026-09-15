@@ -101,6 +101,19 @@ export const AUDIT_ACTIONS = {
 
   // Auth / security
   AUTH_LOGIN: 'auth.login',
+  /**
+   * Crew mobile login (Mobile-UX Phase 4) — PIN or QR pairing.
+   *
+   * A distinct action from `auth.login` rather than a metadata flag on it, so an
+   * auditor can answer "how did this driver get in?" with one filter, and so a
+   * spike in *failed* crew logins (the brute-force signal) is visible without
+   * first separating it from the web console's traffic.
+   */
+  AUTH_CREW_LOGIN: 'auth.crew_login',
+  /** A SCHOOL_ADMIN set, reset or cleared a crew member's mobile PIN. */
+  AUTH_CREW_PIN_SET: 'auth.crew_pin_set',
+  /** A SCHOOL_ADMIN minted a short-lived QR pairing code for a crew member. */
+  AUTH_CREW_PAIRING_CREATE: 'auth.crew_pairing_create',
   AUTH_LOGOUT: 'auth.logout',
   AUTH_PASSWORD_RESET: 'auth.password_reset',
   AUTH_TOKEN_REFRESH: 'auth.token_refresh',

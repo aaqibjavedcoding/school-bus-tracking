@@ -13,7 +13,7 @@ import { LoginRequest } from '@school-bus-tracking/shared-types';
  * A school tenant identifier: either a UUID (`9d079696-25be-47de-9128-fb3ccde11854`)
  * or the school's human-friendly tenant code (`lincoln-high`).
  */
-const UUID_OR_SCHOOL_CODE =
+export const UUID_OR_SCHOOL_CODE =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]+(?:-[a-z0-9]+)*)$/i;
 
 /**
