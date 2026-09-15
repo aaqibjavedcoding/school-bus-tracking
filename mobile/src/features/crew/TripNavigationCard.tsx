@@ -50,6 +50,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
             <Button
               label="Navigate to stop"
               icon="navigate"
+              variant="secondary"
               size="field"
               onPress={() => void Linking.openURL(url)}
               style={styles.action}

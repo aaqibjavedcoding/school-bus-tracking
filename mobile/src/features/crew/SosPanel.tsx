@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import {
   EMERGENCY_EVENTS,
   EMERGENCY_STATUS_LABELS,
@@ -12,15 +12,16 @@ import {
   type EmergencyEventResponse,
 } from '@school-bus-tracking/shared-types';
 import { emergencySosSchema } from '@school-bus-tracking/validation';
-import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../services/api';
 import { getEmergenciesSocket } from '../../services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
-import { formatRelative } from '../../lib/format';
-import { generateIdempotencyKey } from '../../lib/idempotency';
+import { formatRelative, formatTime } from '../../lib/format';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
+import { shouldQueueAfterError } from './offline/useOfflineAction';
 import { emergencyStatusTone, isEmergencyActive } from '../admin/emergencies/helpers';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import {
   Badge,
   Button,
@@ -32,19 +33,31 @@ import {
   SwitchRow,
   type SelectOption,
 } from '../../components';
+import { HoldToConfirmButton } from './HoldToConfirmButton';
+import { SosSession, type SosDeliveryStatus } from './sos-flow';
+import { crewCopy } from './crew-copy';
 
 /**
- * Crew SOS (Task 44) — the emergency affordance of the crew app.
+ * Crew SOS (Task 44 + Phase 2) — the emergency affordance of the crew app.
  *
  * One shared component serves the driver and the conductor: the role only
- * changes the wording, never the capability. Pressing SOS:
+ * changes the wording, never the capability. Phase 2 changes *how it is
+ * raised*, nothing else:
  *
- * 1. captures the device's real position (optional — an alert must always be
- *    possible, and a coordinate is never invented),
- * 2. posts `POST /emergencies/sos`, so the event is durable even if the socket
- *    is down,
- * 3. is broadcast by the backend to the school's Socket.IO room, so the admin
- *    console and the web cockpit see it immediately.
+ * 1. **Hold-to-confirm** (~0.9s, `HoldToConfirmButton`) replaces the plain
+ *    press — a brush can fire an SOS, a hold cannot. The alert sends with
+ *    sensible defaults (type "accident", location attached); the detail
+ *    sheet (type/message/location) stays available for when there *is*
+ *    time — and even its confirm button is a hold.
+ * 2. **One key per alert** (`SosSession`): every retry of the same alert
+ *    reuses the same idempotency key, so a double-press, a flaky network or
+ *    the client's own 401-refresh replay can never record a second SOS.
+ *    The contract of `POST /api/v1/emergencies/sos` is untouched.
+ * 3. **Offline is honest**: a network-level failure queues the attempt —
+ *    the UI shows "queued ⏳" and retries by itself when connectivity
+ *    returns (same key). Queueability is decided by the attendance queue's
+ *    own shared rule (`shouldQueueAfterError`). Session-scoped by design:
+ *    the durable offline queue is attendance-only (Phase-2 zero-touch).
  *
  * Delivery is entirely self-hosted — no SMS gateway, WhatsApp or push vendor
  * is involved anywhere in the flow.
@@ -57,18 +70,36 @@ export interface SosPanelProps {
   roleLabel: string;
 }
 
-export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
-  const [history, setHistory] = useState<EmergencyEventResponse[]>([]);
+/** Details captured with (or after) the hold — defaults need zero reading. */
+export interface SosDetails {
+  type: EmergencyType;
+  message: string;
+  shareLocation: boolean;
+}
+
+const DEFAULT_DETAILS: SosDetails = {
+  type: EmergencyType.ACCIDENT,
+  message: '',
+  shareLocation: true,
+};
+
+/**
+ * The SOS state machine in React clothing: hold → send → sent ✅ / queued ⏳
+ * (auto-retry with the same key) / failed. Shared by the SOS tab panel and
+ * the trip screen's quick button so both paths behave identically.
+ */
+export function useCrewSos(tripId: string | null) {
+  const sessionRef = useRef<SosSession | null>(null);
+  if (sessionRef.current === null) {
+    sessionRef.current = new SosSession();
+  }
+  const session = sessionRef.current;
+
+  const [status, setStatus] = useState<SosDeliveryStatus>('idle');
+  const [sentAt, setSentAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [composing, setComposing] = useState(false);
-  // Stable for one composed alert: retries of the same SOS (double tap,
-  // flaky network, the client's own 401-refresh replay) carry the same key,
-  // so the server records the alert exactly once. A new alert mints a new key.
-  const [sosKey, setSosKey] = useState(() => generateIdempotencyKey());
-  const [type, setType] = useState<EmergencyType>(EmergencyType.ACCIDENT);
-  const [message, setMessage] = useState('');
-  const [shareLocation, setShareLocation] = useState(true);
-  const [pendingCancel, setPendingCancel] = useState<EmergencyEventResponse | null>(null);
+  const [history, setHistory] = useState<EmergencyEventResponse[]>([]);
+  const lastDetails = useRef<SosDetails>(DEFAULT_DETAILS);
 
   const reload = useCallback(async () => {
     try {
@@ -97,36 +128,184 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
     };
   }, [reload]);
 
-  const raise = async () => {
-    setBusy(true);
-    try {
-      const coordinates = shareLocation ? await readPosition() : {};
-      const parsed = emergencySosSchema.safeParse({
-        trip_id: tripId,
-        type,
-        message: message.trim() || null,
-        ...coordinates,
-      });
-      if (!parsed.success) {
-        Alert.alert('Could not send SOS', parsed.error.issues[0]?.message ?? 'Invalid alert');
-        return;
+  const send = useCallback(
+    async (details: SosDetails): Promise<SosDeliveryStatus> => {
+      if (busy) return session.deliveryStatus;
+      setBusy(true);
+      // Same key for every attempt of this alert — retries dedupe, they can
+      // never create a second emergency record (see SosSession).
+      const idempotencyKey = session.beginAttempt();
+      setStatus('sending');
+      try {
+        const coordinates = details.shareLocation ? await readPosition() : {};
+        const parsed = emergencySosSchema.safeParse({
+          trip_id: tripId,
+          type: details.type,
+          message: details.message.trim() || null,
+          ...coordinates,
+        });
+        if (!parsed.success) {
+          session.markFailed();
+          setStatus('failed');
+          Alert.alert(crewCopy.sos.sendFailed, parsed.error.issues[0]?.message ?? 'Invalid alert');
+          return 'failed';
+        }
+        unwrapEnvelope(await apiClient.raiseSos(parsed.data, withIdempotencyKey(idempotencyKey)));
+        session.markSent();
+        setStatus('sent');
+        setSentAt(formatTime(new Date()));
+        await reload();
+        return 'sent';
+      } catch (caught) {
+        if (shouldQueueAfterError(caught)) {
+          // Nothing reached the server: keep the key, show "queued ⏳", the
+          // reconnect effect below retries automatically.
+          session.markQueued();
+          setStatus('queued');
+          return 'queued';
+        }
+        session.markFailed();
+        setStatus('failed');
+        Alert.alert(crewCopy.sos.sendFailed, getApiErrorMessage(caught));
+        return 'failed';
+      } finally {
+        setBusy(false);
       }
-      unwrapEnvelope(await apiClient.raiseSos(parsed.data, withIdempotencyKey(sosKey)));
-      Alert.alert('SOS sent', 'The school has been alerted and can see your trip.');
-      setComposing(false);
-      setMessage('');
-      setSosKey(generateIdempotencyKey());
-      await reload();
-    } catch (caught) {
-      Alert.alert('Could not send SOS', getApiErrorMessage(caught));
-    } finally {
-      setBusy(false);
+    },
+    [busy, reload, session, tripId],
+  );
+
+  /** The one entry point: hold completed → fire with these details. */
+  const fire = useCallback(
+    (details: Partial<SosDetails> = {}) => {
+      lastDetails.current = { ...DEFAULT_DETAILS, ...details };
+      return send(lastDetails.current);
+    },
+    [send],
+  );
+
+  /** Manual retry (also used by the automatic reconnect below). */
+  const retry = useCallback(() => send(lastDetails.current), [send]);
+
+  // Automatic retry: back online and an attempt still queued → replay the
+  // SAME key. Runs once per connectivity flip, never in a loop.
+  const network = useNetworkStatus();
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  useEffect(() => {
+    if (network === 'online' && statusRef.current === 'queued') {
+      void retry();
     }
+  }, [network, retry]);
+
+  const active = history.find((event) => isEmergencyActive(event.status)) ?? null;
+
+  return { status, sentAt, busy, active, history, reload, fire, retry };
+}
+
+/** Status line under the SOS button: sent ✅ / queued ⏳ / active alert. */
+export const SosStatusLine: React.FC<{
+  status: SosDeliveryStatus;
+  sentAt: string | null;
+  active: EmergencyEventResponse | null;
+  onRetry: () => void;
+  busy?: boolean;
+}> = ({ status, sentAt, active, onRetry, busy = false }) => {
+  if (active) {
+    return (
+      <View style={styles.statusLine}>
+        <Ionicons name="alert-circle" size={22} color={colors.status.danger} />
+        <Text style={styles.statusText}>{crewCopy.sos.activeAlert}</Text>
+      </View>
+    );
+  }
+  if (status === 'sent') {
+    return (
+      <View style={styles.statusLine}>
+        <Ionicons name="checkmark-circle" size={22} color={colors.secondary[600]} />
+        <Text style={styles.statusText}>
+          {crewCopy.sos.sent}
+          {sentAt ? ` · ${sentAt}` : ''}
+        </Text>
+      </View>
+    );
+  }
+  if (status === 'queued') {
+    return (
+      <View style={styles.statusLine}>
+        <Ionicons name="cloud-offline" size={22} color={colors.neutral[600]} />
+        <Text style={[styles.statusText, styles.flexText]}>{crewCopy.sos.queued}</Text>
+        <Button label={crewCopy.gps.retry} icon="refresh" variant="secondary" size="md" onPress={onRetry} busy={busy} />
+      </View>
+    );
+  }
+  if (status === 'sending') {
+    return (
+      <View style={styles.statusLine}>
+        <Ionicons name="cloud-upload" size={22} color={colors.neutral[600]} />
+        <Text style={styles.statusText}>{crewCopy.sos.retrying}</Text>
+      </View>
+    );
+  }
+  return null;
+};
+
+/**
+ * The trip-screen SOS row (Phase 2): one hold button, its status, and the
+ * pointer to the SOS tab for details/cancel. The full panel below shares
+ * the same hook, so both surfaces behave identically.
+ */
+export const SosQuickPanel: React.FC<{
+  tripId: string | null;
+  onOpenSosTab: () => void;
+}> = ({ tripId, onOpenSosTab }) => {
+  const { status, sentAt, busy, active, fire, retry } = useCrewSos(tripId);
+  return (
+    <View style={styles.quickWrap}>
+      <HoldToConfirmButton
+        label={crewCopy.sos.holdLabel}
+        icon="warning"
+        onFire={() => void fire()}
+        busy={busy}
+        accessibilityLabel={crewCopy.sos.a11yLabel}
+      />
+      <SosStatusLine status={status} sentAt={sentAt} active={active} onRetry={retry} busy={busy} />
+      {active ? (
+        <Button
+          label={crewCopy.sos.manageHint}
+          icon="open-outline"
+          variant="secondary"
+          size="md"
+          onPress={onOpenSosTab}
+        />
+      ) : null}
+    </View>
+  );
+};
+
+export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
+  const { status, sentAt, busy, active, history, fire, retry, reload } = useCrewSos(tripId);
+  const [composing, setComposing] = useState(false);
+  const [type, setType] = useState<EmergencyType>(EmergencyType.ACCIDENT);
+  const [message, setMessage] = useState('');
+  const [shareLocation, setShareLocation] = useState(true);
+  const [pendingCancel, setPendingCancel] = useState<EmergencyEventResponse | null>(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const raiseFromSheet = () => {
+    void fire({ type, message, shareLocation }).then((result) => {
+      // A confirmed or queued alert closes the sheet; a server rejection
+      // keeps it open so the reason is visible next to the fields.
+      if (result !== 'failed') {
+        setComposing(false);
+        setMessage('');
+      }
+    });
   };
 
   const cancel = async () => {
     if (!pendingCancel) return;
-    setBusy(true);
+    setCancelBusy(true);
     try {
       unwrapEnvelope(await apiClient.cancelMyEmergency(pendingCancel.id));
       setPendingCancel(null);
@@ -134,11 +313,9 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
     } catch (caught) {
       Alert.alert('Could not cancel the alert', getApiErrorMessage(caught));
     } finally {
-      setBusy(false);
+      setCancelBusy(false);
     }
   };
-
-  const active = history.find((event) => isEmergencyActive(event.status));
 
   const typeOptions: SelectOption[] = EMERGENCY_TYPE_VALUES.map((value) => ({
     value,
@@ -167,7 +344,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
             size="lg"
             icon="close-circle"
             onPress={() => setPendingCancel(active)}
-            busy={busy}
+            busy={cancelBusy}
             style={styles.action}
           />
         </Card>
@@ -176,22 +353,31 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
       <Card
         legible
         title="Emergency SOS"
-        description={`Alerts the school office instantly${
-          tripId ? ' and attaches your current trip' : ''
+        description={`Press and hold the red button — the school is alerted instantly${
+          tripId ? ' and your current trip is attached' : ''
         }.`}
       >
         <Text style={styles.muted}>
-          Use it for accidents, breakdowns, medical incidents or anything that puts students at
-          risk. The alert is recorded against your {roleLabel} account with the school's own clock.
+          No reading needed: hold to send with your location. Time to add details? Use “Add details
+          first” — the alert is recorded against your {roleLabel} account either way.
         </Text>
-        <Button
-          label="Send SOS"
+        <HoldToConfirmButton
+          label={crewCopy.sos.holdLabel}
           icon="warning"
-          variant="danger"
-          size="field"
-          onPress={() => setComposing(true)}
+          onFire={() => void fire()}
           busy={busy}
+          accessibilityLabel={crewCopy.sos.a11yLabel}
           style={styles.action}
+        />
+        <SosStatusLine status={status} sentAt={sentAt} active={active} onRetry={retry} busy={busy} />
+        <Button
+          label="Add details first (type, message)…"
+          icon="options"
+          variant="ghost"
+          size="md"
+          onPress={() => setComposing(true)}
+          disabled={busy}
+          style={styles.detailsButton}
         />
       </Card>
 
@@ -228,18 +414,16 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
         footer={
           <>
             <Button
-              label="Cancel"
+              label="Back"
               variant="secondary"
               size="lg"
               onPress={() => setComposing(false)}
               style={styles.flex}
             />
-            <Button
-              label="Send SOS"
+            <HoldToConfirmButton
+              label={crewCopy.sos.holdLabel}
               icon="warning"
-              variant="danger"
-              size="lg"
-              onPress={() => void raise()}
+              onFire={raiseFromSheet}
               busy={busy}
               style={styles.flex}
             />
@@ -273,7 +457,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
         message="Only cancel if the alert was raised by mistake — the school still keeps the record in its history."
         confirmLabel="Cancel alert"
         danger
-        busy={busy}
+        busy={cancelBusy}
         onCancel={() => setPendingCancel(null)}
         onConfirm={() => void cancel()}
       />
@@ -317,6 +501,23 @@ async function readPosition(): Promise<{
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  flexText: { flex: 1 },
+  quickWrap: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  statusLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 32,
+  },
+  statusText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.neutral[800],
+  },
   activeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -324,18 +525,22 @@ const styles = StyleSheet.create({
   },
   activeText: {
     flex: 1,
-    fontSize: typography.fontSizes.base,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   muted: {
-    fontSize: typography.fontSizes.base,
+    fontSize: 16,
     color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   action: {
     marginTop: spacing.md,
     borderRadius: borderRadius.md,
+  },
+  detailsButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
   },
   historyRow: {
     flexDirection: 'row',
@@ -345,7 +550,7 @@ const styles = StyleSheet.create({
   },
   historyText: {
     flex: 1,
-    fontSize: typography.fontSizes.base,
+    fontSize: 16,
     color: colors.neutral[700],
   },
 });

@@ -59,6 +59,18 @@ Attendance and GPS are different systems. The offline queue only handles attenda
 - **Socket disconnected**: WebSocket not connected
 - **Last successful location time**: When the server last received a fix
 
+#### Where each state is visible (Phase 2)
+
+The crew trip screen deliberately shows only three things while driving —
+`Sharing ✅ / ❌`, the last-update time, and one **Retry** tap
+(`GpsShareStrip`). The **diagnostic counters moved to the Help/Support screen
+(`app/(crew)/help.tsx`) — moved, not deleted**: "Sent", "Rejected",
+"Dropped (offline)", "Invalid fix", the last fix accuracy/age and the server's
+last reason render there in the full `GpsSharePanel`, framed for the support
+team (`src/features/crew/help-routing.spec.ts` guards the move in CI). The
+underlying stats pipeline (`location-task.ts` counters) is unchanged — the
+Help screen simply renders what the driver no longer has to.
+
 ### GPS Permission Recovery
 
 Handles:

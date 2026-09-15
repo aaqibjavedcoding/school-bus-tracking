@@ -108,6 +108,18 @@ function CrewTabs() {
           tabBarIcon: ({ color }) => <Ionicons name="warning" size={bar.iconSize} color={color} />,
         }}
       />
+      {/**
+       * Phase 2: Help/Support — hidden from the tab bar (`href: null`), the
+       * bar stays four crew actions; the screen is reached from the trip
+       * screen ("Help & support") and hosts the moved GPS telemetry.
+       */}
+      <Tabs.Screen
+        name="help"
+        options={{
+          title: 'Help & support',
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
