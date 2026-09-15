@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
 import {
   TripAttendanceStatus,
   type TripStudentAttendanceResponse,
@@ -7,7 +7,15 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AttendanceBadge, Badge, Button, EmptyState, FilterChips, SearchBar } from '../../components';
+import {
+  AttendanceBadge,
+  Badge,
+  Button,
+  EmptyState,
+  FilterChips,
+  SearchBar,
+  screenRefreshControl,
+} from '../../components';
 
 /**
  * Student manifest with board/drop actions — the shared crew surface.

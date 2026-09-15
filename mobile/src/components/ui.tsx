@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -248,6 +249,36 @@ export const FilterSummary: React.FC<{
 );
 
 /**
+ * Pull-to-refresh control without a visible "Refreshing…" caption.
+ *
+ * React Native Web paints a top-of-screen "Refreshing…" / "Pull to refresh"
+ * status label whenever a RefreshControl is mounted. That caption also
+ * flashes on every list remount (tab change, laptop-driven cache bust that
+ * re-renders the same screen). Native iOS can show the same title. We never
+ * want that chrome: pull-to-refresh stays as a spinner-only gesture on iOS
+ * and Android, and the browser's own refresh handles web.
+ */
+export function screenRefreshControl(
+  refresh?: (() => void) | null,
+  refreshing = false,
+): React.ReactElement | undefined {
+  if (!refresh || Platform.OS === 'web') {
+    return undefined;
+  }
+  return (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={refresh}
+      tintColor={colors.primary[600]}
+      colors={[colors.primary[600]]}
+      title=""
+      titleColor="transparent"
+      progressViewOffset={0}
+    />
+  );
+}
+
+/**
  * Scrollable screen body.
  *
  * The bottom padding always includes the device safe-area inset (Android
@@ -274,15 +305,7 @@ export const Screen: React.FC<{
       ]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
-      refreshControl={
-        refresh ? (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.primary[600]}
-          />
-        ) : undefined
-      }
+      refreshControl={screenRefreshControl(refresh, refreshing)}
     >
       {children}
     </ScrollView>
