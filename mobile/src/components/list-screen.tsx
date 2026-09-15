@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   FlatList,
-  RefreshControl,
   StyleSheet,
   type ListRenderItemInfo,
   type StyleProp,
@@ -9,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
+import { screenRefreshControl } from './ui';
 
 /**
  * Virtualized list screen — the FlatList twin of `<Screen />`.
@@ -87,15 +87,7 @@ export function ListScreen<T>({
       maxToRenderPerBatch={10}
       windowSize={7}
       removeClippedSubviews
-      refreshControl={
-        refresh ? (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.primary[600]}
-          />
-        ) : null
-      }
+      refreshControl={screenRefreshControl(refresh, refreshing) ?? null}
     />
   );
 }
