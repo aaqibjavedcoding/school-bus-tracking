@@ -7,6 +7,7 @@ import { GpsSharePanel, useCrewLocationSharing, useCrewToday } from '../../src/f
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { crewCopy } from '../../src/features/crew/crew-copy';
+import { FeedbackSettings } from '../../src/features/crew/FeedbackSettings';
 import { Card, LanguageSwitcher, LoadingView, Screen, SectionTitle } from '../../src/components';
 import { useTranslation } from '../../src/lib/i18n-provider';
 
@@ -46,6 +47,14 @@ export default function CrewHelpScreen() {
        * including when the app is in a language they cannot read.
        */}
       <LanguageSwitcher />
+
+      {/**
+       * Phase 3b: "Sound & vibration". It sits directly under the language
+       * switch for the same reason — this is the screen a crew member is sent
+       * to when the app is not behaving, and "it did not say anything" is one
+       * of those. Two independent toggles plus a one-tap test.
+       */}
+      <FeedbackSettings />
 
       <Card legible title={crewCopy.help.supportHeadline}>
         <Text style={styles.body}>{crewCopy.help.supportAdvice}</Text>

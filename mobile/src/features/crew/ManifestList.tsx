@@ -27,6 +27,9 @@ import {
 } from '../../components';
 import { crewCopy } from './crew-copy';
 import { t } from '../../lib/i18n.ts';
+import { feedback } from './crew-feedback.ts';
+import { voiceStudentEvent } from './crew-voice.ts';
+import { formatTime } from '../../lib/format.ts';
 import {
   MANIFEST_ROW_MIN_HEIGHT,
   ROW_ACTION_GLYPH_SIZE,
@@ -268,9 +271,9 @@ const ManifestRow: React.FC<{
   useEffect(() => {
     const before = previousStatus.current;
     previousStatus.current = student.status;
+    const boarded = before === TripAttendanceStatus.PENDING;
     const advanced =
-      (before === TripAttendanceStatus.PENDING &&
-        student.status === TripAttendanceStatus.BOARDED) ||
+      (boarded && student.status === TripAttendanceStatus.BOARDED) ||
       (before === TripAttendanceStatus.BOARDED && student.status === TripAttendanceStatus.DROPPED);
     if (!advanced) return;
     Animated.sequence([
@@ -280,10 +283,33 @@ const ManifestRow: React.FC<{
     AccessibilityInfo.announceForAccessibility(
       successAnnouncement(
         `${student.first_name} ${student.last_name}`.trim(),
-        before === TripAttendanceStatus.PENDING ? 'board' : 'drop',
+        boarded ? 'board' : 'drop',
       ),
     );
-  }, [flash, student.status, student.first_name, student.last_name]);
+    /**
+     * Phase 3b: the same transition also gets spoken + a light tap, so the
+     * confirmation reaches a conductor who is not looking at the screen.
+     *
+     * Hooked here rather than at the API call site because this is the one
+     * place that knows the row *actually* advanced and still holds the
+     * **server** timestamps (`boarded_at`/`dropped_at`) — the repo rule that
+     * attendance times are never client-generated applies to the spoken time
+     * too. `voiceStudentEvent` is the whitelist: only the first name and the
+     * clock leave this component, never `admission_number` or `last_name`.
+     * Fire-and-forget by contract — see `crew-feedback.ts`.
+     */
+    feedback.on(
+      boarded ? 'board.done' : 'drop.done',
+      voiceStudentEvent(
+        student,
+        formatTime(
+          (boarded ? student.boarded_at : student.dropped_at) ??
+            student.updated_at ??
+            student.created_at,
+        ),
+      ),
+    );
+  }, [flash, student]);
 
   const backgroundColor = flash.interpolate({
     inputRange: [0, 1],

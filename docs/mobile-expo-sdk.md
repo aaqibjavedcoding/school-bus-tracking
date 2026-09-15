@@ -47,9 +47,11 @@ truth is `expo/bundledNativeModules.json`, which ships inside the installed
 | `expo-router`                            | `~57.0.20`     |
 | `expo-constants`                         | `~57.0.17`     |
 | `expo-dev-client`                        | `~57.0.18`     |
+| `expo-haptics`                           | `~57.0.2`      |
 | `expo-linking`                           | `~57.0.9`      |
 | `expo-location`                          | `~57.0.16`     |
 | `expo-notifications`                     | `~57.0.17`     |
+| `expo-speech`                            | `~57.0.2`      |
 | `expo-status-bar`                        | `~57.0.1`      |
 | `expo-task-manager`                      | `~57.0.16`     |
 | `@expo/metro-runtime`                    | `~57.0.15`     |
@@ -65,6 +67,31 @@ truth is `expo/bundledNativeModules.json`, which ships inside the installed
 | `@react-native/virtualized-lists` (dev)  | `0.86.3`       |
 | `babel-preset-expo` (dev)                | `~57.0.11`     |
 | `metro-runtime` (dev)                    | `~0.84.5`      |
+
+### The Phase-3b additions (voice + haptics) — no config, no dev build
+
+`expo-speech` and `expo-haptics` were added together, both at the exact range
+`bundledNativeModules.json` publishes for SDK 57 (`~57.0.2`; npm resolved both
+to `57.0.3`). The lockfile diff is **those two packages and nothing else** —
+no transitive drift, which is what this document's "half an upgrade = broken
+bundle" rule is about.
+
+Neither needs an `app.json` change, and this was verified against the installed
+packages rather than assumed:
+
+- `node_modules/expo-haptics/android/src/main/AndroidManifest.xml` declares
+  `<uses-permission android:name="android.permission.VIBRATE"/>`. Android merges
+  a library manifest into the app's at build time, and `VIBRATE` is a **normal**
+  (install-time) permission — so there is nothing to declare and no runtime
+  prompt.
+- `node_modules/expo-speech/android/src/main/AndroidManifest.xml` contributes the
+  `android.intent.action.TTS_SERVICE` `<queries>` intent (required when targeting
+  API 30+), merged the same way. Speech itself needs no permission; it uses the
+  OS TTS engine.
+
+Both ship inside **Expo Go** on the SDK-57 line, so `npm --prefix mobile start`
+(`scripts/expo-start.mjs`) works unchanged — Phase 3b does **not** require a dev
+build, unlike push notifications.
 
 ## Guardrail: `npm run verify:sdk`
 

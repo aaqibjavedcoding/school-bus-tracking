@@ -264,6 +264,40 @@ export const hi: Dictionary = {
   'settings.language.a11y': 'ऐप की भाषा बदलें',
   'settings.language.a11yHint': 'हर स्क्रीन को अंग्रेज़ी और हिन्दी में बदलता है।',
 
+  // ── Sound & vibration settings (Phase 3b) — written UI stays Devanagari ─
+  'feedback.title': 'आवाज़ और वाइब्रेशन',
+  'feedback.hint': 'बिना स्क्रीन पढ़े हर action की पुष्टि सुनें और महसूस करें।',
+  'feedback.voice': 'Action बोलकर बताएँ',
+  'feedback.voiceHint': 'कौन चढ़ा, कौन उतरा और हर trip बदलाव बोलकर सुनाएँ।',
+  'feedback.vibration': 'वाइब्रेशन',
+  'feedback.vibrationHint': 'हर tap पर एक छोटी वाइब्रेशन पुष्टि करती है।',
+  'feedback.test': 'आवाज़ और वाइब्रेशन जाँचें',
+  'feedback.a11yHint': 'बोलकर और वाइब्रेशन से पुष्टि को चालू या बंद करता है।',
+
+  // ── Voice feedback (Phase 3b) — SPOKEN channel, Latin-script Hinglish ──
+  // Not a translation gap: budget Android devices often ship no `hi-IN` TTS
+  // voice, and a Devanagari string read by the default English voice comes
+  // out garbled. The same Latin text the device already owns is spoken
+  // clearly and still matches the driver's language. Written UI above stays
+  // Devanagari — the two channels are separate by design.
+  'voice.test': 'Awaaz aur vibration chalu hain',
+  'voice.board.done': '{name} ka boarding ho gaya, {time}',
+  'voice.board.queued': '{name} offline save ho gaya',
+  'voice.board.summary': '{count} students board ho gaye',
+  'voice.drop.done': '{name} drop ho gaya, {time}',
+  'voice.drop.queued': '{name} ka drop offline save hua',
+  'voice.drop.summary': '{count} students drop ho gaye',
+  'voice.trip.boarding': 'Boarding shuru ho gayi',
+  'voice.trip.inProgress': 'Trip shuru, bus chal padi',
+  'voice.trip.completed': 'Trip poori ho gayi',
+  'voice.sos.sent': 'SOS bhej diya, school ko alert mil gaya',
+  'voice.sos.queued': 'SOS save ho gaya, online hote hi chala jayega',
+  'voice.sync.done': 'Offline actions server par sync ho gaye',
+  'voice.gps.on': 'GPS sharing chalu ho gayi',
+  'voice.gps.off': 'GPS sharing band kar di',
+  'voice.action.failed': 'Ye action poora nahi ho paya',
+  'voice.action.conflict': 'Ye pehle hi record ho chuka hai',
+
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'SBT',
   'login.brandName': 'School Bus Tracking',

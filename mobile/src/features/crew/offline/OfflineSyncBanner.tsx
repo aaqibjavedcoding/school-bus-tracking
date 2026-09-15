@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../../components';
+import { feedback } from '../crew-feedback.ts';
 import { discardFailed, retryFailed } from './attendance-queue.ts';
 import { getSyncUserId, refreshCounts, syncNow } from './attendance-sync.ts';
 import { useSyncState } from './useOfflineAction';
@@ -24,6 +25,27 @@ export const OfflineSyncBanner: React.FC = () => {
   useTranslation();
   const sync = useSyncState();
   const [busy, setBusy] = useState(false);
+
+  /**
+   * Phase 3b: the one confirmation the crew gets for an offline boarding wave —
+   * "N students board ho gaye" when the queue finally lands.
+   *
+   * Derived from the banner's own published counts rather than hooked into the
+   * sync manager, so `features/crew/offline/*` stays **zero-touch**: the queue
+   * core, its retry/backoff and its idempotency keys are exactly as they were.
+   * The transition "had pending → none, while online" is the sync completing,
+   * whoever triggered it (the automatic replay or the Sync now button).
+   *
+   * This is also `crew-feedback`'s summary drain point — see the dispatch
+   * comment there for why the summary replaces the plain "synced" line.
+   */
+  const previousPending = useRef<number | null>(null);
+  useEffect(() => {
+    const before = previousPending.current;
+    previousPending.current = sync.pendingCount;
+    if (before === null || before === 0 || sync.pendingCount !== 0 || !sync.isOnline) return;
+    feedback.on('sync.done');
+  }, [sync.pendingCount, sync.isOnline]);
 
   const hasPending = sync.pendingCount > 0;
   const hasFailed = sync.failedCount > 0;

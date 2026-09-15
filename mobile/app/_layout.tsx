@@ -8,6 +8,11 @@ import '../src/services/api-env';
 // headlessly by the OS.
 import '../src/features/crew/location-task';
 
+// Side-effect import (Phase 3b): installs the voice/haptics adapters and reads
+// the saved "Sound & vibration" preference, so a cold start already speaks and
+// buzzes with the crew member's own settings before their first board/drop.
+import '../src/features/crew/crew-feedback.native';
+
 import React from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

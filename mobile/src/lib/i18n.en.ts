@@ -277,6 +277,38 @@ export const en = {
   'settings.language.a11y': 'Change app language',
   'settings.language.a11yHint': 'Switches every screen between English and Hindi.',
 
+  // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
+  'feedback.title': 'Sound & vibration',
+  'feedback.hint': 'Hear and feel every action, without reading the screen.',
+  'feedback.voice': 'Speak actions aloud',
+  'feedback.voiceHint': 'Says who boarded, who dropped and every trip change.',
+  'feedback.vibration': 'Vibration',
+  'feedback.vibrationHint': 'A short buzz confirms every tap.',
+  'feedback.test': 'Test sound & vibration',
+  'feedback.a11yHint': 'Turns spoken and vibration feedback on or off.',
+
+  // ── Voice feedback (Phase 3b) ──────────────────────────────────────────
+  // These are SPOKEN, not rendered. The `hi` values are deliberately
+  // Latin-script Hinglish — see `docs/mobile-ux.md` → Phase 3b for why the
+  // spoken channel and the written channel use two different scripts.
+  'voice.test': 'Sound and vibration are on',
+  'voice.board.done': '{name} boarded at {time}',
+  'voice.board.queued': '{name} saved offline',
+  'voice.board.summary': '{count} students boarded',
+  'voice.drop.done': '{name} dropped at {time}',
+  'voice.drop.queued': '{name} drop saved offline',
+  'voice.drop.summary': '{count} students dropped',
+  'voice.trip.boarding': 'Boarding has started',
+  'voice.trip.inProgress': 'Trip started, bus is on the road',
+  'voice.trip.completed': 'Trip completed',
+  'voice.sos.sent': 'SOS sent, the school is alerted',
+  'voice.sos.queued': 'SOS saved, it will send when online',
+  'voice.sync.done': 'Offline actions synced to the server',
+  'voice.gps.on': 'GPS sharing is on',
+  'voice.gps.off': 'GPS sharing stopped',
+  'voice.action.failed': 'That action did not go through',
+  'voice.action.conflict': 'Already recorded on the server',
+
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'SBT',
   'login.brandName': 'School Bus Tracking',
