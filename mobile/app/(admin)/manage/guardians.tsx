@@ -59,7 +59,8 @@ const EMPTY = {
 export default function ManageGuardiansScreen() {
   const toast = useToast();
   const list = usePagedResource<ParentResponse>(
-    async (page, search) => unwrapEnvelope(await apiClient.listParents({ page, limit: 20, search })),
+    async (page, search) =>
+      unwrapEnvelope(await apiClient.listParents({ page, limit: 20, search })),
     [],
   );
 
@@ -227,9 +228,7 @@ export default function ManageGuardiansScreen() {
             ) : null}
           </>
         }
-        footer={
-          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null}
         empty={
           list.loading && list.items.length === 0 ? (
             <LoadingView label="Loading guardians…" />
@@ -264,7 +263,12 @@ export default function ManageGuardiansScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -315,7 +319,9 @@ export default function ManageGuardiansScreen() {
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title="Delete guardian?"
-        message={pendingDelete ? `${fullName(pendingDelete)} will no longer be able to sign in.` : ''}
+        message={
+          pendingDelete ? `${fullName(pendingDelete)} will no longer be able to sign in.` : ''
+        }
         confirmLabel="Delete"
         danger
         busy={busy}
@@ -330,7 +336,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
 });

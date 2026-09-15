@@ -36,6 +36,7 @@ export const GpsSharePanel: React.FC<{
       <View style={styles.headerRow}>
         <Text style={styles.title}>Live GPS sharing</Text>
         <Badge
+          size="lg"
           tone={sharing.sharing ? 'success' : 'neutral'}
           label={sharing.sharing ? 'Sharing' : 'Off'}
         />
@@ -51,6 +52,9 @@ export const GpsSharePanel: React.FC<{
           {!sharing.sharing ? (
             <Button
               label="Share GPS"
+              icon="locate"
+              tone="success"
+              size="field"
               onPress={() => void sharing.startSharing()}
               busy={sharing.busy}
               disabled={sharing.busy}
@@ -58,7 +62,9 @@ export const GpsSharePanel: React.FC<{
           ) : (
             <Button
               label="Stop sharing"
+              icon="stop-circle"
               variant="danger"
+              size="field"
               onPress={() => void sharing.stopSharing()}
               busy={sharing.busy}
               disabled={sharing.busy}
@@ -89,19 +95,21 @@ export const GpsSharePanel: React.FC<{
             onValueChange={(value) =>
               void (value ? sharing.enableBackground() : sharing.disableBackground())
             }
-            trackColor={{ true: colors.secondary[500], false: colors.neutral[300] }}
+            trackColor={{ true: colors.secondary[600], false: colors.neutral[300] }}
             thumbColor="#ffffff"
           />
         </View>
       ) : null}
 
       <View style={styles.chipRow}>
-        <Badge tone={tierTone} label={tierLabel} />
+        <Badge size="lg" tone={tierTone} label={tierLabel} />
         <Badge
+          size="lg"
           tone={network === 'online' ? 'success' : network === 'offline' ? 'danger' : 'neutral'}
           label={`Network ${network}`}
         />
         <Badge
+          size="lg"
           tone={sharing.foregroundPermission === 'granted' ? 'success' : 'warning'}
           label={`Location ${sharing.foregroundPermission}`}
         />
@@ -164,12 +172,12 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   muted: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
   },
   mutedSmall: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
   },
   buttonRow: {
     gap: spacing.sm,
@@ -181,9 +189,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[50],
     borderRadius: borderRadius.md,
     padding: spacing.sm + 2,
+    minHeight: 64,
   },
   backgroundTitle: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
     color: colors.neutral[800],
   },
@@ -204,12 +213,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: typography.fontSizes.lg,
+    fontSize: typography.fontSizes['2xl'],
     fontWeight: '800',
     color: colors.neutral[900],
   },
   statLabel: {
-    fontSize: 11,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
+    textAlign: 'center',
   },
 });

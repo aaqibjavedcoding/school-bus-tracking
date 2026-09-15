@@ -146,12 +146,14 @@ export default function ManageRoutesScreen() {
           <ListCard
             title={`${item.code} · ${item.name}`}
             subtitle={item.description}
-            meta={[
-              item.student_count != null ? `${item.student_count} students` : null,
-              item.driver_name ? `Driver ${item.driver_name}` : null,
-            ]
-              .filter(Boolean)
-              .join(' · ') || 'Tap to manage stops'}
+            meta={
+              [
+                item.student_count != null ? `${item.student_count} students` : null,
+                item.driver_name ? `Driver ${item.driver_name}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Tap to manage stops'
+            }
             right={
               <Badge
                 label={item.is_active ? 'Active' : 'Inactive'}
@@ -197,9 +199,7 @@ export default function ManageRoutesScreen() {
             ) : null}
           </>
         }
-        footer={
-          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null}
         empty={
           list.loading && list.items.length === 0 ? (
             <LoadingView label="Loading routes…" />
@@ -234,7 +234,12 @@ export default function ManageRoutesScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -287,7 +292,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   textArea: {

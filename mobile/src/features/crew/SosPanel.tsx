@@ -148,9 +148,9 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
   return (
     <View>
       {active ? (
-        <Card title="Alert active">
+        <Card legible title="Alert active">
           <View style={styles.activeRow}>
-            <Ionicons name="alert-circle" size={20} color={colors.status.danger} />
+            <Ionicons name="alert-circle" size={24} color={colors.status.danger} />
             <Text style={styles.activeText}>
               {EMERGENCY_TYPE_LABELS[active.type]} · {EMERGENCY_STATUS_LABELS[active.status]} ·{' '}
               {formatRelative(active.triggered_at)}
@@ -164,6 +164,8 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
           <Button
             label="Cancel alert"
             variant="secondary"
+            size="lg"
+            icon="close-circle"
             onPress={() => setPendingCancel(active)}
             busy={busy}
             style={styles.action}
@@ -172,6 +174,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
       ) : null}
 
       <Card
+        legible
         title="Emergency SOS"
         description={`Alerts the school office instantly${
           tripId ? ' and attaches your current trip' : ''
@@ -183,6 +186,9 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
         </Text>
         <Button
           label="Send SOS"
+          icon="warning"
+          variant="danger"
+          size="field"
           onPress={() => setComposing(true)}
           busy={busy}
           style={styles.action}
@@ -190,12 +196,12 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
       </Card>
 
       {history.length > 0 ? (
-        <Card title="Your recent alerts">
+        <Card legible title="Your recent alerts">
           {history.map((event) => (
             <View key={event.id} style={styles.historyRow}>
               <Ionicons
                 name={event.status === EmergencyStatus.RESOLVED ? 'checkmark-circle' : 'time'}
-                size={16}
+                size={20}
                 color={
                   event.status === EmergencyStatus.RESOLVED
                     ? colors.secondary[600]
@@ -206,6 +212,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
                 {EMERGENCY_TYPE_LABELS[event.type]} · {formatRelative(event.triggered_at)}
               </Text>
               <Badge
+                size="lg"
                 label={EMERGENCY_STATUS_LABELS[event.status]}
                 tone={emergencyStatusTone(event.status)}
               />
@@ -223,10 +230,19 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
             <Button
               label="Cancel"
               variant="secondary"
+              size="lg"
               onPress={() => setComposing(false)}
               style={styles.flex}
             />
-            <Button label="Send SOS" onPress={() => void raise()} busy={busy} style={styles.flex} />
+            <Button
+              label="Send SOS"
+              icon="warning"
+              variant="danger"
+              size="lg"
+              onPress={() => void raise()}
+              busy={busy}
+              style={styles.flex}
+            />
           </>
         }
       >
@@ -308,13 +324,13 @@ const styles = StyleSheet.create({
   },
   activeText: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   muted: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   action: {
@@ -329,7 +345,7 @@ const styles = StyleSheet.create({
   },
   historyText: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[700],
   },
 });

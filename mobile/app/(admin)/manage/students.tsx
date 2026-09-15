@@ -99,24 +99,26 @@ export default function ManageStudentsScreen() {
   const router = useRouter();
   const toast = useToast();
 
-  const lookups = useLoad(
-    async (): Promise<{ stops: StopResponse[]; routes: RouteResponse[]; runs: RunResponse[] }> => {
-      const [stops, routes, runs] = await Promise.all([
-        apiClient.listStops({ page: 1, limit: 100 }),
-        apiClient.listRoutes({ page: 1, limit: 100 }),
-        apiClient.listRuns({ page: 1, limit: 100 }),
-      ]);
-      return {
-        stops: unwrapEnvelope<StopListResponse>(stops).items,
-        routes: unwrapEnvelope<RouteListResponse>(routes).items,
-        runs: unwrapEnvelope<RunListResponse>(runs).items,
-      };
-    },
-    [],
-  );
+  const lookups = useLoad(async (): Promise<{
+    stops: StopResponse[];
+    routes: RouteResponse[];
+    runs: RunResponse[];
+  }> => {
+    const [stops, routes, runs] = await Promise.all([
+      apiClient.listStops({ page: 1, limit: 100 }),
+      apiClient.listRoutes({ page: 1, limit: 100 }),
+      apiClient.listRuns({ page: 1, limit: 100 }),
+    ]);
+    return {
+      stops: unwrapEnvelope<StopListResponse>(stops).items,
+      routes: unwrapEnvelope<RouteListResponse>(routes).items,
+      runs: unwrapEnvelope<RunListResponse>(runs).items,
+    };
+  }, []);
 
   const list = usePagedResource<StudentResponse>(
-    async (page, search) => unwrapEnvelope(await apiClient.listStudents({ page, limit: 20, search })),
+    async (page, search) =>
+      unwrapEnvelope(await apiClient.listStudents({ page, limit: 20, search })),
     [],
   );
 
@@ -177,7 +179,9 @@ export default function ManageStudentsScreen() {
     setBusy(true);
     try {
       if (editing) {
-        unwrapEnvelope(await apiClient.updateStudent(editing.id, parsed.data as StudentUpdateRequest));
+        unwrapEnvelope(
+          await apiClient.updateStudent(editing.id, parsed.data as StudentUpdateRequest),
+        );
         toast.push('Student updated.', 'success');
       } else {
         unwrapEnvelope(await apiClient.createStudent(parsed.data as StudentCreateRequest));
@@ -291,9 +295,7 @@ export default function ManageStudentsScreen() {
             ) : null}
           </>
         }
-        footer={
-          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null}
         empty={
           list.loading && list.items.length === 0 ? (
             <LoadingView label="Loading students…" />
@@ -328,7 +330,12 @@ export default function ManageStudentsScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -477,7 +484,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   textArea: {

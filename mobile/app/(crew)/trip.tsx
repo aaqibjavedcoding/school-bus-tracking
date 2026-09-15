@@ -61,7 +61,11 @@ export default function CrewTripScreen() {
   if (error || !data) {
     return (
       <Screen>
-        <ErrorState message={error ?? 'Could not load your trips'} onRetry={() => void reload()} />
+        <ErrorState
+          legible
+          message={error ?? 'Could not load your trips'}
+          onRetry={() => void reload()}
+        />
       </Screen>
     );
   }
@@ -69,6 +73,8 @@ export default function CrewTripScreen() {
     return (
       <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <EmptyState
+          legible
+          icon="bus-outline"
           title="No trip scheduled today"
           description="You have no runs assigned for today. Trips appear here as soon as the school dispatches them."
         />
@@ -83,15 +89,16 @@ export default function CrewTripScreen() {
     <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <SectionTitle>Today's trip</SectionTitle>
 
-      <Card title={route ? `${route.code} · ${route.name}` : 'Route details'}>
+      <Card legible title={route ? `${route.code} · ${route.name}` : 'Route details'}>
         <View style={styles.badgeRow}>
-          <TripStatusBadge status={trip.status} />
+          <TripStatusBadge size="lg" status={trip.status} />
           {user ? <Text style={styles.roleChip}>{roleLabel(user.role)}</Text> : null}
         </View>
         <View style={styles.kvRow}>
-          <KeyValue label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
-          <KeyValue label="Date" value={formatDate(trip.scheduled_start_at)} />
+          <KeyValue legible label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
+          <KeyValue legible label="Date" value={formatDate(trip.scheduled_start_at)} />
           <KeyValue
+            legible
             label="Bus"
             value={
               bus
@@ -136,22 +143,28 @@ export default function CrewTripScreen() {
       <View style={styles.linkRow}>
         {isDriver ? (
           <Button
-            label="Open manifest"
+            label="Manifest"
+            icon="people"
             variant="secondary"
+            size="lg"
             onPress={() => router.push('/manifest')}
             style={styles.linkButton}
           />
         ) : (
           <Button
             label="Board & drop"
+            icon="people"
             variant="secondary"
+            size="lg"
             onPress={() => router.push('/manifest')}
             style={styles.linkButton}
           />
         )}
         <Button
           label="Stops & ETA"
+          icon="location"
           variant="secondary"
+          size="lg"
           onPress={() => router.push('/stops')}
           style={styles.linkButton}
         />
@@ -159,7 +172,10 @@ export default function CrewTripScreen() {
 
       {/* SOS is reachable from its own tab for both roles and repeated here so
           it is one tap away while the trip is on the screen. */}
-      <SosPanel tripId={trip.id} roleLabel={user ? crewRoleLabel(user.role).toLowerCase() : 'crew'} />
+      <SosPanel
+        tripId={trip.id}
+        roleLabel={user ? crewRoleLabel(user.role).toLowerCase() : 'crew'}
+      />
 
       {data.trips.length > 1 ? (
         <Text style={styles.mutedCentered}>
@@ -179,8 +195,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   roleChip: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     fontWeight: '600',
   },
   kvRow: {
@@ -188,13 +204,13 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   muted: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   mutedCentered: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     textAlign: 'center',
   },
   linkRow: {

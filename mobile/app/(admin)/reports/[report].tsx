@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', padding: spacing.md },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 15, fontWeight: '600' },
+  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
   },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   rowCard: {
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   rowLabel: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     flexShrink: 1,
   },

@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import { surface, touch } from '../theme';
 import { Button } from './ui';
 
 /**
@@ -35,31 +36,31 @@ export const FormSheet: React.FC<{
 }> = ({ open, title, onClose, children, footer }) => {
   const insets = useSafeAreaInsets();
   return (
-  <RNModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-    <KeyboardAvoidingView
-      style={styles.sheetRoot}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-      <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
-        <View style={styles.sheetHandle} />
-        <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>{title}</Text>
-          <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
-            <Ionicons name="close" size={24} color={colors.neutral[500]} />
-          </Pressable>
+    <RNModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.sheetRoot}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>{title}</Text>
+            <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
+              <Ionicons name="close" size={24} color={colors.neutral[500]} />
+            </Pressable>
+          </View>
+          <ScrollView
+            style={styles.sheetBody}
+            contentContainerStyle={styles.sheetBodyContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
         </View>
-        <ScrollView
-          style={styles.sheetBody}
-          contentContainerStyle={styles.sheetBodyContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {children}
-        </ScrollView>
-        {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
-      </View>
-    </KeyboardAvoidingView>
-  </RNModal>
+      </KeyboardAvoidingView>
+    </RNModal>
   );
 };
 
@@ -103,7 +104,7 @@ export const Select: React.FC<{
         <Text style={selected ? styles.selectValue : styles.selectPlaceholder} numberOfLines={1}>
           {selected ? selected.label : placeholder}
         </Text>
-        <Ionicons name="chevron-down" size={18} color={colors.neutral[400]} />
+        <Ionicons name="chevron-down" size={18} color={colors.neutral[500]} />
       </Pressable>
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
 
@@ -116,7 +117,7 @@ export const Select: React.FC<{
                 value={query}
                 onChangeText={setQuery}
                 placeholder="Filter options…"
-                placeholderTextColor={colors.neutral[400]}
+                placeholderTextColor={surface.placeholder}
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.pickerSearch}
@@ -188,21 +189,21 @@ export const Fab: React.FC<{
 }> = ({ onPress, icon = 'add', label, style }) => {
   const insets = useSafeAreaInsets();
   return (
-  <Pressable
-    onPress={onPress}
-    style={({ pressed }) => [
-      styles.fab,
-      // Keep the FAB clear of the Android nav bar / iOS home indicator.
-      { bottom: spacing.lg + insets.bottom },
-      pressed ? styles.fabPressed : null,
-      style,
-    ]}
-    accessibilityRole="button"
-    accessibilityLabel={label ?? 'Add'}
-  >
-    <Ionicons name={icon} size={22} color="#ffffff" />
-    {label ? <Text style={styles.fabLabel}>{label}</Text> : null}
-  </Pressable>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.fab,
+        // Keep the FAB clear of the Android nav bar / iOS home indicator.
+        { bottom: spacing.lg + insets.bottom },
+        pressed ? styles.fabPressed : null,
+        style,
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={label ?? 'Add'}
+    >
+      <Ionicons name={icon} size={22} color="#ffffff" />
+      {label ? <Text style={styles.fabLabel}>{label}</Text> : null}
+    </Pressable>
   );
 };
 
@@ -303,13 +304,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   fieldLabel: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
     color: colors.neutral[700],
     marginBottom: spacing.xs,
   },
   fieldError: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.status.danger,
     marginTop: spacing.xs,
   },
@@ -318,12 +319,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[300],
+    borderWidth: 1.5,
+    borderColor: surface.borderInteractive,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
-    minHeight: 46,
+    minHeight: touch.target,
     gap: spacing.sm,
   },
   selectControlError: {
@@ -337,7 +338,7 @@ const styles = StyleSheet.create({
   selectPlaceholder: {
     flex: 1,
     fontSize: typography.fontSizes.base,
-    color: colors.neutral[400],
+    color: colors.neutral[600],
   },
   pickerBackdrop: {
     flex: 1,
@@ -365,16 +366,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     marginBottom: spacing.sm,
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[900],
-    minHeight: 42,
+    minHeight: 48,
   },
   pickerList: {
     flexGrow: 0,
   },
   pickerEmpty: {
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
+    fontSize: typography.fontSizes.base,
     padding: spacing.md,
     textAlign: 'center',
   },
@@ -392,7 +393,7 @@ const styles = StyleSheet.create({
   },
   pickerRowText: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[700],
   },
   pickerRowTextActive: {
@@ -405,10 +406,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: colors.neutral[200],
+    borderColor: colors.neutral[300],
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
+    minHeight: touch.compact,
     marginBottom: spacing.md,
     gap: spacing.md,
   },
@@ -418,7 +420,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[800],
   },
   switchHint: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[500],
     marginTop: 2,
   },
@@ -431,7 +433,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   switchTrackOn: {
-    backgroundColor: colors.secondary[500],
+    // secondary-600 keeps the ON state ≥3:1 against the white track area.
+    backgroundColor: colors.secondary[600],
   },
   switchThumb: {
     width: 22,
@@ -450,7 +453,7 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: spacing.md,
     borderRadius: 28,
-    backgroundColor: colors.primary[600],
+    backgroundColor: colors.primary[700],
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -467,7 +470,7 @@ const styles = StyleSheet.create({
   fabLabel: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
   },
   dialogBackdrop: {
     flex: 1,
@@ -487,7 +490,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   dialogMessage: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[600],
     lineHeight: 20,
   },

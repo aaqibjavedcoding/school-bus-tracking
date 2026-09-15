@@ -113,9 +113,7 @@ export default function ParentChildDetailScreen() {
                 ? `Route ${homeStop.route_code}${homeStop.route_name ? ` · ${homeStop.route_name}` : ''} · Stop ${homeStop.sequence_number ?? '—'}`
                 : 'Route details unavailable'}
             </Text>
-            {child.run ? (
-              <Text style={styles.muted}>{runSummaryLine(child.run)}</Text>
-            ) : null}
+            {child.run ? <Text style={styles.muted}>{runSummaryLine(child.run)}</Text> : null}
           </>
         ) : (
           <Text style={styles.muted}>No home stop assigned yet.</Text>
@@ -193,7 +191,7 @@ const styles = StyleSheet.create({
   },
   backText: {
     color: colors.primary[700],
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
   },
   badgeRow: {
@@ -204,7 +202,7 @@ const styles = StyleSheet.create({
   },
   inactive: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
   },
   kvRow: {
@@ -214,7 +212,7 @@ const styles = StyleSheet.create({
   },
   note: {
     color: colors.secondary[700],
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
   },
   stopName: {

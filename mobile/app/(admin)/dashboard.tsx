@@ -74,8 +74,7 @@ export default function AdminDashboardScreen() {
   const liveCount = useMemo(
     () =>
       (data?.trips ?? []).filter(
-        (trip) =>
-          trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS,
+        (trip) => trip.status === TripStatus.BOARDING || trip.status === TripStatus.IN_PROGRESS,
       ).length,
     [data],
   );
@@ -86,13 +85,18 @@ export default function AdminDashboardScreen() {
   if (error || !data) {
     return (
       <Screen>
-        <ErrorState message={error ?? 'Could not load the dashboard'} onRetry={() => void reload()} />
+        <ErrorState
+          message={error ?? 'Could not load the dashboard'}
+          onRetry={() => void reload()}
+        />
       </Screen>
     );
   }
 
   const routeLabel = (trip: TripResponse): string =>
-    trip.route_code ? `${trip.route_code} · ${trip.route_name ?? ''}`.trim() : trip.route_name ?? 'Route';
+    trip.route_code
+      ? `${trip.route_code} · ${trip.route_name ?? ''}`.trim()
+      : (trip.route_name ?? 'Route');
   const busLabel = (trip: TripResponse): string =>
     trip.registration_number ?? trip.bus_number ?? 'No bus';
 
@@ -139,9 +143,7 @@ export default function AdminDashboardScreen() {
   return (
     <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <View style={styles.hero}>
-        <Text style={styles.heroGreeting}>
-          {user ? `Welcome, ${user.first_name}` : 'Welcome'}
-        </Text>
+        <Text style={styles.heroGreeting}>{user ? `Welcome, ${user.first_name}` : 'Welcome'}</Text>
         <Text style={styles.heroDate}>{formatDate(new Date())}</Text>
       </View>
 
@@ -320,7 +322,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   statLabel: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     fontWeight: '600',
   },
@@ -356,7 +358,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   cardMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

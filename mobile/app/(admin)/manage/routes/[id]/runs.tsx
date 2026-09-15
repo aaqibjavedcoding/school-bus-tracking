@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   spacer: { flex: 1 },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 15, fontWeight: '600' },
+  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',
@@ -673,12 +673,12 @@ const styles = StyleSheet.create({
   },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   warn: {
     color: colors.status.warning,
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     marginTop: -spacing.xs,
     marginBottom: spacing.md,
   },
@@ -701,17 +701,17 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   defaultMark: {
-    color: colors.neutral[400],
+    color: colors.neutral[600],
     fontWeight: '600',
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
   },
   inactive: {
-    color: colors.neutral[400],
+    color: colors.neutral[600],
     fontWeight: '500',
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
   },
   runMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },
@@ -757,7 +757,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   crewDates: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

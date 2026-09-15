@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   cardDescription: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
   },
 });

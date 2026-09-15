@@ -57,7 +57,13 @@ export default function CrewManifestScreen() {
     setBusyStudentId(studentId);
     try {
       const result = await offline.execute(
-        { kind: 'attendance', userId: user?.id ?? null, tripId: trip.id, studentId, eventType: action },
+        {
+          kind: 'attendance',
+          userId: user?.id ?? null,
+          tripId: trip.id,
+          studentId,
+          eventType: action,
+        },
         (key) =>
           action === 'board'
             ? apiClient.boardTripStudent(trip.id, studentId, withIdempotencyKey(key))
@@ -90,6 +96,7 @@ export default function CrewManifestScreen() {
     return (
       <Screen>
         <ErrorState
+          legible
           message={todayError ?? 'Could not load your trip'}
           onRetry={() => void reloadToday()}
         />
@@ -99,7 +106,12 @@ export default function CrewManifestScreen() {
   if (!trip) {
     return (
       <Screen refresh={() => void refreshToday()} refreshing={todayRefreshing}>
-        <EmptyState title="No trip today" description="There is no manifest without a trip." />
+        <EmptyState
+          legible
+          icon="people-outline"
+          title="No trip today"
+          description="There is no manifest without a trip."
+        />
       </Screen>
     );
   }
@@ -128,7 +140,7 @@ export default function CrewManifestScreen() {
                   ? 'The head-count you are carrying. Ask the conductor before moving off.'
                   : 'Tap board when a student gets on and drop when they get off — the time is recorded automatically.'}
               </Text>
-              <TripStatusBadge status={manifest.trip_status} />
+              <TripStatusBadge size="lg" status={manifest.trip_status} />
               {counts ? (
                 <Text style={styles.counts}>
                   {counts.boarded} boarded · {counts.pending} waiting · {counts.dropped} dropped
@@ -178,14 +190,15 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   hint: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     marginTop: 2,
     marginBottom: spacing.sm,
   },
   counts: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[600],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[700],
+    fontWeight: '600',
     marginTop: spacing.xs,
   },
 });

@@ -24,7 +24,7 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const TONE_COLORS: Record<ToastTone, string> = {
-  success: colors.secondary[600],
+  success: colors.secondary[700],
   danger: colors.status.danger,
   info: colors.neutral[800],
 };
@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
   },
   text: {
     color: '#ffffff',
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
     textAlign: 'center',
   },

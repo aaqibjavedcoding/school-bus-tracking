@@ -24,6 +24,8 @@ export { useCrewToday } from './useCrewToday';
 export type { CrewTodayData } from './useCrewToday';
 export { useCrewLocationSharing, isTripShareable } from './useCrewLocationSharing';
 export type { CrewLocationSharing, PermissionState } from './useCrewLocationSharing';
+export { transitionActionMeta, attendanceActionMeta } from './crew-action-meta';
+export type { CrewActionMeta, CrewActionTone, CrewActionIcon } from './crew-action-meta';
 export { TripStatusActions } from './TripStatusActions';
 export { ManifestList } from './ManifestList';
 export { CREW_LOCATION_TASK, stopCrewLocationTask, pushCrewDeviceFix } from './location-task';

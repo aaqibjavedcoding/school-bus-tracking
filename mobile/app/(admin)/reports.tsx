@@ -130,8 +130,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   generated: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[400],
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
     marginTop: spacing.sm,
   },
   category: {
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   reportDescription: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

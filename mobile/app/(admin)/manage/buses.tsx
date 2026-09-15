@@ -94,7 +94,9 @@ export default function ManageBusesScreen() {
       capacity: Number(form.capacity),
       is_active: form.is_active,
     };
-    const parsed = editing ? busUpdateSchema.safeParse(payload) : busCreateSchema.safeParse(payload);
+    const parsed = editing
+      ? busUpdateSchema.safeParse(payload)
+      : busCreateSchema.safeParse(payload);
     if (!parsed.success) {
       setFieldErrors(fieldErrorsFromZod(parsed.error));
       return;
@@ -191,9 +193,7 @@ export default function ManageBusesScreen() {
             ) : null}
           </>
         }
-        footer={
-          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null}
         empty={
           list.loading && list.items.length === 0 ? (
             <LoadingView label="Loading buses…" />
@@ -228,7 +228,12 @@ export default function ManageBusesScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -282,7 +287,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
 });

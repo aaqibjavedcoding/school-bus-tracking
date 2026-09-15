@@ -47,9 +47,17 @@ export const EtaSummaryCard: React.FC<{
             </Text>
           </View>
           <View style={styles.kvRow}>
-            <KeyValue label="Distance" value={formatDistanceMeters(nextStop.distance_meters)} />
-            <KeyValue label="ETA" value={formatEtaMinutes(nextStop.eta_minutes) ?? 'Unavailable'} />
-            <KeyValue label="Speed" value={formatSpeedKmh(eta.speed_kmh)} />
+            <KeyValue
+              legible
+              label="Distance"
+              value={formatDistanceMeters(nextStop.distance_meters)}
+            />
+            <KeyValue
+              legible
+              label="ETA"
+              value={formatEtaMinutes(nextStop.eta_minutes) ?? 'Unavailable'}
+            />
+            <KeyValue legible label="Speed" value={formatSpeedKmh(eta.speed_kmh)} />
           </View>
         </>
       ) : (
@@ -94,11 +102,11 @@ export const StopsEtaList: React.FC<{ eta: TripEtaResponse | null }> = React.mem
               </Text>
             </View>
             {stop.arrived ? (
-              <Badge label="✓" tone="success" />
+              <Badge size="lg" label="✓" tone="success" />
             ) : isNext ? (
-              <Badge label="Next" tone="warning" />
+              <Badge size="lg" label="Next" tone="warning" />
             ) : isCurrent ? (
-              <Badge label="Current" tone="info" />
+              <Badge size="lg" label="Current" tone="info" />
             ) : null}
           </View>
         );
@@ -127,21 +135,21 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   emoji: {
-    fontSize: 18,
+    fontSize: 22,
   },
   headline: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '700',
     color: colors.neutral[900],
     flex: 1,
   },
   currentStop: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.neutral[600],
     fontWeight: '600',
   },
   muted: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.neutral[500],
   },
   kvRow: {
@@ -168,9 +176,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fffbeb',
   },
   stopNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: colors.neutral[800],
     alignItems: 'center',
     justifyContent: 'center',
@@ -178,19 +186,19 @@ const styles = StyleSheet.create({
   stopNumberText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 16,
   },
   stopMain: {
     flex: 1,
     gap: 2,
   },
   stopName: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: colors.neutral[900],
   },
   stopMeta: {
-    fontSize: 12,
-    color: colors.neutral[500],
+    fontSize: 16,
+    color: colors.neutral[600],
   },
 });

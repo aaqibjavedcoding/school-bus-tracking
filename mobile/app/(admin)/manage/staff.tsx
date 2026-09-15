@@ -262,9 +262,7 @@ export default function ManageStaffScreen() {
             ) : null}
           </>
         }
-        footer={
-          visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={visible.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null}
         empty={
           list.loading && list.items.length === 0 ? (
             <LoadingView label={`Loading ${segment}…`} />
@@ -299,7 +297,12 @@ export default function ManageStaffScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -350,7 +353,9 @@ export default function ManageStaffScreen() {
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title="Delete account?"
-        message={pendingDelete ? `${fullName(pendingDelete)} will no longer be able to sign in.` : ''}
+        message={
+          pendingDelete ? `${fullName(pendingDelete)} will no longer be able to sign in.` : ''
+        }
         confirmLabel="Delete"
         danger
         busy={busy}
@@ -365,7 +370,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
 });

@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   chipText: {
     color: colors.neutral[700],
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 14,
   },
   chipTextActive: {
     color: '#ffffff',
@@ -215,12 +215,12 @@ const styles = StyleSheet.create({
   },
   crewLine: {
     color: colors.neutral[600],
-    fontSize: 13,
+    fontSize: 14,
     marginTop: 2,
   },
   waiting: {
     color: colors.neutral[500],
-    fontSize: 13,
+    fontSize: 14,
     textAlign: 'center',
     marginVertical: spacing.sm,
   },

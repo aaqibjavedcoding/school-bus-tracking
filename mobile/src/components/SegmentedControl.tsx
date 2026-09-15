@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   segment: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm + 4,
     borderRadius: borderRadius.sm,
   },
   segmentActive: {
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.neutral[600],
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '600',
   },
   labelActive: {

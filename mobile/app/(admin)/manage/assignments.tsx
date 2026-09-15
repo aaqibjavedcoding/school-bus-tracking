@@ -50,10 +50,7 @@ import {
   SwitchRow,
   useToast,
 } from '../../../src/components';
-import {
-  ACTIVE_FILTER_OPTIONS,
-  type ActiveFilter,
-} from '../../../src/hooks/useActiveFilter';
+import { ACTIVE_FILTER_OPTIONS, type ActiveFilter } from '../../../src/hooks/useActiveFilter';
 
 const EMPTY = {
   route_id: '',
@@ -243,8 +240,8 @@ export default function ManageAssignmentsScreen() {
 
   const staffOptions = (
     form.role === RouteAssignmentRole.CONDUCTOR
-      ? lookups.data?.conductors ?? []
-      : lookups.data?.drivers ?? []
+      ? (lookups.data?.conductors ?? [])
+      : (lookups.data?.drivers ?? [])
   ).map((person) => ({ value: person.id, label: `${fullName(person)} (${person.email})` }));
 
   return (
@@ -368,7 +365,12 @@ export default function ManageAssignmentsScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -461,7 +463,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   dispatchRow: {

@@ -122,7 +122,11 @@ export default function ManageDocumentsScreen() {
       )}
       header={
         <>
-          <SegmentedControl<OwnerFilter> value={owner} onChange={setOwner} options={OWNER_OPTIONS} />
+          <SegmentedControl<OwnerFilter>
+            value={owner}
+            onChange={setOwner}
+            options={OWNER_OPTIONS}
+          />
           <SegmentedControl<ComplianceFilter>
             value={compliance}
             onChange={setCompliance}
@@ -216,7 +220,7 @@ const SummaryRow: React.FC<{ summary: DocumentComplianceSummary | null }> = ({ s
 const styles = StyleSheet.create({
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginTop: spacing.sm,
   },
   badges: {
