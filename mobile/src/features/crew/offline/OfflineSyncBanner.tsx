@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../../components';
@@ -7,6 +7,7 @@ import { getSyncUserId, refreshCounts, syncNow } from './attendance-sync.ts';
 import { useSyncState } from './useOfflineAction';
 import { pluralKey, t } from '../../../lib/i18n.ts';
 import { useTranslation } from '../../../lib/i18n-provider';
+import { feedback } from '../crew-feedback.ts';
 
 /**
  * Crew-facing offline/sync status strip.
@@ -27,6 +28,27 @@ export const OfflineSyncBanner: React.FC = () => {
 
   const hasPending = sync.pendingCount > 0;
   const hasFailed = sync.failedCount > 0;
+
+  /**
+   * Phase 3b: announce the queue draining — "7 saved actions have been sent".
+   *
+   * Derived purely from the sync state this banner already subscribes to, so
+   * the **queue itself is zero-touch**: nothing was added to `queue-core`,
+   * `attendance-queue`, `attendance-sync` or `useOfflineAction`
+   * (`crew-feedback-wiring.spec.ts` asserts that in both directions).
+   *
+   * Edge it deliberately gets right: it only speaks when a *non-zero* backlog
+   * reaches zero with nothing failed, so a crew member who was never offline
+   * is never told their zero actions synced.
+   */
+  const previousPending = useRef(0);
+  useEffect(() => {
+    const drained = previousPending.current;
+    previousPending.current = sync.pendingCount;
+    if (drained > 0 && sync.pendingCount === 0 && sync.failedCount === 0) {
+      feedback.on({ type: 'offline.synced', count: drained });
+    }
+  }, [sync.pendingCount, sync.failedCount]);
 
   if (sync.isOnline && !hasPending && !hasFailed && sync.status !== 'error') {
     return null;

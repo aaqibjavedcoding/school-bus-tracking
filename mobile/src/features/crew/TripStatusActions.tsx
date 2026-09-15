@@ -12,6 +12,19 @@ import { transitionActionMeta } from './crew-action-meta';
 import { useOfflineAction } from './offline/useOfflineAction';
 import { useAuth } from '../auth/AuthProvider';
 import { t } from '../../lib/i18n.ts';
+import { feedback } from './crew-feedback.ts';
+import type { CrewFeedbackEvent } from './crew-voice.ts';
+
+/**
+ * Phase 3b: which spoken/felt confirmation a completed transition earns.
+ * Only the three forward crew steps announce — a cancel is a dispatcher
+ * action taken at a desk, and CANCELLED has no crew-facing announcement.
+ */
+const TRANSITION_FEEDBACK: Partial<Record<TripStatus, CrewFeedbackEvent>> = {
+  [TripStatus.BOARDING]: { type: 'trip.boarding' },
+  [TripStatus.IN_PROGRESS]: { type: 'trip.inProgress' },
+  [TripStatus.COMPLETED]: { type: 'trip.completed' },
+};
 
 /**
  * Trip lifecycle actions (crew + admin).
@@ -44,6 +57,12 @@ export const TripStatusActions: React.FC<{
   const terminal = trip.status === TripStatus.COMPLETED || trip.status === TripStatus.CANCELLED;
   const transitions = nextCrewTransitions(trip.status);
 
+  /** Report a *server-confirmed* transition. Never called on the queued path. */
+  const announce = (next: TripStatus) => {
+    const event = TRANSITION_FEEDBACK[next];
+    if (event) feedback.on(event);
+  };
+
   const apply = async (next: TripStatus) => {
     setBusy(true);
     setError(null);
@@ -67,6 +86,7 @@ export const TripStatusActions: React.FC<{
           return;
         }
         if (applied) {
+          announce(next);
           onApplied(applied);
         }
         return;
@@ -78,8 +98,12 @@ export const TripStatusActions: React.FC<{
         { status: next },
         withIdempotencyKey(generateIdempotencyKey()),
       );
+      announce(next);
       onApplied(unwrapEnvelope(envelope));
     } catch (caught) {
+      // The buzz says "that did not happen"; the message below says why. No
+      // voice here — speaking over the error the driver is reading is noise.
+      feedback.on({ type: 'action.rejected' });
       setError(getApiErrorMessage(caught, t('trip.updateError')));
     } finally {
       setBusy(false);

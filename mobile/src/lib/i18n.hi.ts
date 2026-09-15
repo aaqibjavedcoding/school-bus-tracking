@@ -264,6 +264,44 @@ export const hi: Dictionary = {
   'settings.language.a11y': 'ऐप की भाषा बदलें',
   'settings.language.a11yHint': 'हर स्क्रीन को अंग्रेज़ी और हिन्दी में बदलता है।',
 
+  // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
+  'settings.sound.title': 'आवाज़ और कंपन',
+  'settings.sound.hint': 'हर काम की पुष्टि फ़ोन बोलकर, कंपन से, या दोनों तरह से कर सकता है।',
+  'settings.sound.voiceLabel': 'बोलकर बताए',
+  'settings.sound.voiceHint': 'हर चढ़ने-उतरने पर पहला नाम और समय बोलता है।',
+  'settings.sound.vibrationLabel': 'कंपन दे',
+  'settings.sound.vibrationHint': 'काम दर्ज होने या न होने पर हल्का कंपन।',
+  'settings.sound.voiceA11y': 'बोलकर पुष्टि',
+  'settings.sound.vibrationA11y': 'कंपन से पुष्टि',
+  'settings.sound.noEngineNote':
+    'आवाज़ नहीं आ रही? हो सकता है फ़ोन में बोलने वाला इंजन न हो — ऐप फिर भी हर काम दर्ज करता है।',
+
+  // ── Voice phrases (बोली जाती हैं, स्क्रीन पर कभी नहीं दिखतीं) ──────────
+  //
+  // **ये जान-बूझकर रोमन (Latin) लिपि में हैं, देवनागरी में नहीं।** सस्ते
+  // Android फ़ोनों में अक्सर `hi-IN` वाली आवाज़ इंस्टॉल ही नहीं होती; ऐसे में
+  // देवनागरी टेक्स्ट डिफ़ॉल्ट अंग्रेज़ी आवाज़ से टूटा-फूटा पढ़ा जाता है। रोमन
+  // लिपि में लिखी हिंग्लिश हर फ़ोन की डिफ़ॉल्ट आवाज़ साफ़ बोल देती है और
+  // ड्राइवर की अपनी बोली से भी मेल खाती है। स्क्रीन की भाषा देवनागरी ही रहती
+  // है — ये दो अलग चैनल हैं (देखें `crew-voice.ts`).
+  'voice.board.done': '{name} ka boarding ho gaya, {time}',
+  'voice.drop.done': '{name} utar gaya, {time}',
+  'voice.board.summary': '{count} bachche chadh gaye',
+  'voice.drop.summary': '{count} bachche utar gaye',
+  'voice.trip.boarding': 'Boarding shuru ho gayi',
+  'voice.trip.inProgress': 'Trip shuru, dhyan se chalaiye',
+  'voice.trip.completed': 'Trip poori hui, shukriya',
+  'voice.sos.fired': 'Emergency alert school ko chala gaya',
+  'voice.sos.queued': 'Network nahi hai, alert dobara bheja jayega',
+  'voice.offline.synced': '{count} save kiye kaam bhej diye gaye',
+  'voice.gps.on': 'Location bhejna chalu',
+  'voice.gps.off': 'Location bhejna band',
+  'voice.time.now': 'abhi',
+  'voice.time.morning': 'subah',
+  'voice.time.afternoon': 'dopahar',
+  'voice.time.evening': 'shaam',
+  'voice.time.night': 'raat',
+
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'SBT',
   'login.brandName': 'School Bus Tracking',
@@ -306,6 +344,8 @@ export const hi: Dictionary = {
   'common.error': 'कुछ गड़बड़ हो गई',
   'common.clearSearch': 'खोज हटाएँ',
   'common.dismiss': 'हटाएँ',
+  'common.on': 'चालू',
+  'common.off': 'बंद',
 
   // ── Time ───────────────────────────────────────────────────────────────
   'time.minutes.one': '~{count} मिनट',

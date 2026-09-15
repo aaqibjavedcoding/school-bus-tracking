@@ -200,10 +200,67 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
 
 ### Voice
 
-_Voice feedback and haptics land in Phase 3b._ The troubleshooting shape will
-be: **no voice = the "Sound & vibration" switch is off, or the device has no
-Hindi TTS engine installed** (`expo-speech` uses the OS engine, so a device
-without a `hi-IN` voice speaks nothing — the app never fails because of it).
+Shipped in Phase 3b. The crew app speaks a short confirmation — first name,
+what happened, and the time ("_Ramesh ka boarding ho gaya, 7:42 subah_") — and
+buzzes, so a driver holding a phone at arm's length in a noisy bus does not
+have to read the screen to know the tap registered.
+
+**Where the switches are**: Help & support → **Sound & vibration**, right under
+the language switch. Two independent switches, **Voice** and **Vibration**.
+They are separate on purpose — a phone with no speech engine still buzzes
+correctly, and a driver in a quiet zone may want the buzz without the talking.
+Each choice is saved on the device (`sbt.mobile.sound`) and survives a restart.
+Defaults: `DRIVER`/`CONDUCTOR` get **both on**; `SCHOOL_ADMIN`/`PARENT` get
+**voice off, vibration on** — an office phone should not start talking.
+
+**"It doesn't speak."** Work down this list:
+
+1. **Voice switch off** — Help → Sound & vibration → Voice. The most common
+   cause by a distance, because it is one tap to turn off by accident.
+2. **No TTS engine on the device** — `expo-speech` drives the phone's own
+   engine and installs nothing. Budget Androids are sometimes shipped with
+   Google Text-to-Speech removed. Check **Settings → Accessibility →
+   Text-to-speech output** and press _Play_; if the phone is silent there, it
+   will be silent in the app. Installing "Speech Recognition & Synthesis" from
+   the Play Store fixes it. The card on the Help screen says as much in the
+   app's own words.
+3. **Phone is on silent / media volume at zero** — TTS plays on the media
+   stream. Silent mode and a muted media slider both mute it.
+4. **The action did not actually succeed.** The app only speaks what the
+   server accepted — a board that failed is a buzz and a red line, never a
+   spoken confirmation. If there is no voice _and_ no confirmation on screen,
+   this is a sync problem, not a voice problem: go to the offline-queue
+   section above.
+
+**"It speaks Hinglish, not Hindi."** Working as designed, not a bug to file.
+The Hindi voice lines are written in **Latin script** ("_Ramesh ka boarding ho
+gaya_") because many budget Androids in service have an English TTS voice and
+no `hi-IN` one; Devanagari text sent to an English voice is read as gibberish
+or skipped entirely. Latin-script Hinglish read by the English voice is
+understood by Hindi-speaking crew. The **screen** stays in proper Devanagari —
+the two channels are deliberately different.
+
+**"It talks too much."** It should not: rapid taps collapse. Boarding forty
+students back to back produces **three** announcements, not forty — the first
+name, then running counts ("_24 bachche chadh gaye_"). Announcements never
+queue up, so the voice can never fall behind the screen and start naming a
+student tapped half a minute ago. If a phone really is announcing every single
+row, that is a bug worth reporting with the device model.
+
+**"It doesn't vibrate."** Check the Vibration switch first, then the phone's
+own haptics setting (Settings → Sound & vibration → **Vibration & haptics**,
+sometimes "Touch vibration"), which overrides the app. A few very low-end
+devices have no haptic motor at all — those never buzz, and the app carries on
+silently rather than failing. SOS is worth knowing in detail: a **short tick**
+the moment the finger lands on the hold button, and a **distinct double-buzz**
+when the alert is actually delivered. If you feel the tick but never the
+second pattern, the alert did not leave the phone — check the SOS section
+above.
+
+**What is never spoken**, by design and enforced by a test: medical notes,
+phone numbers, guardian names and contacts, the emergency detail text, and a
+full name with admission number. Voice carries a first name and nothing more —
+a bus is a public place and anyone within earshot hears it.
 
 ## List / Search / Pagination
 
