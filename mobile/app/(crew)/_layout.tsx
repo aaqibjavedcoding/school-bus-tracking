@@ -9,6 +9,7 @@ import { LogoutButton } from '../../src/components/LogoutButton';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { useBottomBarMetrics } from '../../src/theme/layout';
 import { startSyncManager, stopSyncManager } from '../../src/features/crew/offline';
+import { useRoleLocaleDefault, useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Shared crew tab navigator (DRIVER + CONDUCTOR).
@@ -26,6 +27,10 @@ import { startSyncManager, stopSyncManager } from '../../src/features/crew/offli
 function CrewTabs() {
   const { user } = useAuth();
   const bar = useBottomBarMetrics();
+  // Subscribes this navigator to the locale so tab labels re-read on a switch,
+  // and applies the crew default (Hindi) once the signed-in role is known.
+  const t = useTranslation();
+  useRoleLocaleDefault(user?.role ?? null);
   // A notification tapped before this navigator existed (cold start) lands
   // on its screen as soon as the role tabs are mounted.
   useEffect(() => {
@@ -71,8 +76,10 @@ function CrewTabs() {
       <Tabs.Screen
         name="trip"
         options={{
-          title: user ? `${crewRoleLabel(user.role)} · Today` : "Today's trip",
-          tabBarLabel: isDriver ? 'Drive' : 'Trip',
+          title: user
+            ? t('nav.trip.title', { role: crewRoleLabel(user.role) })
+            : t('nav.trip.titleFallback'),
+          tabBarLabel: isDriver ? t('nav.tab.drive') : t('nav.tab.trip'),
           tabBarIcon: ({ color }) => <Ionicons name="bus" size={bar.iconSize} color={color} />,
         }}
       />
@@ -81,16 +88,16 @@ function CrewTabs() {
         options={{
           // Conductors own the children on board; the driver sees the same
           // list but the emphasis in the trip screen is the other way round.
-          title: isDriver ? 'Students on board' : 'Boarding & drop',
-          tabBarLabel: isDriver ? 'Manifest' : 'Students',
+          title: isDriver ? t('nav.manifest.titleDriver') : t('nav.manifest.titleConductor'),
+          tabBarLabel: isDriver ? t('nav.tab.manifest') : t('nav.tab.students'),
           tabBarIcon: ({ color }) => <Ionicons name="people" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen
         name="stops"
         options={{
-          title: 'Stops & ETA',
-          tabBarLabel: 'Stops',
+          title: t('nav.stops.title'),
+          tabBarLabel: t('nav.tab.stops'),
           tabBarIcon: ({ color }) => <Ionicons name="location" size={bar.iconSize} color={color} />,
         }}
       />
@@ -103,8 +110,8 @@ function CrewTabs() {
       <Tabs.Screen
         name="sos"
         options={{
-          title: 'Emergency',
-          tabBarLabel: 'SOS',
+          title: t('nav.sos.title'),
+          tabBarLabel: t('nav.tab.sos'),
           tabBarIcon: ({ color }) => <Ionicons name="warning" size={bar.iconSize} color={color} />,
         }}
       />
@@ -116,7 +123,7 @@ function CrewTabs() {
       <Tabs.Screen
         name="help"
         options={{
-          title: 'Help & support',
+          title: t('nav.help.title'),
           href: null,
         }}
       />

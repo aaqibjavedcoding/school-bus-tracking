@@ -17,6 +17,8 @@ import { UserRole } from '@school-bus-tracking/shared-types';
 import { AuthProvider, useAuth } from '../src/features/auth';
 import { NotificationsProvider } from '../src/features/parent/NotificationsProvider';
 import { ToastProvider } from '../src/components';
+import { I18nProvider } from '../src/lib/i18n-provider';
+import { t } from '../src/lib/i18n';
 
 /**
  * Root layout: authentication for everyone, plus the realtime notification
@@ -33,31 +35,36 @@ function RoleProviders({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-    <AuthProvider>
-      <ToastProvider>
-        <RoleProviders>
-        <>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: colors.neutral[900] },
-              headerTintColor: '#ffffff',
-              headerTitleStyle: { fontWeight: 'bold' },
-              contentStyle: { backgroundColor: colors.neutral[50] },
-            }}
-          >
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="login" options={{ headerShown: false }} />
-            <Stack.Screen name="platform" options={{ title: 'Platform admin' }} />
-            <Stack.Screen name="(crew)" options={{ headerShown: false }} />
-            <Stack.Screen name="(parent)" options={{ headerShown: false }} />
-            <Stack.Screen name="(admin)" options={{ headerShown: false }} />
-          </Stack>
-        </>
-        </RoleProviders>
-      </ToastProvider>
-    </AuthProvider>
-    </SafeAreaProvider>
+    // i18n sits above the auth provider so the login screen is already
+    // localised, and below nothing — a locale switch re-renders every screen
+    // in place without remounting the router (navigation state survives).
+    <I18nProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <RoleProviders>
+              <>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerStyle: { backgroundColor: colors.neutral[900] },
+                    headerTintColor: '#ffffff',
+                    headerTitleStyle: { fontWeight: 'bold' },
+                    contentStyle: { backgroundColor: colors.neutral[50] },
+                  }}
+                >
+                  <Stack.Screen name="index" options={{ headerShown: false }} />
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen name="platform" options={{ title: t('nav.platform.title') }} />
+                  <Stack.Screen name="(crew)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(parent)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(admin)" options={{ headerShown: false }} />
+                </Stack>
+              </>
+            </RoleProviders>
+          </ToastProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </I18nProvider>
   );
 }

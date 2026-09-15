@@ -1,4 +1,5 @@
 import { ApiClientError } from '@school-bus-tracking/api-client';
+import { localizeApiError, type LocalizedApiError } from './i18n.ts';
 
 /**
  * Mobile port of the shared error helpers used by the web app, so both
@@ -89,6 +90,40 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
     return error.message;
   }
   return fallback;
+}
+
+/**
+ * Localised twin of {@link getApiErrorMessage} (Phase 3).
+ *
+ * `getApiErrorMessage` is deliberately **not** changed: its English sentences
+ * are pinned by `errors.spec.ts` and, per the server-string boundary, a server
+ * message is passed through untouched. This helper adds the localisation step
+ * on top, for the surfaces that want it:
+ *
+ * - a **known** error code (`HTTP_409`, `RATE_LIMIT_EXCEEDED`…) → the app's own
+ *   copy in the active locale;
+ * - an **unknown** code → the server's message as-is plus a visible
+ *   "Server code XYZ" note, so support still gets the exact code;
+ * - `HTTP_403` → the server's own message always wins (documented taxonomy).
+ */
+export function getLocalizedApiError(
+  error: unknown,
+  fallback = 'Something went wrong',
+): LocalizedApiError {
+  if (error instanceof ApiClientError) {
+    const details = error.details as { error?: { code?: unknown } } | undefined;
+    const rawCode = details?.error?.code;
+    return localizeApiError({
+      code: typeof rawCode === 'string' ? rawCode : null,
+      message: getApiErrorMessage(error, fallback),
+      status: error.status,
+    });
+  }
+  return localizeApiError({
+    code: null,
+    message: getApiErrorMessage(error, fallback),
+    status: null,
+  });
 }
 
 /** The slice of a Zod error the form helpers need (mirrors the web helper). */

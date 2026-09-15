@@ -18,6 +18,7 @@ import {
   TrackingStateBadge,
 } from '../../src/components';
 import { formatDistanceMeters, formatTime } from '../../src/lib/format';
+import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Route stops of the crew's today trip with the live ETA stream.
@@ -28,6 +29,7 @@ import { formatDistanceMeters, formatTime } from '../../src/lib/format';
  * numbers server-side — nothing is estimated on the client.
  */
 export default function CrewStopsScreen() {
+  const t = useTranslation();
   const {
     data: today,
     loading: todayLoading,
@@ -48,14 +50,14 @@ export default function CrewStopsScreen() {
   }, [trip?.id]);
 
   if (todayLoading && !today) {
-    return <LoadingView label="Loading stops…" />;
+    return <LoadingView label={t('stops.loading')} />;
   }
   if (todayError || !today) {
     return (
       <Screen>
         <ErrorState
           legible
-          message={todayError ?? 'Could not load your trip'}
+          message={todayError ?? t('manifest.loadError')}
           onRetry={() => void reloadToday()}
         />
       </Screen>
@@ -67,8 +69,8 @@ export default function CrewStopsScreen() {
         <EmptyState
           legible
           icon="location-outline"
-          title="No trip today"
-          description="Stops and ETAs appear once a trip is dispatched."
+          title={t('stops.empty.title')}
+          description={t('stops.empty.body')}
         />
       </Screen>
     );
@@ -89,24 +91,26 @@ export default function CrewStopsScreen() {
         <TrackingStateBadge state={live.trackingState} />
       </View>
 
-      <SectionTitle>Current &amp; next stop</SectionTitle>
+      <SectionTitle>{t('stops.currentAndNext')}</SectionTitle>
       <EtaSummaryCard eta={live.eta} fix={live.fix} />
       {live.error ? <Text style={styles.error}>{live.error}</Text> : null}
 
-      <SectionTitle>Route stops</SectionTitle>
+      <SectionTitle>{t('stops.routeStops')}</SectionTitle>
       <StopsEtaList eta={live.eta} />
 
-      <SectionTitle>Arrivals</SectionTitle>
+      <SectionTitle>{t('stops.arrivals')}</SectionTitle>
       {arrivals.length === 0 ? (
-        <Text style={styles.muted}>No stop has been recorded yet for this trip.</Text>
+        <Text style={styles.muted}>{t('stops.noArrivals')}</Text>
       ) : (
         <View style={styles.arrivalsCard}>
           {arrivals.map((arrival) => (
             <View key={arrival.id} style={styles.arrivalRow}>
               <Text style={styles.arrivalName}>{arrival.stop_name}</Text>
               <Text style={styles.arrivalMeta}>
-                {formatTime(arrival.arrived_at)} · {formatDistanceMeters(arrival.distance_meters)}{' '}
-                from stop
+                {t('stops.arrivalMeta', {
+                  time: formatTime(arrival.arrived_at),
+                  distance: formatDistanceMeters(arrival.distance_meters),
+                })}
               </Text>
             </View>
           ))}

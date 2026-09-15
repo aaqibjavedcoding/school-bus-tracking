@@ -1,6 +1,7 @@
 import { colors } from '@school-bus-tracking/design-tokens';
 import { TripStatus } from '@school-bus-tracking/shared-types';
 import { crewCopy } from './crew-copy.ts';
+import { t } from '../../lib/i18n.ts';
 import { contrastRatio } from '../../theme/contrast.ts';
 
 /**
@@ -41,31 +42,41 @@ const STYLE_BY_STATUS: Record<TripStatus, TripStatusStyle> = {
   [TripStatus.SCHEDULED]: {
     background: GREY,
     foreground: ON_STATE,
-    word: crewCopy.statusWord.scheduled,
+    get word(): string {
+      return crewCopy.statusWord.scheduled;
+    },
     icon: 'time',
   },
   [TripStatus.BOARDING]: {
     background: GREEN,
     foreground: ON_STATE,
-    word: crewCopy.statusWord.boarding,
+    get word(): string {
+      return crewCopy.statusWord.boarding;
+    },
     icon: 'people',
   },
   [TripStatus.IN_PROGRESS]: {
     background: AMBER,
     foreground: ON_STATE,
-    word: crewCopy.statusWord.inProgress,
+    get word(): string {
+      return crewCopy.statusWord.inProgress;
+    },
     icon: 'navigate',
   },
   [TripStatus.COMPLETED]: {
     background: GREY,
     foreground: ON_STATE,
-    word: crewCopy.statusWord.completed,
+    get word(): string {
+      return crewCopy.statusWord.completed;
+    },
     icon: 'checkmark-done',
   },
   [TripStatus.CANCELLED]: {
     background: GREY,
     foreground: ON_STATE,
-    word: crewCopy.statusWord.cancelled,
+    get word(): string {
+      return crewCopy.statusWord.cancelled;
+    },
     icon: 'close-circle',
   },
 };
@@ -123,11 +134,15 @@ export interface PrimaryTripAction {
 export function primaryTripAction(status: TripStatus): PrimaryTripAction | null {
   switch (status) {
     case TripStatus.SCHEDULED:
-      return { next: TripStatus.BOARDING, label: 'Start boarding', icon: 'people' };
+      return { next: TripStatus.BOARDING, label: t('trip.action.boarding'), icon: 'people' };
     case TripStatus.BOARDING:
-      return { next: TripStatus.IN_PROGRESS, label: 'Depart & drive', icon: 'navigate' };
+      return { next: TripStatus.IN_PROGRESS, label: t('trip.action.inProgress'), icon: 'navigate' };
     case TripStatus.IN_PROGRESS:
-      return { next: TripStatus.COMPLETED, label: 'Complete trip', icon: 'checkmark-done' };
+      return {
+        next: TripStatus.COMPLETED,
+        label: t('trip.action.completed'),
+        icon: 'checkmark-done',
+      };
     default:
       // Terminal states have no forward action — the card shows none.
       return null;

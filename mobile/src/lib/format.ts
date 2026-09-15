@@ -5,6 +5,7 @@ import {
   UserRole,
   type TripTrackingState,
 } from '@school-bus-tracking/shared-types';
+import { pluralKey, t } from './i18n.ts';
 
 /**
  * Formatting helpers for the mobile app.
@@ -102,7 +103,7 @@ export function formatDistanceMeters(value: number | null | undefined): string {
 /** Approximate ETA label: "~3 minutes"; null when unknown (never invented). */
 export function formatEtaMinutes(value: number | null | undefined): string | null {
   if (value == null || Number.isNaN(value)) return null;
-  return `~${value} ${value === 1 ? 'minute' : 'minutes'}`;
+  return t(pluralKey('time.minutes', value), { count: value });
 }
 
 export function fullName(person: { first_name: string; last_name: string }): string {
@@ -121,15 +122,15 @@ export function initials(person: { first_name: string; last_name: string }): str
 export function tripStatusLabel(status: TripStatus): string {
   switch (status) {
     case TripStatus.SCHEDULED:
-      return 'Scheduled';
+      return t('status.label.scheduled');
     case TripStatus.BOARDING:
-      return 'Boarding';
+      return t('status.label.boarding');
     case TripStatus.IN_PROGRESS:
-      return 'In Progress';
+      return t('status.label.inProgress');
     case TripStatus.COMPLETED:
-      return 'Completed';
+      return t('status.label.completed');
     case TripStatus.CANCELLED:
-      return 'Cancelled';
+      return t('status.label.cancelled');
     default:
       return status;
   }
@@ -138,11 +139,11 @@ export function tripStatusLabel(status: TripStatus): string {
 export function attendanceStatusLabel(status: TripAttendanceStatus): string {
   switch (status) {
     case TripAttendanceStatus.PENDING:
-      return 'Waiting';
+      return t('attendance.label.pending');
     case TripAttendanceStatus.BOARDED:
-      return 'On board';
+      return t('attendance.label.boarded');
     case TripAttendanceStatus.DROPPED:
-      return 'Dropped off';
+      return t('attendance.label.dropped');
     default:
       return status;
   }
@@ -152,11 +153,11 @@ export function attendanceStatusLabel(status: TripAttendanceStatus): string {
 export function boardingStatusLabel(status: TripAttendanceStatus | null | undefined): string {
   switch (status) {
     case TripAttendanceStatus.BOARDED:
-      return 'Boarded';
+      return t('boarding.label.boarded');
     case TripAttendanceStatus.DROPPED:
-      return 'Dropped';
+      return t('boarding.label.dropped');
     default:
-      return 'Not boarded';
+      return t('boarding.label.notBoarded');
   }
 }
 
@@ -192,16 +193,17 @@ export function attendanceTone(status: TripAttendanceStatus | null | undefined):
 export function roleLabel(role: UserRole | RouteAssignmentRole): string {
   switch (role) {
     case UserRole.SUPER_ADMIN:
-      return 'Platform admin';
+      return t('role.superAdmin');
     case UserRole.SCHOOL_ADMIN:
-      return 'School admin';
+      return t('role.schoolAdmin');
     case UserRole.DRIVER:
-      return 'Driver';
+      return t('role.driver');
     case UserRole.CONDUCTOR:
-      return 'Conductor';
+      return t('role.conductor');
     case UserRole.PARENT:
-      return 'Parent';
+      return t('role.parent');
     default:
+      // An unmapped role is server data, not UI copy — show it as it came.
       return role;
   }
 }

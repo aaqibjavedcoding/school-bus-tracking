@@ -4,7 +4,7 @@ import { UserRole, type TripStudentManifestResponse } from '@school-bus-tracking
 import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../src/services/api';
-import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
+import { getLocalizedApiError, unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import { isTripOpen, ManifestList, manifestCounts, useCrewToday } from '../../src/features/crew';
 import { OfflineSyncBanner, useOfflineAction } from '../../src/features/crew/offline';
@@ -12,6 +12,7 @@ import { useToast } from '../../src/components';
 import { useAuth } from '../../src/features/auth';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '../../src/components';
+import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Student manifest of the crew member's today trip, with board/drop.
@@ -27,6 +28,7 @@ import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '..
  */
 export default function CrewManifestScreen() {
   const { user } = useAuth();
+  const t = useTranslation();
   const isDriver = user?.role === UserRole.DRIVER;
   const {
     data: today,
@@ -75,18 +77,19 @@ export default function CrewManifestScreen() {
       if (result.mode === 'queued') {
         setQueuedIds((previous) => new Set(previous).add(studentId));
         toast.push(
-          action === 'board'
-            ? 'Saved offline — boarding will sync when back online.'
-            : 'Saved offline — drop-off will sync when back online.',
+          action === 'board' ? t('manifest.queuedBoardToast') : t('manifest.queuedDropToast'),
           'info',
         );
         return;
       }
       await manifestLoad.reload();
     } catch (caught) {
+      // Known server codes get local copy; an unknown one is shown as-is with
+      // its raw code appended, never silently dropped.
+      const localized = getLocalizedApiError(caught);
       Alert.alert(
-        action === 'board' ? 'Could not board student' : 'Could not drop student',
-        getApiErrorMessage(caught),
+        action === 'board' ? t('manifest.boardFailed') : t('manifest.dropFailed'),
+        localized.codeNote ? `${localized.message}\n\n${localized.codeNote}` : localized.message,
       );
     } finally {
       setBusyStudentId(null);
@@ -94,14 +97,14 @@ export default function CrewManifestScreen() {
   };
 
   if (todayLoading && !today) {
-    return <LoadingView label="Loading manifest…" />;
+    return <LoadingView label={t('manifest.loading')} />;
   }
   if (todayError || !today) {
     return (
       <Screen>
         <ErrorState
           legible
-          message={todayError ?? 'Could not load your trip'}
+          message={todayError ?? t('manifest.loadError')}
           onRetry={() => void reloadToday()}
         />
       </Screen>
@@ -113,8 +116,8 @@ export default function CrewManifestScreen() {
         <EmptyState
           legible
           icon="people-outline"
-          title="No trip today"
-          description="There is no manifest without a trip."
+          title={t('manifest.empty.tripTitle')}
+          description={t('manifest.empty.tripBody')}
         />
       </Screen>
     );
@@ -138,17 +141,19 @@ export default function CrewManifestScreen() {
               <OfflineSyncBanner />
               <Text style={styles.role}>
                 {user ? `${crewRoleLabel(user.role)} · ` : ''}
-                {isDriver ? 'Students on board' : 'Boarding & drop'}
+                {isDriver ? t('nav.manifest.titleDriver') : t('nav.manifest.titleConductor')}
               </Text>
               <Text style={styles.hint}>
-                {isDriver
-                  ? 'The head-count you are carrying. Ask the conductor before moving off.'
-                  : 'Tap board when a student gets on and drop when they get off — the time is recorded automatically.'}
+                {isDriver ? t('manifest.hint.driver') : t('manifest.hint.conductor')}
               </Text>
               <TripStatusBadge size="lg" status={manifest.trip_status} />
               {counts ? (
                 <Text style={styles.counts}>
-                  {counts.boarded} boarded · {counts.pending} waiting · {counts.dropped} dropped
+                  {t('manifest.counts', {
+                    boarded: counts.boarded,
+                    pending: counts.pending,
+                    dropped: counts.dropped,
+                  })}
                 </Text>
               ) : null}
             </>
@@ -173,15 +178,15 @@ export default function CrewManifestScreen() {
     >
       {manifest ? (
         <EmptyState
-          title="No students on this route"
-          description="Every manifest entry comes from active students whose home stop belongs to this route."
+          title={t('manifest.empty.studentsTitle')}
+          description={t('manifest.empty.studentsBody')}
         />
       ) : manifestLoad.loading ? (
-        <LoadingView label="Loading manifest…" />
+        <LoadingView label={t('manifest.loading')} />
       ) : manifestLoad.error ? (
         <ErrorState message={manifestLoad.error} onRetry={() => void manifestLoad.reload()} />
       ) : (
-        <EmptyState title="Manifest unavailable" />
+        <EmptyState title={t('manifest.unavailable')} />
       )}
     </Screen>
   );

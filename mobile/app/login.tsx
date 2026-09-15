@@ -17,6 +17,7 @@ import { loginSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { useAuth } from '../src/features/auth';
 import { Button, Field } from '../src/components';
+import { useTranslation } from '../src/lib/i18n-provider';
 import {
   emptyToNull,
   fieldErrorsFromZod,
@@ -42,6 +43,7 @@ import {
 export default function LoginScreen() {
   const { status, user, login } = useAuth();
   const router = useRouter();
+  const t = useTranslation();
   const [schoolId, setSchoolId] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -148,7 +150,7 @@ export default function LoginScreen() {
     try {
       await login(parsed.data);
     } catch (error) {
-      setFormError(getApiErrorMessage(error, 'Could not sign in'));
+      setFormError(getApiErrorMessage(error, t('login.failed')));
     } finally {
       setBusy(false);
     }
@@ -181,22 +183,23 @@ export default function LoginScreen() {
         <View style={styles.container}>
           <View style={styles.hero}>
             <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>SBT</Text>
+              <Text style={styles.brandMarkText}>{t('login.brandMark')}</Text>
             </View>
-            <Text style={styles.title}>School Bus Tracking</Text>
-            <Text style={styles.subtitle}>Sign in with your school account</Text>
+            {/* The product name is a brand, not copy — same in both locales. */}
+            <Text style={styles.title}>{t('login.brandName')}</Text>
+            <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
           </View>
 
           <View style={styles.card}>
             <Field
               ref={schoolRef}
-              label="School code"
+              label={t('login.schoolLabel')}
               value={schoolId}
               onChangeText={setSchoolId}
-              placeholder="e.g. lincoln-high"
+              placeholder={t('login.schoolPlaceholder')}
               autoCapitalize="none"
               error={fieldErrors.school_id}
-              hint="Your school's tenant code. Leave empty only for platform admins."
+              hint={t('login.schoolHint')}
               returnKeyType="next"
               submitBehavior="submit"
               onFocus={onFocusField(schoolRef)}
@@ -204,10 +207,10 @@ export default function LoginScreen() {
             />
             <Field
               ref={emailRef}
-              label="Email"
+              label={t('login.email')}
               value={email}
               onChangeText={setEmail}
-              placeholder="you@school.edu"
+              placeholder={t('login.emailPlaceholder')}
               keyboardType="email-address"
               textContentType="username"
               autoComplete="email"
@@ -219,10 +222,10 @@ export default function LoginScreen() {
             />
             <Field
               ref={passwordRef}
-              label="Password"
+              label={t('login.password')}
               value={password}
               onChangeText={setPassword}
-              placeholder="••••••••"
+              placeholder={t('login.passwordPlaceholder')}
               secureTextEntry
               textContentType="password"
               autoComplete="current-password"
@@ -238,7 +241,7 @@ export default function LoginScreen() {
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
             <Button
-              label="Sign in"
+              label={t('login.submit')}
               onPress={() => void onSubmit()}
               busy={busy}
               disabled={busy || configError !== null}
@@ -246,10 +249,7 @@ export default function LoginScreen() {
           </View>
 
           <View>
-            <Text style={styles.footer}>
-              Drivers, conductors, parents and school admins all sign in here — the app adapts to
-              your role.
-            </Text>
+            <Text style={styles.footer}>{t('login.footer')}</Text>
           </View>
         </View>
       </ScrollView>

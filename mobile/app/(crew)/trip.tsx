@@ -29,6 +29,7 @@ import {
 } from '../../src/components';
 import { formatDate, formatTime, roleLabel } from '../../src/lib/format';
 import { crewCopy } from '../../src/features/crew/crew-copy';
+import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Crew "today" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
@@ -47,6 +48,7 @@ import { crewCopy } from '../../src/features/crew/crew-copy';
 export default function CrewTripScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const t = useTranslation();
   const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
   const trip = data?.trip ?? null;
   const sharing = useCrewLocationSharing(trip);
@@ -62,16 +64,12 @@ export default function CrewTripScreen() {
   }, [trip?.route_id]);
 
   if (loading && !data) {
-    return <LoadingView label="Loading today's trip…" />;
+    return <LoadingView label={t('trip.loading')} />;
   }
   if (error || !data) {
     return (
       <Screen>
-        <ErrorState
-          legible
-          message={error ?? 'Could not load your trips'}
-          onRetry={() => void reload()}
-        />
+        <ErrorState legible message={error ?? t('trip.loadError')} onRetry={() => void reload()} />
       </Screen>
     );
   }
@@ -81,8 +79,8 @@ export default function CrewTripScreen() {
         <EmptyState
           legible
           icon="bus-outline"
-          title="No trip scheduled today"
-          description="You have no runs assigned for today. Trips appear here as soon as the school dispatches them."
+          title={t('trip.empty.title')}
+          description={t('trip.empty.body')}
         />
       </Screen>
     );
@@ -96,9 +94,13 @@ export default function CrewTripScreen() {
       <KeyValue
         legible
         label={crewCopy.details.route}
-        value={route ? `${route.code} · ${route.name}` : '—'}
+        value={route ? `${route.code} · ${route.name}` : t('trip.emptyValue')}
       />
-      <KeyValue legible label={crewCopy.details.scheduled} value={formatTime(trip.scheduled_start_at)} />
+      <KeyValue
+        legible
+        label={crewCopy.details.scheduled}
+        value={formatTime(trip.scheduled_start_at)}
+      />
       <KeyValue legible label={crewCopy.details.date} value={formatDate(trip.scheduled_start_at)} />
       <KeyValue
         legible
@@ -106,10 +108,12 @@ export default function CrewTripScreen() {
         value={
           bus
             ? `${bus.registration_number}${bus.bus_number ? ` · ${bus.bus_number}` : ''}`
-            : '—'
+            : t('trip.emptyValue')
         }
       />
-      {user ? <KeyValue legible label={crewCopy.details.role} value={roleLabel(user.role)} /> : null}
+      {user ? (
+        <KeyValue legible label={crewCopy.details.role} value={roleLabel(user.role)} />
+      ) : null}
       <View style={styles.connectionRow}>
         <Text style={styles.connectionLabel}>{crewCopy.details.connection}</Text>
         <ConnectionIndicator connection={live.connection} />
@@ -148,7 +152,9 @@ export default function CrewTripScreen() {
        * driving-time story (Sharing ✅/❌ + last update + Retry); the
        * counters and diagnostics moved to the Help/Support screen.
        */}
-      {isDriver ? <GpsShareStrip sharing={sharing} onOpenHelp={() => router.push('/help')} /> : null}
+      {isDriver ? (
+        <GpsShareStrip sharing={sharing} onOpenHelp={() => router.push('/help')} />
+      ) : null}
 
       {isDriver ? (
         <TripNavigationCard
@@ -160,7 +166,7 @@ export default function CrewTripScreen() {
 
       <View style={styles.linkRow}>
         <Button
-          label={isDriver ? 'Manifest' : 'Board & drop'}
+          label={isDriver ? t('trip.link.manifestDriver') : t('trip.link.manifestConductor')}
           icon="people"
           variant="secondary"
           size="lg"
@@ -168,7 +174,7 @@ export default function CrewTripScreen() {
           style={styles.linkButton}
         />
         <Button
-          label="Stops & ETA"
+          label={t('trip.link.stops')}
           icon="location"
           variant="secondary"
           size="lg"

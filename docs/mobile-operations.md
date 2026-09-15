@@ -74,6 +74,7 @@ Help screen simply renders what the driver no longer has to.
 ### GPS Permission Recovery
 
 Handles:
+
 - Permission denied (can request again)
 - Permission permanently denied (must go to settings)
 - Location services disabled (must go to settings)
@@ -81,6 +82,7 @@ Handles:
 - Battery optimization issues
 
 Provides:
+
 - Clear explanation
 - Retry/recheck button
 - Settings link where supported
@@ -109,10 +111,10 @@ Provides:
 Token refresh is **always silent** — it never renders UI. Two separate
 progress signals exist deliberately:
 
-| Signal       | Drives                                        | When it is true                                  |
-| ------------ | --------------------------------------------- | ------------------------------------------------ |
-| `loading`    | `LoadingView` / skeleton (`loading && !data`) | Initial load & dependency-driven reloads         |
-| `refreshing` | The pull-to-refresh spinner only              | User-initiated pull (`refresh()`)                |
+| Signal       | Drives                                        | When it is true                          |
+| ------------ | --------------------------------------------- | ---------------------------------------- |
+| `loading`    | `LoadingView` / skeleton (`loading && !data`) | Initial load & dependency-driven reloads |
+| `refreshing` | The pull-to-refresh spinner only              | User-initiated pull (`refresh()`)        |
 
 Background work (stale-while-revalidate cache fetches, socket-triggered
 reloads, retries after a token refresh) must **never** surface a visible
@@ -124,14 +126,14 @@ The API only ever issues four 403s; all are intentional security
 enforcements, and the app must show the server's own message — never mask a
 403 as success:
 
-| Server message                 | Source                                                        | Mobile client behavior                                  |
-| ------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------- |
-| `Insufficient role permissions`| Roles guard                                                    | Show message (verify the account's role & screen)       |
-| `User account is inactive`     | JWT guard / auth service                                       | Session ends → login (reactivation required)            |
-| `School is inactive`           | JWT guard / auth service (incl. `/auth/refresh`)               | Session ends → login (school must be re-enabled)        |
-| `Request origin is not allowed`| CSRF guard                                                     | Never reachable from the app — native requests send no  |
-|                                |                                                               | `Origin` header; this only fires for browser-origin     |
-|                                |                                                               | requests not in `CORS_ORIGIN`                           |
+| Server message                  | Source                                           | Mobile client behavior                                 |
+| ------------------------------- | ------------------------------------------------ | ------------------------------------------------------ |
+| `Insufficient role permissions` | Roles guard                                      | Show message (verify the account's role & screen)      |
+| `User account is inactive`      | JWT guard / auth service                         | Session ends → login (reactivation required)           |
+| `School is inactive`            | JWT guard / auth service (incl. `/auth/refresh`) | Session ends → login (school must be re-enabled)       |
+| `Request origin is not allowed` | CSRF guard                                       | Never reachable from the app — native requests send no |
+|                                 |                                                  | `Origin` header; this only fires for browser-origin    |
+|                                 |                                                  | requests not in `CORS_ORIGIN`                          |
 
 Role consistency is verified: each screen only mounts endpoints its role is
 granted (see the role-gated route groups), so a healthy session cannot 403.
@@ -157,14 +159,56 @@ granted (see the role-gated route groups), so a healthy session cannot 403.
 ### Critical Attendance Actions
 
 For Driver/Conductor, attendance actions survive temporary network errors:
+
 - Queued locally when offline
 - Synced when network returns
 - User sees sync state (pending count)
 - Never silently lost
 
+## Language & Voice Settings
+
+Support-facing notes for the localisation layer (Phase 3). Full design map:
+`docs/mobile-ux.md` → "Phase 3 — localisation & voice".
+
+### Language
+
+- **Two languages**: English (source of truth) and Hindi. Nothing else is
+  offered, so "the app is in a language I don't have" is not a possible state.
+- **Where the switch is**: crew app → **Help & support** (reached from the
+  trip screen) → _Language_ / _भाषा_ → tap **English** or **हिन्दी**. Each
+  option names itself in its own script, so a crew member who cannot read
+  English can still find हिन्दी while the app is showing English.
+- **It applies instantly** — no restart, no re-login, nothing is lost on
+  screen. If someone reports "I changed it and nothing happened", the app is
+  on a build without Phase 3, not misconfigured.
+- **It persists** in AsyncStorage under `sbt.mobile.locale`. Clearing app data
+  (or a reinstall) resets it to the default.
+- **Default**: `DRIVER`/`CONDUCTOR` → **Hindi**, even on an English-locale
+  phone. `SCHOOL_ADMIN`/`PARENT` → the device language. This is deliberate: the
+  crew app is built for the person who cannot read English, and the switch is
+  the escape hatch.
+- **Deliberately still English**, and not a bug to file:
+  - student names, route/bus codes, stop names, school names — that is data;
+  - API error messages, emergency type/status labels, document type labels —
+    the server sends English and Phase 3 is client-side only;
+  - the four GPS counters on the Help screen ("Sent", "Rejected",
+    "Dropped (offline)", "Invalid fix") — they are read aloud to the support
+    engineer, who works in English;
+  - an **unknown** server error code shows the server's message plus a
+    `Server code XYZ` line. Ask the caller to read that code back — it is the
+    exact identifier the API returned.
+
+### Voice
+
+_Voice feedback and haptics land in Phase 3b._ The troubleshooting shape will
+be: **no voice = the "Sound & vibration" switch is off, or the device has no
+Hindi TTS engine installed** (`expo-speech` uses the OS engine, so a device
+without a `hi-IN` voice speaks nothing — the app never fails because of it).
+
 ## List / Search / Pagination
 
 All major management screens support:
+
 - Server-side search
 - Debouncing (300ms)
 - Pagination (page-based)

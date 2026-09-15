@@ -1,101 +1,200 @@
+import { t } from '../../lib/i18n.ts';
+
 /**
- * Every string the Phase-2 crew surfaces render, in one pure module.
+ * Every string the crew surfaces render, in one pure module — now a thin,
+ * locale-aware view over the i18n dictionaries instead of an English literal
+ * table.
  *
- * Why: Phase 3 adds Hindi/voice, which needs a single swap point — an i18n
- * layer that returns the same keys. Nothing here formats dynamic data; the
- * components interpolate values around these constants. Keep entries flat,
- * key-stable and free of React imports so `node --test` can pin them.
+ * Phase 2 built this as the Phase-3 plug point and the swap is deliberately
+ * **shape-preserving**: the keys are the same, the formatters have the same
+ * signatures, and `crew-copy.spec.ts` still passes unchanged. What changed is
+ * *when* a value is read — every entry is a getter (or a formatter that calls
+ * `t()` at call time), so a language switch is picked up on the next render
+ * rather than frozen at module load.
+ *
+ * Two consequences worth knowing:
+ *
+ * - **Never destructure this object into a module-level constant.** A
+ *   `const { sent } = crewCopy.sos` at import time would capture one locale
+ *   forever — the exact bug `trip-status-style.ts` had before it moved its
+ *   `word` into a getter. Read it inside a component/function body.
+ * - Nothing here formats *data*. Student names, route/bus codes and server
+ *   timestamps are interpolated by the callers, and are never translated.
  */
 
 export const crewCopy = {
-  /** Giant status-card words (always uppercase — colour + icon repeat them). */
+  /** Giant status-card words — colour is never the only cue, the word repeats it. */
   statusWord: {
-    scheduled: 'SCHEDULED',
-    boarding: 'BOARDING',
-    inProgress: 'ON THE ROAD',
-    completed: 'COMPLETED',
-    cancelled: 'CANCELLED',
+    get scheduled(): string {
+      return t('status.scheduled');
+    },
+    get boarding(): string {
+      return t('status.boarding');
+    },
+    get inProgress(): string {
+      return t('status.inProgress');
+    },
+    get completed(): string {
+      return t('status.completed');
+    },
+    get cancelled(): string {
+      return t('status.cancelled');
+    },
   },
 
   /** Status-card chrome. */
-  detailsToggle: 'More details',
-  detailsToggleHide: 'Hide details',
-  nextStopFallback: 'Next stop updates after GPS starts',
-  allStopsDone: 'All stops done',
-  etaUnavailable: 'ETA soon',
-  tripCountNote: (count: number): string => `${count} trips today · showing the active one`,
-  departedAt: (time: string): string => `Departed ${time}`,
-  arrivedAt: (time: string): string => `Arrived ${time}`,
+  get detailsToggle(): string {
+    return t('trip.detailsToggle');
+  },
+  get detailsToggleHide(): string {
+    return t('trip.detailsToggleHide');
+  },
+  get nextStopFallback(): string {
+    return t('trip.nextStopFallback');
+  },
+  get allStopsDone(): string {
+    return t('trip.allStopsDone');
+  },
+  get etaUnavailable(): string {
+    return t('trip.etaUnavailable');
+  },
+  /** "Next: <stop name>" — the stop name itself is data and stays as sent. */
+  nextStop: (name: string): string => t('trip.nextStop', { name }),
+  etaLine: (minutes: string): string => t('trip.eta', { minutes }),
+  tripCountNote: (count: number): string => t('trip.tripCountNote', { count }),
+  departedAt: (time: string): string => t('trip.departedAt', { time }),
+  arrivedAt: (time: string): string => t('trip.arrivedAt', { time }),
 
   /** Collapsible details rows. */
   details: {
-    route: 'Route',
-    scheduled: 'Scheduled',
-    date: 'Date',
-    bus: 'Bus',
-    role: 'Role',
-    connection: 'Connection',
+    get route(): string {
+      return t('trip.detail.route');
+    },
+    get scheduled(): string {
+      return t('trip.detail.scheduled');
+    },
+    get date(): string {
+      return t('trip.detail.date');
+    },
+    get bus(): string {
+      return t('trip.detail.bus');
+    },
+    get role(): string {
+      return t('trip.detail.role');
+    },
+    get connection(): string {
+      return t('trip.detail.connection');
+    },
   },
 
   /** Compact GPS strip on the trip screen (driver). */
   gps: {
-    sharingOn: 'Sharing ✅',
-    sharingOff: 'Sharing ❌',
-    lastUpdate: (time: string): string => `Updated ${time}`,
-    neverUpdated: 'No update yet',
-    retry: 'Retry',
-    stop: 'Stop',
-    helpLink: 'GPS details & support',
+    get sharingOn(): string {
+      return t('gps.sharingOn');
+    },
+    get sharingOff(): string {
+      return t('gps.sharingOff');
+    },
+    lastUpdate: (time: string): string => t('gps.lastUpdate', { time }),
+    get neverUpdated(): string {
+      return t('gps.neverUpdated');
+    },
+    get retry(): string {
+      return t('gps.retry');
+    },
+    get stop(): string {
+      return t('gps.stop');
+    },
+    get helpLink(): string {
+      return t('gps.helpLink');
+    },
   },
 
   /** Help / Support screen. */
   help: {
-    title: 'Help & support',
-    intro:
-      'If the school says the bus is not moving on their screen, show them this page. These numbers are for the support team — you never have to read them while driving.',
-    supportHeadline: 'For the support team',
-    supportAdvice:
-      'Read out the four numbers below and the last-fix line. "Dropped (offline)" growing while you have internet usually means a weak signal area — support can check the same counters on the server.',
+    get title(): string {
+      return t('help.title');
+    },
+    get intro(): string {
+      return t('help.intro');
+    },
+    get supportHeadline(): string {
+      return t('help.supportHeadline');
+    },
+    get supportAdvice(): string {
+      return t('help.supportAdvice');
+    },
   },
 
   /** SOS hold-to-confirm. */
   sos: {
-    holdLabel: 'HOLD to send SOS',
-    holdingHint: 'Keep holding…',
-    a11yLabel: 'Emergency SOS. Press and hold to alert the school.',
-    sent: 'SOS sent ✅',
-    queued: 'SOS queued ⏳ — will send when internet returns',
-    queuedShort: 'Queued ⏳ will send when online',
-    retrying: 'Sending…',
-    activeAlert: 'Alert active — school has been notified',
-    manageHint: 'Details & cancel are on the SOS tab.',
-    sendFailed: 'SOS could not be sent',
+    get holdLabel(): string {
+      return t('sos.holdLabel');
+    },
+    get holdingHint(): string {
+      return t('sos.holdingHint');
+    },
+    get a11yLabel(): string {
+      return t('sos.a11yLabel');
+    },
+    get a11yHint(): string {
+      return t('sos.holdA11yHint');
+    },
+    get sent(): string {
+      return t('sos.sent');
+    },
+    get queued(): string {
+      return t('sos.queued');
+    },
+    get queuedShort(): string {
+      return t('sos.queuedShort');
+    },
+    get retrying(): string {
+      return t('sos.retrying');
+    },
+    get activeAlert(): string {
+      return t('sos.activeAlert');
+    },
+    get manageHint(): string {
+      return t('sos.manageHint');
+    },
+    get sendFailed(): string {
+      return t('sos.sendFailed');
+    },
   },
 
   /** Manifest board/drop rows. */
   manifest: {
-    board: 'Board',
-    drop: 'Drop',
-    waitingLabel: 'Waiting',
-    boardHint: 'Tap the row when the student gets on.',
-    dropHint: 'Tap the row when the student gets off.',
-    confirmBoard: (name: string, time: string): string => `${name} ✓ ${time}`,
-    confirmDrop: (name: string, time: string): string => `${name} ✕ ${time}`,
-    queuedBoard: (name: string): string => `${name} ⏳ saved offline`,
-    queuedDrop: (name: string): string => `${name} ⏳ saved offline`,
-    announceBoard: (name: string): string => `${name} boarded`,
-    announceDrop: (name: string): string => `${name} dropped`,
+    get board(): string {
+      return t('manifest.board');
+    },
+    get drop(): string {
+      return t('manifest.drop');
+    },
+    get waitingLabel(): string {
+      return t('manifest.waitingLabel');
+    },
+    get boardHint(): string {
+      return t('manifest.boardHint');
+    },
+    get dropHint(): string {
+      return t('manifest.dropHint');
+    },
+    confirmBoard: (name: string, time: string): string =>
+      t('manifest.confirmBoard', { name, time }),
+    confirmDrop: (name: string, time: string): string => t('manifest.confirmDrop', { name, time }),
+    queuedBoard: (name: string): string => t('manifest.queuedBoard', { name }),
+    queuedDrop: (name: string): string => t('manifest.queuedDrop', { name }),
+    announceBoard: (name: string): string => t('manifest.announceBoard', { name }),
+    announceDrop: (name: string): string => t('manifest.announceDrop', { name }),
     rowA11y: {
-      waiting: (name: string): string => `${name}, waiting. Double-tap to board.`,
-      onBoard: (name: string, time: string): string => `${name}, on board since ${time}.`,
-      droppedRow: (name: string, time: string): string => `${name}, dropped off at ${time}.`,
+      waiting: (name: string): string => t('manifest.rowA11y.waiting', { name }),
+      onBoard: (name: string, time: string): string =>
+        t('manifest.rowA11y.onBoard', { name, time }),
+      droppedRow: (name: string, time: string): string =>
+        t('manifest.rowA11y.dropped', { name, time }),
     },
   },
-
-  /** Tab/screen captions introduced by Phase 2. */
-  screens: {
-    help: 'Help',
-  },
-} as const;
+};
 
 export type CrewCopy = typeof crewCopy;

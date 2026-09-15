@@ -7,6 +7,7 @@ import { fontScaleCaps } from '../../theme';
 import { formatEtaMinutes } from '../../lib/format';
 import { tripStatusStyle } from './trip-status-style';
 import { crewCopy } from './crew-copy';
+import { useTranslation } from '../../lib/i18n-provider';
 
 /**
  * The crew trip screen's giant status card (Phase 2): **the background
@@ -31,6 +32,9 @@ export const StatusCard: React.FC<{
   /** Collapsed-by-default metadata (`KeyValue` rows, stamps, counts…). */
   details?: React.ReactNode;
 }> = ({ trip, eta, action, details }) => {
+  // Subscribes to the locale: this card carries the state word, the next-stop
+  // line and the details labels, all of them translated.
+  useTranslation();
   const style = tripStatusStyle(trip.status);
   const [expanded, setExpanded] = useState(false);
   const [reveal] = useState(() => new Animated.Value(0));
@@ -114,8 +118,9 @@ export function nextStopSummary(eta: TripEtaResponse | null): NextStopSummary {
   }
   const etaMinutes = formatEtaMinutes(eta.next_stop.eta_minutes);
   return {
-    headline: `Next: ${eta.next_stop.stop_name}`,
-    subline: etaMinutes ? `ETA ${etaMinutes}` : crewCopy.etaUnavailable,
+    // The stop name is data — it goes in as the server sent it.
+    headline: crewCopy.nextStop(eta.next_stop.stop_name),
+    subline: etaMinutes ? crewCopy.etaLine(etaMinutes) : crewCopy.etaUnavailable,
   };
 }
 

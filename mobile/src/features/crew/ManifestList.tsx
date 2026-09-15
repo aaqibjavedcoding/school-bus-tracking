@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Animated, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Animated,
+  Pressable,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   TripAttendanceStatus,
@@ -17,6 +26,7 @@ import {
   screenRefreshControl,
 } from '../../components';
 import { crewCopy } from './crew-copy';
+import { t } from '../../lib/i18n.ts';
 import {
   MANIFEST_ROW_MIN_HEIGHT,
   ROW_ACTION_GLYPH_SIZE,
@@ -52,12 +62,26 @@ import {
 
 type ManifestFilter = 'ALL' | TripAttendanceStatus;
 
-const FILTERS: { key: ManifestFilter; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'ALL', label: 'All', icon: 'people' },
-  { key: TripAttendanceStatus.PENDING, label: 'Waiting', icon: 'time' },
-  { key: TripAttendanceStatus.BOARDED, label: 'On board', icon: 'bus' },
-  { key: TripAttendanceStatus.DROPPED, label: 'Dropped', icon: 'checkmark-done' },
-];
+/**
+ * Built per render, not at module scope: a module-level constant would capture
+ * one locale at import time and never pick up a language switch.
+ */
+function manifestFilters(): {
+  key: ManifestFilter;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] {
+  return [
+    { key: 'ALL', label: t('manifest.filter.all'), icon: 'people' },
+    { key: TripAttendanceStatus.PENDING, label: t('manifest.filter.waiting'), icon: 'time' },
+    { key: TripAttendanceStatus.BOARDED, label: t('manifest.filter.boarded'), icon: 'bus' },
+    {
+      key: TripAttendanceStatus.DROPPED,
+      label: t('manifest.filter.dropped'),
+      icon: 'checkmark-done',
+    },
+  ];
+}
 
 interface ManifestSection {
   stop_id: string;
@@ -152,10 +176,22 @@ export const ManifestList: React.FC<{
         <>
           {header}
           <View style={styles.summaryRow}>
-            <Badge size="lg" label={`${summary.total} students`} />
-            <Badge size="lg" label={`${summary.pending} waiting`} tone="warning" />
-            <Badge size="lg" label={`${summary.boarded} on board`} tone="info" />
-            <Badge size="lg" label={`${summary.dropped} dropped`} tone="success" />
+            <Badge size="lg" label={t('manifest.summary.total', { count: summary.total })} />
+            <Badge
+              size="lg"
+              label={t('manifest.summary.pending', { count: summary.pending })}
+              tone="warning"
+            />
+            <Badge
+              size="lg"
+              label={t('manifest.summary.boarded', { count: summary.boarded })}
+              tone="info"
+            />
+            <Badge
+              size="lg"
+              label={t('manifest.summary.dropped', { count: summary.dropped })}
+              tone="success"
+            />
           </View>
 
           <SearchBar
@@ -163,12 +199,12 @@ export const ManifestList: React.FC<{
             value={search}
             onChangeText={setSearch}
             onClear={() => setSearch('')}
-            placeholder="Search student, admission no. or stop…"
+            placeholder={t('manifest.search.placeholder')}
           />
 
           <FilterChips<ManifestFilter>
             size="field"
-            options={FILTERS.map((entry) => ({
+            options={manifestFilters().map((entry) => ({
               value: entry.key,
               icon: entry.icon,
               label: `${entry.label} · ${
@@ -185,11 +221,16 @@ export const ManifestList: React.FC<{
       ListEmptyComponent={
         <EmptyState
           icon="search"
-          title="No students match"
-          description="No students match the current search or filter."
+          title={t('manifest.empty.searchTitle')}
+          description={t('manifest.empty.searchBody')}
           action={
             filtersActive ? (
-              <Button label="Clear filters" variant="secondary" size="lg" onPress={resetFilters} />
+              <Button
+                label={t('manifest.clearFilters')}
+                variant="secondary"
+                size="lg"
+                onPress={resetFilters}
+              />
             ) : null
           }
         />
@@ -272,7 +313,9 @@ const ManifestRow: React.FC<{
       style={styles.rowWrap}
     >
       {({ pressed }) => (
-        <Animated.View style={[styles.row, { backgroundColor }, pressed && action ? styles.rowPressed : null]}>
+        <Animated.View
+          style={[styles.row, { backgroundColor }, pressed && action ? styles.rowPressed : null]}
+        >
           <View style={styles.rowMain}>
             <Text style={styles.rowName}>
               {student.first_name} {student.last_name}
@@ -285,7 +328,9 @@ const ManifestRow: React.FC<{
               <Text
                 style={[
                   styles.confirmation,
-                  student.status === TripAttendanceStatus.DROPPED ? styles.confirmationDropped : null,
+                  student.status === TripAttendanceStatus.DROPPED
+                    ? styles.confirmationDropped
+                    : null,
                 ]}
               >
                 {confirmation}

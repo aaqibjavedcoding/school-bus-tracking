@@ -5,6 +5,8 @@ import { Button } from '../../../components';
 import { discardFailed, retryFailed } from './attendance-queue.ts';
 import { getSyncUserId, refreshCounts, syncNow } from './attendance-sync.ts';
 import { useSyncState } from './useOfflineAction';
+import { pluralKey, t } from '../../../lib/i18n.ts';
+import { useTranslation } from '../../../lib/i18n-provider';
 
 /**
  * Crew-facing offline/sync status strip.
@@ -18,6 +20,8 @@ import { useSyncState } from './useOfflineAction';
  * - permanent failures → the server's reason + Retry / Dismiss
  */
 export const OfflineSyncBanner: React.FC = () => {
+  // Subscribes to the locale: the banner's whole payload is translated copy.
+  useTranslation();
   const sync = useSyncState();
   const [busy, setBusy] = useState(false);
 
@@ -33,22 +37,23 @@ export const OfflineSyncBanner: React.FC = () => {
 
   const title = !sync.isOnline
     ? hasPending
-      ? `Offline · ${sync.pendingCount} action${sync.pendingCount === 1 ? '' : 's'} saved on this phone`
-      : 'Offline · actions will be saved and synced later'
+      ? t(pluralKey('offline.pending', sync.pendingCount), { count: sync.pendingCount })
+      : t('offline.idle')
     : sync.status === 'syncing'
-      ? `Syncing ${sync.pendingCount} action${sync.pendingCount === 1 ? '' : 's'}…`
+      ? t(pluralKey('offline.syncing', sync.pendingCount), { count: sync.pendingCount })
       : hasFailed
-        ? `${sync.failedCount} action${sync.failedCount === 1 ? '' : 's'} could not be synced`
+        ? t(pluralKey('offline.failed', sync.failedCount), { count: sync.failedCount })
         : hasPending
-          ? `${sync.pendingCount} action${sync.pendingCount === 1 ? '' : 's'} waiting to sync`
-          : 'Sync problem';
+          ? t(pluralKey('offline.waiting', sync.pendingCount), { count: sync.pendingCount })
+          : t('offline.problem');
 
   const detail = !sync.isOnline
-    ? 'They will be sent automatically when the connection returns.'
-    : hasFailed && sync.lastError
+    ? t('offline.detailOffline')
+    : // `lastError` is the server's own English message — passed through as-is.
+      hasFailed && sync.lastError
       ? sync.lastError
       : sync.status === 'error' && sync.lastError
-        ? `Will retry automatically. ${sync.lastError}`
+        ? t('offline.willRetry', { error: sync.lastError })
         : null;
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -67,7 +72,7 @@ export const OfflineSyncBanner: React.FC = () => {
       <View style={styles.actions}>
         {sync.isOnline && hasPending && sync.status !== 'syncing' ? (
           <Button
-            label="Sync now"
+            label={t('offline.syncNow')}
             icon="cloud-upload"
             variant="secondary"
             disabled={busy}
@@ -77,7 +82,7 @@ export const OfflineSyncBanner: React.FC = () => {
         {hasFailed ? (
           <>
             <Button
-              label="Retry"
+              label={t('offline.retry')}
               icon="refresh"
               variant="secondary"
               disabled={busy}
@@ -90,7 +95,7 @@ export const OfflineSyncBanner: React.FC = () => {
               }
             />
             <Button
-              label="Dismiss"
+              label={t('offline.dismiss')}
               variant="ghost"
               disabled={busy}
               onPress={() =>

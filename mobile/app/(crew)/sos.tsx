@@ -6,6 +6,7 @@ import { SosPanel } from '../../src/features/crew/SosPanel';
 import { useCrewToday } from '../../src/features/crew';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { EmptyState, ErrorState, LoadingView, Screen } from '../../src/components';
+import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Crew emergency tab (Task 44).
@@ -20,19 +21,20 @@ import { EmptyState, ErrorState, LoadingView, Screen } from '../../src/component
  */
 export default function CrewSosScreen() {
   const { user } = useAuth();
+  const t = useTranslation();
   const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
   const trip = data?.trip ?? null;
-  const role = user ? crewRoleLabel(user.role) : 'Crew';
+  const role = user ? crewRoleLabel(user.role) : t('role.crew');
 
   if (loading && !data) {
-    return <LoadingView label="Loading your trip…" />;
+    return <LoadingView label={t('sos.loading')} />;
   }
   if (error || !data) {
     return (
       <Screen>
         <ErrorState
           legible
-          message={error ?? 'Could not load your trip'}
+          message={error ?? t('manifest.loadError')}
           onRetry={() => void reload()}
         />
       </Screen>
@@ -41,20 +43,21 @@ export default function CrewSosScreen() {
 
   return (
     <Screen refresh={() => void refresh()} refreshing={refreshing}>
-      <Text style={styles.role}>{role} emergency</Text>
+      <Text style={styles.role}>{t('sos.roleTitle', { role })}</Text>
       {trip ? (
         <View style={styles.context}>
           <Text style={styles.contextText}>
-            This alert will be attached to today&apos;s trip
-            {data.route ? ` · ${data.route.code} ${data.route.name}` : ''}.
+            {data.route
+              ? t('sos.attachTripRoute', { route: `${data.route.code} ${data.route.name}` })
+              : t('sos.attachTrip')}
           </Text>
         </View>
       ) : (
         <EmptyState
           legible
           icon="warning-outline"
-          title="No trip today"
-          description="You can still raise an emergency — it will be recorded without a trip."
+          title={t('sos.empty.title')}
+          description={t('sos.empty.body')}
         />
       )}
 

@@ -6,6 +6,7 @@ import {
   type TripStudentManifestSummary,
 } from '@school-bus-tracking/shared-types';
 import { TRIP_STATUS_TRANSITIONS, isTripOpenForAttendance } from '@school-bus-tracking/validation';
+import { t } from '../../lib/i18n.ts';
 
 /**
  * Pure crew-trip selectors shared by the DRIVER and CONDUCTOR screens (and
@@ -56,12 +57,13 @@ export function nextCrewTransitions(status: TripStatus): TripStatus[] {
 export function transitionLabel(status: TripStatus): string {
   switch (status) {
     case TripStatus.BOARDING:
-      return 'Start boarding';
+      return t('trip.action.boarding');
     case TripStatus.IN_PROGRESS:
-      return 'Depart & drive';
+      return t('trip.action.inProgress');
     case TripStatus.COMPLETED:
-      return 'Complete trip';
+      return t('trip.action.completed');
     default:
+      // An unmapped status is server data, not UI copy — show it as it came.
       return status;
   }
 }

@@ -16,7 +16,7 @@ import { colors, spacing, borderRadius } from '@school-bus-tracking/design-token
 import { apiClient } from '../../services/api';
 import { getEmergenciesSocket } from '../../services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
-import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
+import { getLocalizedApiError, unwrapEnvelope } from '../../lib/errors';
 import { formatRelative, formatTime } from '../../lib/format';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { shouldQueueAfterError } from './offline/useOfflineAction';
@@ -36,6 +36,8 @@ import {
 import { HoldToConfirmButton } from './HoldToConfirmButton';
 import { SosSession, type SosDeliveryStatus } from './sos-flow';
 import { crewCopy } from './crew-copy';
+import { t } from '../../lib/i18n.ts';
+import { useTranslation } from '../../lib/i18n-provider';
 
 /**
  * Crew SOS (Task 44 + Phase 2) — the emergency affordance of the crew app.
@@ -68,6 +70,15 @@ export interface SosPanelProps {
   tripId: string | null;
   /** Role-specific wording ("driver" / "conductor"). */
   roleLabel: string;
+}
+
+/**
+ * Server error text for an SOS alert: a known code becomes the app's own copy,
+ * an unknown one is shown as the server sent it with its raw code appended.
+ */
+function localizedErrorText(caught: unknown): string {
+  const localized = getLocalizedApiError(caught);
+  return localized.codeNote ? `${localized.message} (${localized.codeNote})` : localized.message;
 }
 
 /** Details captured with (or after) the hold — defaults need zero reading. */
@@ -147,7 +158,7 @@ export function useCrewSos(tripId: string | null) {
         if (!parsed.success) {
           session.markFailed();
           setStatus('failed');
-          Alert.alert(crewCopy.sos.sendFailed, parsed.error.issues[0]?.message ?? 'Invalid alert');
+          Alert.alert(crewCopy.sos.sendFailed, parsed.error.issues[0]?.message ?? t('sos.invalid'));
           return 'failed';
         }
         unwrapEnvelope(await apiClient.raiseSos(parsed.data, withIdempotencyKey(idempotencyKey)));
@@ -166,7 +177,7 @@ export function useCrewSos(tripId: string | null) {
         }
         session.markFailed();
         setStatus('failed');
-        Alert.alert(crewCopy.sos.sendFailed, getApiErrorMessage(caught));
+        Alert.alert(crewCopy.sos.sendFailed, localizedErrorText(caught));
         return 'failed';
       } finally {
         setBusy(false);
@@ -211,6 +222,7 @@ export const SosStatusLine: React.FC<{
   onRetry: () => void;
   busy?: boolean;
 }> = ({ status, sentAt, active, onRetry, busy = false }) => {
+  useTranslation();
   if (active) {
     return (
       <View style={styles.statusLine}>
@@ -235,7 +247,14 @@ export const SosStatusLine: React.FC<{
       <View style={styles.statusLine}>
         <Ionicons name="cloud-offline" size={22} color={colors.neutral[600]} />
         <Text style={[styles.statusText, styles.flexText]}>{crewCopy.sos.queued}</Text>
-        <Button label={crewCopy.gps.retry} icon="refresh" variant="secondary" size="md" onPress={onRetry} busy={busy} />
+        <Button
+          label={crewCopy.gps.retry}
+          icon="refresh"
+          variant="secondary"
+          size="md"
+          onPress={onRetry}
+          busy={busy}
+        />
       </View>
     );
   }
@@ -259,6 +278,7 @@ export const SosQuickPanel: React.FC<{
   tripId: string | null;
   onOpenSosTab: () => void;
 }> = ({ tripId, onOpenSosTab }) => {
+  useTranslation();
   const { status, sentAt, busy, active, fire, retry } = useCrewSos(tripId);
   return (
     <View style={styles.quickWrap}>
@@ -311,7 +331,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
       setPendingCancel(null);
       await reload();
     } catch (caught) {
-      Alert.alert('Could not cancel the alert', getApiErrorMessage(caught));
+      Alert.alert(t('sos.cancelFailed'), localizedErrorText(caught));
     } finally {
       setCancelBusy(false);
     }
@@ -325,7 +345,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
   return (
     <View>
       {active ? (
-        <Card legible title="Alert active">
+        <Card legible title={t('sos.activeTitle')}>
           <View style={styles.activeRow}>
             <Ionicons name="alert-circle" size={24} color={colors.status.danger} />
             <Text style={styles.activeText}>
@@ -334,12 +354,10 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
             </Text>
           </View>
           <Text style={styles.muted}>
-            {active.acknowledged_at
-              ? 'The school acknowledged this alert. Help is on the way.'
-              : 'The school has been notified. Keep your phone with you.'}
+            {active.acknowledged_at ? t('sos.acknowledged') : t('sos.notified')}
           </Text>
           <Button
-            label="Cancel alert"
+            label={t('sos.cancelAlert')}
             variant="secondary"
             size="lg"
             icon="close-circle"
@@ -352,15 +370,10 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
 
       <Card
         legible
-        title="Emergency SOS"
-        description={`Press and hold the red button — the school is alerted instantly${
-          tripId ? ' and your current trip is attached' : ''
-        }.`}
+        title={t('sos.cardTitle')}
+        description={tripId ? t('sos.cardBodyTrip') : t('sos.cardBodyNoTrip')}
       >
-        <Text style={styles.muted}>
-          No reading needed: hold to send with your location. Time to add details? Use “Add details
-          first” — the alert is recorded against your {roleLabel} account either way.
-        </Text>
+        <Text style={styles.muted}>{t('sos.noReadingNeeded', { role: roleLabel })}</Text>
         <HoldToConfirmButton
           label={crewCopy.sos.holdLabel}
           icon="warning"
@@ -369,9 +382,15 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
           accessibilityLabel={crewCopy.sos.a11yLabel}
           style={styles.action}
         />
-        <SosStatusLine status={status} sentAt={sentAt} active={active} onRetry={retry} busy={busy} />
+        <SosStatusLine
+          status={status}
+          sentAt={sentAt}
+          active={active}
+          onRetry={retry}
+          busy={busy}
+        />
         <Button
-          label="Add details first (type, message)…"
+          label={t('sos.detailsButton')}
           icon="options"
           variant="ghost"
           size="md"
@@ -382,7 +401,7 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
       </Card>
 
       {history.length > 0 ? (
-        <Card legible title="Your recent alerts">
+        <Card legible title={t('sos.recentTitle')}>
           {history.map((event) => (
             <View key={event.id} style={styles.historyRow}>
               <Ionicons
@@ -409,12 +428,12 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
 
       <FormSheet
         open={composing}
-        title="Report an emergency"
+        title={t('sos.sheetTitle')}
         onClose={() => setComposing(false)}
         footer={
           <>
             <Button
-              label="Back"
+              label={t('sos.back')}
               variant="secondary"
               size="lg"
               onPress={() => setComposing(false)}
@@ -431,21 +450,21 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
         }
       >
         <Select
-          label="What is happening?"
+          label={t('sos.typeLabel')}
           value={type}
           options={typeOptions}
           onChange={(value) => setType(value as EmergencyType)}
         />
         <Field
-          label="Message"
+          label={t('sos.messageLabel')}
           value={message}
           onChangeText={setMessage}
           multiline
-          placeholder="e.g. Bus hit a divider, all students safe."
+          placeholder={t('sos.messagePlaceholder')}
         />
         <SwitchRow
-          label="Attach my location"
-          hint="Used only if the device already has a GPS fix — a position is never invented."
+          label={t('sos.locationLabel')}
+          hint={t('sos.locationHint')}
           value={shareLocation}
           onChange={setShareLocation}
         />
@@ -453,9 +472,9 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
 
       <ConfirmDialog
         open={Boolean(pendingCancel)}
-        title="Cancel this alert?"
-        message="Only cancel if the alert was raised by mistake — the school still keeps the record in its history."
-        confirmLabel="Cancel alert"
+        title={t('sos.cancelTitle')}
+        message={t('sos.cancelMessage')}
+        confirmLabel={t('sos.cancelConfirm')}
         danger
         busy={cancelBusy}
         onCancel={() => setPendingCancel(null)}
