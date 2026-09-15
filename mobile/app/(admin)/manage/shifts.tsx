@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
 });

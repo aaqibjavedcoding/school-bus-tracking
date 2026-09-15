@@ -27,9 +27,10 @@ import { fullName } from '../../src/lib/format';
  */
 export default function ParentHomeScreen() {
   const router = useRouter();
-  const { data, loading, refreshing, error, reload, refresh } = useLoad<ParentDashboardResponse>(async () => {
-    return unwrapEnvelope(await apiClient.getParentDashboard());
-  }, []);
+  const { data, loading, refreshing, error, reload, refresh } =
+    useLoad<ParentDashboardResponse>(async () => {
+      return unwrapEnvelope(await apiClient.getParentDashboard());
+    }, []);
   const [search, setSearch] = useState('');
   const term = search.trim().toLowerCase();
 
@@ -91,9 +92,7 @@ export default function ParentHomeScreen() {
         <EmptyState
           title="No matching children"
           description={`Nothing matched “${search.trim()}”.`}
-          action={
-            <Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />
-          }
+          action={<Button label="Clear search" variant="secondary" onPress={() => setSearch('')} />}
         />
       ) : (
         visibleChildren.map((child) => {
@@ -170,7 +169,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   childMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },
@@ -186,7 +185,7 @@ const styles = StyleSheet.create({
   },
   noTrip: {
     color: colors.neutral[500],
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
   },
   stopLine: {

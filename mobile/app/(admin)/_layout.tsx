@@ -39,8 +39,8 @@ function AdminTabs() {
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',
         headerTitleStyle: { fontWeight: 'bold' },
-        tabBarActiveTintColor: colors.primary[600],
-        tabBarInactiveTintColor: colors.neutral[400],
+        tabBarActiveTintColor: colors.primary[700],
+        tabBarInactiveTintColor: colors.neutral[500],
         // Height + padding derive from the live safe-area insets so the bar
         // never sits under the Android nav bar / iOS home indicator, on any
         // screen size or orientation.
@@ -89,9 +89,7 @@ function AdminTabs() {
         options={{
           title: 'Attendance',
           tabBarLabel: 'Attendance',
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="checkbox" size={bar.iconSize} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Ionicons name="checkbox" size={bar.iconSize} color={color} />,
         }}
       />
       <Tabs.Screen

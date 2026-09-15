@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   },
   headerText: {
     color: colors.neutral[500],
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
   },
   busRow: {
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   seqText: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '700',
     color: colors.neutral[700],
   },
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[800],
   },
   coords: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
   },
 });

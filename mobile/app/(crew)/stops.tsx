@@ -54,6 +54,7 @@ export default function CrewStopsScreen() {
     return (
       <Screen>
         <ErrorState
+          legible
           message={todayError ?? 'Could not load your trip'}
           onRetry={() => void reloadToday()}
         />
@@ -64,6 +65,8 @@ export default function CrewStopsScreen() {
     return (
       <Screen refresh={() => void refreshToday()} refreshing={todayRefreshing}>
         <EmptyState
+          legible
+          icon="location-outline"
           title="No trip today"
           description="Stops and ETAs appear once a trip is dispatched."
         />
@@ -123,12 +126,13 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.status.danger,
-    fontSize: 13,
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: spacing.sm,
   },
   muted: {
-    color: colors.neutral[500],
-    fontSize: 14,
+    color: colors.neutral[600],
+    fontSize: 16,
   },
   arrivalsCard: {
     backgroundColor: '#ffffff',
@@ -142,12 +146,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   arrivalName: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: colors.neutral[900],
   },
   arrivalMeta: {
-    fontSize: 12,
-    color: colors.neutral[500],
+    fontSize: 16,
+    color: colors.neutral[600],
   },
 });

@@ -54,9 +54,8 @@ export default function AdminTrackingScreen() {
   const stopsLoad = useLoad(async (): Promise<StopResponse[]> => {
     const trip = data?.trips.find((entry) => entry.id === activeId);
     if (!trip) return [];
-    return unwrapEnvelope<RouteStopsListResponse>(
-      await apiClient.listRouteStops(trip.route_id),
-    ).items;
+    return unwrapEnvelope<RouteStopsListResponse>(await apiClient.listRouteStops(trip.route_id))
+      .items;
   }, [activeId, data]);
 
   const live = useLiveTripTracking(activeId || null);
@@ -84,9 +83,7 @@ export default function AdminTrackingScreen() {
   }
 
   const filteredTrips =
-    statusFilter === 'ALL'
-      ? data.trips
-      : data.trips.filter((trip) => trip.status === statusFilter);
+    statusFilter === 'ALL' ? data.trips : data.trips.filter((trip) => trip.status === statusFilter);
 
   const options = filteredTrips.map((trip) => ({
     value: trip.id,
@@ -150,8 +147,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   hint: {
-    color: colors.neutral[400],
-    fontSize: 12,
+    color: colors.neutral[600],
+    fontSize: 14,
     textAlign: 'center',
     marginTop: spacing.md,
   },

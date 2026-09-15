@@ -1,18 +1,27 @@
 import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
+import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 
 export interface CardProps {
   title: string;
   description?: string;
   children?: React.ReactNode;
+  /**
+   * The deliberate-reading variant used on crew screens: a 20px title, 16px
+   * description and roomier padding. Dense admin cards leave it off.
+   */
+  legible?: boolean;
 }
 
-export const Card: React.FC<CardProps> = ({ title, description, children }) => {
+export const Card: React.FC<CardProps> = ({ title, description, children, legible = false }) => {
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{title}</Text>
-      {description ? <Text style={styles.description}>{description}</Text> : null}
+    <View style={[styles.card, legible ? styles.cardLegible : null]}>
+      <Text style={[styles.title, legible ? styles.titleLegible : null]}>{title}</Text>
+      {description ? (
+        <Text style={[styles.description, legible ? styles.descriptionLegible : null]}>
+          {description}
+        </Text>
+      ) : null}
       {children}
     </View>
   );
@@ -32,16 +41,27 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
+  cardLegible: {
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+  },
   title: {
-    fontSize: 16,
+    fontSize: typography.fontSizes.base,
     fontWeight: '700',
     color: colors.neutral[900],
     marginBottom: spacing.xs,
   },
+  titleLegible: {
+    fontSize: typography.fontSizes.xl,
+  },
   description: {
-    fontSize: 14,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[600],
     lineHeight: 20,
     marginBottom: spacing.sm,
+  },
+  descriptionLegible: {
+    fontSize: typography.fontSizes.base,
+    lineHeight: 22,
   },
 });

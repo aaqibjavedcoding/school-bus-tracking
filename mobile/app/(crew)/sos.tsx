@@ -30,7 +30,11 @@ export default function CrewSosScreen() {
   if (error || !data) {
     return (
       <Screen>
-        <ErrorState message={error ?? 'Could not load your trip'} onRetry={() => void reload()} />
+        <ErrorState
+          legible
+          message={error ?? 'Could not load your trip'}
+          onRetry={() => void reload()}
+        />
       </Screen>
     );
   }
@@ -47,6 +51,8 @@ export default function CrewSosScreen() {
         </View>
       ) : (
         <EmptyState
+          legible
+          icon="warning-outline"
           title="No trip today"
           description="You can still raise an emergency — it will be recorded without a trip."
         />
@@ -73,7 +79,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   contextText: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[600],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[700],
   },
 });

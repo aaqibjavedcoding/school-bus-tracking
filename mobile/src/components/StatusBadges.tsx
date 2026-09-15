@@ -16,25 +16,34 @@ import {
 } from '../lib/format';
 import { Badge } from './ui';
 
+/** Badge text size: `md` for dense admin rows, `lg` on crew screens (16px). */
+type StatusBadgeSize = 'md' | 'lg';
+
 /** Trip lifecycle badge (SCHEDULED / BOARDING / IN_PROGRESS / …). */
-export const TripStatusBadge: React.FC<{ status: TripStatus }> = ({ status }) => (
-  <Badge tone={tripStatusTone(status)} label={tripStatusLabel(status)} />
-);
+export const TripStatusBadge: React.FC<{ status: TripStatus; size?: StatusBadgeSize }> = ({
+  status,
+  size = 'md',
+}) => <Badge size={size} tone={tripStatusTone(status)} label={tripStatusLabel(status)} />;
 
 /** Manifest attendance badge (PENDING / BOARDED / DROPPED). */
-export const AttendanceBadge: React.FC<{ status: TripAttendanceStatus | null | undefined }> = ({
-  status,
-}) => (
+export const AttendanceBadge: React.FC<{
+  status: TripAttendanceStatus | null | undefined;
+  size?: StatusBadgeSize;
+}> = ({ status, size = 'md' }) => (
   <Badge
+    size={size}
     tone={attendanceTone(status ?? TripAttendanceStatus.PENDING)}
     label={attendanceStatusLabel(status ?? TripAttendanceStatus.PENDING)}
   />
 );
 
 /** Parent-facing boarding badge ("Not boarded" while still pending). */
-export const BoardingBadge: React.FC<{ status: TripAttendanceStatus | null | undefined }> = ({
-  status,
-}) => <Badge tone={attendanceTone(status)} label={boardingStatusLabel(status)} />;
+export const BoardingBadge: React.FC<{
+  status: TripAttendanceStatus | null | undefined;
+  size?: StatusBadgeSize;
+}> = ({ status, size = 'md' }) => (
+  <Badge size={size} tone={attendanceTone(status)} label={boardingStatusLabel(status)} />
+);
 
 /** Live-tracking stream state chip (active / stopped / unavailable). */
 export const TrackingStateBadge: React.FC<{ state: TripTrackingState | null | undefined }> = ({
@@ -74,12 +83,12 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   pill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
     borderRadius: borderRadius.full,
   },
   text: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
   },
 });

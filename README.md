@@ -785,6 +785,12 @@ adding one needs no migration.
   metrics computed in `src/theme/bottom-bar-metrics.ts`; keyboard-aware form scrolling
   (`lib/keyboard-aware.ts`); pull-to-refresh on every list; server reasons surfaced for
   `401/403/409/429/5xx`; `RoleGate` mirrors the API guards.
+- **Legibility system** (driver/conductor-first): mobile-only semantic aliases over the shared
+  design tokens live in `mobile/src/theme/tokens.ts` — 16px body floor, 24–28px bold numerics,
+  56/64px touch targets, and WCAG-AA action surfaces (e.g. white on `primary[700]` = 5.02:1).
+  The ratios are pinned by `src/theme/contrast.spec.ts` and the "no text under 16px on crew
+  surfaces / 14px anywhere" rule by `src/theme/legibility.spec.ts`, both under
+  `npm --prefix mobile test`. Details + the measured contrast table: `docs/mobile-ux.md`.
 - **Metro monorepo resolution**: `watchFolders` = repo root, `nodeModulesPaths` =
   `mobile/node_modules` then root — nested `node_modules` lookup stays enabled on purpose (disabling
   it breaks transitive deps).
@@ -1086,6 +1092,7 @@ The workflow file says this inline — do not "streamline" it away.
 | [`docs/deployment.md`](./docs/deployment.md) | Env vars, build, migrations, single-instance container, health checks, prod checklist |
 | [`docs/mobile-operations.md`](./docs/mobile-operations.md) | Offline attendance, background GPS, session/network UX, 403 taxonomy, build config |
 | [`docs/mobile-expo-sdk.md`](./docs/mobile-expo-sdk.md) | Expo SDK pinning policy, verified version matrix, Expo Go vs dev builds |
+| [`docs/mobile-ux.md`](./docs/mobile-ux.md) | Mobile legibility system — type/touch tokens, measured WCAG contrast table, guard specs |
 | [`docs/backup-restore.md`](./docs/backup-restore.md) | Local backup/restore workflow |
 | [`infrastructure/README.md`](./infrastructure/README.md), [`mobile/README.md`](./mobile/README.md) | Dev DB containers; mobile run/QR troubleshooting |
 

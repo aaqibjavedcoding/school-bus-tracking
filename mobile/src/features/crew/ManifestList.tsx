@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { SectionList, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   TripAttendanceStatus,
   type TripStudentAttendanceResponse,
@@ -16,6 +17,7 @@ import {
   SearchBar,
   screenRefreshControl,
 } from '../../components';
+import { attendanceActionMeta } from './crew-action-meta';
 
 /**
  * Student manifest with board/drop actions — the shared crew surface.
@@ -34,11 +36,11 @@ import {
 
 type ManifestFilter = 'ALL' | TripAttendanceStatus;
 
-const FILTERS: { key: ManifestFilter; label: string }[] = [
-  { key: 'ALL', label: 'All' },
-  { key: TripAttendanceStatus.PENDING, label: 'Waiting' },
-  { key: TripAttendanceStatus.BOARDED, label: 'On board' },
-  { key: TripAttendanceStatus.DROPPED, label: 'Dropped' },
+const FILTERS: { key: ManifestFilter; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'ALL', label: 'All', icon: 'people' },
+  { key: TripAttendanceStatus.PENDING, label: 'Waiting', icon: 'time' },
+  { key: TripAttendanceStatus.BOARDED, label: 'On board', icon: 'bus' },
+  { key: TripAttendanceStatus.DROPPED, label: 'Dropped', icon: 'checkmark-done' },
 ];
 
 interface ManifestSection {
@@ -53,9 +55,7 @@ interface ManifestSection {
  * `@react-native/virtualized-lists` against React 18 in this monorepo, so the
  * boundary is narrowed to avoid the incompatible `SectionListProps`.
  */
-const SectionListView = SectionList as unknown as React.ComponentType<
-  Record<string, unknown>
->;
+const SectionListView = SectionList as unknown as React.ComponentType<Record<string, unknown>>;
 
 export const ManifestList: React.FC<{
   manifest: TripStudentManifestResponse;
@@ -106,10 +106,7 @@ export const ManifestList: React.FC<{
     setSearch('');
   };
 
-  const sections = useMemo<ManifestSection[]>(
-    () => groupByStop(visible),
-    [visible],
-  );
+  const sections = useMemo<ManifestSection[]>(() => groupByStop(visible), [visible]);
   const { summary } = manifest;
   const insets = useSafeAreaInsets();
 
@@ -135,13 +132,14 @@ export const ManifestList: React.FC<{
         <>
           {header}
           <View style={styles.summaryRow}>
-            <Badge label={`${summary.total} students`} />
-            <Badge label={`${summary.pending} waiting`} tone="warning" />
-            <Badge label={`${summary.boarded} on board`} tone="info" />
-            <Badge label={`${summary.dropped} dropped`} tone="success" />
+            <Badge size="lg" label={`${summary.total} students`} />
+            <Badge size="lg" label={`${summary.pending} waiting`} tone="warning" />
+            <Badge size="lg" label={`${summary.boarded} on board`} tone="info" />
+            <Badge size="lg" label={`${summary.dropped} dropped`} tone="success" />
           </View>
 
           <SearchBar
+            size="field"
             value={search}
             onChangeText={setSearch}
             onClear={() => setSearch('')}
@@ -149,8 +147,10 @@ export const ManifestList: React.FC<{
           />
 
           <FilterChips<ManifestFilter>
+            size="field"
             options={FILTERS.map((entry) => ({
               value: entry.key,
+              icon: entry.icon,
               label: `${entry.label} · ${
                 entry.key === 'ALL'
                   ? manifest.items.length
@@ -164,11 +164,12 @@ export const ManifestList: React.FC<{
       }
       ListEmptyComponent={
         <EmptyState
+          icon="search"
           title="No students match"
           description="No students match the current search or filter."
           action={
             filtersActive ? (
-              <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
+              <Button label="Clear filters" variant="secondary" size="lg" onPress={resetFilters} />
             ) : null
           }
         />
@@ -176,21 +177,10 @@ export const ManifestList: React.FC<{
       ListFooterComponent={footer}
       stickySectionHeadersEnabled={false}
       style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        { paddingBottom: spacing.xl + insets.bottom },
-      ]}
+      contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
-      refreshControl={
-        refresh ? (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.primary[600]}
-          />
-        ) : null
-      }
+      refreshControl={screenRefreshControl(refresh, refreshing) ?? null}
     />
   );
 };
@@ -201,33 +191,48 @@ const ManifestRow: React.FC<{
   busy: boolean;
   onBoard: () => void;
   onDrop: () => void;
-}> = ({ student, canAct, busy, onBoard, onDrop }) => (
-  <View style={styles.row}>
-    <View style={styles.rowMain}>
-      <Text style={styles.rowName}>
-        {student.first_name} {student.last_name}
-      </Text>
-      <Text style={styles.rowMeta}>
-        {student.admission_number}
-        {student.grade_level ? ` · ${student.grade_level}` : ''}
-      </Text>
-      <AttendanceBadge status={student.status} />
+}> = ({ student, canAct, busy, onBoard, onDrop }) => {
+  // The row actions keep one vocabulary everywhere (green in, grey out) — see
+  // `crew-action-meta.ts` — at the 60px `lg` size, thumb-friendly in a moving bus.
+  const board = attendanceActionMeta('board');
+  const drop = attendanceActionMeta('drop');
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowMain}>
+        <Text style={styles.rowName}>
+          {student.first_name} {student.last_name}
+        </Text>
+        <Text style={styles.rowMeta}>
+          {student.admission_number}
+          {student.grade_level ? ` · ${student.grade_level}` : ''}
+        </Text>
+        <AttendanceBadge size="lg" status={student.status} />
+      </View>
+      {canAct && student.status === TripAttendanceStatus.PENDING ? (
+        <Button
+          label="Board"
+          icon={board.icon}
+          tone={board.tone}
+          size="lg"
+          onPress={onBoard}
+          disabled={busy}
+          busy={busy}
+        />
+      ) : null}
+      {canAct && student.status === TripAttendanceStatus.BOARDED ? (
+        <Button
+          label="Drop"
+          icon={drop.icon}
+          variant="secondary"
+          size="lg"
+          onPress={onDrop}
+          disabled={busy}
+          busy={busy}
+        />
+      ) : null}
     </View>
-    {canAct && student.status === TripAttendanceStatus.PENDING ? (
-      <Button label="Board" small onPress={onBoard} disabled={busy} busy={busy} />
-    ) : null}
-    {canAct && student.status === TripAttendanceStatus.BOARDED ? (
-      <Button
-        label="Drop off"
-        small
-        variant="secondary"
-        onPress={onDrop}
-        disabled={busy}
-        busy={busy}
-      />
-    ) : null}
-  </View>
-);
+  );
+};
 
 interface StopGroup {
   stop_id: string;
@@ -275,7 +280,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   groupTitle: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.neutral[800],
     marginTop: spacing.md,
@@ -298,12 +303,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rowName: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.neutral[900],
   },
   rowMeta: {
-    fontSize: 12,
-    color: colors.neutral[500],
+    fontSize: 16,
+    color: colors.neutral[600],
   },
 });

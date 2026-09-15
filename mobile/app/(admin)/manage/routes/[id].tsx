@@ -128,7 +128,9 @@ export default function ManageRouteStopsScreen() {
       estimated_arrival_time: emptyToNull(form.estimated_arrival_time),
       is_active: form.is_active,
     };
-    const parsed = editing ? stopUpdateSchema.safeParse(payload) : stopCreateSchema.safeParse(payload);
+    const parsed = editing
+      ? stopUpdateSchema.safeParse(payload)
+      : stopCreateSchema.safeParse(payload);
     if (!parsed.success) {
       setFieldErrors(fieldErrorsFromZod(parsed.error));
       return;
@@ -230,10 +232,7 @@ export default function ManageRouteStopsScreen() {
                 <Pressable
                   onPress={() => void move(index, -1)}
                   disabled={index <= 0 || Boolean(term)}
-                  style={[
-                    styles.iconBtn,
-                    index <= 0 || term ? styles.iconBtnDisabled : null,
-                  ]}
+                  style={[styles.iconBtn, index <= 0 || term ? styles.iconBtnDisabled : null]}
                   accessibilityLabel="Move stop up"
                 >
                   <Ionicons name="arrow-up" size={16} color={colors.neutral[700]} />
@@ -254,7 +253,11 @@ export default function ManageRouteStopsScreen() {
                   <Ionicons name="create-outline" size={16} color={colors.primary[700]} />
                   <Text style={styles.textBtnLabel}>Edit</Text>
                 </Pressable>
-                <Pressable onPress={() => setPendingDelete(stop)} style={styles.textBtn} hitSlop={6}>
+                <Pressable
+                  onPress={() => setPendingDelete(stop)}
+                  style={styles.textBtn}
+                  hitSlop={6}
+                >
                   <Ionicons name="trash-outline" size={16} color={colors.status.danger} />
                   <Text style={[styles.textBtnLabel, { color: colors.status.danger }]}>Delete</Text>
                 </Pressable>
@@ -264,7 +267,11 @@ export default function ManageRouteStopsScreen() {
         }}
         header={
           <>
-            <Pressable onPress={() => router.back()} style={styles.backRow} accessibilityRole="button">
+            <Pressable
+              onPress={() => router.back()}
+              style={styles.backRow}
+              accessibilityRole="button"
+            >
               <Text style={styles.backText}>‹ All routes</Text>
             </Pressable>
             <Text style={styles.title}>
@@ -321,7 +328,12 @@ export default function ManageRouteStopsScreen() {
         onClose={() => setOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Save" onPress={() => void save()} busy={busy} style={styles.flex} />
           </>
         }
@@ -400,7 +412,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', padding: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 15, fontWeight: '600' },
+  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',
@@ -412,7 +424,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   hint: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: spacing.xs,
   },
@@ -462,12 +474,12 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   inactive: {
-    color: colors.neutral[400],
+    color: colors.neutral[600],
     fontWeight: '500',
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
   },
   stopMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

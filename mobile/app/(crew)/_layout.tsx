@@ -53,8 +53,8 @@ function CrewTabs() {
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',
         headerTitleStyle: { fontWeight: 'bold' },
-        tabBarActiveTintColor: colors.primary[600],
-        tabBarInactiveTintColor: colors.neutral[400],
+        tabBarActiveTintColor: colors.primary[700],
+        tabBarInactiveTintColor: colors.neutral[500],
         // Safe-area aware bar: never overlaps the device navigation area.
         tabBarStyle: {
           height: bar.tabBarHeight,
@@ -105,9 +105,7 @@ function CrewTabs() {
         options={{
           title: 'Emergency',
           tabBarLabel: 'SOS',
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="warning" size={bar.iconSize} color={color} />
-          ),
+          tabBarIcon: ({ color }) => <Ionicons name="warning" size={bar.iconSize} color={color} />,
         }}
       />
     </Tabs>

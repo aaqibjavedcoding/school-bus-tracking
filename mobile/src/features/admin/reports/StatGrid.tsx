@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   hint: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

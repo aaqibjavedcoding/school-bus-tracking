@@ -1,15 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Linking,
-  AppState,
-  type AppStateStatus,
-} from 'react-native';
+import { View, Text, StyleSheet, Linking, AppState, type AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import { colors } from '@school-bus-tracking/design-tokens';
+import { Button } from '../../components';
 
 /**
  * GPS permission recovery UX for Driver/Conductor.
@@ -149,44 +142,34 @@ export function GpsPermissionRecovery({
       )}
 
       <View style={styles.actions}>
-        {issue === 'permission_denied' && (
-          <TouchableOpacity
-            style={[styles.button, styles.primaryButton]}
-            onPress={handleRequestPermission}
-            disabled={isChecking}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isChecking ? 'Checking...' : 'Grant Permission'}
-            </Text>
-          </TouchableOpacity>
-        )}
+        {issue === 'permission_denied' ? (
+          <Button
+            label="Grant Permission"
+            icon="locate"
+            size="field"
+            busy={isChecking}
+            onPress={() => void handleRequestPermission()}
+          />
+        ) : null}
 
-        {(issue === 'permission_permanently_denied' ||
-          issue === 'location_services_disabled' ||
-          issue === 'background_permission_denied') && (
-          <TouchableOpacity
-            style={[styles.button, styles.primaryButton]}
-            onPress={handleOpenSettings}
-          >
-            <Text style={styles.primaryButtonText}>Open Settings</Text>
-          </TouchableOpacity>
-        )}
+        {issue === 'permission_permanently_denied' ||
+        issue === 'location_services_disabled' ||
+        issue === 'background_permission_denied' ? (
+          <Button label="Open Settings" icon="settings" size="field" onPress={handleOpenSettings} />
+        ) : null}
 
-        <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={checkPermission}
-          disabled={isChecking}
-        >
-          <Text style={styles.secondaryButtonText}>
-            {isChecking ? 'Checking...' : 'Recheck'}
-          </Text>
-        </TouchableOpacity>
+        <Button
+          label="Recheck"
+          variant="secondary"
+          icon="refresh"
+          size="lg"
+          busy={isChecking}
+          onPress={() => void checkPermission()}
+        />
 
-        {onDismiss && (
-          <TouchableOpacity style={styles.dismissButton} onPress={onDismiss}>
-            <Text style={styles.dismissButtonText}>Continue without GPS</Text>
-          </TouchableOpacity>
-        )}
+        {onDismiss ? (
+          <Button label="Continue without GPS" variant="ghost" size="lg" onPress={onDismiss} />
+        ) : null}
       </View>
     </View>
   );
@@ -258,7 +241,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   description: {
-    fontSize: 14,
+    fontSize: 16,
     color: colors.neutral[600],
     textAlign: 'center',
     lineHeight: 20,
@@ -266,43 +249,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   lastUpdate: {
-    fontSize: 12,
+    fontSize: 16,
     color: colors.neutral[500],
     marginBottom: 24,
   },
   actions: {
     width: '100%',
     gap: 12,
-  },
-  button: {
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryButton: {
-    backgroundColor: colors.primary[500],
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.neutral[300],
-  },
-  secondaryButtonText: {
-    color: colors.neutral[900],
-    fontSize: 16,
-  },
-  dismissButton: {
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  dismissButtonText: {
-    color: colors.neutral[500],
-    fontSize: 14,
   },
 });

@@ -48,9 +48,7 @@ export default function AdminAttendanceScreen() {
 
   const manifestLoad = useLoad(async (): Promise<TripStudentManifestResponse | null> => {
     if (!activeId) return null;
-    return unwrapEnvelope<TripStudentManifestResponse>(
-      await apiClient.listTripStudents(activeId),
-    );
+    return unwrapEnvelope<TripStudentManifestResponse>(await apiClient.listTripStudents(activeId));
   }, [activeId]);
 
   const activeTrip = tripsLoad.data?.trips.find((trip) => trip.id === activeId) ?? null;
@@ -180,8 +178,8 @@ export default function AdminAttendanceScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   hint: {
-    color: colors.neutral[400],
-    fontSize: 12,
+    color: colors.neutral[600],
+    fontSize: 14,
     textAlign: 'center',
     marginTop: spacing.md,
   },

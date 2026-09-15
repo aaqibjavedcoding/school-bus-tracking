@@ -54,6 +54,6 @@ const styles = StyleSheet.create({
   note: {
     textAlign: 'center',
     color: colors.neutral[500],
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
   },
 });

@@ -65,8 +65,10 @@ export function computeBottomBarMetrics(input: {
     tabBarPaddingBottom,
     tabBarPaddingTop,
     iconSize: isTablet ? 26 : 22,
-    labelFontSize: isTablet ? 13 : 11,
+    // Tab labels are platform chrome (iOS/Android caption bars), where every
+    // OS ships ~10–13pt captions; we still bump phones from 11 → 13 so the
+    // 1-word crew tab labels stay readable without reflowing the bar.
+    labelFontSize: isTablet ? 14 : 13,
     floatingOffset: tabBarPaddingBottom,
   };
 }
-

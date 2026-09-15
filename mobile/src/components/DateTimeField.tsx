@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   optional: {
-    color: colors.neutral[400],
+    color: colors.neutral[600],
     fontWeight: '400',
   },
   row: {
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
-    minHeight: 46,
+    minHeight: 56,
     fontSize: typography.fontSizes.base,
     color: colors.neutral[900],
   },
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   action: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '700',
     color: colors.primary[700],
   },
@@ -168,12 +168,12 @@ const styles = StyleSheet.create({
     color: colors.neutral[500],
   },
   error: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.status.danger,
     marginTop: spacing.xs,
   },
   hint: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: spacing.xs,
   },

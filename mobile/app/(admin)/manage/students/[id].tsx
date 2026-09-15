@@ -146,7 +146,7 @@ export default function ManageStudentDetailScreen() {
   const homeStopLabel =
     homeStop && homeStopRoute
       ? `${stopCode(homeStopRoute.code, homeStop.sequence_number)} — ${homeStop.name}`
-      : data.student.home_stop_name ?? 'Not assigned';
+      : (data.student.home_stop_name ?? 'Not assigned');
 
   const linkedIds = new Set(data.guardians.map((guardian) => guardian.parent_id));
   const parentOptions = data.parents
@@ -218,7 +218,11 @@ export default function ManageStudentDetailScreen() {
                   {guardian.can_pick_up ? ' · Can pick up' : ''}
                 </Text>
               </View>
-              <Pressable onPress={() => setPendingUnlink(guardian)} hitSlop={6} style={styles.unlink}>
+              <Pressable
+                onPress={() => setPendingUnlink(guardian)}
+                hitSlop={6}
+                style={styles.unlink}
+              >
                 <Ionicons name="close-circle-outline" size={20} color={colors.status.danger} />
               </Pressable>
             </View>
@@ -232,7 +236,12 @@ export default function ManageStudentDetailScreen() {
         onClose={() => setLinkOpen(false)}
         footer={
           <>
-            <Button label="Cancel" variant="secondary" onPress={() => setLinkOpen(false)} style={styles.flex} />
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => setLinkOpen(false)}
+              style={styles.flex}
+            />
             <Button label="Link" onPress={() => void link()} busy={busy} style={styles.flex} />
           </>
         }
@@ -262,7 +271,9 @@ export default function ManageStudentDetailScreen() {
       <ConfirmDialog
         open={Boolean(pendingUnlink)}
         title="Unlink guardian?"
-        message={pendingUnlink ? `${parentName(pendingUnlink)} will no longer follow this child.` : ''}
+        message={
+          pendingUnlink ? `${parentName(pendingUnlink)} will no longer follow this child.` : ''
+        }
         confirmLabel="Unlink"
         danger
         busy={busy}
@@ -276,7 +287,7 @@ export default function ManageStudentDetailScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 15, fontWeight: '600' },
+  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
   badgeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -315,7 +326,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   guardianMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },

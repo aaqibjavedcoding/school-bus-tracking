@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,12 +17,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import { fontScaleCaps, icon as iconSizes, surface, text as textScale, touch } from '../theme';
 import type { Tone } from '../lib/format';
 
 /**
  * Mobile UI kit — the small set of primitives every screen is built from.
- * Tokens come from the shared `@school-bus-tracking/design-tokens` package so
- * the app stays visually consistent with the web product.
+ * Tokens come from the shared `@school-bus-tracking/design-tokens` package;
+ * the legibility layer (`theme/tokens.ts`: text/touch/surface aliases) sits
+ * on top so phone screens stay readable at arm's length and every tappable
+ * element meets the 56/64px crew touch floors. Contrast choices are pinned
+ * by `theme/contrast.spec.ts`.
  */
 
 const TONE_COLORS: Record<Tone, { bg: string; text: string }> = {
@@ -32,15 +37,35 @@ const TONE_COLORS: Record<Tone, { bg: string; text: string }> = {
   danger: { bg: '#fee2e2', text: '#b91c1c' },
 };
 
-export const Badge: React.FC<{ tone?: Tone; label: string; style?: StyleProp<ViewStyle> }> = ({
-  tone = 'neutral',
-  label,
-  style,
-}) => {
+/** Badge/chip text sizes: `md` is the compact admin look, `lg` the crew one. */
+type BadgeSize = 'md' | 'lg';
+
+export const Badge: React.FC<{
+  tone?: Tone;
+  label: string;
+  size?: BadgeSize;
+  style?: StyleProp<ViewStyle>;
+}> = ({ tone = 'neutral', label, size = 'md', style }) => {
   const toneColors = TONE_COLORS[tone];
   return (
-    <View style={[styles.badge, { backgroundColor: toneColors.bg }, style]}>
-      <Text style={[styles.badgeText, { color: toneColors.text }]}>{label}</Text>
+    <View
+      style={[
+        styles.badge,
+        size === 'lg' ? styles.badgeLarge : null,
+        { backgroundColor: toneColors.bg },
+        style,
+      ]}
+    >
+      <Text
+        {...fontScaleCaps.label}
+        style={[
+          styles.badgeText,
+          size === 'lg' ? styles.badgeLargeText : null,
+          { color: toneColors.text },
+        ]}
+      >
+        {label}
+      </Text>
     </View>
   );
 };
@@ -53,60 +78,171 @@ export const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children
   <Text style={styles.sectionTitle}>{children}</Text>
 );
 
-export const KeyValue: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <View style={styles.keyValue}>
-    <Text style={styles.keyValueLabel}>{label}</Text>
-    <Text style={styles.keyValueValue}>{value}</Text>
-  </View>
-);
+export const KeyValue: React.FC<{ label: string; value: string; legible?: boolean }> = ({
+  label,
+  value,
+  legible = false,
+}) =>
+  legible ? (
+    <View style={styles.keyValue}>
+      <Text style={styles.keyValueLabelLegible}>{label}</Text>
+      <Text {...fontScaleCaps.label} style={styles.keyValueValueLegible}>
+        {value}
+      </Text>
+    </View>
+  ) : (
+    <View style={styles.keyValue}>
+      <Text style={styles.keyValueLabel}>{label}</Text>
+      <Text style={styles.keyValueValue}>{value}</Text>
+    </View>
+  );
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+/** Tint override for the filled variants — e.g. a green confirm ("Board"). */
+export type ButtonTone = 'primary' | 'success' | 'danger' | 'neutral';
+/**
+ * `sm` is the dense admin row action (44px); `md` (56px) is the default every
+ * button gets; `lg` (60px) for prominent actions; `field` (64px) is the crew
+ * floor for field work — start trip, board, SOS, share GPS.
+ */
+export type ButtonSize = 'sm' | 'md' | 'lg' | 'field';
 
 export interface ButtonProps {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
+  /** Tint of the filled surface (default follows the variant). */
+  tone?: ButtonTone;
+  size?: ButtonSize;
+  /** Leading Ionicons glyph — an icon + label is read faster than either alone. */
+  icon?: keyof typeof Ionicons.glyphMap;
+  iconRight?: keyof typeof Ionicons.glyphMap;
   disabled?: boolean;
   busy?: boolean;
+  /** @deprecated Use `size="sm"` — kept so dense admin rows migrate call by call. */
   small?: boolean;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
 }
+
+const BUTTON_HEIGHTS: Record<ButtonSize, number> = {
+  sm: touch.compact,
+  md: touch.target,
+  lg: 60,
+  field: touch.field,
+};
+
+const BUTTON_TEXT_SIZES: Record<ButtonSize, number> = {
+  sm: typography.fontSizes.sm,
+  md: typography.fontSizes.base,
+  lg: typography.fontSizes.lg,
+  field: typography.fontSizes.xl,
+};
+
+const BUTTON_ICON_SIZES: Record<ButtonSize, number> = {
+  sm: iconSizes.inline,
+  md: 20,
+  lg: iconSizes.button,
+  field: iconSizes.field,
+};
+
+const FILLED_TONES: Record<ButtonTone, string> = {
+  // White on every entry here is ≥4.5:1 — pinned in `contrast.spec.ts`.
+  primary: surface.actionPrimary,
+  success: surface.actionSuccess,
+  danger: surface.actionDanger,
+  neutral: colors.neutral[700],
+};
+
+const PRESS_SCALE = 0.965;
 
 export const Button: React.FC<ButtonProps> = ({
   label,
   onPress,
   variant = 'primary',
+  tone,
+  size,
+  icon,
+  iconRight,
   disabled = false,
   busy = false,
   small = false,
+  accessibilityLabel,
+  accessibilityHint,
   style,
 }) => {
-  const variantStyle = styles[`${variant}Button`];
-  const variantTextStyle = styles[`${variant}ButtonText`];
-  const pressed = disabled || busy;
+  const resolvedSize: ButtonSize = size ?? (small ? 'sm' : 'md');
+  const filled = variant === 'primary' || variant === 'danger';
+  const resolvedTone: ButtonTone = tone ?? (variant === 'danger' ? 'danger' : 'primary');
+  // `small` on legacy densely-packed rows is exempt from the 56px floor by
+  // design (admin tables); everything else starts at 56 and field at 64.
+  const inert = disabled || busy;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressScale = (toValue: number) =>
+    Animated.timing(scale, { toValue, duration: 90, useNativeDriver: true }).start();
+
+  const contentColor = filled
+    ? '#ffffff'
+    : variant === 'secondary'
+      ? colors.neutral[800]
+      : colors.neutral[700];
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={pressed}
-      style={({ pressed: isPressed }) => [
+      disabled={inert}
+      onPressIn={() => {
+        if (!inert) pressScale(PRESS_SCALE);
+      }}
+      onPressOut={() => {
+        if (!inert) pressScale(1);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: inert, busy }}
+      style={({ pressed }) => [
         styles.buttonBase,
-        small ? styles.buttonSmall : null,
-        variantStyle,
-        pressed ? styles.buttonDisabled : null,
-        isPressed && !pressed ? styles.buttonPressed : null,
+        { minHeight: BUTTON_HEIGHTS[resolvedSize] },
+        filled
+          ? { backgroundColor: FILLED_TONES[resolvedTone] }
+          : variant === 'secondary'
+            ? styles.secondaryButton
+            : styles.ghostButton,
+        inert ? styles.buttonDisabled : null,
+        pressed && !inert ? styles.buttonPressed : null,
         style,
       ]}
     >
-      {busy ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === 'primary' ? '#ffffff' : colors.neutral[800]}
-        />
-      ) : (
-        <Text style={[styles.buttonText, variantTextStyle, small ? styles.buttonSmallText : null]}>
-          {label}
-        </Text>
-      )}
+      <Animated.View style={[styles.buttonContent, { transform: [{ scale }] }]}>
+        {busy ? (
+          <ActivityIndicator size="small" color={contentColor} />
+        ) : (
+          <View style={styles.buttonRow}>
+            {icon ? (
+              <Ionicons name={icon} size={BUTTON_ICON_SIZES[resolvedSize]} color={contentColor} />
+            ) : null}
+            <Text
+              {...fontScaleCaps.button}
+              style={[
+                styles.buttonText,
+                { color: contentColor, fontSize: BUTTON_TEXT_SIZES[resolvedSize] },
+              ]}
+            >
+              {label}
+            </Text>
+            {iconRight ? (
+              <Ionicons
+                name={iconRight}
+                size={BUTTON_ICON_SIZES[resolvedSize]}
+                color={contentColor}
+              />
+            ) : null}
+          </View>
+        )}
+      </Animated.View>
     </Pressable>
   );
 };
@@ -137,7 +273,7 @@ export const Field = React.forwardRef<TextInput, FieldProps>(function Field(
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         ref={ref}
-        placeholderTextColor={colors.neutral[400]}
+        placeholderTextColor={surface.placeholder}
         autoCapitalize="none"
         {...inputProps}
         style={[styles.fieldInput, error ? styles.fieldInputError : null, inputProps.style]}
@@ -161,15 +297,30 @@ export const SearchBar: React.FC<{
   /** Optional explicit reset handler; defaults to `onChangeText('')`. */
   onClear?: () => void;
   autoFocus?: boolean;
-}> = ({ value, onChangeText, placeholder = 'Search…', searching = false, onClear, autoFocus }) => (
+  /** `field` gives the crew's gloved-finger bar (56px). */
+  size?: 'md' | 'field';
+}> = ({
+  value,
+  onChangeText,
+  placeholder = 'Search…',
+  searching = false,
+  onClear,
+  autoFocus,
+  size = 'md',
+}) => (
   <View style={styles.searchBar}>
-    <View style={styles.searchInputWrap}>
-      <Ionicons name="search" size={18} color={colors.neutral[400]} />
+    <View
+      style={[
+        styles.searchInputWrap,
+        size === 'field' ? { minHeight: touch.field } : { minHeight: touch.target },
+      ]}
+    >
+      <Ionicons name="search" size={20} color={colors.neutral[500]} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.neutral[400]}
+        placeholderTextColor={surface.placeholder}
         style={styles.searchInput}
         autoCapitalize="none"
         autoCorrect={false}
@@ -179,7 +330,7 @@ export const SearchBar: React.FC<{
         accessibilityLabel={placeholder}
       />
       {searching && value.length > 0 ? (
-        <ActivityIndicator size="small" color={colors.neutral[400]} />
+        <ActivityIndicator size="small" color={colors.neutral[500]} />
       ) : null}
       {value.length > 0 ? (
         <Pressable
@@ -187,8 +338,9 @@ export const SearchBar: React.FC<{
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel="Clear search"
+          style={styles.searchClear}
         >
-          <Ionicons name="close-circle" size={18} color={colors.neutral[400]} />
+          <Ionicons name="close-circle" size={20} color={colors.neutral[500]} />
         </Pressable>
       ) : null}
     </View>
@@ -200,11 +352,14 @@ export const FilterChips = <T,>({
   options,
   value,
   onChange,
+  size = 'md',
   style,
 }: {
-  options: ReadonlyArray<{ value: T; label: string }>;
+  options: ReadonlyArray<{ value: T; label: string; icon?: keyof typeof Ionicons.glyphMap }>;
   value: T;
   onChange: (value: T) => void;
+  /** `field` = the crew floor (56px, 16px text); `md` keeps the dense admin look. */
+  size?: 'md' | 'field';
   style?: StyleProp<ViewStyle>;
 }) => (
   <ScrollView
@@ -215,15 +370,30 @@ export const FilterChips = <T,>({
   >
     {options.map((option) => {
       const active = option.value === value;
+      const chipTextColor = active ? '#ffffff' : colors.neutral[700];
       return (
         <Pressable
           key={String(option.value)}
           onPress={() => onChange(option.value)}
           accessibilityRole="button"
           accessibilityState={{ selected: active }}
-          style={[styles.chip, active ? styles.chipActive : null]}
+          style={[
+            styles.chip,
+            size === 'field' ? styles.chipField : null,
+            active ? styles.chipActive : null,
+          ]}
         >
-          <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+          {option.icon ? (
+            <Ionicons name={option.icon} size={size === 'field' ? 20 : 16} color={chipTextColor} />
+          ) : null}
+          <Text
+            {...fontScaleCaps.label}
+            style={[
+              styles.chipText,
+              size === 'field' ? styles.chipFieldText : null,
+              { color: chipTextColor },
+            ]}
+          >
             {option.label}
           </Text>
         </Pressable>
@@ -242,8 +412,13 @@ export const FilterSummary: React.FC<{
     <Text style={styles.filterSummaryText} numberOfLines={1}>
       {label}
     </Text>
-    <Pressable onPress={onClear} hitSlop={8} accessibilityRole="button">
-      <Text style={styles.filterSummaryAction}>{clearLabel}</Text>
+    <Pressable
+      onPress={onClear}
+      hitSlop={8}
+      accessibilityRole="button"
+      style={styles.filterSummaryAction}
+    >
+      <Text style={styles.filterSummaryActionText}>{clearLabel}</Text>
     </Pressable>
   </View>
 );
@@ -261,21 +436,22 @@ export const FilterSummary: React.FC<{
 export function screenRefreshControl(
   refresh?: (() => void) | null,
   refreshing = false,
-): React.ReactElement | undefined {
+): React.ReactElement<React.ComponentProps<typeof RefreshControl>> | undefined {
   if (!refresh || Platform.OS === 'web') {
     return undefined;
   }
-  return (
+  const control: React.ReactElement<React.ComponentProps<typeof RefreshControl>> = (
     <RefreshControl
       refreshing={refreshing}
       onRefresh={refresh}
-      tintColor={colors.primary[600]}
-      colors={[colors.primary[600]]}
+      tintColor={colors.primary[700]}
+      colors={[colors.primary[700]]}
       title=""
       titleColor="transparent"
       progressViewOffset={0}
     />
   );
+  return control;
 }
 
 /**
@@ -314,7 +490,7 @@ export const Screen: React.FC<{
 
 export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (
   <View style={styles.centered}>
-    <ActivityIndicator size="large" color={colors.primary[600]} />
+    <ActivityIndicator size="large" color={colors.primary[700]} />
     <Text style={styles.centeredText}>{label}</Text>
   </View>
 );
@@ -324,25 +500,42 @@ export const EmptyState: React.FC<{
   description?: string;
   /** Optional call to action, e.g. a "Clear search" button (matches web). */
   action?: React.ReactNode;
-}> = ({ title, description, action }) => (
-  <View style={styles.stateCard}>
-    <Text style={styles.stateTitle}>{title}</Text>
-    {description ? <Text style={styles.stateDescription}>{description}</Text> : null}
+  /** Optional icon above the title — icon + text reads faster than text alone. */
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** The crew/deliberate-reading variant: larger, calmer, centred icons. */
+  legible?: boolean;
+}> = ({ title, description, action, icon, legible = false }) => (
+  <View style={[styles.stateCard, legible ? styles.stateCardLegible : null]}>
+    {icon ? <Ionicons name={icon} size={legible ? 40 : 28} color={colors.neutral[500]} /> : null}
+    <Text style={[styles.stateTitle, legible ? styles.stateTitleLegible : null]}>{title}</Text>
+    {description ? (
+      <Text style={[styles.stateDescription, legible ? styles.stateDescriptionLegible : null]}>
+        {description}
+      </Text>
+    ) : null}
     {action ? <View style={{ marginTop: spacing.md }}>{action}</View> : null}
   </View>
 );
 
-export const ErrorState: React.FC<{ message: string; onRetry?: () => void }> = ({
-  message,
-  onRetry,
-}) => (
-  <View style={styles.stateCard}>
-    <Text style={styles.stateTitle}>Something went wrong</Text>
-    <Text style={styles.stateDescription}>{message}</Text>
+export const ErrorState: React.FC<{
+  message: string;
+  onRetry?: () => void;
+  legible?: boolean;
+}> = ({ message, onRetry, legible = false }) => (
+  <View style={[styles.stateCard, legible ? styles.stateCardLegible : null]}>
+    <Ionicons name="cloud-offline-outline" size={legible ? 40 : 28} color={colors.status.danger} />
+    <Text style={[styles.stateTitle, legible ? styles.stateTitleLegible : null]}>
+      Something went wrong
+    </Text>
+    <Text style={[styles.stateDescription, legible ? styles.stateDescriptionLegible : null]}>
+      {message}
+    </Text>
     {onRetry ? (
       <Button
         label="Try again"
         variant="secondary"
+        size={legible ? 'lg' : 'md'}
+        icon="refresh"
         onPress={onRetry}
         style={{ marginTop: spacing.md }}
       />
@@ -360,8 +553,14 @@ export const Banner: React.FC<{ tone?: Tone; message: string; onClose?: () => vo
     <View style={[styles.banner, { backgroundColor: toneColors.bg }]}>
       <Text style={[styles.bannerText, { color: toneColors.text }]}>{message}</Text>
       {onClose ? (
-        <Pressable onPress={onClose} hitSlop={8} style={styles.bannerClose}>
-          <Text style={[styles.bannerCloseText, { color: toneColors.text }]}>✕</Text>
+        <Pressable
+          onPress={onClose}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss"
+          style={styles.bannerClose}
+        >
+          <Ionicons name="close" size={20} color={toneColors.text} />
         </Pressable>
       ) : null}
     </View>
@@ -377,9 +576,17 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     alignSelf: 'flex-start',
   },
+  badgeLarge: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+  },
   badgeText: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
+  },
+  badgeLargeText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
   },
   dot: {
     width: 8,
@@ -398,100 +605,91 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   keyValueLabel: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   keyValueValue: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     color: colors.neutral[800],
+    marginTop: 2,
+  },
+  keyValueLabelLegible: {
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
+    fontWeight: '600',
+  },
+  keyValueValueLegible: {
+    fontSize: textScale.numeric,
+    fontWeight: '700',
+    color: colors.neutral[900],
     marginTop: 2,
   },
   buttonBase: {
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 4,
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    minHeight: 44,
   },
-  buttonSmall: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    minHeight: 32,
+  buttonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
   buttonPressed: {
-    opacity: 0.75,
+    opacity: 0.8,
   },
   buttonDisabled: {
     opacity: 0.45,
   },
   buttonText: {
-    fontSize: typography.fontSizes.base,
     fontWeight: '700',
-  },
-  buttonSmallText: {
-    fontSize: typography.fontSizes.sm,
-  },
-  primaryButton: {
-    backgroundColor: colors.primary[500],
-  },
-  primaryButtonText: {
-    color: '#ffffff',
   },
   secondaryButton: {
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[300],
-  },
-  secondaryButtonText: {
-    color: colors.neutral[800],
-  },
-  dangerButton: {
-    backgroundColor: colors.status.danger,
-  },
-  dangerButtonText: {
-    color: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: surface.borderInteractive,
   },
   ghostButton: {
     backgroundColor: colors.neutral[100],
-  },
-  ghostButtonText: {
-    color: colors.neutral[700],
   },
   field: {
     marginBottom: spacing.md,
   },
   fieldLabel: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
     color: colors.neutral[700],
     marginBottom: spacing.xs,
   },
   fieldInput: {
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[300],
+    borderWidth: 1.5,
+    borderColor: surface.borderInteractive,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     fontSize: typography.fontSizes.base,
     color: colors.neutral[900],
-    minHeight: 46,
+    minHeight: touch.target,
   },
   fieldInputError: {
     borderColor: colors.status.danger,
   },
   fieldHint: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   fieldError: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.base,
     color: colors.status.danger,
     marginTop: spacing.xs,
   },
@@ -503,11 +701,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[200],
+    borderWidth: 1.5,
+    borderColor: surface.borderInteractive,
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md,
-    minHeight: 46,
   },
   searchInput: {
     flex: 1,
@@ -515,32 +712,44 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.base,
     color: colors.neutral[900],
   },
+  searchClear: {
+    minHeight: touch.compact,
+    minWidth: touch.compact,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chipRow: {
     flexDirection: 'row',
     gap: spacing.xs,
     paddingBottom: spacing.sm,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 3,
     borderRadius: borderRadius.full,
     backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: colors.neutral[200],
-    minHeight: 34,
+    borderWidth: 1.5,
+    borderColor: surface.borderInteractive,
+    minHeight: 36,
     justifyContent: 'center',
   },
+  chipField: {
+    minHeight: touch.target,
+    paddingHorizontal: spacing.lg,
+  },
   chipActive: {
-    backgroundColor: colors.primary[600],
-    borderColor: colors.primary[600],
+    backgroundColor: colors.primary[700],
+    borderColor: colors.primary[700],
   },
   chipText: {
-    fontSize: 12,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
-    color: colors.neutral[600],
   },
-  chipTextActive: {
-    color: '#ffffff',
+  chipFieldText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
   },
   filterSummary: {
     flexDirection: 'row',
@@ -551,12 +760,16 @@ const styles = StyleSheet.create({
   },
   filterSummaryText: {
     flex: 1,
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
     fontWeight: '600',
   },
   filterSummaryAction: {
-    fontSize: typography.fontSizes.xs,
+    minHeight: touch.compact,
+    justifyContent: 'center',
+  },
+  filterSummaryActionText: {
+    fontSize: typography.fontSizes.sm,
     color: colors.primary[700],
     fontWeight: '700',
   },
@@ -573,8 +786,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[50],
   },
   centeredText: {
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
+    fontSize: typography.fontSizes.base,
   },
   stateCard: {
     backgroundColor: '#ffffff',
@@ -585,37 +798,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  stateCardLegible: {
+    padding: spacing.xl,
+    gap: spacing.sm,
+  },
   stateTitle: {
     fontSize: typography.fontSizes.base,
     fontWeight: '700',
     color: colors.neutral[800],
     textAlign: 'center',
   },
+  stateTitleLegible: {
+    fontSize: typography.fontSizes.xl,
+    color: colors.neutral[900],
+  },
   stateDescription: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     textAlign: 'center',
+  },
+  stateDescriptionLegible: {
+    fontSize: typography.fontSizes.lg,
   },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.sm + 2,
     marginBottom: spacing.md,
     gap: spacing.sm,
   },
   bannerText: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
   },
   bannerClose: {
-    padding: spacing.xs,
-  },
-  bannerCloseText: {
-    fontSize: typography.fontSizes.sm,
-    fontWeight: '700',
+    minHeight: touch.compact,
+    minWidth: touch.compact,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   divider: {
     height: 1,

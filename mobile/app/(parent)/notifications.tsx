@@ -20,7 +20,8 @@ import { formatDateTime } from '../../src/lib/format';
  * follows the same unread count.
  */
 export default function ParentNotificationsScreen() {
-  const { state, loading, refreshing, connected, markRead, markAllRead, refresh } = useParentNotifications();
+  const { state, loading, refreshing, connected, markRead, markAllRead, refresh } =
+    useParentNotifications();
   const [search, setSearch] = useState('');
   const [readFilter, setReadFilter] = useState<'ALL' | 'UNREAD' | 'READ'>('ALL');
 
@@ -141,7 +142,7 @@ const styles = StyleSheet.create({
   },
   connected: {
     color: colors.neutral[500],
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '700',
   },
   row: {
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   rowUnread: {
-    borderLeftColor: colors.primary[500],
+    borderLeftColor: colors.primary[700],
     backgroundColor: '#fffbeb',
   },
   rowTop: {
@@ -165,7 +166,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   type: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     fontWeight: '700',
   },
@@ -173,7 +174,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.primary[500],
+    backgroundColor: colors.primary[700],
   },
   title: {
     fontSize: typography.fontSizes.base,
@@ -185,8 +186,8 @@ const styles = StyleSheet.create({
     color: colors.neutral[600],
   },
   time: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[400],
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
     marginTop: 2,
   },
 });

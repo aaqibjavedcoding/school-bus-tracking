@@ -131,8 +131,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   meta: {
-    fontSize: typography.fontSizes.xs,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
     marginTop: 2,
   },
   right: {
@@ -150,9 +150,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    minHeight: 44,
   },
   actionText: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: typography.fontSizes.base,
     fontWeight: '600',
     color: colors.primary[700],
   },
@@ -165,8 +166,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   pagerBtn: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     borderRadius: borderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',

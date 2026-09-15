@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
     marginRight: spacing.xs,
   },
   text: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
   },
 });

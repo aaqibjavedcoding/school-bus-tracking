@@ -8,6 +8,7 @@ import { generateIdempotencyKey } from '../../lib/idempotency';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { Button, Field } from '../../components';
 import { nextCrewTransitions, transitionLabel } from './crew-trip';
+import { transitionActionMeta } from './crew-action-meta';
 import { useOfflineAction } from './offline/useOfflineAction';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -123,16 +124,24 @@ export const TripStatusActions: React.FC<{
 
   return (
     <View style={styles.wrap}>
-      {transitions.map((next) => (
-        <Button
-          key={next}
-          label={transitionLabel(next)}
-          onPress={() => void apply(next)}
-          disabled={busy}
-          busy={busy && !cancelling && transitions.length === 1}
-          style={styles.action}
-        />
-      ))}
+      {transitions.map((next) => {
+        // The one-tap lifecycle actions are the crew's biggest buttons: 64px,
+        // with the stable icon + tone from `crew-action-meta` (green = go).
+        const meta = transitionActionMeta(next);
+        return (
+          <Button
+            key={next}
+            label={transitionLabel(next)}
+            icon={meta.icon}
+            tone={meta.tone}
+            size="field"
+            onPress={() => void apply(next)}
+            disabled={busy}
+            busy={busy && !cancelling && transitions.length === 1}
+            style={styles.action}
+          />
+        );
+      })}
 
       {allowCancel && !cancelling ? (
         <Button
@@ -189,8 +198,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   terminalNote: {
-    color: colors.neutral[500],
-    fontSize: 14,
+    color: colors.neutral[600],
+    fontSize: 16,
     textAlign: 'center',
   },
   cancelBox: {
@@ -207,10 +216,11 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.status.danger,
-    fontSize: 13,
+    fontSize: 16,
+    fontWeight: '600',
   },
   queued: {
-    color: colors.neutral[600],
-    fontSize: 13,
+    color: colors.neutral[700],
+    fontSize: 16,
   },
 });

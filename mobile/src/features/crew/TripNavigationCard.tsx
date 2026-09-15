@@ -38,7 +38,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   const url = target ? buildNavigationUrl(target) : null;
 
   return (
-    <Card title="Navigate" description="Opens the next stop in your phone's map app.">
+    <Card legible title="Navigate" description="Opens the next stop in your phone's map app.">
       {next && target ? (
         <>
           <View style={styles.row}>
@@ -49,6 +49,8 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
           {url ? (
             <Button
               label="Navigate to stop"
+              icon="navigate"
+              size="field"
               onPress={() => void Linking.openURL(url)}
               style={styles.action}
             />
@@ -82,8 +84,8 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   muted: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[500],
+    fontSize: typography.fontSizes.base,
+    color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   action: {

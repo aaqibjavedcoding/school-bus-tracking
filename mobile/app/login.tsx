@@ -178,80 +178,80 @@ export default function LoginScreen() {
         }}
         scrollEventThrottle={16}
       >
-      <View style={styles.container}>
-        <View style={styles.hero}>
-          <View style={styles.brandMark}>
-            <Text style={styles.brandMarkText}>SBT</Text>
+        <View style={styles.container}>
+          <View style={styles.hero}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>SBT</Text>
+            </View>
+            <Text style={styles.title}>School Bus Tracking</Text>
+            <Text style={styles.subtitle}>Sign in with your school account</Text>
           </View>
-          <Text style={styles.title}>School Bus Tracking</Text>
-          <Text style={styles.subtitle}>Sign in with your school account</Text>
+
+          <View style={styles.card}>
+            <Field
+              ref={schoolRef}
+              label="School code"
+              value={schoolId}
+              onChangeText={setSchoolId}
+              placeholder="e.g. lincoln-high"
+              autoCapitalize="none"
+              error={fieldErrors.school_id}
+              hint="Your school's tenant code. Leave empty only for platform admins."
+              returnKeyType="next"
+              submitBehavior="submit"
+              onFocus={onFocusField(schoolRef)}
+              onSubmitEditing={() => emailRef.current?.focus()}
+            />
+            <Field
+              ref={emailRef}
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@school.edu"
+              keyboardType="email-address"
+              textContentType="username"
+              autoComplete="email"
+              error={fieldErrors.email}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onFocus={onFocusField(emailRef)}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+            />
+            <Field
+              ref={passwordRef}
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              placeholder="••••••••"
+              secureTextEntry
+              textContentType="password"
+              autoComplete="current-password"
+              error={fieldErrors.password}
+              returnKeyType="done"
+              onFocus={onFocusField(passwordRef)}
+              onSubmitEditing={() => {
+                if (!busy) void onSubmit();
+              }}
+            />
+
+            {configError ? <Text style={styles.formError}>{configError}</Text> : null}
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+            <Button
+              label="Sign in"
+              onPress={() => void onSubmit()}
+              busy={busy}
+              disabled={busy || configError !== null}
+            />
+          </View>
+
+          <View>
+            <Text style={styles.footer}>
+              Drivers, conductors, parents and school admins all sign in here — the app adapts to
+              your role.
+            </Text>
+          </View>
         </View>
-
-        <View style={styles.card}>
-          <Field
-            ref={schoolRef}
-            label="School code"
-            value={schoolId}
-            onChangeText={setSchoolId}
-            placeholder="e.g. lincoln-high"
-            autoCapitalize="none"
-            error={fieldErrors.school_id}
-            hint="Your school's tenant code. Leave empty only for platform admins."
-            returnKeyType="next"
-            submitBehavior="submit"
-            onFocus={onFocusField(schoolRef)}
-            onSubmitEditing={() => emailRef.current?.focus()}
-          />
-          <Field
-            ref={emailRef}
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@school.edu"
-            keyboardType="email-address"
-            textContentType="username"
-            autoComplete="email"
-            error={fieldErrors.email}
-            returnKeyType="next"
-            submitBehavior="submit"
-            onFocus={onFocusField(emailRef)}
-            onSubmitEditing={() => passwordRef.current?.focus()}
-          />
-          <Field
-            ref={passwordRef}
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="••••••••"
-            secureTextEntry
-            textContentType="password"
-            autoComplete="current-password"
-            error={fieldErrors.password}
-            returnKeyType="done"
-            onFocus={onFocusField(passwordRef)}
-            onSubmitEditing={() => {
-              if (!busy) void onSubmit();
-            }}
-          />
-
-          {configError ? <Text style={styles.formError}>{configError}</Text> : null}
-          {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-
-          <Button
-            label="Sign in"
-            onPress={() => void onSubmit()}
-            busy={busy}
-            disabled={busy || configError !== null}
-          />
-        </View>
-
-        <View>
-          <Text style={styles.footer}>
-            Drivers, conductors, parents and school admins all sign in here — the app adapts to your
-            role.
-          </Text>
-        </View>
-      </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     color: colors.neutral[500],
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     textAlign: 'center',
     lineHeight: 18,
   },

@@ -135,10 +135,7 @@ export default function AdminTripDetailScreen() {
           <KeyValue label="Conductor" value={trip.conductor_name ?? '—'} />
         </View>
         <View style={styles.kvRow}>
-          <KeyValue
-            label="Bus"
-            value={trip.registration_number ?? trip.bus_number ?? '—'}
-          />
+          <KeyValue label="Bus" value={trip.registration_number ?? trip.bus_number ?? '—'} />
         </View>
       </Card>
 
@@ -185,7 +182,7 @@ const styles = StyleSheet.create({
   },
   backText: {
     color: colors.primary[700],
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
   },
   badgeRow: {
@@ -209,7 +206,7 @@ const styles = StyleSheet.create({
   },
   cancelReason: {
     color: colors.status.danger,
-    fontSize: 13,
+    fontSize: 14,
     marginTop: spacing.sm,
     textAlign: 'center',
   },

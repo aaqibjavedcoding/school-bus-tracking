@@ -68,7 +68,7 @@ export const OfflineSyncBanner: React.FC = () => {
         {sync.isOnline && hasPending && sync.status !== 'syncing' ? (
           <Button
             label="Sync now"
-            small
+            icon="cloud-upload"
             variant="secondary"
             disabled={busy}
             onPress={() => void run(() => syncNow())}
@@ -78,7 +78,7 @@ export const OfflineSyncBanner: React.FC = () => {
           <>
             <Button
               label="Retry"
-              small
+              icon="refresh"
               variant="secondary"
               disabled={busy}
               onPress={() =>
@@ -91,7 +91,6 @@ export const OfflineSyncBanner: React.FC = () => {
             />
             <Button
               label="Dismiss"
-              small
               variant="ghost"
               disabled={busy}
               onPress={() =>
@@ -119,7 +118,7 @@ const styles = StyleSheet.create({
   offline: { backgroundColor: colors.neutral[100], borderColor: colors.neutral[300] },
   syncing: { backgroundColor: colors.primary[50], borderColor: colors.primary[200] },
   error: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
-  title: { fontSize: 13, fontWeight: '700', color: colors.neutral[900] },
-  detail: { fontSize: 12, color: colors.neutral[600] },
+  title: { fontSize: 16, fontWeight: '700', color: colors.neutral[900] },
+  detail: { fontSize: 16, color: colors.neutral[700] },
   actions: { flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' },
 });

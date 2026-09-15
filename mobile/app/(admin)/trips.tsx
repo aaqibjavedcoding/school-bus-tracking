@@ -208,7 +208,10 @@ export default function AdminTripsScreen() {
   );
 
   // Active assignments + runs feed the schedule form — same lookups as the web page.
-  const lookups = useLoad(async (): Promise<{ assignments: RouteAssignmentResponse[]; runs: RunResponse[] }> => {
+  const lookups = useLoad(async (): Promise<{
+    assignments: RouteAssignmentResponse[];
+    runs: RunResponse[];
+  }> => {
     const [assignments, runs] = await Promise.all([
       apiClient.listRouteAssignments({ page: 1, limit: 100, is_active: true }),
       apiClient.listRuns({ page: 1, limit: 100 }),
@@ -411,7 +414,11 @@ export default function AdminTripsScreen() {
                 <Text style={styles.dayButtonText}>›</Text>
               </Pressable>
             </View>
-            <FilterChips<StatusFilter> options={statusOptions} value={status} onChange={setStatus} />
+            <FilterChips<StatusFilter>
+              options={statusOptions}
+              value={status}
+              onChange={setStatus}
+            />
             {filtersActive ? (
               <FilterSummary
                 label={[
@@ -495,8 +502,8 @@ export default function AdminTripsScreen() {
         />
         {source === 'run' && runs.length === 0 ? (
           <Text style={styles.warn}>
-            No active runs yet — scheduling falls back to a legacy route
-            assignment. Manage runs from the web admin under Routes → Runs.
+            No active runs yet — scheduling falls back to a legacy route assignment. Manage runs
+            from the web admin under Routes → Runs.
           </Text>
         ) : null}
         {source === 'run' && runs.length > 0 ? (
@@ -591,7 +598,7 @@ const styles = StyleSheet.create({
   },
   count: {
     color: colors.neutral[500],
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: spacing.sm,
   },
   card: {
@@ -616,7 +623,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   cardMeta: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: 2,
   },
@@ -632,13 +639,13 @@ const styles = StyleSheet.create({
   },
   hint: {
     textAlign: 'center',
-    color: colors.neutral[400],
-    fontSize: typography.fontSizes.xs,
+    color: colors.neutral[600],
+    fontSize: typography.fontSizes.sm,
     marginTop: spacing.sm,
   },
   warn: {
     color: colors.status.warning,
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     marginTop: spacing.xs,
   },
 });
