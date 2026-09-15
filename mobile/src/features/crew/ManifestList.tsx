@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { SectionList, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Animated, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   TripAttendanceStatus,
@@ -9,7 +9,6 @@ import {
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  AttendanceBadge,
   Badge,
   Button,
   EmptyState,
@@ -17,21 +16,38 @@ import {
   SearchBar,
   screenRefreshControl,
 } from '../../components';
-import { attendanceActionMeta } from './crew-action-meta';
+import { crewCopy } from './crew-copy';
+import {
+  MANIFEST_ROW_MIN_HEIGHT,
+  ROW_ACTION_GLYPH_SIZE,
+  ROW_FLASH_GREEN,
+  confirmationLine,
+  rowActionFor,
+  rowA11yLabel,
+  rowActionGlyph,
+  settledSymbol,
+  successAnnouncement,
+} from './manifest-row';
 
 /**
  * Student manifest with board/drop actions — the shared crew surface.
  *
- * All state comes from `GET /trips/:tripId/students` and the body-less
- * `board` / `drop` endpoints: who recorded an event and when is decided by
- * the server. The list is grouped by stop (the API already orders entries by
- * stop sequence), and a status filter lets the crew focus on who is still
- * waiting at the current stop.
+ * Phase 2 makes the row itself the button (one job, one screen):
  *
- * Rendered as a `SectionList` (one section per stop) so a full bus of
- * students stays smooth; the summary, search and filter strip live in the
- * list header and anything the caller wants above the manifest goes through
- * `header`, mirroring `<ListScreen />`.
+ * - **the whole card is the tap target** — the current action (board for a
+ *   waiting student, drop for an on-board one) fires from anywhere on the
+ *   row, no precisce 60px button to hit in a moving bus;
+ * - a **big ✓/✕ glyph zone (60px)** on the right names the action, green in
+ *   / grey out (the shared `crew-action-meta` vocabulary);
+ * - success is confirmed three ways: the **row flashes green**, an inline
+ *   "**Ramesh ✓ 7:42 AM**" line appears (server timestamps only), and the
+ *   screen reader announces the boarding — colour never the only cue;
+ * - offline is honest: a queued action shows "⏳ saved offline" until the
+ *   server confirms it (queue itself untouched).
+ *
+ * All state still comes from `GET /trips/:tripId/students` and the
+ * body-less `board` / `drop` endpoints; grouping, filtering, search and the
+ * offline queue are exactly the Phase-1 logic with new presentation.
  */
 
 type ManifestFilter = 'ALL' | TripAttendanceStatus;
@@ -63,6 +79,8 @@ export const ManifestList: React.FC<{
   busyStudentId: string | null;
   onBoard: (studentId: string) => void;
   onDrop: (studentId: string) => void;
+  /** Students whose board/drop is sitting in the offline queue right now. */
+  queuedStudentIds?: ReadonlySet<string>;
   header?: React.ReactElement | null;
   footer?: React.ReactElement | null;
   refresh?: (() => void) | null;
@@ -73,6 +91,7 @@ export const ManifestList: React.FC<{
   busyStudentId,
   onBoard,
   onDrop,
+  queuedStudentIds,
   header = null,
   footer = null,
   refresh = null,
@@ -119,6 +138,7 @@ export const ManifestList: React.FC<{
           student={item}
           canAct={canAct}
           busy={busyStudentId === item.student_id}
+          queued={queuedStudentIds?.has(item.student_id) ?? false}
           onBoard={() => onBoard(item.student_id)}
           onDrop={() => onDrop(item.student_id)}
         />
@@ -189,48 +209,114 @@ const ManifestRow: React.FC<{
   student: TripStudentAttendanceResponse;
   canAct: boolean;
   busy: boolean;
+  queued: boolean;
   onBoard: () => void;
   onDrop: () => void;
-}> = ({ student, canAct, busy, onBoard, onDrop }) => {
-  // The row actions keep one vocabulary everywhere (green in, grey out) — see
-  // `crew-action-meta.ts` — at the 60px `lg` size, thumb-friendly in a moving bus.
-  const board = attendanceActionMeta('board');
-  const drop = attendanceActionMeta('drop');
+}> = ({ student, canAct, busy, queued, onBoard, onDrop }) => {
+  const action = rowActionFor(student.status, canAct);
+  const glyph = rowActionGlyph(action);
+  const confirmation = confirmationLine(
+    student,
+    queued && student.status === TripAttendanceStatus.PENDING ? 'queued' : 'recorded',
+  );
+
+  // Success feedback: flash the row green + announce it to screen readers
+  // when the row's recorded state advances (pending → boarded → dropped).
+  const flash = useRef(new Animated.Value(0)).current;
+  const previousStatus = useRef<TripAttendanceStatus | null>(null);
+  useEffect(() => {
+    const before = previousStatus.current;
+    previousStatus.current = student.status;
+    const advanced =
+      (before === TripAttendanceStatus.PENDING &&
+        student.status === TripAttendanceStatus.BOARDED) ||
+      (before === TripAttendanceStatus.BOARDED && student.status === TripAttendanceStatus.DROPPED);
+    if (!advanced) return;
+    Animated.sequence([
+      Animated.timing(flash, { toValue: 1, duration: 180, useNativeDriver: false }),
+      Animated.timing(flash, { toValue: 0, duration: 400, useNativeDriver: false }),
+    ]).start();
+    AccessibilityInfo.announceForAccessibility(
+      successAnnouncement(
+        `${student.first_name} ${student.last_name}`.trim(),
+        before === TripAttendanceStatus.PENDING ? 'board' : 'drop',
+      ),
+    );
+  }, [flash, student.status, student.first_name, student.last_name]);
+
+  const backgroundColor = flash.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#ffffff', ROW_FLASH_GREEN],
+  });
+
+  const press = () => {
+    if (busy) return;
+    if (action === 'board') onBoard();
+    if (action === 'drop') onDrop();
+  };
+
   return (
-    <View style={styles.row}>
-      <View style={styles.rowMain}>
-        <Text style={styles.rowName}>
-          {student.first_name} {student.last_name}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {student.admission_number}
-          {student.grade_level ? ` · ${student.grade_level}` : ''}
-        </Text>
-        <AttendanceBadge size="lg" status={student.status} />
-      </View>
-      {canAct && student.status === TripAttendanceStatus.PENDING ? (
-        <Button
-          label="Board"
-          icon={board.icon}
-          tone={board.tone}
-          size="lg"
-          onPress={onBoard}
-          disabled={busy}
-          busy={busy}
-        />
-      ) : null}
-      {canAct && student.status === TripAttendanceStatus.BOARDED ? (
-        <Button
-          label="Drop"
-          icon={drop.icon}
-          variant="secondary"
-          size="lg"
-          onPress={onDrop}
-          disabled={busy}
-          busy={busy}
-        />
-      ) : null}
-    </View>
+    <Pressable
+      onPress={press}
+      disabled={!action || busy}
+      accessibilityRole={action ? 'button' : undefined}
+      accessibilityLabel={rowA11yLabel(student, action)}
+      accessibilityHint={
+        action === 'board'
+          ? crewCopy.manifest.boardHint
+          : action === 'drop'
+            ? crewCopy.manifest.dropHint
+            : undefined
+      }
+      accessibilityState={{ disabled: busy, busy }}
+      style={styles.rowWrap}
+    >
+      {({ pressed }) => (
+        <Animated.View style={[styles.row, { backgroundColor }, pressed && action ? styles.rowPressed : null]}>
+          <View style={styles.rowMain}>
+            <Text style={styles.rowName}>
+              {student.first_name} {student.last_name}
+            </Text>
+            <Text style={styles.rowMeta}>
+              {student.admission_number}
+              {student.grade_level ? ` · ${student.grade_level}` : ''}
+            </Text>
+            {confirmation ? (
+              <Text
+                style={[
+                  styles.confirmation,
+                  student.status === TripAttendanceStatus.DROPPED ? styles.confirmationDropped : null,
+                ]}
+              >
+                {confirmation}
+              </Text>
+            ) : (
+              <Text style={styles.waiting}>{crewCopy.manifest.waitingLabel}</Text>
+            )}
+          </View>
+          <View style={styles.glyphZone} accessible={false}>
+            {busy ? (
+              <ActivityIndicator size="small" color={colors.neutral[500]} />
+            ) : glyph ? (
+              <View
+                style={[
+                  styles.glyphCircle,
+                  glyph.tone === 'success' ? styles.glyphSuccess : styles.glyphNeutral,
+                ]}
+              >
+                <Ionicons
+                  name={glyph.icon}
+                  size={34}
+                  color={glyph.tone === 'success' ? '#ffffff' : colors.neutral[700]}
+                />
+              </View>
+            ) : (
+              <Text style={styles.settledSymbol}>{settledSymbol(student.status)}</Text>
+            )}
+          </View>
+        </Animated.View>
+      )}
+    </Pressable>
   );
 };
 
@@ -286,17 +372,22 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     marginBottom: spacing.sm,
   },
+  rowWrap: {
+    marginBottom: spacing.sm,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    minHeight: MANIFEST_ROW_MIN_HEIGHT,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: colors.neutral[200],
     borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
+  },
+  rowPressed: {
+    borderColor: colors.neutral[400],
   },
   rowMain: {
     flex: 1,
@@ -310,5 +401,41 @@ const styles = StyleSheet.create({
   rowMeta: {
     fontSize: 16,
     color: colors.neutral[600],
+  },
+  confirmation: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.secondary[800],
+  },
+  confirmationDropped: {
+    color: colors.neutral[700],
+  },
+  waiting: {
+    fontSize: 16,
+    color: colors.neutral[600],
+  },
+  glyphZone: {
+    width: ROW_ACTION_GLYPH_SIZE,
+    height: ROW_ACTION_GLYPH_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyphCircle: {
+    width: ROW_ACTION_GLYPH_SIZE,
+    height: ROW_ACTION_GLYPH_SIZE,
+    borderRadius: ROW_ACTION_GLYPH_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyphSuccess: {
+    backgroundColor: colors.secondary[700],
+  },
+  glyphNeutral: {
+    backgroundColor: colors.neutral[200],
+  },
+  settledSymbol: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.neutral[500],
   },
 });

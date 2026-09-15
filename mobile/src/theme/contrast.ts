@@ -131,6 +131,28 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { name: 'active tab tint', foreground: colors.primary[700], background: WHITE, minimum: AA_TEXT },
   { name: 'toast success', foreground: WHITE, background: colors.secondary[700], minimum: AA_TEXT },
   { name: 'toast danger', foreground: WHITE, background: colors.status.danger, minimum: AA_TEXT },
+  // Phase 2 giant status card: the 28px bold state word (white) on the
+  // state colour — BOARDING green, IN_PROGRESS amber, settled grey. The
+  // colour→state mapping itself is pinned by
+  // `features/crew/trip-status-style.spec.ts`.
+  {
+    name: 'status card BOARDING (white on green)',
+    foreground: WHITE,
+    background: colors.secondary[700],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'status card IN_PROGRESS (white on amber)',
+    foreground: WHITE,
+    background: colors.primary[700],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'status card settled (white on grey)',
+    foreground: WHITE,
+    background: colors.neutral[600],
+    minimum: AA_TEXT,
+  },
   {
     name: 'muted text on screen',
     foreground: colors.neutral[600],

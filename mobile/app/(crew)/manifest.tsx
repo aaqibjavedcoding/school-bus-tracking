@@ -46,6 +46,9 @@ export default function CrewManifestScreen() {
   }, [trip?.id]);
 
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
+  // Students whose action currently sits in the offline queue — the row shows
+  // "⏳ saved offline" until the server confirms the event on the next reload.
+  const [queuedIds, setQueuedIds] = useState<ReadonlySet<string>>(new Set());
   const offline = useOfflineAction();
   const toast = useToast();
 
@@ -70,6 +73,7 @@ export default function CrewManifestScreen() {
             : apiClient.dropTripStudent(trip.id, studentId, withIdempotencyKey(key)),
       );
       if (result.mode === 'queued') {
+        setQueuedIds((previous) => new Set(previous).add(studentId));
         toast.push(
           action === 'board'
             ? 'Saved offline — boarding will sync when back online.'
@@ -126,6 +130,7 @@ export default function CrewManifestScreen() {
           manifest={manifest}
           canAct={isTripOpen(manifest.trip_status)}
           busyStudentId={busyStudentId}
+          queuedStudentIds={queuedIds}
           onBoard={(studentId) => void withAction(studentId, 'board')}
           onDrop={(studentId) => void withAction(studentId, 'drop')}
           header={

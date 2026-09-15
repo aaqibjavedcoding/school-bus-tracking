@@ -468,7 +468,7 @@ school-bus-tracking/
 │   ├── app/                          # expo-router file routes
 │   │   ├── _layout.tsx               # root: providers, api-env registration, splash/status bar
 │   │   ├── index.tsx / login.tsx / platform.tsx
-│   │   ├── (crew)/   trip, manifest, stops, sos
+│   │   ├── (crew)/   trip, manifest, stops, sos, help (hidden — telemetry/support)
 │   │   ├── (parent)/ home, tracking, notifications, children/[id]
 │   │   └── (admin)/  dashboard, trips, trips/[id], tracking, attendance, reports,
 │   │                 reports/[report], emergencies, manage/{students,students/[id],buses,
@@ -481,8 +481,10 @@ school-bus-tracking/
 │       │   ├── auth/                 # AuthProvider (memory token + cookie refresh), RoleGate
 │       │   ├── crew/                 # crew-trip.ts, navigation-stop.ts, location-task.ts,
 │       │   │                         # useCrewToday, useCrewLocationSharing, GpsPermissionRecovery,
-│       │   │                         # GpsSharePanel, ManifestList, TripNavigationCard,
-│       │   │                         # TripStatusActions, SosPanel,
+│       │   │                         # GpsSharePanel, GpsShareStrip, ManifestList, StatusCard,
+│       │   │                         # TripNavigationCard, TripStatusActions, SosPanel,
+│       │   │                         # HoldToConfirmButton, crew-copy, trip-status-style,
+│       │   │                         # hold-to-confirm, sos-flow, manifest-row (+ guard specs),
 │       │   │                         # offline/ (queue-core, attendance-queue, attendance-sync,
 │       │   │                         #         useOfflineAction, OfflineSyncBanner)
 │       │   ├── driver/ conductor/    # thin re-exports of the same crew slice
@@ -791,6 +793,18 @@ adding one needs no migration.
   The ratios are pinned by `src/theme/contrast.spec.ts` and the "no text under 16px on crew
   surfaces / 14px anywhere" rule by `src/theme/legibility.spec.ts`, both under
   `npm --prefix mobile test`. Details + the measured contrast table: `docs/mobile-ux.md`.
+- **Crew screens are "one job, one screen" (Phase 2)**: the trip tab leads with a giant status
+  card whose background colour *is* the state (BOARDING green / ON THE ROAD amber / settled grey,
+  mapping pinned by `trip-status-style.spec.ts`), shows next stop + ETA at 24px and exactly one
+  64px primary action; metadata hides in a collapsible "More details". The driver's GPS row is
+  only `Sharing ✅/❌` + last update + Retry — the telemetry counters live on the hidden
+  **Help & support** tab (`app/(crew)/help.tsx`, move guarded by `help-routing.spec.ts`).
+  SOS is **hold-to-confirm** (~0.9s, single-fire, same idempotency key per alert, offline shows
+  "queued ⏳" with an automatic same-key retry); manifest rows are full-row tap targets with a
+  60px ✓/✕, a green success flash and an inline "Name ✓ time". All Phase-2 copy is centralized
+  in `src/features/crew/crew-copy.ts` as the Phase-3 i18n plug point. Presentation only — API
+  contracts, the offline queue, GPS sharing, sockets and session logic are untouched
+  (full map: `docs/mobile-ux.md` → Phase 2).
 - **Metro monorepo resolution**: `watchFolders` = repo root, `nodeModulesPaths` =
   `mobile/node_modules` then root — nested `node_modules` lookup stays enabled on purpose (disabling
   it breaks transitive deps).
@@ -1092,7 +1106,7 @@ The workflow file says this inline — do not "streamline" it away.
 | [`docs/deployment.md`](./docs/deployment.md) | Env vars, build, migrations, single-instance container, health checks, prod checklist |
 | [`docs/mobile-operations.md`](./docs/mobile-operations.md) | Offline attendance, background GPS, session/network UX, 403 taxonomy, build config |
 | [`docs/mobile-expo-sdk.md`](./docs/mobile-expo-sdk.md) | Expo SDK pinning policy, verified version matrix, Expo Go vs dev builds |
-| [`docs/mobile-ux.md`](./docs/mobile-ux.md) | Mobile legibility system — type/touch tokens, measured WCAG contrast table, guard specs |
+| [`docs/mobile-ux.md`](./docs/mobile-ux.md) | Mobile legibility system (Phase 1) + Phase 2 crew screens: status→colour card, hold-to-confirm SOS, full-row board/drop, Help/Support telemetry move — measured contrast tables + guard specs |
 | [`docs/backup-restore.md`](./docs/backup-restore.md) | Local backup/restore workflow |
 | [`infrastructure/README.md`](./infrastructure/README.md), [`mobile/README.md`](./mobile/README.md) | Dev DB containers; mobile run/QR troubleshooting |
 

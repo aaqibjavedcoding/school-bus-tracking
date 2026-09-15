@@ -1,42 +1,48 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
-import { useAuth } from '../../src/features/auth';
-import { useCrewToday, TripStatusActions, useCrewLocationSharing } from '../../src/features/crew';
-import { GpsSharePanel } from '../../src/features/crew/GpsSharePanel';
-import { SosPanel } from '../../src/features/crew/SosPanel';
-import { OfflineSyncBanner } from '../../src/features/crew/offline';
-import { TripNavigationCard } from '../../src/features/crew/TripNavigationCard';
-import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
-import { EtaSummaryCard } from '../../src/features/tracking/EtaViews';
-import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { UserRole, type StopResponse } from '@school-bus-tracking/shared-types';
+import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
+import { useAuth } from '../../src/features/auth';
+import {
+  GpsShareStrip,
+  SosQuickPanel,
+  StatusCard,
+  TripStatusActions,
+  TripNavigationCard,
+  useCrewLocationSharing,
+  useCrewToday,
+} from '../../src/features/crew';
+import { OfflineSyncBanner } from '../../src/features/crew/offline';
+import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
+import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import {
   Button,
-  Card,
   EmptyState,
   ErrorState,
   KeyValue,
   LoadingView,
   Screen,
-  SectionTitle,
-  TripStatusBadge,
 } from '../../src/components';
 import { formatDate, formatTime, roleLabel } from '../../src/lib/format';
-import { crewRoleLabel } from '../../src/lib/roles';
+import { crewCopy } from '../../src/features/crew/crew-copy';
 
 /**
- * Crew "today" screen (DRIVER + CONDUCTOR): the day's run, its lifecycle
- * (BOARDING → IN_PROGRESS → COMPLETED), native GPS sharing, and the live
- * current/next stop with the server-computed ETA.
+ * Crew "today" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
+ * screen**. The giant status card answers the only three questions a crew
+ * member has while working — *what state are we in* (background colour +
+ * 28px word), *where next* (stop + ETA, 24px) and *what do I do now* (one
+ * 64px primary action). Route code, scheduled time, bus reg no., role chip,
+ * connection state and departure stamps are de-prioritised — never deleted —
+ * into the card's collapsible "More details".
  *
- * Task 44 splits the emphasis by role without duplicating any plumbing: the
- * driver leads with GPS sharing plus navigation to the next stop, the
- * conductor is pointed at boarding & drop. Both keep the SOS panel in reach.
+ * Around the card: the offline-sync banner, the driver's compact GPS strip
+ * (Sharing ✅/❌ + last update + Retry; full telemetry lives on the
+ * Help/Support screen), navigation to the next stop, the manifest/stops
+ * links, and the hold-to-confirm SOS row.
  */
 export default function CrewTripScreen() {
   const router = useRouter();
@@ -85,45 +91,64 @@ export default function CrewTripScreen() {
   const route = data.route;
   const bus = data.bus;
 
+  const details = (
+    <>
+      <KeyValue
+        legible
+        label={crewCopy.details.route}
+        value={route ? `${route.code} · ${route.name}` : '—'}
+      />
+      <KeyValue legible label={crewCopy.details.scheduled} value={formatTime(trip.scheduled_start_at)} />
+      <KeyValue legible label={crewCopy.details.date} value={formatDate(trip.scheduled_start_at)} />
+      <KeyValue
+        legible
+        label={crewCopy.details.bus}
+        value={
+          bus
+            ? `${bus.registration_number}${bus.bus_number ? ` · ${bus.bus_number}` : ''}`
+            : '—'
+        }
+      />
+      {user ? <KeyValue legible label={crewCopy.details.role} value={roleLabel(user.role)} /> : null}
+      <View style={styles.connectionRow}>
+        <Text style={styles.connectionLabel}>{crewCopy.details.connection}</Text>
+        <ConnectionIndicator connection={live.connection} />
+      </View>
+      {trip.actual_start_at ? (
+        <Text style={styles.muted}>{crewCopy.departedAt(formatTime(trip.actual_start_at))}</Text>
+      ) : null}
+      {trip.actual_end_at ? (
+        <Text style={styles.muted}>{crewCopy.arrivedAt(formatTime(trip.actual_end_at))}</Text>
+      ) : null}
+      {data.trips.length > 1 ? (
+        <Text style={styles.muted}>{crewCopy.tripCountNote(data.trips.length)}</Text>
+      ) : null}
+    </>
+  );
+
   return (
     <Screen refresh={() => void refresh()} refreshing={refreshing}>
-      <SectionTitle>Today's trip</SectionTitle>
-
-      <Card legible title={route ? `${route.code} · ${route.name}` : 'Route details'}>
-        <View style={styles.badgeRow}>
-          <TripStatusBadge size="lg" status={trip.status} />
-          {user ? <Text style={styles.roleChip}>{roleLabel(user.role)}</Text> : null}
-        </View>
-        <View style={styles.kvRow}>
-          <KeyValue legible label="Scheduled" value={formatTime(trip.scheduled_start_at)} />
-          <KeyValue legible label="Date" value={formatDate(trip.scheduled_start_at)} />
-          <KeyValue
-            legible
-            label="Bus"
-            value={
-              bus
-                ? `${bus.registration_number}${bus.bus_number ? ` · ${bus.bus_number}` : ''}`
-                : '—'
-            }
-          />
-        </View>
-        {trip.actual_start_at ? (
-          <Text style={styles.muted}>Departed {formatTime(trip.actual_start_at)}</Text>
-        ) : null}
-        {trip.actual_end_at ? (
-          <Text style={styles.muted}>Arrived {formatTime(trip.actual_end_at)}</Text>
-        ) : null}
-      </Card>
+      <StatusCard
+        trip={trip}
+        eta={live.eta}
+        details={details}
+        action={
+          // Exactly one forward action (spec-pinned) on a white sheet so the
+          // coloured button always sits on the measured white surface.
+          <View style={styles.actionSheet}>
+            <TripStatusActions trip={trip} offlineCapable onApplied={() => void reload()} />
+          </View>
+        }
+      />
 
       <OfflineSyncBanner />
-      <TripStatusActions trip={trip} offlineCapable onApplied={() => void reload()} />
 
       {/**
-       * Driver-only: GPS sharing is the driver's job and navigation belongs to
-       * whoever is behind the wheel. The conductor's trip screen keeps the
-       * same trip data but points at the manifest instead (below).
+       * Driver-only: GPS sharing is the driver's job. The strip is the whole
+       * driving-time story (Sharing ✅/❌ + last update + Retry); the
+       * counters and diagnostics moved to the Help/Support screen.
        */}
-      {isDriver ? <GpsSharePanel trip={trip} sharing={sharing} /> : null}
+      {isDriver ? <GpsShareStrip sharing={sharing} onOpenHelp={() => router.push('/help')} /> : null}
 
       {isDriver ? (
         <TripNavigationCard
@@ -133,33 +158,15 @@ export default function CrewTripScreen() {
         />
       ) : null}
 
-      <Card title="Live progress">
-        <View style={styles.badgeRow}>
-          <ConnectionIndicator connection={live.connection} />
-        </View>
-        <EtaSummaryCard eta={live.eta} fix={live.fix} />
-      </Card>
-
       <View style={styles.linkRow}>
-        {isDriver ? (
-          <Button
-            label="Manifest"
-            icon="people"
-            variant="secondary"
-            size="lg"
-            onPress={() => router.push('/manifest')}
-            style={styles.linkButton}
-          />
-        ) : (
-          <Button
-            label="Board & drop"
-            icon="people"
-            variant="secondary"
-            size="lg"
-            onPress={() => router.push('/manifest')}
-            style={styles.linkButton}
-          />
-        )}
+        <Button
+          label={isDriver ? 'Manifest' : 'Board & drop'}
+          icon="people"
+          variant="secondary"
+          size="lg"
+          onPress={() => router.push('/manifest')}
+          style={styles.linkButton}
+        />
         <Button
           label="Stops & ETA"
           icon="location"
@@ -170,48 +177,41 @@ export default function CrewTripScreen() {
         />
       </View>
 
-      {/* SOS is reachable from its own tab for both roles and repeated here so
-          it is one tap away while the trip is on the screen. */}
-      <SosPanel
-        tripId={trip.id}
-        roleLabel={user ? crewRoleLabel(user.role).toLowerCase() : 'crew'}
-      />
+      {/* SOS: one hold, one second — details & cancel live on the SOS tab. */}
+      <SosQuickPanel tripId={trip.id} onOpenSosTab={() => router.push('/sos')} />
 
-      {data.trips.length > 1 ? (
-        <Text style={styles.mutedCentered}>
-          {data.trips.length} trips today · showing the active one
-        </Text>
-      ) : null}
+      <Button
+        label={crewCopy.help.title}
+        icon="help-circle"
+        variant="ghost"
+        size="md"
+        onPress={() => router.push('/help')}
+        style={styles.helpButton}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  badgeRow: {
+  actionSheet: {
+    backgroundColor: '#ffffff',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    gap: spacing.sm,
+  },
+  connectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    minHeight: 32,
   },
-  roleChip: {
-    fontSize: typography.fontSizes.base,
-    color: colors.neutral[600],
-    fontWeight: '600',
-  },
-  kvRow: {
-    flexDirection: 'row',
-    gap: spacing.lg,
+  connectionLabel: {
+    fontSize: 16,
+    color: '#334155',
   },
   muted: {
-    fontSize: typography.fontSizes.base,
-    color: colors.neutral[600],
-    marginTop: spacing.xs,
-  },
-  mutedCentered: {
-    fontSize: typography.fontSizes.base,
-    color: colors.neutral[600],
-    textAlign: 'center',
+    fontSize: 16,
+    color: '#475569',
   },
   linkRow: {
     flexDirection: 'row',
@@ -220,5 +220,9 @@ const styles = StyleSheet.create({
   linkButton: {
     flex: 1,
     borderRadius: borderRadius.md,
+  },
+  helpButton: {
+    alignSelf: 'center',
+    marginBottom: spacing.md,
   },
 });
