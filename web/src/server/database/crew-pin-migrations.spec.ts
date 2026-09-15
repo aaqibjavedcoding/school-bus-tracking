@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { describe, it } from 'node:test';
 import { DataTypes } from 'sequelize';
 import type { QueryInterface } from 'sequelize';
 
-import * as addCrewPin from './20260915120000-add-crew-pin-to-users';
-import * as createPairingTokens from './20260915120100-create-crew-pairing-tokens';
+import * as addCrewPin from './migrations/20260915120000-add-crew-pin-to-users';
+import * as createPairingTokens from './migrations/20260915120100-create-crew-pairing-tokens';
 
 /**
  * Migration up/down tests that need **no database** (Mobile-UX Phase 4).
@@ -412,5 +414,68 @@ describe('migration 20260915120100-create-crew-pairing-tokens', () => {
   it('is reversible', async () => {
     const { up, down } = await run();
     assertReversible(up, down);
+  });
+});
+
+/**
+ * Loader hygiene for the three directories `sequelize-cli` scans.
+ *
+ * This exists because of a failure that was **invisible locally**. `.sequelizerc`
+ * points `migrations-path` at `src/server/database/migrations`, and the CLI loads
+ * every file in it whose name matches
+ *
+ * ```js
+ * /^(?!.*\.d\.ts$).*\.(cjs|js|cts|ts)$/
+ * ```
+ *
+ * — which excludes only `.d.ts`, *not* `.spec.ts`. A unit spec placed beside the
+ * migrations it tests is therefore picked up as a migration itself, and because it
+ * exports no `up`/`down`, `db:migrate` throws. Every integration and E2E spec then
+ * fails inside `prepareDatabase()`, which is a confusing place to find a filename
+ * problem.
+ *
+ * None of that is observable without a database: the DB-free specs pass, the unit
+ * suites pass, lint and typecheck pass. Only the `db-integration` CI job sees it.
+ * So the rule is asserted here instead, where it runs in `test:server` and needs
+ * no database.
+ *
+ * The assertion is phrased as the invariant that actually matters — "everything
+ * the CLI would load is loadable as a migration" — rather than as a filename
+ * blacklist, so a future non-migration file of any name is caught too.
+ */
+describe('sequelize-cli loader hygiene', () => {
+  /** Copied from `sequelize-cli/lib/core/migrator.js`; keep in step with it. */
+  const CLI_MIGRATION_PATTERN = /^(?!.*\.d\.ts$).*\.(cjs|js|cts|ts)$/;
+
+  const scanned = {
+    migrations: path.resolve(__dirname, 'migrations'),
+    models: path.resolve(__dirname, 'models'),
+    seeders: path.resolve(__dirname, 'seeders'),
+  } as const;
+
+  it('every file the CLI would load as a migration exports up and down', async () => {
+    const offenders: string[] = [];
+    for (const name of readdirSync(scanned.migrations)) {
+      if (!CLI_MIGRATION_PATTERN.test(name)) continue;
+      // Dynamic import rather than `require`: same effect under the ts-node CJS
+      // transform, without needing an eslint exemption for a require call.
+      const loaded = (await import(path.join(scanned.migrations, name))) as Record<string, unknown>;
+      if (typeof loaded.up !== 'function' || typeof loaded.down !== 'function') {
+        offenders.push(name);
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'these files match the CLI migration pattern but are not migrations — move them out of ' +
+        'src/server/database/migrations (a spec belongs in src/server/database/)',
+    );
+  });
+
+  it('keeps spec files out of every directory the CLI scans', () => {
+    for (const [label, dir] of Object.entries(scanned)) {
+      const specs = readdirSync(dir).filter((name) => /\.(spec|test)\.[cm]?[jt]sx?$/.test(name));
+      assert.deepEqual(specs, [], `${label}/ must contain only files the CLI can load`);
+    }
   });
 });
