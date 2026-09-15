@@ -15,6 +15,7 @@ import { colors, spacing, borderRadius } from '@school-bus-tracking/design-token
 import { fontScaleCaps, surface, touch } from '../../theme';
 import { HOLD_DURATION_MS, HoldToConfirm } from './hold-to-confirm.ts';
 import { crewCopy } from './crew-copy.ts';
+import { feedback } from './crew-feedback.ts';
 import type { CrewActionIcon } from './crew-action-meta';
 
 /**
@@ -123,6 +124,12 @@ export const HoldToConfirmButton: React.FC<{
     hold.press(Date.now());
     setHolding(true);
     holdingRef.current = true;
+    // Phase 3b: a tick the instant the finger lands, in sync with the fill
+    // that starts on the next line — "I am registering your hold". It is
+    // fired from the *component*, so the pure `HoldToConfirm` controller and
+    // its spec are untouched: no timing logic changed, the 900 ms hold, the
+    // early-release cancel and the single-fire guarantee are byte-identical.
+    feedback.on({ type: 'sos.holdStart' });
     startHold();
   };
 

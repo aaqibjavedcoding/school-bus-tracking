@@ -39,3 +39,13 @@ export type { TripNavigationCardProps } from './TripNavigationCard';
 export { navigationTargetOf, pickNextStop } from './navigation-stop';
 export { tripStatusStyle, primaryTripAction } from './trip-status-style';
 export { crewCopy } from './crew-copy';
+/**
+ * Phase 3b — voice + haptics. `feedback.on(...)` is the ONLY entry point a
+ * surface needs: it reports what happened and the dispatcher decides how it
+ * is expressed (see `crew-feedback.ts`).
+ */
+export { feedback, defaultSoundSettings } from './crew-feedback';
+export type { SoundSettings } from './crew-feedback';
+export type { CrewFeedbackEvent } from './crew-voice';
+export { FeedbackProvider, useSoundSettings } from './FeedbackProvider';
+export { SoundSettingsCard } from './SoundSettingsCard';

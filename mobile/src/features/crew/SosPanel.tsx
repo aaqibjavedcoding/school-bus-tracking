@@ -38,6 +38,7 @@ import { SosSession, type SosDeliveryStatus } from './sos-flow';
 import { crewCopy } from './crew-copy';
 import { t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
+import { feedback } from './crew-feedback.ts';
 
 /**
  * Crew SOS (Task 44 + Phase 2) — the emergency affordance of the crew app.
@@ -165,18 +166,25 @@ export function useCrewSos(tripId: string | null) {
         session.markSent();
         setStatus('sent');
         setSentAt(formatTime(new Date()));
+        // Delivered. This is the one announcement that interrupts whatever is
+        // being said (see PRIORITY_EVENTS) — the driver must hear it now.
+        feedback.on({ type: 'sos.fired' });
         await reload();
         return 'sent';
       } catch (caught) {
         if (shouldQueueAfterError(caught)) {
           // Nothing reached the server: keep the key, show "queued ⏳", the
-          // reconnect effect below retries automatically.
+          // reconnect effect below retries automatically. A *different*
+          // pattern from 'sent' on purpose — "not yet delivered" is the whole
+          // message, and hearing "sent" here would be a lie.
           session.markQueued();
           setStatus('queued');
+          feedback.on({ type: 'sos.queued' });
           return 'queued';
         }
         session.markFailed();
         setStatus('failed');
+        feedback.on({ type: 'action.rejected' });
         Alert.alert(crewCopy.sos.sendFailed, localizedErrorText(caught));
         return 'failed';
       } finally {

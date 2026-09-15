@@ -9,6 +9,7 @@ import { LogoutButton } from '../../src/components/LogoutButton';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { useBottomBarMetrics } from '../../src/theme/layout';
 import { startSyncManager, stopSyncManager } from '../../src/features/crew/offline';
+import { FeedbackProvider } from '../../src/features/crew/FeedbackProvider';
 import { useRoleLocaleDefault, useTranslation } from '../../src/lib/i18n-provider';
 
 /**
@@ -134,7 +135,23 @@ function CrewTabs() {
 export default function CrewLayout() {
   return (
     <RoleGate group="crew">
-      <CrewTabs />
+      <CrewFeedback>
+        <CrewTabs />
+      </CrewFeedback>
     </RoleGate>
   );
+}
+
+/**
+ * Phase 3b: voice + haptics for the crew group.
+ *
+ * Mounted here rather than at the app root so the role is already known —
+ * the default ("crew = voice on") is a role decision, exactly like the
+ * Hindi locale default, and a saved preference still wins over both.
+ * Admin/parent groups never mount it, so their dispatcher keeps the quiet
+ * office default with nothing to configure.
+ */
+function CrewFeedback({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return <FeedbackProvider role={user?.role ?? null}>{children}</FeedbackProvider>;
 }

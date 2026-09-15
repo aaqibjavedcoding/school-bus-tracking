@@ -27,6 +27,7 @@ import {
 } from '../../components';
 import { crewCopy } from './crew-copy';
 import { t } from '../../lib/i18n.ts';
+import { feedback } from './crew-feedback.ts';
 import {
   MANIFEST_ROW_MIN_HEIGHT,
   ROW_ACTION_GLYPH_SIZE,
@@ -273,6 +274,7 @@ const ManifestRow: React.FC<{
         student.status === TripAttendanceStatus.BOARDED) ||
       (before === TripAttendanceStatus.BOARDED && student.status === TripAttendanceStatus.DROPPED);
     if (!advanced) return;
+    const boarded = before === TripAttendanceStatus.PENDING;
     Animated.sequence([
       Animated.timing(flash, { toValue: 1, duration: 180, useNativeDriver: false }),
       Animated.timing(flash, { toValue: 0, duration: 400, useNativeDriver: false }),
@@ -280,10 +282,27 @@ const ManifestRow: React.FC<{
     AccessibilityInfo.announceForAccessibility(
       successAnnouncement(
         `${student.first_name} ${student.last_name}`.trim(),
-        before === TripAttendanceStatus.PENDING ? 'board' : 'drop',
+        boarded ? 'board' : 'drop',
       ),
     );
-  }, [flash, student.status, student.first_name, student.last_name]);
+    // Phase 3b: the fourth confirmation channel (flash / inline line / screen
+    // reader / *voice + buzz*). Reported from the same place as the other
+    // three — the row's recorded state advancing — so it can never announce a
+    // board the server did not accept. Fire-and-forget: `on()` returns void.
+    // Only the FIRST name travels; the surname is cut in `crew-voice.ts`.
+    feedback.on({
+      type: boarded ? 'board.confirmed' : 'drop.confirmed',
+      firstName: student.first_name,
+      at: boarded ? student.boarded_at : student.dropped_at,
+    });
+  }, [
+    flash,
+    student.status,
+    student.first_name,
+    student.last_name,
+    student.boarded_at,
+    student.dropped_at,
+  ]);
 
   const backgroundColor = flash.interpolate({
     inputRange: [0, 1],

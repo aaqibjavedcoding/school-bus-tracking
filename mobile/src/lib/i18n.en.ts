@@ -277,6 +277,45 @@ export const en = {
   'settings.language.a11y': 'Change app language',
   'settings.language.a11yHint': 'Switches every screen between English and Hindi.',
 
+  // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
+  'settings.sound.title': 'Sound & vibration',
+  'settings.sound.hint': 'The phone can confirm each action out loud, by buzz, or both.',
+  'settings.sound.voiceLabel': 'Speak confirmations',
+  'settings.sound.voiceHint': 'Says the first name and time after each boarding or drop.',
+  'settings.sound.vibrationLabel': 'Vibrate on action',
+  'settings.sound.vibrationHint': 'A short buzz when an action is recorded or refused.',
+  'settings.sound.voiceA11y': 'Spoken confirmations',
+  'settings.sound.vibrationA11y': 'Vibration feedback',
+  'settings.sound.noEngineNote':
+    'No sound? Your phone may have no speech engine installed — the app still records every action.',
+
+  // ── Voice phrases (SPOKEN, never rendered — see `crew-voice.ts`) ───────
+  //
+  // A separate namespace from the screen copy on purpose: the Hindi values of
+  // these keys are **Latin-script Hinglish**, not Devanagari, because a budget
+  // Android device usually has no `hi-IN` voice installed and would garble
+  // Devanagari through its default English voice. Written UI stays Devanagari;
+  // these are the only strings that leave through the speaker.
+  //
+  // Budget: 6–9 words. A driver is listening while driving.
+  'voice.board.done': '{name} has boarded, {time}',
+  'voice.drop.done': '{name} has got off, {time}',
+  'voice.board.summary': '{count} students boarded',
+  'voice.drop.summary': '{count} students got off',
+  'voice.trip.boarding': 'Boarding started',
+  'voice.trip.inProgress': 'Trip started, drive safe',
+  'voice.trip.completed': 'Trip complete, well done',
+  'voice.sos.fired': 'Emergency alert sent to school',
+  'voice.sos.queued': 'No network, emergency alert will retry',
+  'voice.offline.synced': '{count} saved actions have been sent',
+  'voice.gps.on': 'Location sharing on',
+  'voice.gps.off': 'Location sharing off',
+  'voice.time.now': 'just now',
+  'voice.time.morning': 'in the morning',
+  'voice.time.afternoon': 'in the afternoon',
+  'voice.time.evening': 'in the evening',
+  'voice.time.night': 'at night',
+
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'SBT',
   'login.brandName': 'School Bus Tracking',
@@ -319,6 +358,9 @@ export const en = {
   'common.error': 'Something went wrong',
   'common.clearSearch': 'Clear search',
   'common.dismiss': 'Dismiss',
+  /** Switch state, spelled out — colour is never the only cue. */
+  'common.on': 'On',
+  'common.off': 'Off',
 
   // ── Time ───────────────────────────────────────────────────────────────
   'time.minutes.one': '~{count} minute',

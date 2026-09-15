@@ -6,6 +6,7 @@ import { useAuth } from '../../src/features/auth';
 import { GpsSharePanel, useCrewLocationSharing, useCrewToday } from '../../src/features/crew';
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
+import { SoundSettingsCard } from '../../src/features/crew/SoundSettingsCard';
 import { crewCopy } from '../../src/features/crew/crew-copy';
 import { Card, LanguageSwitcher, LoadingView, Screen, SectionTitle } from '../../src/components';
 import { useTranslation } from '../../src/lib/i18n-provider';
@@ -46,6 +47,13 @@ export default function CrewHelpScreen() {
        * including when the app is in a language they cannot read.
        */}
       <LanguageSwitcher />
+
+      {/**
+       * Phase 3b: voice + vibration, directly under the language switch —
+       * both are "how the app talks to me" settings, and Help is the one
+       * settings home (no new screen). The GPS telemetry below is untouched.
+       */}
+      <SoundSettingsCard />
 
       <Card legible title={crewCopy.help.supportHeadline}>
         <Text style={styles.body}>{crewCopy.help.supportAdvice}</Text>

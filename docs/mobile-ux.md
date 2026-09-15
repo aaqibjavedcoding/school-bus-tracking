@@ -280,7 +280,8 @@ switch and the guards. **3b is voice + haptics** (`expo-speech` /
 
 ### The key set
 
-`mobile/src/lib/i18n.en.ts` is the **source of truth**: **286 keys**, flat and
+`mobile/src/lib/i18n.en.ts` is the **source of truth**: **314 keys** (286 at
+Phase 3a, +28 added by Phase 3b for voice lines and the sound settings), flat and
 dotted (`manifest.confirmBoard`, `gps.tierGood`, `error.HTTP_409`).
 `mobile/src/lib/i18n.hi.ts` is typed as `Dictionary` — the same key set with
 widened values — so a missing or extra Hindi key is a **compile** error before
@@ -296,11 +297,12 @@ it is ever a runtime one.
 | `gps.*` (incl. `gps.recovery.*`)                     | 44      | sharing strip + panel, permission recovery                               |
 | `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                          |
 | `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                  |
-| `help.*`, `settings.*`                               | 13      | Help screen + the language switch                                        |
+| `help.*`, `settings.*`                               | 22      | Help screen, the language switch + the Phase-3b sound settings           |
 | `login.*`                                            | 13      | sign-in labels (the flow/endpoint is untouched)                          |
-| `common.*`, `time.*`                                 | 10      | shared chrome, relative time, minutes                                    |
+| `common.*`, `time.*`                                 | 12      | shared chrome, relative time, minutes, the On/Off switch words           |
 | `error.*`                                            | 14      | known server error codes + the unknown-code prefix                       |
-| **total**                                            | **286** | the groups above are exhaustive — every key is in exactly one            |
+| `voice.*`                                            | 17      | **spoken only** — Latin script in both locales, never rendered on screen |
+| **total**                                            | **314** | the groups above are exhaustive — every key is in exactly one            |
 
 ### Resolution order
 
@@ -410,7 +412,7 @@ counts Devanagari combining matras that add no glyph width.
 | `label`        | `KeyValue` label — full-width row above its value        | 20     |
 
 **A measured correction to the folklore.** "Hindi runs 20–30% longer" is not
-what this dictionary says: summed over all 286 keys, Hindi chrome is ~5%
+what this dictionary says: summed over the 286 Phase-3a keys, Hindi chrome is ~5%
 _shorter_ than English by code-unit count, because matras compress and Hindi
 compounds. What is real — and what actually clips — is **per-key** growth, up
 to **2.25×** on a short label (`stops.arrivals` 8 → 18). So the per-key budget
@@ -460,3 +462,173 @@ The Phase-1 and Phase-2 guards still pass **unchanged**: `contrast.spec.ts`,
 `manifest-row.spec.ts`, `hold-to-confirm.spec.ts`, `sos-flow.spec.ts`.
 `crew-copy.ts` kept its exact shape, so Phase 2's call sites and its spec needed
 no edits.
+
+---
+
+## Phase 3b — Voice feedback + haptics
+
+Phase 1 made the screen readable, Phase 2 made it one job per screen, Phase 3a
+made it Hindi. Phase 3b is for the moment the driver **is not looking at the
+screen at all**: the phone is on a cradle or in a hand at arm's length, the bus
+is loud, the sun is on the glass, and a conductor is tapping through forty
+students. The question the app has to answer without being read is _"did that
+tap count?"_
+
+So a confirmed action now arrives on four channels at once: the row flashes
+green, the line of text updates, the screen reader announces it, and — new here
+— the phone **says it and buzzes**. Nothing was taken away; voice is the fourth
+channel, not a replacement for any of the first three.
+
+### What it says
+
+Every phrase is first name + what happened + when, 6–9 words, because that is
+what survives engine noise:
+
+These are the exact strings the modules produce (printed from `voicePhrase()`,
+not paraphrased):
+
+| Event                | Hindi voice line (Latin script)               | English voice line                         |
+| -------------------- | --------------------------------------------- | ------------------------------------------ |
+| Board confirmed      | _Ramesh ka boarding ho gaya, 7:42 subah_      | _Ramesh has boarded, 7:42 in the morning_  |
+| Drop confirmed       | _Priya utar gaya, 3:10 dopahar_               | _Priya has got off, 3:10 in the afternoon_ |
+| Rapid boards summary | _5 bachche chadh gaye_                        | _5 students boarded_                       |
+| Trip → BOARDING      | _Boarding shuru ho gayi_                      | _Boarding started_                         |
+| Trip → IN_PROGRESS   | _Trip shuru, dhyan se chalaiye_               | _Trip started, drive safe_                 |
+| Trip → COMPLETED     | _Trip poori hui, shukriya_                    | _Trip complete, well done_                 |
+| SOS delivered        | _Emergency alert school ko chala gaya_        | _Emergency alert sent to school_           |
+| SOS queued offline   | _Network nahi hai, alert dobara bheja jayega_ | _No network, emergency alert will retry_   |
+| Offline queue synced | _7 save kiye kaam bhej diye gaye_             | _7 saved actions have been sent_           |
+| GPS on / off         | _Location bhejna chalu / band_                | _Location sharing on / off_                |
+
+One known rough edge, flagged rather than hidden: the drop line uses the
+masculine _utar gaya_ for every student. Hindi verb agreement is gendered
+(_utar gayi_ for a girl) and the attendance payload carries no gender field,
+so a correct choice is not available to the client. Options were a wrong
+gender half the time, a clumsy neutral construction, or adding a field to the
+API — out of scope for a feedback layer. Left as-is and noted for whoever owns
+the student schema.
+
+### Why the Hindi voice is Latin script
+
+This is the decision most likely to look like a mistake in review, so: the
+**screen** stays in proper Devanagari (Phase 3a, unchanged) and the **voice**
+is Latin-script Hinglish. Two channels, two scripts, on purpose.
+
+`expo-speech` does not ship a voice — it drives whatever TTS engine the phone
+has. The device this app is built for is a budget Android, and a good number of
+them in service have an English voice and **no `hi-IN` voice installed**. Hand
+Devanagari to an English engine and you get skipped text or noise. Hand it
+_"Ramesh ka boarding ho gaya"_ and the English engine produces something a
+Hindi-speaking driver understands immediately. Reading is a different skill
+from listening, and optimising the two channels separately serves the same
+person better than making them match.
+
+Consequence, spelled out in `crew-voice.ts`: the speech **language tag follows
+the script, not the locale** — `en-IN` for both locales, because the Hindi
+lines are Latin characters. Asking for `hi-IN` would send Latin text to a
+Devanagari voice, which is the same bug in reverse.
+
+Voice copy lives in its own `voice.*` namespace — 17 keys, never reused for
+anything on screen — so nobody can "fix" a voice line into Devanagari and
+silently break audio, and nobody can shorten a screen label and change what the
+bus hears.
+
+### The throttle: latest-wins, never a queue
+
+A conductor boarding a full bus generates events far faster than a voice can
+speak them. The rule is **latest-wins with a 600 ms floor**, and the pending
+slot holds exactly **one** item (`VOICE_PENDING_CAPACITY = 1`):
+
+- an announcement inside the gap **replaces** whatever was waiting — it does
+  not line up behind it;
+- so the voice can never run behind the screen, which is the specific failure
+  that makes a talking app useless: hearing student #3 while tapping #21;
+- when replacements pile up, the one that eventually speaks is the **summary**
+  ("_5 bachche chadh gaye_") rather than a stale single name;
+- `Speech.stop()` precedes every `Speech.speak()`, so a new announcement cuts
+  the old one off instead of waiting for it;
+- SOS bypasses all of it (`PRIORITY_EVENTS`) and clears the pending slot. If
+  the driver pressed the emergency button, that is the sentence that gets said.
+
+Measured, one tap every 25 ms for a second: **40 board events produce 3
+announcements** — _"Student0 has boarded, just now"_, then _"24 students
+boarded"_, then _"15 students boarded"_ — with a maximum pending depth of
+**1**. The spec pins ≤ 6 rather than exactly 3 so a copy change cannot make it
+flaky, and pins ≥ 2 so a future "fix" cannot silence the feature entirely.
+Haptics are deliberately **not** throttled at that rate — 40 boards give 40
+taps, because a tap per action is the whole point of a tap.
+
+### Never blocks, never fails an action
+
+Speech and haptics are reporting, never gating. `feedback.on()` returns `void`,
+nothing is ever `await`ed on the speech path, and every native call is wrapped
+so a throw is counted and swallowed. A phone with no TTS engine, no haptic
+motor, or a `Speech.speak` that throws on an unsupported language records a
+boarding **exactly** the same way a healthy phone does. `crew-feedback.spec.ts`
+proves it by making the driver throw on every call and asserting the board
+result is unchanged; `crew-feedback-wiring.spec.ts` greps the source so nobody
+can add an `await` later.
+
+### Privacy: what the bus is allowed to hear
+
+A voice announcement is heard by every student on board, not just the person
+holding the phone. The deny-list is enforced in code and asserted by spec:
+**never** a medical note, a phone number, a guardian name or contact, the SOS
+detail message, or a full name with admission number. A first name and a time
+is the whole payload — enough for the crew member who just tapped, useless to
+anyone else.
+
+### Settings
+
+Help & support → **Sound & vibration**: two switches, Voice and Vibration,
+64px rows with icon + label, state written in words as well as shown by colour.
+Two rather than one because they break independently (no TTS engine ≠ no haptic
+motor) and a driver should be able to silence the talking without losing the
+buzz. Defaults are a role decision, mounted where the role is known: crew get
+both on, `SCHOOL_ADMIN`/`PARENT` get voice off. Saved to AsyncStorage under
+`sbt.mobile.sound` with the same adapter pattern Phase 3a used for the locale,
+and applied on cold start before the first announcement can fire.
+
+### Where the feedback comes from
+
+One module owns the policy; the six surfaces only report facts:
+
+| Surface               | Reports                                                                   |
+| --------------------- | ------------------------------------------------------------------------- |
+| `ManifestList`        | `board.confirmed` / `drop.confirmed`                                      |
+| `TripStatusActions`   | `trip.boarding` / `trip.inProgress` / `trip.completed`, `action.rejected` |
+| `SosPanel`            | `sos.fired` / `sos.queued`                                                |
+| `HoldToConfirmButton` | `sos.holdStart`                                                           |
+| `GpsShareStrip`       | `gps.on` / `gps.off`                                                      |
+| `OfflineSyncBanner`   | `offline.synced`                                                          |
+
+Each is a single `feedback.on({ type: … })` — no surface knows what a haptic
+pattern or a voice phrase is, and a spec fails the build if one starts to. Two
+of them report a **state transition** rather than a button press
+(`GpsShareStrip`, `ManifestList`) precisely so the phone cannot announce
+something the server refused.
+
+### Deliberately not done
+
+- **No durable voice queue.** Announcements are disposable. An action that
+  happened 40 seconds ago is not worth saying, and a queue that survives a
+  restart would talk about a trip that already ended.
+- **`features/crew/offline/*` is zero-touch.** The sync summary is derived from
+  the state the banner already subscribes to. The queue, the idempotency
+  lifecycle in `SosSession`, GPS validation and socket reconnect gained no
+  feedback code at all — asserted in both directions by spec.
+- **`hold-to-confirm.ts` untouched.** The 900 ms hold, the early-release
+  cancel, the single-fire guarantee are byte-identical; the tick is fired by
+  the component at press-in.
+- **No audio assets, no cloud TTS, no new screens, no native config.** Two
+  dependencies, both Expo-Go compatible, no `app.json` change.
+
+### Guard specs added in Phase 3b (all under `npm --prefix mobile test`)
+
+| Spec                                | Pins                                                                                                                                                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crew-voice.spec.ts` (32)           | phrase shape and 6–9 word budget in both locales, time-of-day wording, `t()` read at call time (a language switch changes the **next** announcement), the privacy deny-list, throttle latest-wins + summary, web no-op |
+| `crew-haptics.spec.ts` (11)         | the event → pattern table, 40 boards ⇒ 40 taps, `sos.fired` (success) distinct from `sos.queued` (warning), missing native API is not a crash                                                                          |
+| `crew-feedback.spec.ts` (24)        | role defaults, the full role × (voice, vibration) × on/off matrix with **zero** native calls when off, persistence and cold start, non-blocking, a throwing driver never changes a result                              |
+| `crew-feedback-wiring.spec.ts` (11) | only the native wrapper imports `expo-speech`/`expo-haptics`, no `await` on the speech path, all six surfaces report, no surface touches patterns or phrases, zero-touch boundaries hold                               |
+| `crew-feedback.sim.spec.ts` (10)    | the **real** native wrapper against mocked `expo-speech`/`expo-haptics`: exact spoken strings, `stop`-before-`speak`, settings gating, a no-TTS-engine device                                                          |
