@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Linking, AppState, type AppStateStatus } from '
 import * as Location from 'expo-location';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../components';
+import { t } from '../../lib/i18n.ts';
 
 /**
  * GPS permission recovery UX for Driver/Conductor.
@@ -137,14 +138,14 @@ export function GpsPermissionRecovery({
 
       {lastSuccessfulUpdate && (
         <Text style={styles.lastUpdate}>
-          Last GPS update: {formatRelativeTime(lastSuccessfulUpdate)}
+          {t('gps.recovery.lastUpdate', { time: formatRelativeTime(lastSuccessfulUpdate) })}
         </Text>
       )}
 
       <View style={styles.actions}>
         {issue === 'permission_denied' ? (
           <Button
-            label="Grant Permission"
+            label={t('gps.recovery.grant')}
             icon="locate"
             size="field"
             busy={isChecking}
@@ -155,11 +156,16 @@ export function GpsPermissionRecovery({
         {issue === 'permission_permanently_denied' ||
         issue === 'location_services_disabled' ||
         issue === 'background_permission_denied' ? (
-          <Button label="Open Settings" icon="settings" size="field" onPress={handleOpenSettings} />
+          <Button
+            label={t('gps.recovery.openSettings')}
+            icon="settings"
+            size="field"
+            onPress={handleOpenSettings}
+          />
         ) : null}
 
         <Button
-          label="Recheck"
+          label={t('gps.recovery.recheck')}
           variant="secondary"
           icon="refresh"
           size="lg"
@@ -168,40 +174,48 @@ export function GpsPermissionRecovery({
         />
 
         {onDismiss ? (
-          <Button label="Continue without GPS" variant="ghost" size="lg" onPress={onDismiss} />
+          <Button
+            label={t('gps.recovery.continue')}
+            variant="ghost"
+            size="lg"
+            onPress={onDismiss}
+          />
         ) : null}
       </View>
     </View>
   );
 }
 
+/** Localised like every other label — the `GpsIssue` codes stay the wire values. */
 function getTitle(issue: GpsIssue): string {
   switch (issue) {
     case 'permission_denied':
-      return 'GPS Permission Needed';
+      return t('gps.recovery.permissionDenied.title');
     case 'permission_permanently_denied':
-      return 'GPS Permission Blocked';
+      return t('gps.recovery.blocked.title');
     case 'location_services_disabled':
-      return 'Location Services Off';
+      return t('gps.recovery.servicesOff.title');
     case 'background_permission_denied':
-      return 'Background GPS Needed';
+      return t('gps.recovery.background.title');
     default:
-      return 'GPS Issue';
+      return t('gps.recovery.issue.title');
   }
 }
 
 function getDescription(issue: GpsIssue): string {
   switch (issue) {
     case 'permission_denied':
-      return 'This app needs location access to share the bus location with parents and the school. Your location is only shared during active trips.';
+      return t('gps.recovery.permissionDenied.body');
     case 'permission_permanently_denied':
-      return 'Location permission was denied. Please open your device settings and enable location access for this app to share bus location during trips.';
+      return t('gps.recovery.blocked.body');
     case 'location_services_disabled':
-      return 'Location services are turned off on your device. Please enable them in your device settings to share bus location during trips.';
+      return t('gps.recovery.servicesOff.body');
     case 'background_permission_denied':
-      return 'Background location access is needed so the bus location continues to be shared when the app is in the background during trips. Please enable "Allow all the time" in settings.';
+      // "Allow all the time" stays in English inside the Hindi string on
+      // purpose: it is the label of the OS setting the driver has to find.
+      return t('gps.recovery.background.body');
     default:
-      return 'There is an issue with GPS permissions.';
+      return t('gps.recovery.issue.body');
   }
 }
 
@@ -211,12 +225,12 @@ function formatRelativeTime(isoString: string): string {
   const diffMs = now - then;
   const diffSeconds = Math.floor(diffMs / 1000);
 
-  if (diffSeconds < 60) return 'just now';
+  if (diffSeconds < 60) return t('time.justNow');
   const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 60) return t('time.minutesAgo', { count: diffMinutes });
   const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${Math.floor(diffHours / 24)}d ago`;
+  if (diffHours < 24) return t('time.hoursAgo', { count: diffHours });
+  return t('time.daysAgo', { count: Math.floor(diffHours / 24) });
 }
 
 const styles = StyleSheet.create({

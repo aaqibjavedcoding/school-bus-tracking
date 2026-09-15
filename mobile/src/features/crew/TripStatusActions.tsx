@@ -11,6 +11,7 @@ import { nextCrewTransitions, transitionLabel } from './crew-trip';
 import { transitionActionMeta } from './crew-action-meta';
 import { useOfflineAction } from './offline/useOfflineAction';
 import { useAuth } from '../auth/AuthProvider';
+import { t } from '../../lib/i18n.ts';
 
 /**
  * Trip lifecycle actions (crew + admin).
@@ -61,9 +62,7 @@ export const TripStatusActions: React.FC<{
           },
         );
         if (result.mode === 'queued') {
-          setQueuedNote(
-            `${transitionLabel(next)} saved on this phone — it will sync when you are back online.`,
-          );
+          setQueuedNote(t('trip.queuedNote', { action: transitionLabel(next) }));
           onQueued?.(next);
           return;
         }
@@ -81,7 +80,7 @@ export const TripStatusActions: React.FC<{
       );
       onApplied(unwrapEnvelope(envelope));
     } catch (caught) {
-      setError(getApiErrorMessage(caught, 'Could not update the trip.'));
+      setError(getApiErrorMessage(caught, t('trip.updateError')));
     } finally {
       setBusy(false);
     }
@@ -89,7 +88,7 @@ export const TripStatusActions: React.FC<{
 
   const cancel = async () => {
     if (reason.trim().length === 0) {
-      setError('A cancellation reason is required.');
+      setError(t('trip.cancel.reasonRequired'));
       return;
     }
     setBusy(true);
@@ -104,7 +103,7 @@ export const TripStatusActions: React.FC<{
       setReason('');
       onApplied(unwrapEnvelope(envelope));
     } catch (caught) {
-      setError(getApiErrorMessage(caught, 'Could not cancel the trip.'));
+      setError(getApiErrorMessage(caught, t('trip.cancel.failed')));
     } finally {
       setBusy(false);
     }
@@ -115,8 +114,11 @@ export const TripStatusActions: React.FC<{
       <View style={styles.wrap}>
         <Text style={styles.terminalNote}>
           {trip.status === TripStatus.COMPLETED
-            ? 'This trip is completed.'
-            : `This trip was cancelled${trip.cancellation_reason ? `: ${trip.cancellation_reason}` : '.'}`}
+            ? t('trip.completedNote')
+            : // The reason is data the dispatcher typed — never translated.
+              trip.cancellation_reason
+              ? t('trip.cancelledReason', { reason: trip.cancellation_reason })
+              : t('trip.cancelledNote')}
         </Text>
       </View>
     );
@@ -145,7 +147,7 @@ export const TripStatusActions: React.FC<{
 
       {allowCancel && !cancelling ? (
         <Button
-          label="Cancel trip…"
+          label={t('trip.cancel.button')}
           variant="ghost"
           small
           onPress={() => setCancelling(true)}
@@ -157,22 +159,22 @@ export const TripStatusActions: React.FC<{
       {cancelling ? (
         <View style={styles.cancelBox}>
           <Field
-            label="Cancellation reason"
+            label={t('trip.cancel.reasonLabel')}
             value={reason}
             onChangeText={setReason}
-            placeholder="e.g. Vehicle fault"
+            placeholder={t('trip.cancel.reasonPlaceholder')}
             multiline
           />
           <View style={styles.cancelRow}>
             <Button
-              label="Confirm cancellation"
+              label={t('trip.cancel.confirm')}
               variant="danger"
               onPress={() => void cancel()}
               disabled={busy}
               busy={busy}
             />
             <Button
-              label="Keep trip"
+              label={t('trip.cancel.keep')}
               variant="secondary"
               onPress={() => {
                 setCancelling(false);

@@ -1,4 +1,5 @@
 import { UserRole } from '@school-bus-tracking/shared-types';
+import { t } from './i18n.ts';
 
 /**
  * Role-based navigation map for the mobile app.
@@ -51,7 +52,12 @@ export function canEnterGroup(
   }
 }
 
-/** Tab-bar label for the crew tabs, personalised by role. */
+/**
+ * Tab-bar label for the crew tabs, personalised by role.
+ *
+ * Localised like any other UI copy — but it is a *role*, not data: the
+ * server's `UserRole` enum stays the wire value and is never translated.
+ */
 export function crewRoleLabel(role: UserRole): string {
-  return role === UserRole.CONDUCTOR ? 'Conductor' : 'Driver';
+  return role === UserRole.CONDUCTOR ? t('role.conductor') : t('role.driver');
 }

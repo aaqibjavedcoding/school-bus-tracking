@@ -7,6 +7,7 @@ import { formatRelative } from '../../lib/format';
 import { gpsSignalTier } from '../../lib/geo';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import type { CrewLocationSharing } from './useCrewLocationSharing';
+import { t } from '../../lib/i18n.ts';
 
 /**
  * GPS sharing panel of the shared crew trip screen.
@@ -28,30 +29,31 @@ export const GpsSharePanel: React.FC<{
     ? Date.now() - new Date(stats.lastFix.recorded_at).getTime()
     : null;
   const tier = gpsSignalTier(lastFixAge, stats.lastFix?.accuracy ?? null);
-  const tierLabel = tier === 'good' ? 'GPS good' : tier === 'weak' ? 'GPS weak' : 'GPS stale';
+  const tierLabel =
+    tier === 'good' ? t('gps.tierGood') : tier === 'weak' ? t('gps.tierWeak') : t('gps.tierStale');
   const tierTone = tier === 'good' ? 'success' : tier === 'weak' ? 'warning' : 'neutral';
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Live GPS sharing</Text>
+        <Text style={styles.title}>{t('gps.panelTitle')}</Text>
         <Badge
           size="lg"
           tone={sharing.sharing ? 'success' : 'neutral'}
-          label={sharing.sharing ? 'Sharing' : 'Off'}
+          label={sharing.sharing ? t('gps.badgeSharing') : t('gps.badgeOff')}
         />
       </View>
 
       {!sharing.canShare ? (
         <Text style={styles.muted}>
-          GPS is accepted once the trip is boarding or in progress. Current status:{' '}
-          {trip.status.toLowerCase().replace('_', ' ')}.
+          {/* The raw status word is server data — shown as the enum reads. */}
+          {t('gps.notReady', { status: trip.status.toLowerCase().replace('_', ' ') })}
         </Text>
       ) : (
         <View style={styles.buttonRow}>
           {!sharing.sharing ? (
             <Button
-              label="Share GPS"
+              label={t('gps.share')}
               icon="locate"
               tone="success"
               size="field"
@@ -61,7 +63,7 @@ export const GpsSharePanel: React.FC<{
             />
           ) : (
             <Button
-              label="Stop sharing"
+              label={t('gps.stopSharing')}
               icon="stop-circle"
               variant="danger"
               size="field"
@@ -76,13 +78,13 @@ export const GpsSharePanel: React.FC<{
       {sharing.sharing || sharing.backgroundActive ? (
         <View style={styles.backgroundRow}>
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={styles.backgroundTitle}>Keep sharing in background</Text>
+            <Text style={styles.backgroundTitle}>{t('gps.backgroundTitle')}</Text>
             <Text style={styles.mutedSmall}>
               {sharing.backgroundActive
-                ? 'Device location runs as a background task while the screen is off.'
+                ? t('gps.backgroundOn')
                 : sharing.backgroundPermission === 'granted'
-                  ? 'Allowed — enable to keep sending fixes with the screen off.'
-                  : 'Requires “Allow all the time” location permission.'}
+                  ? t('gps.backgroundAllowed')
+                  : t('gps.backgroundNeeded')}
             </Text>
           </View>
           <Switch
@@ -106,12 +108,12 @@ export const GpsSharePanel: React.FC<{
         <Badge
           size="lg"
           tone={network === 'online' ? 'success' : network === 'offline' ? 'danger' : 'neutral'}
-          label={`Network ${network}`}
+          label={t('gps.network', { state: network })}
         />
         <Badge
           size="lg"
           tone={sharing.foregroundPermission === 'granted' ? 'success' : 'warning'}
-          label={`Location ${sharing.foregroundPermission}`}
+          label={t('gps.location', { state: sharing.foregroundPermission })}
         />
       </View>
 
@@ -124,11 +126,14 @@ export const GpsSharePanel: React.FC<{
 
       <Text style={styles.mutedSmall}>
         {stats.lastFix
-          ? `Last fix ${formatRelative(stats.lastFix.recorded_at)}${
-              stats.lastFix.accuracy !== null ? ` · ±${Math.round(stats.lastFix.accuracy)} m` : ''
+          ? `${t('gps.lastFix', { time: formatRelative(stats.lastFix.recorded_at) })}${
+              stats.lastFix.accuracy !== null
+                ? ` · ${t('gps.accuracy', { meters: Math.round(stats.lastFix.accuracy) })}`
+                : ''
             }`
-          : 'No fix from this device yet.'}
-        {stats.lastReason ? ` · Server said: ${stats.lastReason}` : ''}
+          : t('gps.noFix')}
+        {/* `lastReason` is the server's own English sentence — passed through. */}
+        {stats.lastReason ? ` · ${t('gps.serverReason', { reason: stats.lastReason })}` : ''}
       </Text>
 
       {sharing.message ? (

@@ -7,7 +7,8 @@ import { GpsSharePanel, useCrewLocationSharing, useCrewToday } from '../../src/f
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { crewCopy } from '../../src/features/crew/crew-copy';
-import { Card, LoadingView, Screen, SectionTitle } from '../../src/components';
+import { Card, LanguageSwitcher, LoadingView, Screen, SectionTitle } from '../../src/components';
+import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
  * Help / Support screen (Phase 2).
@@ -23,6 +24,7 @@ import { Card, LoadingView, Screen, SectionTitle } from '../../src/components';
  */
 export default function CrewHelpScreen() {
   const { user } = useAuth();
+  const t = useTranslation();
   const { data, loading } = useCrewToday();
   const trip = data?.trip ?? null;
   const sharing = useCrewLocationSharing(trip);
@@ -30,13 +32,20 @@ export default function CrewHelpScreen() {
   const isDriver = user?.role === UserRole.DRIVER;
 
   if (loading && !data) {
-    return <LoadingView label="Loading help…" />;
+    return <LoadingView label={t('help.loading')} />;
   }
 
   return (
     <Screen>
       <Text style={styles.title}>{crewCopy.help.title}</Text>
       <Text style={styles.intro}>{crewCopy.help.intro}</Text>
+
+      {/**
+       * Phase 3: the language switch. It sits at the top of Help because this
+       * is the screen a crew member is sent to when something is not right —
+       * including when the app is in a language they cannot read.
+       */}
+      <LanguageSwitcher />
 
       <Card legible title={crewCopy.help.supportHeadline}>
         <Text style={styles.body}>{crewCopy.help.supportAdvice}</Text>
@@ -60,7 +69,7 @@ export default function CrewHelpScreen() {
        */}
       {isDriver && trip ? (
         <>
-          <SectionTitle>Live GPS sharing</SectionTitle>
+          <SectionTitle>{t('gps.panelTitle')}</SectionTitle>
           <GpsSharePanel trip={trip} sharing={sharing} />
           {/**
            * Recovery only: granting a permission here repairs the OS side.
@@ -75,17 +84,12 @@ export default function CrewHelpScreen() {
           />
         </>
       ) : isDriver ? (
-        <Card legible title="Live GPS sharing">
-          <Text style={styles.body}>
-            No trip today — the GPS counters appear here while a trip is running.
-          </Text>
+        <Card legible title={t('gps.panelTitle')}>
+          <Text style={styles.body}>{t('gps.noTripBody')}</Text>
         </Card>
       ) : (
-        <Card legible title="GPS sharing">
-          <Text style={styles.body}>
-            GPS sharing is the driver's job on this run. If the school cannot see the bus, ask the
-            driver to open this page and read out the numbers.
-          </Text>
+        <Card legible title={t('gps.driverOnlyTitle')}>
+          <Text style={styles.body}>{t('gps.driverOnlyBody')}</Text>
         </Card>
       )}
     </Screen>

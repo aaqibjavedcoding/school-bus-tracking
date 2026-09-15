@@ -143,10 +143,7 @@ export const HoldToConfirmButton: React.FC<{
       disabled={inert}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityHint={
-        accessibilityHint ??
-        'Press and hold for about a second until the fill completes — the alert then sends by itself.'
-      }
+      accessibilityHint={accessibilityHint ?? crewCopy.sos.a11yHint}
       accessibilityState={{ disabled: inert, busy }}
       accessibilityActions={[{ name: 'activate' }]}
       onAccessibilityAction={(event) => {

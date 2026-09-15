@@ -6,6 +6,7 @@ import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/
 import { Button, Card } from '../../components';
 import { buildNavigationUrl, formatCoordinate } from '../../lib/navigation';
 import { navigationTargetOf, pickNextStop } from './navigation-stop';
+import { pluralKey, t } from '../../lib/i18n.ts';
 
 /**
  * Driver navigation to the next stop (Task 44).
@@ -38,7 +39,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   const url = target ? buildNavigationUrl(target) : null;
 
   return (
-    <Card legible title="Navigate" description="Opens the next stop in your phone's map app.">
+    <Card legible title={t('navigate.card.title')} description={t('navigate.card.description')}>
       {next && target ? (
         <>
           <View style={styles.row}>
@@ -48,7 +49,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
           <Text style={styles.muted}>{formatCoordinate(target.latitude, target.longitude)}</Text>
           {url ? (
             <Button
-              label="Navigate to stop"
+              label={t('navigate.card.button')}
               icon="navigate"
               variant="secondary"
               size="field"
@@ -57,15 +58,15 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
             />
           ) : null}
           <Text style={styles.muted}>
-            Trip {trip.id.slice(0, 8)} · {stops.length} stop{stops.length === 1 ? '' : 's'} on this
-            route.
+            {t(pluralKey('navigate.card.meta', stops.length), {
+              id: trip.id.slice(0, 8),
+              stops: stops.length,
+            })}
           </Text>
         </>
       ) : (
         <Text style={styles.muted}>
-          {stops.length === 0
-            ? 'No stops on this route yet.'
-            : 'This route has no geofenced stops yet — ask the school to add coordinates.'}
+          {stops.length === 0 ? t('navigate.card.noStops') : t('navigate.card.noGeofence')}
         </Text>
       )}
     </Card>

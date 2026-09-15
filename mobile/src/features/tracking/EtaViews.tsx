@@ -10,6 +10,7 @@ import {
   formatSpeedKmh,
 } from '../../lib/format';
 import type { LiveFix } from './useLiveTripTracking';
+import { t } from '../../lib/i18n.ts';
 
 /**
  * Task 22 ETA/progress surfaces, rendered from server-computed data only:
@@ -55,7 +56,7 @@ export const EtaSummaryCard: React.FC<{
             <KeyValue
               legible
               label="ETA"
-              value={formatEtaMinutes(nextStop.eta_minutes) ?? 'Unavailable'}
+              value={formatEtaMinutes(nextStop.eta_minutes) ?? t('eta.unavailable')}
             />
             <KeyValue legible label="Speed" value={formatSpeedKmh(eta.speed_kmh)} />
           </View>
@@ -95,10 +96,10 @@ export const StopsEtaList: React.FC<{ eta: TripEtaResponse | null }> = React.mem
               </Text>
               <Text style={styles.stopMeta}>
                 {stop.arrived
-                  ? 'Arrived'
+                  ? t('eta.arrived')
                   : formatEtaMinutes(stop.eta_minutes) !== null
                     ? `${formatEtaMinutes(stop.eta_minutes)} · ${formatDistanceMeters(stop.distance_meters)}`
-                    : 'Waiting for GPS'}
+                    : t('eta.waitingForGps')}
               </Text>
             </View>
             {stop.arrived ? (

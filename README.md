@@ -16,23 +16,23 @@ plus **one Expo/React Native app** shared by drivers, conductors, parents and sc
 
 ## 1. At a glance
 
-| | |
-| --- | --- |
-| Repo layout | npm workspaces monorepo: `web/`, `mobile/`, `packages/*` |
-| Runtime | Node.js **22** (`.nvmrc`), TypeScript **5.7** (`strict`), npm workspaces |
-| Web app + API | **Next.js 14.2 App Router** + React **18.3.1**; the backend runs *inside* the same Next.js server (custom `web/server.js`), API prefix `/api/v1` |
-| Mobile app | **Expo SDK 57** (`expo ~57.0.21`), React Native **0.86.3**, React **19.2.3**, `expo-router` |
-| Database | **PostgreSQL 16 + PostGIS 3.4** (parity image `postgis/postgis:16-3.4`), **Sequelize 6 + sequelize-typescript**, paranoid (soft) deletes, migrations only |
-| Realtime | Self-hosted **Socket.IO 4.8** on the same port: namespaces `/live-tracking`, `/notifications`, `/emergencies` |
-| Push | **FCM** via `firebase-admin` (free); `NoOpPushProvider` when unconfigured. Email/SMS providers exist as no-op seams only |
-| Validation | Two layers: `class-validator` DTOs (server) + **Zod** schemas in `packages/validation` (shared by server, web, mobile) |
-| Auth | JWT access token (default 15 m, in memory) + rotating httpOnly refresh cookie (default 7 d) + CSRF double-submit cookie; bcrypt cost 12 |
-| Tenancy | Shared database, row-level: every tenant row carries `school_id`; **composite FKs `(school_id, id)`** make cross-tenant references impossible at the DB level |
-| Tests | `node:test` only (no Jest/Vitest): 195 `*.spec.ts` files — unit, real-PostgreSQL integration, real-HTTP E2E, mobile unit + simulation suites |
-| CI | GitHub Actions `.github/workflows/ci.yml` — 11 independent jobs (lint, 2 typechecks, 3 unit suites, simulations, DB integration/E2E, prod build, Android Expo export, Docker image build) |
-| Deployment | Single instance by design. `infrastructure/Dockerfile` + `docker-compose.prod.yml` prepared (not deployed) |
-| Hard prohibitions | **No Prisma**, **no `sequelize.sync()`**, **no paid third-party service** in this phase (no Redis, no S3, no SMS/email gateway, no payment provider) |
-| Scale | ~117k lines of application TS/TSX (excluding spec files); 28 database tables; 39 migrations; 159 API route files; 187 typed api-client methods |
+|                   |                                                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo layout       | npm workspaces monorepo: `web/`, `mobile/`, `packages/*`                                                                                                                                  |
+| Runtime           | Node.js **22** (`.nvmrc`), TypeScript **5.7** (`strict`), npm workspaces                                                                                                                  |
+| Web app + API     | **Next.js 14.2 App Router** + React **18.3.1**; the backend runs _inside_ the same Next.js server (custom `web/server.js`), API prefix `/api/v1`                                          |
+| Mobile app        | **Expo SDK 57** (`expo ~57.0.21`), React Native **0.86.3**, React **19.2.3**, `expo-router`                                                                                               |
+| Database          | **PostgreSQL 16 + PostGIS 3.4** (parity image `postgis/postgis:16-3.4`), **Sequelize 6 + sequelize-typescript**, paranoid (soft) deletes, migrations only                                 |
+| Realtime          | Self-hosted **Socket.IO 4.8** on the same port: namespaces `/live-tracking`, `/notifications`, `/emergencies`                                                                             |
+| Push              | **FCM** via `firebase-admin` (free); `NoOpPushProvider` when unconfigured. Email/SMS providers exist as no-op seams only                                                                  |
+| Validation        | Two layers: `class-validator` DTOs (server) + **Zod** schemas in `packages/validation` (shared by server, web, mobile)                                                                    |
+| Auth              | JWT access token (default 15 m, in memory) + rotating httpOnly refresh cookie (default 7 d) + CSRF double-submit cookie; bcrypt cost 12                                                   |
+| Tenancy           | Shared database, row-level: every tenant row carries `school_id`; **composite FKs `(school_id, id)`** make cross-tenant references impossible at the DB level                             |
+| Tests             | `node:test` only (no Jest/Vitest): 195 `*.spec.ts` files — unit, real-PostgreSQL integration, real-HTTP E2E, mobile unit + simulation suites                                              |
+| CI                | GitHub Actions `.github/workflows/ci.yml` — 11 independent jobs (lint, 2 typechecks, 3 unit suites, simulations, DB integration/E2E, prod build, Android Expo export, Docker image build) |
+| Deployment        | Single instance by design. `infrastructure/Dockerfile` + `docker-compose.prod.yml` prepared (not deployed)                                                                                |
+| Hard prohibitions | **No Prisma**, **no `sequelize.sync()`**, **no paid third-party service** in this phase (no Redis, no S3, no SMS/email gateway, no payment provider)                                      |
+| Scale             | ~117k lines of application TS/TSX (excluding spec files); 28 database tables; 39 migrations; 159 API route files; 187 typed api-client methods                                            |
 
 ---
 
@@ -42,13 +42,13 @@ plus **one Expo/React Native app** shared by drivers, conductors, parents and sc
 `DRIVER`, `CONDUCTOR`, `PARENT`. `SUPER_ADMIN` is platform-level and owns **no** `school_id`;
 every other role is scoped to exactly one school tenant.
 
-| Role | Web surface | Mobile surface | What they do |
-| --- | --- | --- | --- |
-| `SUPER_ADMIN` | `/admin/*` platform console | `/platform` notice screen only (console is web-only) | Onboard/suspend schools, manage school admins, define plans, assign/extend/cancel subscriptions, revenue estimates, audit log, and **"Manage data"** assisted sessions inside a tenant |
-| `SCHOOL_ADMIN` | `/` dashboard + 14 nav entries | `(admin)` 6 tabs + hidden CRUD screens | Full fleet/route/people/trip/attendance/tracking/documents/emergency management, reports, Excel import/export |
-| `DRIVER` | `/crew` | `(crew)` — Trip tab leads with navigation + GPS sharing | Start/close the trip, share GPS (foreground + background), manifest, stop ETA, SOS |
-| `CONDUCTOR` | `/crew` | `(crew)` — Manifest leads | Same crew surface; emphasis on boarding/dropping children, SOS |
-| `PARENT` | `/parent/*` | `(parent)` — Home / Track / Alerts | See children + exact bus/driver, live map + ETA + next stop, notification centre with unread badge |
+| Role           | Web surface                    | Mobile surface                                          | What they do                                                                                                                                                                           |
+| -------------- | ------------------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPER_ADMIN`  | `/admin/*` platform console    | `/platform` notice screen only (console is web-only)    | Onboard/suspend schools, manage school admins, define plans, assign/extend/cancel subscriptions, revenue estimates, audit log, and **"Manage data"** assisted sessions inside a tenant |
+| `SCHOOL_ADMIN` | `/` dashboard + 14 nav entries | `(admin)` 6 tabs + hidden CRUD screens                  | Full fleet/route/people/trip/attendance/tracking/documents/emergency management, reports, Excel import/export                                                                          |
+| `DRIVER`       | `/crew`                        | `(crew)` — Trip tab leads with navigation + GPS sharing | Start/close the trip, share GPS (foreground + background), manifest, stop ETA, SOS                                                                                                     |
+| `CONDUCTOR`    | `/crew`                        | `(crew)` — Manifest leads                               | Same crew surface; emphasis on boarding/dropping children, SOS                                                                                                                         |
+| `PARENT`       | `/parent/*`                    | `(parent)` — Home / Track / Alerts                      | See children + exact bus/driver, live map + ETA + next stop, notification centre with unread badge                                                                                     |
 
 Web nav per role (source of truth: `web/src/lib/roles.ts`, mirrored client-side by `canAccessPath()`
 and server-side by `@Roles(...)` on every endpoint):
@@ -79,6 +79,7 @@ plus `login`, `index` (role redirect gate), `platform`.
 ## 3. Feature inventory (everything currently in the app)
 
 ### 3.1 Multi-tenancy & school onboarding
+
 - Tenant root is `schools`; every tenant-owned table carries `school_id` and a non-partial
   `UNIQUE (school_id, id)` index, which is what allows **composite foreign keys**
   `(school_id, x_id) → x(school_id, id)`. A row can never combine two schools' resources.
@@ -92,6 +93,7 @@ plus `login`, `index` (role redirect gate), `platform`.
 - Cross-tenant probing returns a generic `404`/`403` with identical messages so ids cannot be enumerated.
 
 ### 3.2 Fleet & network
+
 - **Buses**: code/registration number, capacity, model, `VehicleStatus`, CRUD + soft delete.
 - **Routes**: name, code, direction-agnostic path, `is_active`; detail endpoint returns stops.
 - **Stops**: ordered `sequence_number` per route, `latitude`/`longitude`,
@@ -101,10 +103,11 @@ plus `login`, `index` (role redirect gate), `platform`.
   trips / runs are all quota-counted per plan (see §11).
 
 ### 3.3 Operating model — shifts, runs, run crew (the important one)
+
 Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 bus = 1 crew".
 
 - **`routes`** = geometry (an ordered set of stops). It no longer owns vehicles or crew.
-- **`runs`** = one vehicle's *timed pass* over a route: `route_id` + optional `shift_id` +
+- **`runs`** = one vehicle's _timed pass_ over a route: `route_id` + optional `shift_id` +
   optional `bus_id` + parent-facing `code` (e.g. `R-02`) + `is_default`.
 - **`shifts`** = bell windows (`time` columns, not timestamps) that make two runs on one bus legal
   because they are disjoint in time.
@@ -121,12 +124,13 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - **Back-compat invariant**: every route always has exactly **one** default run
   (`uq_runs_route_default`); `provisionDefaultRun` creates it for pre-existing routes and for each
   new route. `runs.shift_id` stays nullable on purpose.
-- `students.run_id` and `trips.run_id` pin *who rides which bus* and *which execution a trip is*,
+- `students.run_id` and `trips.run_id` pin _who rides which bus_ and _which execution a trip is_,
   so a parent is told an exact bus code/driver instead of an inference from their stop.
 - Bulk import is intentionally **not** offered for shifts/runs (it would resurrect the retired
   `route_assignments` write path); exports **are** (`ExportDataset.SHIFTS`, `.RUNS`).
 
 ### 3.4 People
+
 - **Students**: admission number, name, gender, class/section, DOB, `home_stop_id`, `run_id`,
   emergency contact, medical notes (classified sensitive: excluded from exports and audit payloads).
 - **Parents / guardians**: user accounts with the `PARENT` role plus `student_guardians` links
@@ -138,6 +142,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   `order`, plus entity filters); `include=minimal|full` on routes/students for pickers.
 
 ### 3.5 Trips
+
 - Status machine (`TRIP_STATUS_TRANSITIONS` in `packages/validation`):
   `SCHEDULED → BOARDING → IN_PROGRESS → COMPLETED`, with `CANCELLED` reachable while not terminal;
   `COMPLETED`/`CANCELLED` are terminal (`[]`). Enforced in the service layer, not the DB.
@@ -151,6 +156,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   parents **after** the transaction commits.
 
 ### 3.6 Attendance (boarding / dropping)
+
 - Body-less, idempotent endpoints: `POST /trips/:tripId/students/:studentId/board` and `/drop`.
 - One-way progression `PENDING → BOARDED → DROPPED`; boarding twice, dropping before boarding and
   dropping twice are all rejected (`409` with a specific message).
@@ -160,6 +166,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - Parents get a notification per board/drop (see §3.9).
 
 ### 3.7 Live tracking & GPS
+
 - Crew publishes fixes over **Socket.IO `/live-tracking`** as `trip:location:update`, validated
   client-side **and** server-side with the same Zod `GpsLocationFix` contract (lat/lng, accuracy,
   km/h speed, normalized heading, device `recorded_at`).
@@ -174,6 +181,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading.
 
 ### 3.8 ETA & geofence stop arrivals
+
 - `web/src/server/modules/eta/`: **approximate, GPS-derived ETA** per remaining stop
   (`GET /trips/:id/eta`) using reported speed, falling back to `ETA_FALLBACK_SPEED_KMH` (25) and
   clamped into `[ETA_MIN_SPEED_KMH, ETA_MAX_SPEED_KMH]` (5–90 km/h). Haversine math in `geo.util.ts`.
@@ -184,6 +192,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - Recomputed ETA is broadcast as `trip:eta:update`.
 
 ### 3.9 Notifications
+
 - `NotificationsService` is invoked **only after** the domain transaction commits — a delivery
   failure can never corrupt a boarding, a trip transition or an SOS.
 - Persistent rows in `notifications` (one per recipient per event) with delivery bookkeeping:
@@ -209,6 +218,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   **Remote push does not work in Expo Go** — needs an EAS dev/production build.
 
 ### 3.10 Emergencies / SOS
+
 - Crew raises an alarm via `POST /api/v1/emergencies/sos` — `type` is one of `ACCIDENT`,
   `BREAKDOWN`, `MEDICAL`, `STUDENT_INCIDENT`, `SECURITY`, `OTHER`; optional trip / bus / stop and an
   optional coordinate pair (both or neither). Idempotent through `x-idempotency-key`, rate-limited by
@@ -224,6 +234,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - Open/acknowledged emergencies are never deleted by retention.
 
 ### 3.11 Compliance documents
+
 - Two owners: **bus** (`REGISTRATION_CERTIFICATE`, `INSURANCE`, `FITNESS_CERTIFICATE`, `PERMIT`,
   `POLLUTION_CERTIFICATE`, `OTHER`) and **driver/conductor** (`DRIVING_LICENSE`,
   `MEDICAL_CERTIFICATE`, `POLICE_VERIFICATION`, `TRAINING_CERTIFICATE`, `ID_PROOF`, `OTHER`).
@@ -237,6 +248,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   guarded. The provider interface is the seam for S3/GCS later.
 
 ### 3.12 Bulk import / export / reports (web-only back office)
+
 - **Import** wizard flow: template → upload → **validate (dry run)** → review → **commit**. The
   file is re-uploaded and re-validated on commit (the client's preview is never trusted); all writes
   happen in one transaction (any failure rolls the whole import back, `status = FAILED`).
@@ -260,6 +272,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   audit-logged as `import.validate` / `import.commit`.
 
 ### 3.13 Super Admin platform console
+
 - **Dashboard** with real aggregates + dependency-free inline SVG/CSS charts (no chart library in
   the bundle): KPIs, plan distribution, subscription health, school/user counts.
 - **Schools**: paged/searchable list, "School 360" detail (profile edit, admins CRUD +
@@ -274,6 +287,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - **Audit logs** (`/admin/audit-logs`): filterable view over the append-only `audit_logs` table.
 
 ### 3.14 Assisted management ("Manage data")
+
 - A `SUPER_ADMIN` opens a scoped session on one tenant
   (`POST /admin/schools/:id/manage/session`, `GET .../current`, `POST .../end`) recorded in
   `assisted_management_sessions` (actor, school, `started_at`/`ended_at`, `end_reason`
@@ -293,6 +307,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   documents, emergencies, parent portal, and all billing/subscription mutations.
 
 ### 3.15 Platform-grade cross-cutting behaviour
+
 - **Audit logging**: append-only, redacting, fire-and-forget; covers school lifecycle, students,
   guardians, staff, buses, routes, trips, documents, emergencies, imports/exports/reports, auth
   events and trip transitions; `GET /api/v1/audit-logs`.
@@ -476,7 +491,7 @@ school-bus-tracking/
 │   │                 documents,documents/requirements,documents/bus/[id],documents/driver/[id]}
 │   └── src/
 │       ├── components/               # Card, forms, list-screen, SegmentedControl, StatusBadge(s),
-│       │                             # Toast, DateTimeField, LogoutButton, ui.tsx
+│       │                             # Toast, DateTimeField, LogoutButton, LanguageSwitcher, ui.tsx
 │       ├── features/
 │       │   ├── auth/                 # AuthProvider (memory token + cookie refresh), RoleGate
 │       │   ├── crew/                 # crew-trip.ts, navigation-stop.ts, location-task.ts,
@@ -499,7 +514,9 @@ school-bus-tracking/
 │       │                             # refresh-progress
 │       ├── lib/                      # geo, format, datetime, errors, idempotency, ids,
 │       │                             # active-filter, keyboard-aware, navigation, paged-query,
-│       │                             # reports, roles (homeRoute/RoleGroup), runs, trips-list
+│       │                             # reports, roles (homeRoute/RoleGroup), runs, trips-list,
+│       │                             # i18n (+ i18n.en/i18n.hi dictionaries, i18n-budget,
+│       │                             #   i18n-provider, i18n-preferences + 4 guard specs)
 │       ├── services/                 # api.ts (base-URL resolution), api-cache, api-env, session,
 │       │                             # socket-auth, socket-options, 3 socket wrappers
 │       ├── theme/                    # tokens, layout (bottom-bar metrics), index
@@ -578,7 +595,7 @@ Things that are load-bearing and easy to break (do **not** "simplify" these):
    webpack, because decorator-driven Sequelize models have circular imports that webpack's ESM
    interop turns into TDZ errors. `next.config.js`, `server.js` and `instrumentation.ts` must keep
    pointing at that one output.
-2. **Gateways are wired from `instrumentation.ts`**, not `server.js` — they must attach to the *same*
+2. **Gateways are wired from `instrumentation.ts`**, not `server.js` — they must attach to the _same_
    service singletons the route handlers use, otherwise every REST-triggered broadcast silently goes
    nowhere. `globalThis` flags make dev hot-reload idempotent.
 3. **`bootstrapDatabase()` must resolve before any handler or gateway runs** (model classes are
@@ -598,17 +615,17 @@ Things that are load-bearing and easy to break (do **not** "simplify" these):
 28 tables. Every tenant table: `id uuid` PK (v4), `created_at`, `updated_at`, `deleted_at`
 (paranoid soft delete) from `BaseModel`, plus `school_id` and `UNIQUE (school_id, id)`.
 
-| Group | Tables |
-| --- | --- |
-| Tenancy & identity | `schools`, `users`, `refresh_tokens`, `device_tokens` |
-| Transport network | `buses`, `routes`, `stops` |
-| Operating model | `shifts`, `runs`, `run_crew`, `route_assignments` (frozen/deprecated writes) |
-| People | `students`, `student_guardians` |
-| Execution | `trips`, `trip_student_attendance`, `trip_locations`, `trip_stop_arrivals` |
-| Comms & safety | `notifications`, `emergency_events` |
-| Compliance | `bus_documents`, `driver_documents`, `document_requirements` |
-| Commercial | `plans`, `school_subscriptions` |
-| Platform ops | `audit_logs`, `idempotency_keys`, `import_jobs`, `assisted_management_sessions` |
+| Group              | Tables                                                                          |
+| ------------------ | ------------------------------------------------------------------------------- |
+| Tenancy & identity | `schools`, `users`, `refresh_tokens`, `device_tokens`                           |
+| Transport network  | `buses`, `routes`, `stops`                                                      |
+| Operating model    | `shifts`, `runs`, `run_crew`, `route_assignments` (frozen/deprecated writes)    |
+| People             | `students`, `student_guardians`                                                 |
+| Execution          | `trips`, `trip_student_attendance`, `trip_locations`, `trip_stop_arrivals`      |
+| Comms & safety     | `notifications`, `emergency_events`                                             |
+| Compliance         | `bus_documents`, `driver_documents`, `document_requirements`                    |
+| Commercial         | `plans`, `school_subscriptions`                                                 |
+| Platform ops       | `audit_logs`, `idempotency_keys`, `import_jobs`, `assisted_management_sessions` |
 
 Key relationships: `schools 1—N` (almost everything); `routes 1—N stops` (ordered) and `1—N runs`;
 `runs 1—N run_crew`, `1—N trips`, `1—N students`; `students N—1 stops` (`home_stop_id`) and
@@ -637,24 +654,24 @@ Response envelope everywhere JSON: `ApiResponse<T> = { success, message, data, m
 errors use the same envelope with `error` + field `details`. File downloads bypass the envelope and
 stream (`Content-Disposition`, `nosniff`, `no-store`, `X-Total-Records`).
 
-| Area | Endpoints (all under `/api/v1`) |
-| --- | --- |
-| Infra | `GET /health` · `GET /health/ready` |
-| Auth | `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/csrf` (plus dev-only `/auth-test/*`) |
-| Tenancy | `POST /schools` — atomic tenant + first-`SCHOOL_ADMIN` onboarding |
-| Fleet | `GET` / `POST` `/buses` · `GET` / `PATCH` / `DELETE` `/buses/:busId` · `GET /buses/:busId/runs` |
-| Network | `GET` / `POST` `/routes` · `GET` / `PATCH` / `DELETE` `/routes/:id` · `GET /routes/:id/details` · `GET` / `PUT` `/routes/:id/stops` (ordered reorder) · `GET` / `POST` `/routes/:id/runs` · `GET` / `POST` `/stops` · `GET` / `PATCH` / `DELETE` `/stops/:id` |
-| Operating model | `GET` / `POST` `/shifts` and `/shifts/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs` · `/runs/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs/:id/crew` · `GET` / `PATCH` / `DELETE` `/run-crew/:id` · `GET /users/:userId/run-crew` · `GET` / `PATCH` / `DELETE` `/route-assignments[/:id]` (declared writes respond `410 Gone` with `Deprecation` headers) · `GET` / `POST` `/assignments` · `GET` / `PATCH` / `DELETE` `/assignments/:id` |
-| People | `GET` / `POST` `/students` · `GET` / `PATCH` / `DELETE` `/students/:studentId` · `GET` / `POST` / `PATCH` / `DELETE` `/students/:studentId/guardians[/:parentId]` · `GET` / `POST` `/parents` · `/parents/:parentId/students[/:studentId]` · `GET /parents/me/students` · `GET` / `POST` `/drivers` · `/drivers/:driverId` · `GET` / `POST` `/conductors` · `/conductors/:id` |
-| Trips | `GET` / `POST` `/trips` · `GET` / `PATCH` / `DELETE` `/trips/:tripId` · `PATCH /trips/:tripId/status` · `POST /trips/:tripId/cancel` · `GET /trips/:tripId/students` (manifest + summary) · `GET /trips/:tripId/students/:studentId` · `POST .../board` · `POST .../drop` |
-| Tracking / ETA | `POST` / `GET` `/trips/:tripId/location` · `GET /trips/:tripId/location/history` · `GET /trips/:tripId/eta` · `GET /trips/:tripId/arrivals` · `GET /trips/:tripId/progress` |
-| Parent portal | `GET /parent/dashboard` · `GET /parent/children` · `GET /parent/children/:id` · `.../today` · `.../tracking` · `GET /parent/notifications` · `PATCH /parent/notifications/:id/read` · `PATCH /parent/notifications/read-all` |
-| Notifications | `POST /notifications/devices` · `DELETE /notifications/devices/:token` |
-| Emergencies | `POST /emergencies/sos` · `GET /emergencies` · `GET /emergencies/active` · `GET /emergencies/mine` · `GET /emergencies/:id` · `PATCH /emergencies/:id/status` · `POST /emergencies/:id/cancel` |
-| Documents | `GET` / `POST` `/buses/:busId/documents` · `PATCH` / `DELETE` `.../documents/:id` · `GET .../documents/compliance` · the same three under `/drivers/:driverId` · `GET /documents/overview` · `GET` / `PUT` `/document-requirements` |
-| Data transfer | `GET /imports/modules` · `GET /imports/:module/template` · `POST /imports/:module/validate` · `POST /imports/:module/commit` · `GET /imports/history[/:id]` · `GET /imports/history/:id/error-file` · `GET /exports` · `GET /exports/:dataset` · `GET /reports` · `GET /reports/overview` · `GET /reports/:report` · `GET /reports/:report/export` |
-| Audit | `GET /audit-logs` (Super Admin) |
-| Super Admin | `GET /admin/dashboard` · `GET` / `POST` `/admin/schools` · `/admin/schools/:schoolId` (+ `/activate`, `/deactivate`, `/subscription`, `/subscription/cancel`, `/subscription/history`) · `/admin/schools/:schoolId/admins[/:adminId]` (+ `/activate`, `/deactivate`, `/reset-password`) · `GET` / `POST` `/admin/plans` · `/admin/plans/:id` (+ `/activate`, `/deactivate`) · `GET /admin/subscriptions` · `GET /audit-logs` · `/admin/schools/:schoolId/manage/**` — assisted management: `session` (+ `/current`, `/end`) and CRUD over students, parents, buses, routes, stops, drivers, conductors, route-assignments, shifts, runs, run-crew, imports, exports and reports |
+| Area            | Endpoints (all under `/api/v1`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Infra           | `GET /health` · `GET /health/ready`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Auth            | `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/csrf` (plus dev-only `/auth-test/*`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Tenancy         | `POST /schools` — atomic tenant + first-`SCHOOL_ADMIN` onboarding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Fleet           | `GET` / `POST` `/buses` · `GET` / `PATCH` / `DELETE` `/buses/:busId` · `GET /buses/:busId/runs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Network         | `GET` / `POST` `/routes` · `GET` / `PATCH` / `DELETE` `/routes/:id` · `GET /routes/:id/details` · `GET` / `PUT` `/routes/:id/stops` (ordered reorder) · `GET` / `POST` `/routes/:id/runs` · `GET` / `POST` `/stops` · `GET` / `PATCH` / `DELETE` `/stops/:id`                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Operating model | `GET` / `POST` `/shifts` and `/shifts/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs` · `/runs/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs/:id/crew` · `GET` / `PATCH` / `DELETE` `/run-crew/:id` · `GET /users/:userId/run-crew` · `GET` / `PATCH` / `DELETE` `/route-assignments[/:id]` (declared writes respond `410 Gone` with `Deprecation` headers) · `GET` / `POST` `/assignments` · `GET` / `PATCH` / `DELETE` `/assignments/:id`                                                                                                                                                                                                                                    |
+| People          | `GET` / `POST` `/students` · `GET` / `PATCH` / `DELETE` `/students/:studentId` · `GET` / `POST` / `PATCH` / `DELETE` `/students/:studentId/guardians[/:parentId]` · `GET` / `POST` `/parents` · `/parents/:parentId/students[/:studentId]` · `GET /parents/me/students` · `GET` / `POST` `/drivers` · `/drivers/:driverId` · `GET` / `POST` `/conductors` · `/conductors/:id`                                                                                                                                                                                                                                                                                                   |
+| Trips           | `GET` / `POST` `/trips` · `GET` / `PATCH` / `DELETE` `/trips/:tripId` · `PATCH /trips/:tripId/status` · `POST /trips/:tripId/cancel` · `GET /trips/:tripId/students` (manifest + summary) · `GET /trips/:tripId/students/:studentId` · `POST .../board` · `POST .../drop`                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Tracking / ETA  | `POST` / `GET` `/trips/:tripId/location` · `GET /trips/:tripId/location/history` · `GET /trips/:tripId/eta` · `GET /trips/:tripId/arrivals` · `GET /trips/:tripId/progress`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Parent portal   | `GET /parent/dashboard` · `GET /parent/children` · `GET /parent/children/:id` · `.../today` · `.../tracking` · `GET /parent/notifications` · `PATCH /parent/notifications/:id/read` · `PATCH /parent/notifications/read-all`                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Notifications   | `POST /notifications/devices` · `DELETE /notifications/devices/:token`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Emergencies     | `POST /emergencies/sos` · `GET /emergencies` · `GET /emergencies/active` · `GET /emergencies/mine` · `GET /emergencies/:id` · `PATCH /emergencies/:id/status` · `POST /emergencies/:id/cancel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Documents       | `GET` / `POST` `/buses/:busId/documents` · `PATCH` / `DELETE` `.../documents/:id` · `GET .../documents/compliance` · the same three under `/drivers/:driverId` · `GET /documents/overview` · `GET` / `PUT` `/document-requirements`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Data transfer   | `GET /imports/modules` · `GET /imports/:module/template` · `POST /imports/:module/validate` · `POST /imports/:module/commit` · `GET /imports/history[/:id]` · `GET /imports/history/:id/error-file` · `GET /exports` · `GET /exports/:dataset` · `GET /reports` · `GET /reports/overview` · `GET /reports/:report` · `GET /reports/:report/export`                                                                                                                                                                                                                                                                                                                              |
+| Audit           | `GET /audit-logs` (Super Admin)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Super Admin     | `GET /admin/dashboard` · `GET` / `POST` `/admin/schools` · `/admin/schools/:schoolId` (+ `/activate`, `/deactivate`, `/subscription`, `/subscription/cancel`, `/subscription/history`) · `/admin/schools/:schoolId/admins[/:adminId]` (+ `/activate`, `/deactivate`, `/reset-password`) · `GET` / `POST` `/admin/plans` · `/admin/plans/:id` (+ `/activate`, `/deactivate`) · `GET /admin/subscriptions` · `GET /audit-logs` · `/admin/schools/:schoolId/manage/**` — assisted management: `session` (+ `/current`, `/end`) and CRUD over students, parents, buses, routes, stops, drivers, conductors, route-assignments, shifts, runs, run-crew, imports, exports and reports |
 
 AuthZ per endpoint is declared in `web/src/server/api/<module>.ts` (`roles: [...]`); `@Roles` is the
 real boundary. Client-side nav guards are UX only.
@@ -663,12 +680,12 @@ real boundary. Client-side nav guards are UX only.
 
 ## 9. Realtime contract
 
-| Namespace | Rooms (built server-side only) | Events |
-| --- | --- | --- |
-| `/live-tracking` | `trip:<tripId>` | `tracking:join` / `tracking:leave` (+ ack `denial_reason`), `trip:location:update` (crew → room), `trip:tracking:started`, `trip:tracking:stopped`, `trip:stop:arrived`, `trip:eta:update` |
-| `/notifications` | `notification:user:<userId>` | `notification:new` |
-| `/emergencies` | school room for the tenant | `emergency:new`, `emergency:updated` |
-| all | — | `session:revoked` (revalidation sweeper) |
+| Namespace        | Rooms (built server-side only) | Events                                                                                                                                                                                     |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/live-tracking` | `trip:<tripId>`                | `tracking:join` / `tracking:leave` (+ ack `denial_reason`), `trip:location:update` (crew → room), `trip:tracking:started`, `trip:tracking:stopped`, `trip:stop:arrived`, `trip:eta:update` |
+| `/notifications` | `notification:user:<userId>`   | `notification:new`                                                                                                                                                                         |
+| `/emergencies`   | school room for the tenant     | `emergency:new`, `emergency:updated`                                                                                                                                                       |
+| all              | —                              | `session:revoked` (revalidation sweeper)                                                                                                                                                   |
 
 Handshake runs the same JWT verification as HTTP (`web/src/services/socket-auth.ts`,
 `mobile/src/services/socket-auth.ts`), plus tenant/user activation checks. Namespace + event + room
@@ -687,7 +704,7 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   delivered as httpOnly cookie `refresh_token` scoped `Path=/api/v1/auth`, **rotated on every use**;
   a replayed/stale token is rejected with `401 revoked` even if the session is alive.
   A readable, secret-free `sb_session` marker cookie tells a fresh tab that a refresh is worth
-  trying (it is *not* cleared on a rotation conflict, which would log every tab out).
+  trying (it is _not_ cleared on a rotation conflict, which would log every tab out).
 - **Single-flight refresh** in `packages/api-client`: StrictMode's double effect and every 401 retry
   share one in-flight `POST /auth/refresh`.
 - **CSRF**: double-submit — `GET /auth/csrf` seeds readable `csrf_token`; unsafe, cookie-authenticated
@@ -794,7 +811,7 @@ adding one needs no migration.
   surfaces / 14px anywhere" rule by `src/theme/legibility.spec.ts`, both under
   `npm --prefix mobile test`. Details + the measured contrast table: `docs/mobile-ux.md`.
 - **Crew screens are "one job, one screen" (Phase 2)**: the trip tab leads with a giant status
-  card whose background colour *is* the state (BOARDING green / ON THE ROAD amber / settled grey,
+  card whose background colour _is_ the state (BOARDING green / ON THE ROAD amber / settled grey,
   mapping pinned by `trip-status-style.spec.ts`), shows next stop + ETA at 24px and exactly one
   64px primary action; metadata hides in a collapsible "More details". The driver's GPS row is
   only `Sharing ✅/❌` + last update + Retry — the telemetry counters live on the hidden
@@ -805,6 +822,22 @@ adding one needs no migration.
   in `src/features/crew/crew-copy.ts` as the Phase-3 i18n plug point. Presentation only — API
   contracts, the offline queue, GPS sharing, sockets and session logic are untouched
   (full map: `docs/mobile-ux.md` → Phase 2).
+- **Localisation (Phase 3a)**: a dependency-free typed i18n layer in `mobile/src/lib/i18n.ts` with
+  `en` (source of truth) + `hi` dictionaries — **286 keys**, key-set equality enforced at compile
+  time _and_ by `i18n-parity.spec.ts` (**0 missing / 0 extra**, no empty values, identical
+  `{placeholder}` sets). A key typo or a wrong interpolation param is a **compile error**
+  (`ParamsFor` is inferred from each template's placeholders). Resolution order: **saved
+  preference → role default (crew = Hindi, admin/parent = device locale) → `en`**; the device
+  locale is read from `Intl` / `NativeModules.I18nManager` (**no `expo-localization`, zero new
+  dependencies**). The switch lives on the Help & support screen, applies instantly (no restart)
+  and persists in AsyncStorage under `sbt.mobile.locale`.
+  **Two classes of string are deliberately never translated**: data (student/route/stop/school
+  names) and server-supplied English (API error messages, `EMERGENCY_TYPE_LABELS`, the four GPS
+  support counters). A **known** server error code maps to local copy via `localizeApiError`; an
+  **unknown** one is shown as-is with its raw code visible. Hindi length is guarded by a per-key
+  character budget (`i18n-budget.ts`, 46 keys) and hardcoded English UI copy on crew surfaces is
+  blocked by a source-scanning spec (`i18n-literals.spec.ts`) — boundary + guards documented in
+  `docs/mobile-ux.md` → Phase 3.
 - **Metro monorepo resolution**: `watchFolders` = repo root, `nodeModulesPaths` =
   `mobile/node_modules` then root — nested `node_modules` lookup stays enabled on purpose (disabling
   it breaks transitive deps).
@@ -842,20 +875,20 @@ npm --prefix mobile start                   # then scan with Expo Go
 `src/server` and run `next start`-style flows: `npm --prefix web run build:server`.
 
 **Seeded demo logins** — school users sign in with their **school code** + email + password; the
-platform admin leaves the school field blank. The four-school seeder uses *password = email*; the
+platform admin leaves the school field blank. The four-school seeder uses _password = email_; the
 older `demo-core-domain-data` seeder intentionally leaves `password_hash` null (those accounts
 cannot log in).
 
-| Role | School code | Email | Password |
-| --- | --- | --- | --- |
-| SUPER_ADMIN | *(blank)* | `superadmin@gmail.com` | `superadmin@gmail.com` |
-| SCHOOL_ADMIN | `green-valley` | `green@gmail.com` | `green@gmail.com` |
-| SCHOOL_ADMIN | `riverside-public` | `riverside@gmail.com` | `riverside@gmail.com` |
-| SCHOOL_ADMIN | `oakwood-academy` | `oakwood@gmail.com` | `oakwood@gmail.com` |
-| SCHOOL_ADMIN | `maple-leaf-central` | `maple@gmail.com` | `maple@gmail.com` |
-| DRIVER | e.g. `green-valley` | `driver1.green@gmail.com` | same as email |
-| CONDUCTOR | e.g. `green-valley` | `conductor1.green@gmail.com` | same as email |
-| PARENT | e.g. `green-valley` | `parent1.green@gmail.com` | same as email |
+| Role         | School code          | Email                        | Password               |
+| ------------ | -------------------- | ---------------------------- | ---------------------- |
+| SUPER_ADMIN  | _(blank)_            | `superadmin@gmail.com`       | `superadmin@gmail.com` |
+| SCHOOL_ADMIN | `green-valley`       | `green@gmail.com`            | `green@gmail.com`      |
+| SCHOOL_ADMIN | `riverside-public`   | `riverside@gmail.com`        | `riverside@gmail.com`  |
+| SCHOOL_ADMIN | `oakwood-academy`    | `oakwood@gmail.com`          | `oakwood@gmail.com`    |
+| SCHOOL_ADMIN | `maple-leaf-central` | `maple@gmail.com`            | `maple@gmail.com`      |
+| DRIVER       | e.g. `green-valley`  | `driver1.green@gmail.com`    | same as email          |
+| CONDUCTOR    | e.g. `green-valley`  | `conductor1.green@gmail.com` | same as email          |
+| PARENT       | e.g. `green-valley`  | `parent1.green@gmail.com`    | same as email          |
 
 (The `<slug>` in staff/parent emails is the first segment of the school code: `green`, `riverside`,
 `oakwood`, `maple`.) Seeded graph per school: 3 buses, 3 routes (`<prefix>-R-01` "North Loop —
@@ -876,16 +909,16 @@ nibble matters, see the comment in the seeder).
 
 Root (`package.json`):
 
-| Command | What it does |
-| --- | --- |
-| `npm run build:packages` | Build `shared-types → design-tokens → config → validation → api-client` (order matters) |
-| `npm run build:apps` / `npm run build` | Web (`build:server` + `next build`) and mobile typecheck bundle |
-| `npm run typecheck` | Build packages, then `tsc --noEmit` in every workspace that defines it |
-| `npm test` | Build packages, then `web` + `mobile` unit suites |
-| `npm run lint` / `lint:fix` | ESLint over the whole repo, `--max-warnings 0` |
-| `npm run format` / `format:check` | Prettier |
-| `npm run db:migrate` / `db:seed` / `db:setup` / `db:refresh` | Sequelize CLI via `web` |
-| `npm run clean` | Remove `dist`, `.next`, `.expo`, package outputs |
+| Command                                                      | What it does                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `npm run build:packages`                                     | Build `shared-types → design-tokens → config → validation → api-client` (order matters) |
+| `npm run build:apps` / `npm run build`                       | Web (`build:server` + `next build`) and mobile typecheck bundle                         |
+| `npm run typecheck`                                          | Build packages, then `tsc --noEmit` in every workspace that defines it                  |
+| `npm test`                                                   | Build packages, then `web` + `mobile` unit suites                                       |
+| `npm run lint` / `lint:fix`                                  | ESLint over the whole repo, `--max-warnings 0`                                          |
+| `npm run format` / `format:check`                            | Prettier                                                                                |
+| `npm run db:migrate` / `db:seed` / `db:setup` / `db:refresh` | Sequelize CLI via `web`                                                                 |
+| `npm run clean`                                              | Remove `dist`, `.next`, `.expo`, package outputs                                        |
 
 `web` (from repo root: `npm --prefix web run <script>`): `dev`, `build`, `start`,
 `typecheck`, `typecheck:server`, `test`, `test:server`, `test:web`, `test:integration`, `test:e2e`,
@@ -904,22 +937,22 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 
 ## 15. Environment variables (template: `web/.env.example`)
 
-| Group | Variables |
-| --- | --- |
-| App | `NODE_ENV`, `PORT` (3001), `HOST` (0.0.0.0), `API_PREFIX` (`api/v1`), `CORS_ORIGIN` |
-| Database | `DB_DIALECT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_NAME_TEST`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL`, `DB_LOGGING`, `DB_POOL_MAX/MIN/ACQUIRE/IDLE`, `DB_AUTO_CONNECT`, `DB_ALLOW_NO_CONNECT` (test/smoke only) |
-| Auth | `JWT_SECRET` (required in prod), `JWT_EXPIRES_IN` (15m), `JWT_REFRESH_EXPIRES_IN` (7d), `REFRESH_TOKEN_COOKIE_NAME` |
-| Security | `SECURITY_IS_PRODUCTION`, `SECURITY_HEADERS_ENABLED`, `SECURITY_HSTS_MAX_AGE`, `SECURITY_CSRF_ENABLED`/`CSRF_ENABLED`, `CSRF_COOKIE_NAME`, `CSRF_HEADER_NAME`, `CSP_EXTRA_IMG_SRC`, `CSP_EXTRA_CONNECT_SRC` |
-| Rate limit | `RATE_LIMIT_{AUTH_LOGIN,AUTH_REFRESH,READ_HEAVY,DEVICE_REGISTER,SOS_CREATE,ATTENDANCE_WRITE,LOCATION_READ,DATA_IMPORT,DATA_EXPORT,REPORT_READ,PASSWORD_RESET,AUTH_LOGOUT}_LIMIT` (+ `_WINDOW_MS`), `RATE_LIMIT_STORE` (`memory`; `redis` fails fast), `RATE_LIMIT_TRUST_PROXY` |
-| Compression | `COMPRESSION_ENABLED`, `COMPRESSION_THRESHOLD_BYTES` |
-| ETA | `ETA_FALLBACK_SPEED_KMH`, `ETA_MIN_SPEED_KMH`, `ETA_MAX_SPEED_KMH` |
-| Retention | `LOCATION_RETENTION_DAYS` 90, `NOTIFICATION_RETENTION_DAYS` 180, `REFRESH_TOKEN_RETENTION_DAYS` 30, `AUDIT_LOG_RETENTION_DAYS` 365, `EMERGENCY_RETENTION_DAYS` 730, `IDEMPOTENCY_KEY_RETENTION_DAYS` 7, `RETENTION_ENABLED`, `RETENTION_INTERVAL_MS` (6 h), `RETENTION_INITIAL_DELAY_MS` (30 s) |
-| Idempotency / realtime | `IDEMPOTENCY_TTL_HOURS` 24, `WEBSOCKET_SESSION_REVALIDATION_ENABLED`, `WEBSOCKET_SESSION_REVALIDATION_INTERVAL_MS` 300000 |
-| Subscriptions | `SUBSCRIPTION_PAST_DUE_GRACE_DAYS` (7), `SUBSCRIPTION_ENFORCE_LAPSED_ACCESS` (true). `SUBSCRIPTION_GRACE_PERIOD_DAYS` appears in the env template but is dead — nothing reads it |
-| Push | `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (both empty ⇒ no-op provider; never logged) |
-| Future | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop) |
-| Seeding | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin) |
-| Mobile | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` |
+| Group                  | Variables                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App                    | `NODE_ENV`, `PORT` (3001), `HOST` (0.0.0.0), `API_PREFIX` (`api/v1`), `CORS_ORIGIN`                                                                                                                                                                                                             |
+| Database               | `DB_DIALECT`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_NAME_TEST`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSL`, `DB_LOGGING`, `DB_POOL_MAX/MIN/ACQUIRE/IDLE`, `DB_AUTO_CONNECT`, `DB_ALLOW_NO_CONNECT` (test/smoke only)                                                                                 |
+| Auth                   | `JWT_SECRET` (required in prod), `JWT_EXPIRES_IN` (15m), `JWT_REFRESH_EXPIRES_IN` (7d), `REFRESH_TOKEN_COOKIE_NAME`                                                                                                                                                                             |
+| Security               | `SECURITY_IS_PRODUCTION`, `SECURITY_HEADERS_ENABLED`, `SECURITY_HSTS_MAX_AGE`, `SECURITY_CSRF_ENABLED`/`CSRF_ENABLED`, `CSRF_COOKIE_NAME`, `CSRF_HEADER_NAME`, `CSP_EXTRA_IMG_SRC`, `CSP_EXTRA_CONNECT_SRC`                                                                                     |
+| Rate limit             | `RATE_LIMIT_{AUTH_LOGIN,AUTH_REFRESH,READ_HEAVY,DEVICE_REGISTER,SOS_CREATE,ATTENDANCE_WRITE,LOCATION_READ,DATA_IMPORT,DATA_EXPORT,REPORT_READ,PASSWORD_RESET,AUTH_LOGOUT}_LIMIT` (+ `_WINDOW_MS`), `RATE_LIMIT_STORE` (`memory`; `redis` fails fast), `RATE_LIMIT_TRUST_PROXY`                  |
+| Compression            | `COMPRESSION_ENABLED`, `COMPRESSION_THRESHOLD_BYTES`                                                                                                                                                                                                                                            |
+| ETA                    | `ETA_FALLBACK_SPEED_KMH`, `ETA_MIN_SPEED_KMH`, `ETA_MAX_SPEED_KMH`                                                                                                                                                                                                                              |
+| Retention              | `LOCATION_RETENTION_DAYS` 90, `NOTIFICATION_RETENTION_DAYS` 180, `REFRESH_TOKEN_RETENTION_DAYS` 30, `AUDIT_LOG_RETENTION_DAYS` 365, `EMERGENCY_RETENTION_DAYS` 730, `IDEMPOTENCY_KEY_RETENTION_DAYS` 7, `RETENTION_ENABLED`, `RETENTION_INTERVAL_MS` (6 h), `RETENTION_INITIAL_DELAY_MS` (30 s) |
+| Idempotency / realtime | `IDEMPOTENCY_TTL_HOURS` 24, `WEBSOCKET_SESSION_REVALIDATION_ENABLED`, `WEBSOCKET_SESSION_REVALIDATION_INTERVAL_MS` 300000                                                                                                                                                                       |
+| Subscriptions          | `SUBSCRIPTION_PAST_DUE_GRACE_DAYS` (7), `SUBSCRIPTION_ENFORCE_LAPSED_ACCESS` (true). `SUBSCRIPTION_GRACE_PERIOD_DAYS` appears in the env template but is dead — nothing reads it                                                                                                                |
+| Push                   | `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (both empty ⇒ no-op provider; never logged)                                                                                                                                                                                              |
+| Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
+| Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
+| Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`                                                                                                                                                                                                                |
 
 Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.
@@ -967,19 +1000,19 @@ keys and enum values; new endpoint ⇒ `api-client` + `shared-types` + Zod + ser
 Triggers: `pull_request` and `push` to `main`; concurrency group cancels in-progress runs;
 `permissions: contents: read`. Each gate is a **separate job** so it can be marked required.
 
-| Job | Command |
-| --- | --- |
-| Lint | `npm run lint` |
-| Workspace typecheck | `npm run typecheck` |
-| Server typecheck | `npm --prefix web run typecheck:server` |
-| Server tests | `npm --prefix web run test:server` |
-| Web tests | `npm --prefix web run test:web` |
-| Mobile tests | `npm --prefix mobile test` |
-| Mobile simulations | `npm --prefix mobile run test:sim` |
+| Job                  | Command                                                                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Lint                 | `npm run lint`                                                                                                                           |
+| Workspace typecheck  | `npm run typecheck`                                                                                                                      |
+| Server typecheck     | `npm --prefix web run typecheck:server`                                                                                                  |
+| Server tests         | `npm --prefix web run test:server`                                                                                                       |
+| Web tests            | `npm --prefix web run test:web`                                                                                                          |
+| Mobile tests         | `npm --prefix mobile test`                                                                                                               |
+| Mobile simulations   | `npm --prefix mobile run test:sim`                                                                                                       |
 | DB integration / E2E | `npm --prefix web run test:db` on a `postgis/postgis:16-3.4` service container (extensions installed by `scripts/ci-enable-postgis.mjs`) |
-| Web production build | `npm --prefix web run build` |
-| Android Expo export | `cd mobile && npx expo export --platform android` (Metro bundles every route, no device) |
-| Docker image build | `docker build -f infrastructure/Dockerfile .` + validates `docker-compose.prod.yml` |
+| Web production build | `npm --prefix web run build`                                                                                                             |
+| Android Expo export  | `cd mobile && npx expo export --platform android` (Metro bundles every route, no device)                                                 |
+| Docker image build   | `docker build -f infrastructure/Dockerfile .` + validates `docker-compose.prod.yml`                                                      |
 
 ⚠️ Every job must run `actions/checkout` **before** the composite
 `.github/actions/setup-node-deps` action (composite actions can't check the repo out themselves).
@@ -1035,7 +1068,7 @@ The workflow file says this inline — do not "streamline" it away.
 8. **Idempotency on safety-critical writes**: declare `idempotency` on the `EndpointDefinition`.
 9. **New endpoint** = `EndpointDefinition` in `src/server/api/<module>.ts` + re-export from a
    `src/app/api/v1/**/route.ts` + roles + rate policy + audit + spec.
-10. **Files are one-concern modules with heavy doc comments** explaining *why*; many comments encode
+10. **Files are one-concern modules with heavy doc comments** explaining _why_; many comments encode
     deliberate decisions (e.g. "why is `shift_id` nullable", "why not `NOT NULL`"). Respect them —
     they are the repo's memory of trade-offs.
 11. **No chart library, no audio assets**: admin charts are inline SVG/CSS, the siren is Web-Audio
@@ -1046,6 +1079,11 @@ The workflow file says this inline — do not "streamline" it away.
 13. **UI**: client components with `useLoad`/`usePagedResource`, `components/ui` primitives,
     design tokens from `@school-bus-tracking/design-tokens` (no ad-hoc colors), typed api-client
     calls only.
+14. **Mobile UI copy comes from the i18n module** (`mobile/src/lib/i18n.ts`), never from a literal
+    in a component. **Data and server-supplied strings are never translated** — student/route/stop/
+    school names, API error messages, `*_LABELS` maps and the GPS support counters render as the
+    server sent them. A new UI string = a key in `i18n.en.ts` + its Hindi value in `i18n.hi.ts`;
+    the parity, clipping and grep-gate specs enforce the rest.
 
 ---
 
@@ -1074,67 +1112,67 @@ The workflow file says this inline — do not "streamline" it away.
 
 ## 21. Quick orientation for an AI agent ("where do I change X?")
 
-| Change | Start here |
-| --- | --- |
-| New field on an existing entity | migration → model → DTO (`modules/<x>/dto`) → Zod (`packages/validation`) → `shared-types` response → `api-client` → service → page/screen |
-| New API endpoint | `web/src/server/api/<module>.ts` (`EndpointDefinition`) + `web/src/app/api/v1/.../route.ts` |
-| Business rule / validation | `web/src/server/modules/<module>/<module>.service.ts` (+ its `.spec.ts`) |
-| Role/tenant access | `roles: [...]` on the endpoint; `SchoolAccessService`; `web/src/lib/roles.ts` for the client guard |
-| New realtime event | `packages/shared-types` event constant → gateway in `modules/<x>/*.gateway.ts` → wiring in `realtime/index.ts` → client socket wrapper |
-| Billing quota / feature gating | `packages/shared-types` `PlanLimitResource`/`PlanFeature` → `PlanLimitsService` → `web/src/features/admin/metrics.ts` (exhaustive `Record`s will point you at every call site) |
-| New web screen | `web/src/app/(authenticated)/<area>/page.tsx` + `web/src/features/<slice>/` + nav entry in `web/src/lib/roles.ts` |
-| New mobile screen | `mobile/app/(<group>)/<screen>.tsx` + register in the group `_layout.tsx` (use `href: null` for detail routes) + `mobile/src/features/<slice>/` |
-| Import/export/report | `web/src/server/modules/data-transfer/{import,export}/definitions/*.ts`, `modules/reports/definitions/*.ts` |
-| Env variable | `web/src/server/config/*.config.ts` (+ `docs/deployment.md` and `web/.env.example`) |
-| Auth/session behaviour | `web/src/server/{auth,common/security}`, `packages/api-client/src/index.ts`, `web/src/features/auth/`, `mobile/src/features/auth/` |
+| Change                          | Start here                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| New field on an existing entity | migration → model → DTO (`modules/<x>/dto`) → Zod (`packages/validation`) → `shared-types` response → `api-client` → service → page/screen                                     |
+| New API endpoint                | `web/src/server/api/<module>.ts` (`EndpointDefinition`) + `web/src/app/api/v1/.../route.ts`                                                                                    |
+| Business rule / validation      | `web/src/server/modules/<module>/<module>.service.ts` (+ its `.spec.ts`)                                                                                                       |
+| Role/tenant access              | `roles: [...]` on the endpoint; `SchoolAccessService`; `web/src/lib/roles.ts` for the client guard                                                                             |
+| New realtime event              | `packages/shared-types` event constant → gateway in `modules/<x>/*.gateway.ts` → wiring in `realtime/index.ts` → client socket wrapper                                         |
+| Billing quota / feature gating  | `packages/shared-types` `PlanLimitResource`/`PlanFeature` → `PlanLimitsService` → `web/src/features/admin/metrics.ts` (exhaustive `Record`s will point you at every call site) |
+| New web screen                  | `web/src/app/(authenticated)/<area>/page.tsx` + `web/src/features/<slice>/` + nav entry in `web/src/lib/roles.ts`                                                              |
+| New mobile screen               | `mobile/app/(<group>)/<screen>.tsx` + register in the group `_layout.tsx` (use `href: null` for detail routes) + `mobile/src/features/<slice>/`                                |
+| Import/export/report            | `web/src/server/modules/data-transfer/{import,export}/definitions/*.ts`, `modules/reports/definitions/*.ts`                                                                    |
+| Env variable                    | `web/src/server/config/*.config.ts` (+ `docs/deployment.md` and `web/.env.example`)                                                                                            |
+| Auth/session behaviour          | `web/src/server/{auth,common/security}`, `packages/api-client/src/index.ts`, `web/src/features/auth/`, `mobile/src/features/auth/`                                             |
 
 ---
 
 ## 22. Documentation index
 
-| File | Covers |
-| --- | --- |
-| [`docs/architecture.md`](./docs/architecture.md) | Full architecture blueprint (monorepo, web, backend, mobile, packages, DB, tenancy, realtime, quality gates) |
-| [`docs/operating-model.md`](./docs/operating-model.md) | **Routes/runs/shifts/crew refactor** — schema, conflict rules, migration/backfill, 4-session phase plan |
-| [`docs/security.md`](./docs/security.md) | JWT/CSRF contract, RBAC, tenant isolation, CORS/headers, rate limits, WS security, multi-instance checklist |
-| [`docs/subscriptions.md`](./docs/subscriptions.md) | Entitlement table, `past_due` policy decision, plan-limit reservation |
-| [`docs/notifications.md`](./docs/notifications.md) | Notification pipeline, FCM, device tokens, admin siren, Firebase setup |
-| [`docs/import-export-reports.md`](./docs/import-export-reports.md) | Import safety model, natural keys, export datasets, report catalogue |
-| [`docs/data-retention.md`](./docs/data-retention.md) | Retention policies, worker wiring, GPS growth, verification |
-| [`docs/production-readiness.md`](./docs/production-readiness.md) | Implemented vs tested vs wired — honest status matrix + limitations |
-| [`docs/testing.md`](./docs/testing.md) | Test types, DB setup, CI job table, example specs |
-| [`docs/deployment.md`](./docs/deployment.md) | Env vars, build, migrations, single-instance container, health checks, prod checklist |
-| [`docs/mobile-operations.md`](./docs/mobile-operations.md) | Offline attendance, background GPS, session/network UX, 403 taxonomy, build config |
-| [`docs/mobile-expo-sdk.md`](./docs/mobile-expo-sdk.md) | Expo SDK pinning policy, verified version matrix, Expo Go vs dev builds |
-| [`docs/mobile-ux.md`](./docs/mobile-ux.md) | Mobile legibility system (Phase 1) + Phase 2 crew screens: status→colour card, hold-to-confirm SOS, full-row board/drop, Help/Support telemetry move — measured contrast tables + guard specs |
-| [`docs/backup-restore.md`](./docs/backup-restore.md) | Local backup/restore workflow |
-| [`infrastructure/README.md`](./infrastructure/README.md), [`mobile/README.md`](./mobile/README.md) | Dev DB containers; mobile run/QR troubleshooting |
+| File                                                                                               | Covers                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs/architecture.md`](./docs/architecture.md)                                                   | Full architecture blueprint (monorepo, web, backend, mobile, packages, DB, tenancy, realtime, quality gates)                                                                                                                                                                                                                         |
+| [`docs/operating-model.md`](./docs/operating-model.md)                                             | **Routes/runs/shifts/crew refactor** — schema, conflict rules, migration/backfill, 4-session phase plan                                                                                                                                                                                                                              |
+| [`docs/security.md`](./docs/security.md)                                                           | JWT/CSRF contract, RBAC, tenant isolation, CORS/headers, rate limits, WS security, multi-instance checklist                                                                                                                                                                                                                          |
+| [`docs/subscriptions.md`](./docs/subscriptions.md)                                                 | Entitlement table, `past_due` policy decision, plan-limit reservation                                                                                                                                                                                                                                                                |
+| [`docs/notifications.md`](./docs/notifications.md)                                                 | Notification pipeline, FCM, device tokens, admin siren, Firebase setup                                                                                                                                                                                                                                                               |
+| [`docs/import-export-reports.md`](./docs/import-export-reports.md)                                 | Import safety model, natural keys, export datasets, report catalogue                                                                                                                                                                                                                                                                 |
+| [`docs/data-retention.md`](./docs/data-retention.md)                                               | Retention policies, worker wiring, GPS growth, verification                                                                                                                                                                                                                                                                          |
+| [`docs/production-readiness.md`](./docs/production-readiness.md)                                   | Implemented vs tested vs wired — honest status matrix + limitations                                                                                                                                                                                                                                                                  |
+| [`docs/testing.md`](./docs/testing.md)                                                             | Test types, DB setup, CI job table, example specs                                                                                                                                                                                                                                                                                    |
+| [`docs/deployment.md`](./docs/deployment.md)                                                       | Env vars, build, migrations, single-instance container, health checks, prod checklist                                                                                                                                                                                                                                                |
+| [`docs/mobile-operations.md`](./docs/mobile-operations.md)                                         | Offline attendance, background GPS, session/network UX, 403 taxonomy, **language/voice settings for support**, build config                                                                                                                                                                                                          |
+| [`docs/mobile-expo-sdk.md`](./docs/mobile-expo-sdk.md)                                             | Expo SDK pinning policy, verified version matrix, Expo Go vs dev builds                                                                                                                                                                                                                                                              |
+| [`docs/mobile-ux.md`](./docs/mobile-ux.md)                                                         | Mobile legibility system (Phase 1) + Phase 2 crew screens: status→colour card, hold-to-confirm SOS, full-row board/drop, Help/Support telemetry move — measured contrast tables + guard specs. **+ Phase 3 localisation**: 286-key `en`/`hi` dictionaries, resolution order, the server-string boundary, clipping budgets, grep gate |
+| [`docs/backup-restore.md`](./docs/backup-restore.md)                                               | Local backup/restore workflow                                                                                                                                                                                                                                                                                                        |
+| [`infrastructure/README.md`](./infrastructure/README.md), [`mobile/README.md`](./mobile/README.md) | Dev DB containers; mobile run/QR troubleshooting                                                                                                                                                                                                                                                                                     |
 
 ---
 
 ## 23. Glossary
 
-| Term | Meaning in this codebase |
-| --- | --- |
-| Tenant | One `schools` row; the isolation anchor for every query |
-| Assisted management | Time-boxed `SUPER_ADMIN` session operating inside a tenant's data, fully audited |
-| Route | Ordered list of stops (geometry); does **not** own a bus or crew |
-| Run | One vehicle's timed pass over a route (`code` is the parent-facing bus number) |
-| Shift | Bell window (`time` → `time`) that makes bus tiering legal |
-| Run crew | The `DRIVER`/`CONDUCTOR` rostered on a run |
-| Route assignment | Deprecated date-range roster; read-only, mirrored historically |
-| Trip | One execution of a run/route on a calendar day, with a 5-state machine |
-| Manifest | The students on a trip, each `PENDING`/`BOARDED`/`DROPPED` |
-| Fix | One GPS sample (`GpsLocationFix`) published over `/live-tracking` |
-| Arrival | Proof a bus entered a stop's geofence (`trip_stop_arrivals`) |
-| ETA | Approximate per-stop arrival estimate from GPS + speed, not a routing engine |
-| SOS | Crew-raised `emergency_events` row broadcast to the school's admins |
-| Compliance document | Bus/driver paperwork whose status is derived from its expiry date |
-| Idempotency key | Client header (`x-idempotency-key`) that makes a retry safe for safety-critical writes |
-| Managed school / managed path | Tenant id + path remapping active while an assisted session is open |
+| Term                          | Meaning in this codebase                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| Tenant                        | One `schools` row; the isolation anchor for every query                                |
+| Assisted management           | Time-boxed `SUPER_ADMIN` session operating inside a tenant's data, fully audited       |
+| Route                         | Ordered list of stops (geometry); does **not** own a bus or crew                       |
+| Run                           | One vehicle's timed pass over a route (`code` is the parent-facing bus number)         |
+| Shift                         | Bell window (`time` → `time`) that makes bus tiering legal                             |
+| Run crew                      | The `DRIVER`/`CONDUCTOR` rostered on a run                                             |
+| Route assignment              | Deprecated date-range roster; read-only, mirrored historically                         |
+| Trip                          | One execution of a run/route on a calendar day, with a 5-state machine                 |
+| Manifest                      | The students on a trip, each `PENDING`/`BOARDED`/`DROPPED`                             |
+| Fix                           | One GPS sample (`GpsLocationFix`) published over `/live-tracking`                      |
+| Arrival                       | Proof a bus entered a stop's geofence (`trip_stop_arrivals`)                           |
+| ETA                           | Approximate per-stop arrival estimate from GPS + speed, not a routing engine           |
+| SOS                           | Crew-raised `emergency_events` row broadcast to the school's admins                    |
+| Compliance document           | Bus/driver paperwork whose status is derived from its expiry date                      |
+| Idempotency key               | Client header (`x-idempotency-key`) that makes a retry safe for safety-critical writes |
+| Managed school / managed path | Tenant id + path remapping active while an assisted session is open                    |
 
 ---
 
-*Maintain this file.* If you add a feature, change the API contract, the data model, a state machine,
+_Maintain this file._ If you add a feature, change the API contract, the data model, a state machine,
 or an operational guarantee, update the corresponding section here and the matching `docs/*.md`.
 This README is the map people (and agents) use to understand the system — treat a stale map as a bug.
