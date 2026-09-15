@@ -38,6 +38,7 @@ import { SosSession, type SosDeliveryStatus } from './sos-flow';
 import { crewCopy } from './crew-copy';
 import { t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
+import { feedback } from './crew-feedback.ts';
 
 /**
  * Crew SOS (Task 44 + Phase 2) — the emergency affordance of the crew app.
@@ -158,6 +159,7 @@ export function useCrewSos(tripId: string | null) {
         if (!parsed.success) {
           session.markFailed();
           setStatus('failed');
+          feedback.on('sos.failed');
           Alert.alert(crewCopy.sos.sendFailed, parsed.error.issues[0]?.message ?? t('sos.invalid'));
           return 'failed';
         }
@@ -165,6 +167,14 @@ export function useCrewSos(tripId: string | null) {
         session.markSent();
         setStatus('sent');
         setSentAt(formatTime(new Date()));
+        /**
+         * Phase 3b: confirmation that the alert left the phone — success tone
+         * plus a spoken line, because this is the one moment the crew member is
+         * least likely to be looking at the screen. `SosSession` and the
+         * idempotency key are untouched; the feedback is pure decoration and
+         * cannot alter the delivery state above.
+         */
+        feedback.on('sos.sent');
         await reload();
         return 'sent';
       } catch (caught) {
@@ -173,10 +183,15 @@ export function useCrewSos(tripId: string | null) {
           // reconnect effect below retries automatically.
           session.markQueued();
           setStatus('queued');
+          // A different tone from "sent" on purpose: queued means *not yet
+          // delivered*, and the crew member must be able to tell the two apart
+          // without reading. See `crew-haptics.ts` for the pattern rationale.
+          feedback.on('sos.queued');
           return 'queued';
         }
         session.markFailed();
         setStatus('failed');
+        feedback.on('sos.failed');
         Alert.alert(crewCopy.sos.sendFailed, localizedErrorText(caught));
         return 'failed';
       } finally {

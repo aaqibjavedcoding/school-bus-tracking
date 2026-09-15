@@ -12,6 +12,20 @@ import { transitionActionMeta } from './crew-action-meta';
 import { useOfflineAction } from './offline/useOfflineAction';
 import { useAuth } from '../auth/AuthProvider';
 import { t } from '../../lib/i18n.ts';
+import { feedback, type CrewFeedbackEvent } from './crew-feedback.ts';
+
+/**
+ * The spoken/vibration confirmation for a lifecycle transition (Phase 3b).
+ * `null` = no confirmation: `SCHEDULED` is never a crew transition and
+ * `CANCELLED` is the dispatcher's flow on a screen the crew does not use.
+ */
+const TRIP_FEEDBACK_EVENT: Record<TripStatus, CrewFeedbackEvent | null> = {
+  [TripStatus.SCHEDULED]: null,
+  [TripStatus.BOARDING]: 'trip.boarding',
+  [TripStatus.IN_PROGRESS]: 'trip.inProgress',
+  [TripStatus.COMPLETED]: 'trip.completed',
+  [TripStatus.CANCELLED]: null,
+};
 
 /**
  * Trip lifecycle actions (crew + admin).
@@ -52,11 +66,13 @@ export const TripStatusActions: React.FC<{
       if (offlineCapable) {
         // The key comes from the queue reservation so an offline replay is
         // a dedupe hit of this very request, never a second transition.
-        let applied: TripResponse | null = null;
+        // Held on an object so the compiler does not narrow it to `null` at
+        // the declaration site — the queue writes it from inside the callback.
+        const outcome: { trip: TripResponse | null } = { trip: null };
         const result = await offline.execute(
           { kind: 'trip_status', userId: user?.id ?? null, tripId: trip.id, tripStatus: next },
           async (key) => {
-            applied = unwrapEnvelope(
+            outcome.trip = unwrapEnvelope(
               await apiClient.updateTripStatus(trip.id, { status: next }, withIdempotencyKey(key)),
             );
           },
@@ -66,8 +82,12 @@ export const TripStatusActions: React.FC<{
           onQueued?.(next);
           return;
         }
-        if (applied) {
-          onApplied(applied);
+        if (outcome.trip) {
+          // Phase 3b: the transition is the crew's biggest state change, so it
+          // gets a medium tap and a spoken line even with the screen face-down.
+          const event = TRIP_FEEDBACK_EVENT[outcome.trip.status];
+          if (event) feedback.on(event);
+          onApplied(outcome.trip);
         }
         return;
       }
@@ -78,8 +98,12 @@ export const TripStatusActions: React.FC<{
         { status: next },
         withIdempotencyKey(generateIdempotencyKey()),
       );
-      onApplied(unwrapEnvelope(envelope));
+      const updated = unwrapEnvelope(envelope);
+      const event = TRIP_FEEDBACK_EVENT[updated.status];
+      if (event) feedback.on(event);
+      onApplied(updated);
     } catch (caught) {
+      feedback.on('action.failed');
       setError(getApiErrorMessage(caught, t('trip.updateError')));
     } finally {
       setBusy(false);
@@ -103,6 +127,7 @@ export const TripStatusActions: React.FC<{
       setReason('');
       onApplied(unwrapEnvelope(envelope));
     } catch (caught) {
+      feedback.on('action.failed');
       setError(getApiErrorMessage(caught, t('trip.cancel.failed')));
     } finally {
       setBusy(false);

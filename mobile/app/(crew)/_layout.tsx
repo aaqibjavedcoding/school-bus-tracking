@@ -10,6 +10,7 @@ import { crewRoleLabel } from '../../src/lib/roles';
 import { useBottomBarMetrics } from '../../src/theme/layout';
 import { startSyncManager, stopSyncManager } from '../../src/features/crew/offline';
 import { useRoleLocaleDefault, useTranslation } from '../../src/lib/i18n-provider';
+import { useCrewFeedbackDefaults } from '../../src/features/crew/FeedbackSettings';
 
 /**
  * Shared crew tab navigator (DRIVER + CONDUCTOR).
@@ -31,6 +32,10 @@ function CrewTabs() {
   // and applies the crew default (Hindi) once the signed-in role is known.
   const t = useTranslation();
   useRoleLocaleDefault(user?.role ?? null);
+  // Phase 3b: crew get spoken + vibration feedback on by default (an explicit
+  // choice on the Help screen always wins). Applied here, alongside the locale
+  // default, so the very first board/drop on a fresh install is confirmed.
+  useCrewFeedbackDefaults(user?.role ?? null);
   // A notification tapped before this navigator existed (cold start) lands
   // on its screen as soon as the role tabs are mounted.
   useEffect(() => {

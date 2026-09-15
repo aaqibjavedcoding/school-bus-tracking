@@ -163,6 +163,40 @@ export const crewCopy = {
     },
   },
 
+  /**
+   * "Sound & vibration" settings (Phase 3b) — the Help & support screen.
+   *
+   * Additive only: Phase 2's shape is untouched, so its call sites and
+   * `crew-copy.spec.ts` needed no edits. Same rule as everything else here —
+   * getters, so a language switch is picked up on the next render.
+   */
+  feedback: {
+    get title(): string {
+      return t('feedback.title');
+    },
+    get hint(): string {
+      return t('feedback.hint');
+    },
+    get voice(): string {
+      return t('feedback.voice');
+    },
+    get voiceHint(): string {
+      return t('feedback.voiceHint');
+    },
+    get vibration(): string {
+      return t('feedback.vibration');
+    },
+    get vibrationHint(): string {
+      return t('feedback.vibrationHint');
+    },
+    get test(): string {
+      return t('feedback.test');
+    },
+    get a11yHint(): string {
+      return t('feedback.a11yHint');
+    },
+  },
+
   /** Manifest board/drop rows. */
   manifest: {
     get board(): string {

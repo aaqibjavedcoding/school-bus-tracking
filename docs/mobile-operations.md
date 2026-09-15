@@ -165,10 +165,11 @@ For Driver/Conductor, attendance actions survive temporary network errors:
 - User sees sync state (pending count)
 - Never silently lost
 
-## Language & Voice Settings
+## Language, Voice & Vibration Settings
 
-Support-facing notes for the localisation layer (Phase 3). Full design map:
-`docs/mobile-ux.md` → "Phase 3 — localisation & voice".
+Support-facing notes for the localisation layer (Phase 3a) and the voice +
+haptics feedback layer (Phase 3b). Full design map: `docs/mobile-ux.md` →
+"Phase 3 — localisation & voice" and → "Phase 3b — voice + haptics".
 
 ### Language
 
@@ -198,12 +199,69 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
     `Server code XYZ` line. Ask the caller to read that code back — it is the
     exact identifier the API returned.
 
-### Voice
+### Voice feedback (Phase 3b)
 
-_Voice feedback and haptics land in Phase 3b._ The troubleshooting shape will
-be: **no voice = the "Sound & vibration" switch is off, or the device has no
-Hindi TTS engine installed** (`expo-speech` uses the OS engine, so a device
-without a `hi-IN` voice speaks nothing — the app never fails because of it).
+Spoken confirmations use the device's own text-to-speech engine (`expo-speech`) —
+nothing is downloaded, no audio file ships with the app, and no permission is
+involved. Full design: `docs/mobile-ux.md` → "Phase 3b — voice + haptics".
+
+**"Voice nahi aa rahi" — work through these three, in this order.**
+
+1. **The switch is off.** Crew app → **Help & support** → _Sound & vibration_ /
+   _आवाज़ और वाइब्रेशन_ → is **Speak actions aloud** / _Action बोलकर बताएँ_ on?
+   Ask them to tap **Test sound & vibration** / _आवाज़ और वाइब्रेशन जाँचें_:
+   that row exercises exactly what is enabled, so it is the fastest answer. If
+   the test says nothing, the toggle is the whole story — not a bug.
+   Defaults, for reference: `DRIVER`/`CONDUCTOR` **on**, `SCHOOL_ADMIN`/`PARENT`
+   **off** (deliberate — office screens should not announce boardings). A
+   parent or admin reporting "no voice" is usually working as designed.
+   The choice persists in AsyncStorage under `sbt.mobile.feedback`; clearing app
+   data or reinstalling resets it to the role default.
+2. **The device has no TTS engine at all.** Android: _Settings → Accessibility →
+   Text-to-speech output_ (on some skins, _Settings → General management →
+   Language & input → Text-to-speech_). If that screen is missing or empty, or
+   the "Listen to an example" button is silent, the handset has no engine
+   installed — common on the cheapest devices and on some AOSP-lite builds. The
+   fix is to install a TTS engine (Google Speech Services) from the Play Store.
+   **The app never fails because of this**: a missing engine is caught and
+   swallowed, the action still records, and vibration keeps working.
+3. **No Hindi voice is installed** — and this one is _already handled_, so it
+   should not be reported as a fault. The spoken copy is deliberately
+   **Latin-script Hinglish** (`voice.*` keys), not Devanagari, precisely so a
+   device with only an English voice still pronounces it intelligibly. If a
+   caller reports the voice sounds "English-ish" or has a foreign accent, that is
+   the device's default engine reading Hinglish — expected, and still
+   understandable. If instead they report **garbled noise**, they are on a build
+   from before Phase 3b (when the copy was still Devanagari); updating the app
+   fixes it.
+
+Also worth ruling out before any of the above: the phone is on **silent/vibrate**,
+media volume is at zero (TTS uses the media stream, not the ring stream), or a
+Bluetooth headset has taken the audio route.
+
+### Vibration feedback (Phase 3b)
+
+**"Vibration nahi aa rahi"** — check in this order:
+
+1. **The switch is off**: Help & support → _Sound & vibration_ → **Vibration** /
+   _वाइब्रेशन_. The **Test** row buzzes once if it is on. When vibration is
+   switched off the app makes **zero** native haptics calls — proven by a spec,
+   so "off" can never be a partial state.
+2. **The phone has no motor, or haptics are disabled system-wide.** Budget
+   handsets sometimes ship without a vibration motor; others have
+   _Settings → Sound & vibration → Touch vibration_ / _Haptic feedback_ turned
+   off, which suppresses the OS haptic APIs the app uses. Test with any other app
+   that buzzes on tap (the dialler keypad is the usual check).
+3. **Battery saver / power-saving mode.** Several OEM skins disable haptics while
+   a saver profile is active.
+
+`android.permission.VIBRATE` is declared by the `expo-haptics` library manifest
+and merged into the app at build time; it is an install-time permission, so
+**there is no prompt and nothing for the user to grant**. If someone reports
+being asked for a vibration permission, they are not on this build.
+
+Like voice, vibration is fire-and-forget: a device that cannot buzz never fails
+an action and never blocks one.
 
 ## List / Search / Pagination
 

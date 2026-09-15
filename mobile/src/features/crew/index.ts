@@ -39,3 +39,51 @@ export type { TripNavigationCardProps } from './TripNavigationCard';
 export { navigationTargetOf, pickNextStop } from './navigation-stop';
 export { tripStatusStyle, primaryTripAction } from './trip-status-style';
 export { crewCopy } from './crew-copy';
+// Phase 3b — voice + haptics. `crew-feedback` is the only event→feedback
+// mapping; `crew-voice` / `crew-haptics` are the pure per-channel rules;
+// `crew-feedback.native` (imported for its side effects by the root layout) is
+// the only file that touches expo-speech / expo-haptics / AsyncStorage.
+export {
+  CrewFeedback,
+  FEEDBACK_STORAGE_KEY,
+  INITIAL_FEEDBACK_PREFERENCES,
+  MAX_ANNOUNCEMENTS_PER_BURST,
+  configureFeedbackAdapters,
+  configureFeedbackStore,
+  feedback,
+  feedbackDefaultsForRole,
+  parsePreferences,
+} from './crew-feedback';
+export type {
+  CrewFeedbackEvent,
+  FeedbackAdapters,
+  FeedbackDispatch,
+  FeedbackPreferences,
+  FeedbackStore,
+  HapticsAdapter,
+  VoiceAdapter,
+} from './crew-feedback';
+export {
+  VOICE_LANGUAGE_TAGS,
+  VOICE_MAX_ANNOUNCEMENTS_PER_BURST,
+  VOICE_MIN_GAP_MS,
+  VOICE_PITCH,
+  VOICE_RATE,
+  VOICE_SUMMARY_THRESHOLD,
+  VoiceGate,
+  isSpeakable,
+  voiceLanguageFor,
+  voicePhraseFor,
+  voicePrivacyViolations,
+  voiceStudentEvent,
+} from './crew-voice';
+export type {
+  VoiceCountPayload,
+  VoiceDecision,
+  VoiceEventKind,
+  VoicePayload,
+  VoiceStudentPayload,
+} from './crew-voice';
+export { HAPTICS_PATTERNS, hapticsFor } from './crew-haptics';
+export type { HapticsEventKind, HapticsPattern } from './crew-haptics';
+export { FeedbackSettings, useCrewFeedbackDefaults } from './FeedbackSettings';

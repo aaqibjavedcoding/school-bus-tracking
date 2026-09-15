@@ -280,7 +280,8 @@ switch and the guards. **3b is voice + haptics** (`expo-speech` /
 
 ### The key set
 
-`mobile/src/lib/i18n.en.ts` is the **source of truth**: **286 keys**, flat and
+`mobile/src/lib/i18n.en.ts` is the **source of truth**: **311 keys** (286 in
+3a, +25 in 3b), flat and
 dotted (`manifest.confirmBoard`, `gps.tierGood`, `error.HTTP_409`).
 `mobile/src/lib/i18n.hi.ts` is typed as `Dictionary` — the same key set with
 widened values — so a missing or extra Hindi key is a **compile** error before
@@ -296,11 +297,12 @@ it is ever a runtime one.
 | `gps.*` (incl. `gps.recovery.*`)                     | 44      | sharing strip + panel, permission recovery                               |
 | `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                          |
 | `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                  |
-| `help.*`, `settings.*`                               | 13      | Help screen + the language switch                                        |
+| `help.*`, `settings.*`, `feedback.*`                 | 21      | Help screen, the language switch, Sound & vibration (3b)                 |
+| `voice.*`                                            | 17      | **spoken** confirmations (3b) — Latin-script Hinglish in `hi`            |
 | `login.*`                                            | 13      | sign-in labels (the flow/endpoint is untouched)                          |
 | `common.*`, `time.*`                                 | 10      | shared chrome, relative time, minutes                                    |
 | `error.*`                                            | 14      | known server error codes + the unknown-code prefix                       |
-| **total**                                            | **286** | the groups above are exhaustive — every key is in exactly one            |
+| **total**                                            | **311** | the groups above are exhaustive — every key is in exactly one            |
 
 ### Resolution order
 
@@ -410,12 +412,17 @@ counts Devanagari combining matras that add no glyph width.
 | `label`        | `KeyValue` label — full-width row above its value        | 20     |
 
 **A measured correction to the folklore.** "Hindi runs 20–30% longer" is not
-what this dictionary says: summed over all 286 keys, Hindi chrome is ~5%
-_shorter_ than English by code-unit count, because matras compress and Hindi
-compounds. What is real — and what actually clips — is **per-key** growth, up
-to **2.25×** on a short label (`stops.arrivals` 8 → 18). So the per-key budget
-is the load-bearing guard, and `growthCeiling` is a backstop with an absolute-
-slack term for short strings, where a percentage is meaningless.
+what this dictionary says: summed over all **311** keys, Hindi chrome is **4.6%
+_shorter_** than English by code-unit count (8064 → 7695), because matras
+compress and Hindi compounds. What is real — and what actually clips — is
+**per-key** growth: the worst is `trip.eta` at **3.67×** (3 → 11, inside its
+ceiling of 15 thanks to the absolute-slack term), then the `Retry` family at
+2.80× (5 → 14) and `stops.arrivals` at 2.25× (8 → 18). So the per-key budget is
+the load-bearing guard, and `growthCeiling` is a backstop with an absolute-slack
+term for short strings, where a percentage is meaningless. Phase 3b's 25 new keys
+did not change the picture: every one of them passes both guards unchanged, and
+the `voice.*` keys are not container-constrained at all (they are spoken, so no
+key was added to `CONSTRAINED_KEYS`).
 
 Two strings were shortened to fit rather than widening a container:
 `sos.holdLabel` (`दबाकर रखें — SOS भेजें`, 22) and the Hindi ETA line.
@@ -460,3 +467,265 @@ The Phase-1 and Phase-2 guards still pass **unchanged**: `contrast.spec.ts`,
 `manifest-row.spec.ts`, `hold-to-confirm.spec.ts`, `sos-flow.spec.ts`.
 `crew-copy.ts` kept its exact shape, so Phase 2's call sites and its spec needed
 no edits.
+
+---
+
+## Phase 3b — voice + haptics
+
+Phase 3a made the app **readable** without English. Phase 3b makes it
+**noticeable without reading at all**: a conductor hanging off a door step, or a
+driver with the phone in a cup holder, hears and feels that their action
+registered. It is still presentation only — no API contract, no `packages/*`
+change, no migration, and the business logic listed under "Zero-touch" below is
+untouched.
+
+Two dependencies, both on the SDK-57 line and both permission-free
+(`docs/mobile-expo-sdk.md` → "The Phase-3b additions"). **No audio asset file
+was added** — the repo's "no audio assets" rule (README §19.11) still holds;
+`expo-speech` uses the OS TTS engine and `expo-haptics` the device motor.
+
+### One module owns the mapping
+
+| File                      | Role                                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `crew-feedback.ts`        | **The dispatcher.** The only event→feedback mapping and the only caller of the adapters. Pure.            |
+| `crew-voice.ts`           | Pure voice rules: phrase, language, rate, throttle, privacy deny-list.                                    |
+| `crew-haptics.ts`         | Pure haptic rules: the three-pattern vocabulary, and "off ⇒ no call".                                     |
+| `crew-feedback.native.ts` | **The only file that touches a native module** (`expo-speech`, `expo-haptics`, AsyncStorage, `Platform`). |
+| `FeedbackSettings.tsx`    | The "Sound & vibration" rows on Help & support, plus the role-default hook.                               |
+
+**Decision: one dispatcher, not two per-channel modules at the call sites.**
+Voice and haptics confirm the _same_ event; if `ManifestList`, `SosPanel` and
+the other four integration points each had to call two modules with two enabled
+flags, "what does a board confirm do?" would have five answers and drift the
+first time someone edited one of them. Integration points now call exactly one
+thing — `feedback.on('board.done', payload)` — and the per-channel rules stay
+independently testable.
+
+### The feedback matrix
+
+| Event                                     | Voice (`voice.*`)            | Haptics                 |
+| ----------------------------------------- | ---------------------------- | ----------------------- |
+| board / drop confirmed                    | first name + action + time   | `impact light`          |
+| board / drop queued offline               | "saved offline" (no time\*)  | `impact light`          |
+| trip → BOARDING / IN_PROGRESS / COMPLETED | one line                     | `impact medium`         |
+| SOS hold starts                           | —                            | `selection` (tick)      |
+| SOS sent                                  | "SOS sent…"                  | `notification success`  |
+| SOS queued (offline)                      | "will send when online"      | `notification warning`  |
+| SOS rejected / board-drop failed          | "did not go through"         | `notification error`    |
+| 409 (already recorded)                    | "already recorded"           | `notification error`    |
+| offline queue synced                      | **the owed summary**         | `notification success`  |
+| GPS sharing on / off                      | one line                     | `impact light`          |
+| settings toggle / Test row                | `voice.test` (Test row only) | `selection` / `success` |
+
+\* The queued phrase deliberately has **no `{time}` placeholder**: there is no
+server timestamp yet, and the attendance rule that times are never
+client-generated applies to the spoken time as well.
+
+**Why SOS fires `success`, not `warning`:** the haptic confirms _delivery_, and a
+delivered SOS is a success — the emergency itself is carried by the voice line
+and the on-screen "SOS sent ✅". `warning` is reserved for "this did **not** go
+through", which is the one distinction a stressed driver must never have to
+reason about. Three states, three patterns: sent / queued / failed.
+
+### Why the spoken channel is Latin-script Hinglish (and the screen is not)
+
+The written UI is Devanagari and stays Devanagari. The spoken channel is a
+different medium with a different constraint:
+
+`expo-speech` hands the string to whatever TTS engine the device has, and budget
+Android devices — the hardware this app is built for — very often ship **no
+`hi-IN` voice at all**. A Devanagari string given to the default English voice is
+not "Hindi with an accent"; it comes out as unreadable noise, which is _worse
+than silence_ because the crew member cannot tell whether the app spoke. The same
+content in Latin script — `{name} ka boarding ho gaya, {time}` — is pronounced
+intelligibly by the device's default voice **and** matches the language the
+driver actually speaks.
+
+So the dictionary has **two channels on purpose**:
+
+- `voice.*` — spoken. `hi` values are Latin-script Hinglish, `en` values English.
+  `crew-voice.spec.ts` fails the build if any `voice.*` value in `hi` contains a
+  Devanagari code point.
+- `feedback.*` — written (the settings rows). `hi` values are Devanagari, and the
+  same spec fails if any of them is _not_.
+
+The `language` tag passed to `Speech.speak` is derived from the UI locale
+(`hi → hi-IN`, `en → en-IN`) and is a **hint**, not a filter: because the text is
+Latin-script, a device without that voice falls back to its default engine and is
+still understood. Rate is `0.95` (a bus is loud), pitch stays at the platform
+default.
+
+A third locale stays additive: one entry in `VOICE_LANGUAGE_TAGS` plus the
+`voice.*` values in the new dictionary. `i18n-parity.spec.ts` compares whatever
+locales `SUPPORTED_LOCALES` lists, so it enforces the new one automatically.
+
+### Language is read at call time (the Phase-3a trap)
+
+3a fixed two modules — `trip-status-style.ts` and `ManifestList.tsx` — that froze
+locale-dependent values at module scope, so a language switch stopped reaching
+them. Voice would reproduce that bug perfectly, because a phrase table is exactly
+the shape that invites a module-level `const`.
+
+`voicePhraseFor()` therefore calls `t()` **inside the function**, and
+`crew-voice.spec.ts` pins it: capture a phrase in `hi`, switch to `en`, capture
+again — the two must differ. A `const PHRASES = { board: t('voice.board.done') }`
+at the top of `crew-voice.ts` fails that test.
+
+### Throttle: 40 boardings must not become 40 announcements
+
+A full bus boards in about a minute. Speaking every row would be noise the crew
+turns off, so `VoiceGate` (pure time arithmetic, synthetic clocks in the spec)
+applies:
+
+| Rule                                  | Value  | Effect                                                                |
+| ------------------------------------- | ------ | --------------------------------------------------------------------- |
+| min gap between routine announcements | 600 ms | inside the required 500–700 ms window                                 |
+| burst window                          | 10 s   | the span the cap is counted over                                      |
+| **max announcements per burst**       | **6**  | the acceptance cap; the 7th routine event in 10 s is suppressed       |
+| summary threshold                     | 5      | ≥5 suppressed events of one kind become "5 students boarded"          |
+| critical events                       | —      | SOS, trip lifecycle, sync and failures always interrupt (latest wins) |
+
+**There is no queue.** The gate's state is four counters/timestamps and no
+collection, so a queue cannot grow — `crew-voice.spec.ts` asserts that
+_structurally_ (every snapshot value must be a number, boolean or `null`) rather
+than trusting a comment. Measured in the spec: 40 board events 100 ms apart
+produce exactly **6** announcements plus **1** summary, while all **40** haptic
+taps still fire (the cap is on speech, not on confirmation).
+
+`sync.done` is the summary's drain point. When the offline queue lands after a
+boarding wave, "40 students board ho gaye" carries strictly more information
+than "actions synced" — and the crew member is already watching the banner clear
+— so the summary replaces that one line instead of the two fighting for the
+speaker. `flushSummary()` is available for an explicit drain.
+
+### Voice never blocks and never fails an action
+
+Same principle as push delivery and the server's notification pipeline
+(README §19.6): **a delivery failure never fails the operation.**
+
+- Nothing on the feedback path is `async`; `feedback.on()` returns a plain record
+  synchronously and is not thenable, so a caller _cannot_ await it.
+  `crew-feedback.spec.ts` asserts both the behaviour and — by scanning the method
+  bodies of `on`/`dispatch`/`applyVoice`/`applyHaptics`/`flushSummary` — that no
+  `await` exists on that path.
+- `Speech.speak` throwing is swallowed by the adapter (`crew-feedback.native.ts`
+  wraps every native call, and catches rejections from the promise-returning
+  ones). The spec asserts a board still returns `boarded` with a throwing
+  adapter, and that the haptic still fired.
+- `Platform.OS === 'web'` → both adapters no-op, checked **per call** so
+  `react-native-web` can never crash. A missing native module (stripped build)
+  degrades the same way.
+- If the OS never fires `onDone`, the gate simply stays "speaking" and the next
+  routine event is suppressed — the failure mode is _quieter_, never louder.
+
+### Privacy: what may never be spoken
+
+A spoken phrase is broadcast into a bus full of children and whoever is standing
+at the stop. Two controls, both spec-asserted:
+
+1. **Structural (primary).** The payload types accept a first name and a clock
+   time and nothing else. `voiceStudentEvent()` is the only bridge from a
+   manifest row, and it discards `admission_number`, `last_name`, `student_id`
+   and every id. You cannot interpolate a field you were never handed.
+2. **Deny-list (backstop).** `voicePrivacyViolations()` runs on the _final_
+   string and refuses phone numbers, emails, admission-number-shaped tokens and
+   medical/guardian free text. `applyVoice` checks it **before**
+   `adapter.speak`, and a muted phrase is dropped silently — logging it would put
+   the very data we refused to speak into a log.
+
+`crew-voice.spec.ts` hands the mapper a full attendance record _plus_ invented
+`guardian_phone` / `guardian_email` / `medical_note` fields and asserts none of
+those substrings appear in either locale's phrase. `crew-feedback.spec.ts`
+asserts the same on the payload that actually reaches the adapter, and pins that
+the deny-list gate sits between the decision and the speak call.
+
+### Settings, defaults and persistence
+
+Help & support → **Sound & vibration** / _आवाज़ और वाइब्रेशन_, directly under the
+language switch — the same reasoning: this is the screen a crew member is sent to
+when the app is not behaving, and "it did not say anything" is one of those.
+
+**Two toggles, not one combined switch.** The channels fail independently and are
+wanted independently: a device with no TTS engine still has a working vibrator;
+a conductor in a quiet office may want the buzz without the voice; a driver on a
+noisy road wants the voice whether or not the phone buzzes. One combined switch
+would force both off to silence either. A third row — _Test sound & vibration_ —
+exercises exactly what is enabled, which is the diagnostic support asks for.
+
+| Role                      | Voice default | Vibration default |
+| ------------------------- | ------------- | ----------------- |
+| `DRIVER`, `CONDUCTOR`     | **on**        | **on**            |
+| `SCHOOL_ADMIN`, `PARENT`  | **off**       | on                |
+| signed out / unknown role | off (quiet)   | on                |
+
+Admin and parent voice is off because their surfaces are also used at a desk,
+where an app announcing "Ramesh boarded" is noise. The pre-boot state is
+**voice off**, so the office app can never chirp before the role is known; the
+crew default is applied (and persisted) by `useCrewFeedbackDefaults` in
+`app/(crew)/_layout.tsx` — the same place `useRoleLocaleDefault` applies the
+Hindi default.
+
+Persistence reuses the Phase-3a pattern exactly: one AsyncStorage entry
+(`sbt.mobile.feedback`, JSON) behind an injected `FeedbackStore`, written
+fire-and-forget, read at boot by the `crew-feedback.native` side-effect import in
+`app/_layout.tsx` (the same mechanism that registers the background-location
+task). No new storage mechanism. An explicit toggle always beats a role default,
+and a default is never _written_ as if it were a choice.
+
+Legibility and contrast are unchanged in kind: 64px rows (`touch.field`), icon
+**and** label on every control, 16px text floor — all of it inside
+`src/features/crew`, which `legibility.spec.ts` scans. The new colour pairs are
+measured rows in `theme/contrast.ts`:
+
+| Pair                                | Foreground     | Background       | Measured | Floor |
+| ----------------------------------- | -------------- | ---------------- | -------- | ----- |
+| settings row label                  | `neutral[900]` | `#ffffff`        | 17.85:1  | 4.5   |
+| settings row hint                   | `neutral[600]` | `#ffffff`        | 7.58:1   | 4.5   |
+| settings switch ON (white on green) | `#ffffff`      | `secondary[700]` | 5.01:1   | 4.5   |
+| settings switch OFF border          | `neutral[500]` | `#ffffff`        | 4.76:1   | 3.0   |
+| settings test row on screen         | `neutral[700]` | `neutral[50]`    | 9.90:1   | 4.5   |
+
+The OFF track is a light fill **with a `neutral[500]` border** rather than a
+solid surface: the border is what carries the 3:1 component floor, and the
+luminance delta against the solid green ON state is what a driver reads at
+arm's length.
+
+### Guard specs added in Phase 3b
+
+| Spec                            | Pins                                                                                                                                                                                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crew-voice.spec.ts` (23)       | Latin-script-only spoken copy vs Devanagari written copy, both locales per event, ≤9 words, name+action+time, rate 0.95/pitch default, language read at call time (the 3a trap), min gap, 40-event burst cap, latest-wins interrupt, O(1) gate state, summary drain, the whole deny-list, the input-shape whitelist |
+| `crew-haptics.spec.ts` (9)      | the three-pattern vocabulary, SOS sent/queued/failed are three distinct patterns, every event mapped, **disabled ⇒ `null` for every event**                                                                                                                                                                         |
+| `crew-feedback.spec.ts` (20)    | role defaults, the full event × channel × on/off matrix, off ⇒ zero native calls in both directions, non-blocking + non-fatal, no `await` on the dispatch path, privacy end to end, persistence + cold start + corrupt store, the burst cap and the sync-complete summary path                                      |
+| `crew-feedback.sim.spec.ts` (8) | the **real** native boundary with `expo-speech`/`expo-haptics`/AsyncStorage/`Platform` mocked through the repo's existing loader: `Speech.stop()` → `Speech.speak()` ordering, a native throw swallowed, the enum mapping, web no-op, the AsyncStorage round trip                                                   |
+
+Run by `npm --prefix mobile test` (the first three) and
+`npm --prefix mobile run test:sim` (the simulation). The Phase-1/2/3a guards pass
+**unmodified**: `contrast.spec.ts`, `legibility.spec.ts`, `help-routing.spec.ts`,
+`hold-to-confirm.spec.ts`, `sos-flow.spec.ts`, `manifest-row.spec.ts`,
+`crew-copy.spec.ts`, `trip-status-style.spec.ts`, and all four i18n specs —
+`crew-copy.ts` only gained a `feedback` namespace, so its shape and its spec are
+untouched.
+
+### Deliberately NOT done in Phase 3b
+
+- **Voice is not a durable queue.** If the phone is mid-utterance or inside the
+  min gap, the phrase is dropped — never queued for later. A stale "Ramesh
+  boarded" spoken two minutes after the fact is worse than none, and the durable
+  offline queue is attendance-only by design.
+- **`features/crew/offline/*` is zero-touch.** The sync-complete announcement is
+  derived from the counts `OfflineSyncBanner` already publishes, not hooked into
+  the sync manager. The queue core, its retry/backoff and its idempotency keys
+  are exactly as they were.
+- **`SosSession` and the idempotency key lifecycle are zero-touch.** The SOS
+  feedback is dispatched from the states `useCrewSos` already sets.
+- **The hold timing is zero-touch.** `HoldToConfirmButton` gained one synchronous
+  `feedback.on('sos.hold')` in `pressIn`; `HoldToConfirm`, the 900 ms window, the
+  `Animated` fill and the single-fire contract are unchanged, and
+  `hold-to-confirm.spec.ts` passes byte-identical.
+- **No voice for `board.summary`/`drop.summary` haptics** — a summary follows a
+  burst the crew member already felt one tap at a time.
+- **No third locale, no cloud TTS, no paid vendor, no `react-i18next`.** Two
+  dependencies, both first-party Expo, both on the pinned SDK line.
+- **No new screen.** Help & support remains the only settings surface.

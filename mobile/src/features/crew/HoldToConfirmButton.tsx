@@ -15,6 +15,7 @@ import { colors, spacing, borderRadius } from '@school-bus-tracking/design-token
 import { fontScaleCaps, surface, touch } from '../../theme';
 import { HOLD_DURATION_MS, HoldToConfirm } from './hold-to-confirm.ts';
 import { crewCopy } from './crew-copy.ts';
+import { feedback } from './crew-feedback.ts';
 import type { CrewActionIcon } from './crew-action-meta';
 
 /**
@@ -123,6 +124,16 @@ export const HoldToConfirmButton: React.FC<{
     hold.press(Date.now());
     setHolding(true);
     holdingRef.current = true;
+    /**
+     * Phase 3b: one selection tick the instant the finger lands, so the hold
+     * is *felt* to have started even before the `Animated` fill is visible.
+     *
+     * Deliberately the only change here — the hold timing, the fill animation
+     * and the single-fire contract are the spec-pinned `HoldToConfirm`
+     * controller's, and `hold-to-confirm.spec.ts` still passes byte-identical.
+     * The tick is synchronous and cannot delay `startHold()`.
+     */
+    feedback.on('sos.hold');
     startHold();
   };
 

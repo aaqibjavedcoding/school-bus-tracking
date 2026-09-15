@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { UserRole, type TripStudentManifestResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, typography } from '@school-bus-tracking/design-tokens';
-import { withIdempotencyKey } from '@school-bus-tracking/api-client';
+import { ApiClientError, withIdempotencyKey } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../src/services/api';
 import { getLocalizedApiError, unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import { isTripOpen, ManifestList, manifestCounts, useCrewToday } from '../../src/features/crew';
+import { feedback } from '../../src/features/crew/crew-feedback';
+import { voiceStudentEvent } from '../../src/features/crew/crew-voice';
 import { OfflineSyncBanner, useOfflineAction } from '../../src/features/crew/offline';
 import { useToast } from '../../src/components';
 import { useAuth } from '../../src/features/auth';
@@ -80,6 +82,21 @@ export default function CrewManifestScreen() {
           action === 'board' ? t('manifest.queuedBoardToast') : t('manifest.queuedDropToast'),
           'info',
         );
+        /**
+         * Phase 3b: "saved offline" is spoken too — the crew member must know
+         * the tap counted even though nothing reached the server. The queued
+         * phrase carries no `{time}`: there is no server timestamp yet, and
+         * inventing one is exactly what the attendance rules forbid.
+         */
+        feedback.on(
+          action === 'board' ? 'board.queued' : 'drop.queued',
+          voiceStudentEvent(
+            manifestLoad.data?.items.find((item) => item.student_id === studentId) ?? {
+              first_name: '',
+            },
+            '',
+          ),
+        );
         return;
       }
       await manifestLoad.reload();
@@ -87,6 +104,13 @@ export default function CrewManifestScreen() {
       // Known server codes get local copy; an unknown one is shown as-is with
       // its raw code appended, never silently dropped.
       const localized = getLocalizedApiError(caught);
+      // A 409 means the server already has the event: the crew member hears
+      // "already recorded", not a generic failure, and no error buzz.
+      feedback.on(
+        caught instanceof ApiClientError && caught.status === 409
+          ? 'action.conflict'
+          : 'action.failed',
+      );
       Alert.alert(
         action === 'board' ? t('manifest.boardFailed') : t('manifest.dropFailed'),
         localized.codeNote ? `${localized.message}\n\n${localized.codeNote}` : localized.message,

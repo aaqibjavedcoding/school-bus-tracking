@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../components';
 import { formatRelative } from '../../lib/format';
 import { crewCopy } from './crew-copy';
+import { feedback } from './crew-feedback.ts';
 import type { CrewLocationSharing } from './useCrewLocationSharing';
 
 /**
@@ -23,6 +24,25 @@ export const GpsShareStrip: React.FC<{
   const lastUpdate = sharing.stats.lastFix
     ? crewCopy.gps.lastUpdate(formatRelative(sharing.stats.lastFix.recorded_at))
     : crewCopy.gps.neverUpdated;
+
+  /**
+   * Phase 3b: announce the sharing state when it *actually* flips, not when the
+   * button is pressed — `startSharing()` can fail on a permission or a disabled
+   * location service, and saying "GPS sharing chalu ho gayi" before that would
+   * be a lie the driver cannot check while driving.
+   *
+   * `useCrewLocationSharing` is untouched; this only reads the state it already
+   * publishes. The first run just records the initial value, so opening the
+   * trip screen never announces a state that was already true.
+   */
+  const active = sharing.sharing || sharing.backgroundActive;
+  const previousActive = useRef<boolean | null>(null);
+  useEffect(() => {
+    const before = previousActive.current;
+    previousActive.current = active;
+    if (before === null || before === active) return;
+    feedback.on(active ? 'gps.on' : 'gps.off');
+  }, [active]);
 
   return (
     <View style={styles.card}>

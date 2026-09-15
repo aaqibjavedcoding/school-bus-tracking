@@ -159,6 +159,41 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     background: colors.neutral[50],
     minimum: AA_TEXT,
   },
+  // Phase 3b "Sound & vibration" rows on the Help screen (white card). The
+  // switch is a non-text control, so WCAG's 3:1 component floor applies — but
+  // the ON surface is held to the stricter 4.5:1 text floor anyway, because a
+  // driver reads the switch state from a distance and the OFF track carries a
+  // `borderInteractive` border rather than a filled surface.
+  {
+    name: 'settings row label',
+    foreground: colors.neutral[900],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'settings row hint',
+    foreground: colors.neutral[600],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'settings switch ON (white thumb on green)',
+    foreground: WHITE,
+    background: colors.secondary[700],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'settings switch OFF border',
+    foreground: colors.neutral[500],
+    background: WHITE,
+    minimum: AA_UI_COMPONENT,
+  },
+  {
+    name: 'settings test row on screen',
+    foreground: colors.neutral[700],
+    background: colors.neutral[50],
+    minimum: AA_TEXT,
+  },
 ];
 
 /**
