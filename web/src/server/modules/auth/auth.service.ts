@@ -30,12 +30,15 @@ import {
 import { LoginDto } from './dto/login.dto';
 
 /**
- * Valid bcrypt digest of a random throwaway value. When the looked-up user
- * does not exist (or has no credentials), we still run one bcrypt comparison
- * against this hash so the request takes roughly the same time as a real
- * password check — response timing must not reveal whether an account exists.
+ * Digest of a random throwaway value, minted in the fast PBKDF2 format (see
+ * `auth/password.util`). When the looked-up user does not exist (or has no
+ * credentials), we still run one comparison against this digest so the request
+ * does the same amount of work as a real password check — response timing must
+ * not reveal whether an account exists. A real digest previously ran ~250–300 ms
+ * of pure-JS bcrypt on every unknown-email login; the fast format costs ~15 ms,
+ * which is what restores a quick email/password login.
  */
-const TIMING_EQUALIZATION_HASH = '$2b$12$soESu/j94RmCRdbw9np7i.i3xYN/EEH.2t.q0FleCvYHQqRvA.eIW';
+const TIMING_EQUALIZATION_HASH = '$2b$12$ZlHdYoyzmtcnzJZDyMrwPO$SgJPRqSr2w.ISVPhIasFnDD.a1aW3e';
 
 /** Canonical RFC 4122 UUID (any variant / version), used to tell a raw tenant
  * UUID apart from a human-friendly school `code` at login. */

@@ -794,13 +794,16 @@ describe('CrewAuthService — PIN brute force (per school)', () => {
 });
 
 describe('PIN_TIMING_EQUALIZATION_HASH', () => {
-  it('is a genuine cost-12 bcrypt digest, not a look-alike string', async () => {
-    // A malformed digest would make `bcrypt.compare` return false immediately,
+  it('is a well-formed fast-format digest that costs real work and never matches', async () => {
+    // A malformed digest would make the comparison return false immediately,
     // without doing the work — which would turn the timing equalization into a
     // comment rather than a control, and make the padding in the PIN sweep
-    // free. This is the one place a real cost-12 comparison is worth the ~300ms.
+    // free. The shipped constant is a real fast-format (PBKDF2) digest: the
+    // `$` marker at position 29 confirms it, it costs ~15 ms of real KDF work,
+    // and it can never verify against a submitted PIN.
     assert.match(PIN_TIMING_EQUALIZATION_HASH, /^\$2[aby]\$12\$.{53}$/);
     assert.equal(PIN_TIMING_EQUALIZATION_HASH.length, 60);
+    assert.equal(PIN_TIMING_EQUALIZATION_HASH.charAt(29), '$');
     assert.equal(await comparePassword('0000', PIN_TIMING_EQUALIZATION_HASH), false);
     assert.equal(await comparePassword('9999', PIN_TIMING_EQUALIZATION_HASH), false);
   });

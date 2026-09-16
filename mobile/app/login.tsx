@@ -549,15 +549,15 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   /**
-   * Card title — 24 dp, the login screen's own scale (`loginText.cardTitle`).
-   * One title per card, one primary action per card; the rest of the card is
-   * inputs.
+   * Card title — the standard in-app title step (`loginText.cardTitle`),
+   * matching the crew/admin/parent density. One title per card, one primary
+   * action per card; the rest of the card is inputs.
    */
   cardTitle: {
     fontSize: loginText.cardTitle,
     fontWeight: '800',
     color: colors.neutral[900],
-    lineHeight: 30,
+    lineHeight: 22,
   },
   cardSubtitle: {
     fontSize: loginText.secondary,
@@ -565,9 +565,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   /**
-   * What the driver typed, at 18 dp instead of the in-app 16. Applied to every
-   * field on this screen through the `style` prop `Field` forwards, so the
-   * shared `Field` keeps its own default for the rest of the app.
+   * The standard-size input override for this screen. Applied to every field
+   * here through the `style` prop `Field` forwards, so the login screen and
+   * the rest of the app read at one density.
    */
   fieldInput: {
     fontSize: loginText.inputValue,

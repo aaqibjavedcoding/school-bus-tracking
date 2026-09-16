@@ -141,16 +141,19 @@ export const CREW_PIN_INVALID_CODE = 'CREW_PIN_INVALID';
 export const CREW_PAIRING_INVALID_CODE = 'CREW_PAIRING_INVALID';
 
 /**
- * Valid bcrypt digest of a random throwaway value, used on the crew PIN path for
- * the same reason `TIMING_EQUALIZATION_HASH` exists on the password path: when a
- * school has no crew PINs to compare against — or has fewer than
- * `CREW_PIN_COMPARISON_COUNT` of them — the missing comparisons still run,
- * against this digest, so the *number* of bcrypt operations (and therefore the
- * response time) says nothing about whether a match was found or how many crew
- * members a school has.
+ * Digest of a random throwaway value in the fast PBKDF2 format (see
+ * `auth/password.util`), used on the crew PIN path for the same reason
+ * `TIMING_EQUALIZATION_HASH` exists on the password path: when a school has no
+ * crew PINs to compare against — or has fewer than `CREW_PIN_COMPARISON_COUNT`
+ * of them — the missing comparisons still run, against this digest, so the
+ * *number* of comparisons (and therefore the response time) says nothing about
+ * whether a match was found or how many crew members a school has. The fast
+ * format makes each padded comparison cost ~15 ms instead of ~250–300 ms of
+ * pure-JS bcrypt, which is what keeps a driver/conductor login fast at a
+ * school with few (or no) PINs set.
  */
 export const PIN_TIMING_EQUALIZATION_HASH =
-  '$2b$12$haAsEdkQOODaSSistEENOOOlN7eXiw32QUlozHEFDAJ2ZNoHZ99DO';
+  '$2b$12$v..ZsEjUYb3zb7.Izh9iju$kWfPZdiXyVyhG9EsDmDaBYhayq9JrO';
 
 /** Roles allowed to hold a crew PIN and to use `POST /auth/crew-login`. */
 export const CREW_LOGIN_ROLES = ['DRIVER', 'CONDUCTOR'] as const;

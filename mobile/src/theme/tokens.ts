@@ -21,7 +21,9 @@ export type Theme = typeof theme;
  *   normal consumer app (Instagram-class type scale) — body 14px, labels
  *   13px, titles 16px, the trip-carrying numbers 20px bold, the state word
  *   20px extra-bold. Legibility still holds through weight, spacing and
- *   contrast, not through oversized type;
+ *   contrast, not through oversized type. This scale is the **only** type
+ *   scale in the app: the login screen reads standard-sized too, not a step
+ *   larger than the rest of the product;
  * - gloved/rough taps need ≥56px targets, and the crew's primary field
  *   actions get 64px;
  * - every filled action surface is chosen to reach WCAG AA (≥4.5:1) with its
@@ -54,48 +56,51 @@ export const touch = {
 } as const;
 
 /**
- * Type scale for the **login screen only** (2026-09 login polish).
+ * Type scale for the **login screen only**.
  *
- * Separate from {@link text} on purpose. The in-app scale is tuned for dense,
- * repeat-glance screens a driver already knows; the login screen is the one
- * screen every driver meets cold, once per shift, often in daylight on a cheap
- * panel, and its three inputs are the whole task. So it reads a step larger
- * than the app — and the shared `@school-bus-tracking/design-tokens` scales are
- * *not* edited to get there, because the web console consumes those too.
+ * The login screen is not a special typographic surface any more — it reads
+ * the **standard** in-app scale {@link text} above, so every role's mobile
+ * experience (driver, conductor, parent, school admin) has one consistent
+ * density. The values below are aliases onto the standard scale, kept as a
+ * named table so the login screen and its spec pin the mapping in one place:
  *
- * Every value is either an existing shared token or, where the shared scale has
- * no step (the 28 dp PIN digit), a local addition documented here.
+ * - the card title and the input value are the standard `title`/`base` step
+ *   (16 dp), not the oversized 24/18 dp of the pitched-up draft;
+ * - the PIN digit is the standard `xl` step (20 dp), matching the
+ *   trip-carrying numerals on the crew home screen — not the local 28 dp
+ *   addition the shared scale has no step for;
+ * - labels and secondary copy use the standard `secondary` step (13 dp).
  */
 export const loginText = {
   /** Card title ("Sign in", "Enter your 4-digit PIN"). */
-  cardTitle: typography.fontSizes['2xl'], // 24
+  cardTitle: text.title, // 16
   /** Field labels and tab labels. */
-  label: typography.fontSizes.base, // 16
+  label: text.secondary, // 13
   /** What the driver typed into a field. */
-  inputValue: typography.fontSizes.lg, // 18
-  /** One key on the PIN pad. Between the shared `2xl` (24) and `3xl` (30). */
-  pinDigit: 28,
+  inputValue: text.title, // 16
+  /** One key on the PIN pad. */
+  pinDigit: text.numeric, // 20
   /** Secondary copy: the card subtitle, a hint, the footer. */
-  secondary: typography.fontSizes.sm, // 14
+  secondary: text.secondary, // 13
   /** The lockout countdown — the one number worth shouting. */
-  countdown: typography.fontSizes['3xl'], // 30
+  countdown: typography.fontSizes['2xl'], // 24
 } as const;
 
 /**
  * Touch-target floors for the login screen.
  *
- * 48 dp is the floor for anything tappable here (the shared `touch.target` of
- * 56 dp still governs the in-app buttons the login screen reuses); the PIN pad
- * keys are square and full-width rather than a fixed box, so they land near
- * 90 dp on a 360 dp-wide phone.
+ * The login screen uses the shared in-app touch scale (`touch.target` = 56 dp
+ * for tappable rows, the PIN pad keys are square and full-width). The values
+ * below are aliases so the login screen and its spec keep naming the shared
+ * floors instead of a login-only set.
  */
 export const loginTouch = {
   /** Minimum height of a tappable row on the login screen. */
-  min: 48,
+  min: touch.target,
   /** Language dropdown chip. */
-  chip: 48,
+  chip: touch.target,
   /** One row of the language menu. */
-  menuRow: 48,
+  menuRow: touch.target,
 } as const;
 
 /** Filled-action and border colours that pass WCAG AA against their content. */
