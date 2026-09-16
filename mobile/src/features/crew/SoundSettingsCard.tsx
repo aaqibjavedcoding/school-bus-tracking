@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rowLabel: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.neutral[900],
   },

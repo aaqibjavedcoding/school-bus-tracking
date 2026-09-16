@@ -19,7 +19,7 @@ them.**
 2. **Mobile-only aliases** (`mobile/src/theme/tokens.ts`): a semantic layer
    _over_ the shared tokens, picked for the phone:
    - `text.body` 14 (floor for anything that carries information), `text.secondary` 13
-     (short labels only), `text.title` 18, `text.numeric` 20, `text.statusWord` 22 —
+     (short labels only), `text.title` 16, `text.numeric` 20, `text.statusWord` 20 —
      the standard consumer-app scale (owner decision, 2026-09).
    - `touch.compact` 44 (dense admin rows only), `touch.target` 56 (every
      button's default), `touch.field` 64 (crew field actions: start trip,
@@ -297,7 +297,7 @@ runtime one.
 | Group                                                | Keys    | Covers                                                                   |
 | ---------------------------------------------------- | ------- | ------------------------------------------------------------------------ |
 | `nav.*`, `role.*`                                    | 20      | tab labels, screen titles, role words                                    |
-| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 22px card words                    |
+| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 20px card words                    |
 | `trip.*`                                             | 39      | trip screen, "More details", lifecycle actions, cancel flow              |
 | `manifest.*`                                         | 42      | board/drop, filters, summary badges, search, a11y labels + announcements |
 | `sos.*`                                              | 39      | hold-to-confirm, status line, details sheet, cancel flow                 |

@@ -19,9 +19,9 @@ export type Theme = typeof theme;
  *
  * - **Standard density** (owner decision, 2026-09): the app reads like a
  *   normal consumer app (Instagram-class type scale) — body 14px, labels
- *   13px, titles 18px, the trip-carrying numbers 20px bold, the state word
- *   22px. Legibility still holds through weight, spacing and contrast, not
- *   through oversized type;
+ *   13px, titles 16px, the trip-carrying numbers 20px bold, the state word
+ *   20px extra-bold. Legibility still holds through weight, spacing and
+ *   contrast, not through oversized type;
  * - gloved/rough taps need ≥56px targets, and the crew's primary field
  *   actions get 64px;
  * - every filled action surface is chosen to reach WCAG AA (≥4.5:1) with its
@@ -36,11 +36,11 @@ export const text = {
   /** Short labels / hints. */
   secondary: 13,
   /** Card/screen titles. */
-  title: typography.fontSizes.lg, // 18
+  title: typography.fontSizes.base, // 16
   /** Numbers that carry the trip: counts, minutes, stop sequence. */
   numeric: typography.fontSizes.xl, // 20
   /** The one big state word on a crew status card (BOARDING). */
-  statusWord: 22,
+  statusWord: 20,
 } as const;
 
 /** Touch-target floors (React Native dp). */

@@ -197,7 +197,7 @@ export const hi: Dictionary = {
   'gps.panelTitle': 'लाइव GPS शेयरिंग',
   'gps.badgeSharing': 'शेयर हो रहा है',
   'gps.badgeOff': 'बंद',
-  'gps.notReady': 'ट्रिप बोर्डिंग या चालू होने पर ही GPS लिया जाता है। अभी की स्थिति: {status}।',
+  'gps.notReady': 'ट्रिप बोर्डिंग या चालू होने पर ही GPS लिया जाता है। मौजूदा स्थिति: {status}।',
   'gps.share': 'GPS शेयर करें',
   'gps.stopSharing': 'शेयरिंग रोकें',
   'gps.backgroundTitle': 'बैकग्राउंड में शेयर करते रहें',

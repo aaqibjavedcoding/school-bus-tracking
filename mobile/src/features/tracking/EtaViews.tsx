@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   headline: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.neutral[900],
     flex: 1,

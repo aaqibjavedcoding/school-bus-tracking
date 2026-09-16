@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stateWord: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   nextStopSub: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     opacity: 1,
   },
