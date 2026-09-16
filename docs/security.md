@@ -329,16 +329,18 @@ Two properties make the PIN check itself leak nothing:
   countdown is not an enumeration oracle for "which school codes are
   real".
 
-Recovery routes out of a lockout (admin-issued, by construction):
+Mobile crew login uses **school code + PIN only**. Drivers never scan or paste a
+pairing code; they wait for lockout expiry or ask an administrator to reset their PIN.
+The server retains these admin-authorized recovery mechanisms:
 
-- **Successful QR pairing login** (`CrewAuthService.loginWithPairingCode`)
+- **Successful QR pairing login (dormant, optional admin capability)** (`CrewAuthService.loginWithPairingCode`)
   calls `attempts.forget(...)` on the crew member's school — only an
   administrator can mint the code that gets a device here, which is
   exactly the authority that should be able to lift a lockout.
 - **Administrator sets, resets or clears any PIN at that school**
   (`CrewAuthService.setPin`) also calls `attempts.forget(...)`. Since the
-  lockout is school-wide, this is the only recovery path that does not
-  need a QR, and it clears the counter for every driver at the school —
+  lockout is school-wide, this is the active admin-assisted recovery path for mobile
+  drivers, and it clears the counter for every driver at the school —
   an admin who has just been told "the depot is locked out" must not also
   wait a quarter of an hour.
 
@@ -373,15 +375,20 @@ Recovery routes out of a lockout (admin-issued, by construction):
   offline attack on a password to impracticality, but a 4-digit PIN has
   only 10 000 candidates, so an attacker who has already read the
   database can exhaust them in minutes regardless of the work factor.
-  The PIN is therefore not a standalone secret: it authorises a device
-  that has already been paired by an administrator, and a database
-  compromise is game over on every credential in it. This is documented
+  Mobile PIN login requires a school code and an administrator-set PIN,
+  not prior QR device pairing. A database compromise exposes the PIN hashes
+  and compromises those credentials. This is documented
   rather than papered over with a higher cost factor that would only
   make login slower.
 
-### Pairing QR — the recovery half
+### Pairing QR — dormant, optional admin capability
 
-The QR half does **not** share the first limitation: pairing codes live in
+QR pairing is not a driver-facing mobile flow. The admin staff-page QR panel,
+driver/conductor pairing-QR endpoints, `POST /auth/crew-login` QR branch, and
+`crew_pairing_tokens` table remain available as a dormant, optional admin capability.
+There is no mobile QR tab, scanner, or paste path.
+
+The retained QR capability does **not** share the process-local counter limitation: pairing codes live in
 PostgreSQL (`crew_pairing_tokens`, migration
 `20260915120100-create-crew-pairing-tokens.ts`), so they survive a
 restart and are correct under more than one instance. The plaintext

@@ -729,7 +729,8 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   with hard extension/size checks and UUID filenames.
 - **Dependency security**: `package.json` `overrides` pin `lodash ^4.17.24` and `postcss 8.5.28`.
 - **Crew mobile login** (DRIVER / CONDUCTOR): a **school code + 4-digit PIN** — no user id, no
-  email — or a short-lived QR pairing code (`POST /auth/crew-login`). The server resolves which
+  email, scanner, or pasted pairing code (`POST /auth/crew-login`). PIN is the only mobile crew
+  login method. The server resolves which
   crew member a PIN belongs to, so PINs are **unique per school** (`setPin` refuses a duplicate
   with `CREW_PIN_DUPLICATE`; a login that still matches two accounts is rejected with
   `CREW_PIN_AMBIGUOUS` rather than guessed at). The PIN path is gated by a **school-wide** lockout
@@ -738,10 +739,12 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   layered under the `auth_crew_login` rate policy (10 req / 60 s per IP and per submitted school).
   Each attempt runs a **fixed 8 bcrypt comparisons** (`CREW_PIN_COMPARISON_COUNT`, padded with
   `PIN_TIMING_EQUALIZATION_HASH`) so response time cannot reveal whether a match was found.
-  Pairing codes are PostgreSQL-backed, single-use and short-lived (5 min default TTL) and survive
-  a restart. `pin_hash` is bcrypt cost 12 and **never returned by any API** — an administrator who
+  QR pairing remains a **dormant, optional admin capability**, not a driver-facing flow; the
+  admin staff panel and server QR endpoints are retained. Pairing codes are PostgreSQL-backed,
+  single-use and short-lived (5 min default TTL) and survive a restart. `pin_hash` is bcrypt cost 12 and **never returned by any API** — an administrator who
   has lost a PIN must set a new one. Setting, resetting or clearing any PIN at a school, or a
-  successful QR login, **clears that school's lockout** — the two recovery routes. Exact policy,
+  successful QR login via the dormant server capability, **clears that school's lockout**.
+  Mobile drivers wait for expiry or ask an admin to reset their PIN. Exact policy,
   and the **single-instance caveat** (effective allowance is `N × maxAttempts` per window behind a
   load balancer; a restart clears the counter mid-window), are documented rather than hidden — see
   `docs/security.md` → "Crew PIN Brute Force".

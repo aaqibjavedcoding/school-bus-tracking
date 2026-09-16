@@ -109,11 +109,7 @@ describe('login screen touch targets', () => {
     assert.ok(!/width: 64/.test(keyStyle), 'the old fixed 64×56 box must be gone');
   });
 
-  it('gives the PIN/QR tabs and the language control the same floor', () => {
-    const login = loginSource();
-    const tabStyle = /submodeTab:\s*\{[^}]*\}/s.exec(login)?.[0] ?? '';
-    assert.match(tabStyle, /minHeight: loginTouch\.min/);
-
+  it('gives the language control the login touch floor', () => {
     const language = languageSource();
     assert.match(language, /minHeight: loginTouch\.chip/, 'the closed dropdown chip');
     assert.match(language, /minHeight: loginTouch\.menuRow/, 'and every row inside it');
@@ -146,6 +142,18 @@ describe('crew card asks for a school code and a PIN only', () => {
       'the crew card is a school field plus the PIN pad, nothing else',
     );
     assert.ok(crewCard.includes('id="crew-school"'), 'and that field is the school code');
+  });
+
+  it('has no QR tab, scanner, paste flow, or QR-only wiring', () => {
+    const login = loginSource();
+    assert.doesNotMatch(login, /qr|pairing|paste|submode|RNModal/i);
+    assert.equal(login.match(/<CrewPinPad/g)?.length, 1);
+    assert.match(login, /login.crewPath.backToAdmin/);
+    for (const locale of ['en', 'hi', 'mr']) {
+      const dictionary = read(`src/lib/i18n.${locale}.ts`);
+      assert.doesNotMatch(dictionary, /login\.crewPath\.(qr\.|useQr|usePin|expired)/);
+      assert.doesNotMatch(dictionary, /QR|pairing/i);
+    }
   });
 
   it('builds the request from the two-field draft helper', () => {

@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import {
-  buildCrewPinDraft,
-  buildCrewQrPayload,
-  lockoutCountdown,
-} from './crew-login-flow.ts';
+import { buildCrewPinDraft, lockoutCountdown } from './crew-login-flow.ts';
 
 /**
- * The thin React surfaces (PIN pad, QR scanner) sit on top of these
+ * The thin React surfaces (PIN pad) sit on top of these
  * helpers; everything they rely on is pinned here so a future "easy fix"
  * cannot silently change the wire format or the user-facing message.
  *
@@ -49,48 +45,6 @@ describe('buildCrewPinDraft', () => {
   it('returns a typed error for a pin that is the wrong length after stripping', () => {
     assert.deepEqual(buildCrewPinDraft({ schoolId: 'lincoln-high', pin: '12' }), {
       error: 'pin',
-    });
-  });
-});
-
-describe('buildCrewQrPayload', () => {
-  it('builds the request body for a well-formed payload', () => {
-    const token = 'a'.repeat(64);
-    const result = buildCrewQrPayload(`SBT-CREW-1:${token}`);
-    assert.equal(result.ok, true);
-    if (result.ok) {
-      assert.deepEqual(result.body, { method: 'qr', pairing_token: token });
-    }
-  });
-
-  it('trims whitespace before parsing', () => {
-    const token = 'b'.repeat(64);
-    const result = buildCrewQrPayload(`   SBT-CREW-1:${token}   `);
-    assert.equal(result.ok, true);
-  });
-
-  it('refuses an empty scan', () => {
-    assert.deepEqual(buildCrewQrPayload(''), { ok: false, reason: 'empty' });
-    assert.deepEqual(buildCrewQrPayload('   '), { ok: false, reason: 'empty' });
-    assert.deepEqual(buildCrewQrPayload(null), { ok: false, reason: 'empty' });
-    assert.deepEqual(buildCrewQrPayload(undefined), { ok: false, reason: 'empty' });
-  });
-
-  it('refuses a non-pairing-code string (URL, Wi-Fi code, barcode)', () => {
-    assert.deepEqual(buildCrewQrPayload('https://example.com'), {
-      ok: false,
-      reason: 'not-a-pairing-code',
-    });
-    assert.deepEqual(buildCrewQrPayload('WIFI:S:home;T:WPA;P:secret;;'), {
-      ok: false,
-      reason: 'not-a-pairing-code',
-    });
-  });
-
-  it('refuses a future pairing-version prefix with its own reason', () => {
-    assert.deepEqual(buildCrewQrPayload('SBT-CREW-2:token'), {
-      ok: false,
-      reason: 'unsupported-version',
     });
   });
 });
