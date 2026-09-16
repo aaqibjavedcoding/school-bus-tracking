@@ -18,6 +18,10 @@ import type { CrewPairingToken, User } from '../../database/models';
 import type { AuthService, AuthSessionResult } from './auth.service';
 import {
   CREW_PAIRING_INVALID_CODE,
+  CREW_PIN_AMBIGUOUS_CODE,
+  CREW_PIN_AMBIGUOUS_MESSAGE,
+  CREW_PIN_DUPLICATE_CODE,
+  CREW_PIN_DUPLICATE_MESSAGE,
   CREW_PIN_INVALID_CODE,
   CREW_PIN_LOCKED_CODE,
   CREW_PIN_LOCKED_MESSAGE,
@@ -27,10 +31,12 @@ import {
 } from './auth.constants';
 import { CrewPinAttemptStore } from './crew-pin-attempts';
 import {
+  CREW_PIN_COMPARISON_COUNT,
   CrewAuthService,
   crewNotFoundMessage,
   crewPinState,
   isCrewRole,
+  resolveCrewPinMatch,
 } from './crew-auth.service';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
@@ -53,6 +59,30 @@ const WRONG_PIN = '0000';
 const PIN_HASH = bcrypt.hashSync(PIN, 4);
 
 const MINUTE = 60_000;
+
+/**
+ * Cost-4 stand-in for the padding digest, and the comparison that uses it.
+ *
+ * The production sweep pads its shortfall with `PIN_TIMING_EQUALIZATION_HASH`,
+ * which is a **cost-12** digest — ~300 ms of pure-JS bcrypt each, and a PIN
+ * login performs `CREW_PIN_COMPARISON_COUNT` comparisons. Real padding would
+ * make this spec take minutes to run, so the default test double swaps the
+ * padding digest for a cost-4 hash of a value no 4-digit PIN can equal:
+ * identical outcome (padding never matches), identical count, ~100× cheaper.
+ *
+ * Nothing about the control is left unchecked by that: the block below asserts
+ * the shipped padding constant really is a cost-12 bcrypt digest, and the
+ * constant-time block asserts with a *counting* double that the service passes
+ * exactly that constant as its padding. This double only makes the work cheap.
+ */
+const TEST_PADDING_HASH = bcrypt.hashSync('not-a-pin', 4);
+
+function testCompare(plaintext: string, hash: string): Promise<boolean> {
+  return comparePassword(
+    plaintext,
+    hash === PIN_TIMING_EQUALIZATION_HASH ? TEST_PADDING_HASH : hash,
+  );
+}
 
 // ── Stubs ──────────────────────────────────────────────────────────────────
 
@@ -94,8 +124,38 @@ function makeUser(overrides: Partial<StubUserRow> = {}): StubUserRow {
 interface UsersCapture {
   where?: Record<string, unknown>;
   findOneCalls: number;
+  /** `findAll` calls — the PIN branch's candidate query. */
+  findAllCalls: number;
+  findAllWhere?: Record<string, unknown>;
   unscopedCalls: number;
   attributes?: unknown;
+}
+
+/**
+ * Evaluates a Sequelize `where` against a stub row.
+ *
+ * Understands exactly the three forms the service uses — plain equality,
+ * `Op.in` and `Op.ne` — and throws on anything else, so a new operator in a
+ * query fails the stub loudly instead of silently matching everything.
+ */
+function matchesWhere(row: StubUserRow, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    const value = row[key as keyof StubUserRow];
+    if (condition !== null && typeof condition === 'object') {
+      const operators = condition as Record<symbol, unknown>;
+      return Object.getOwnPropertySymbols(operators).every((symbol) => {
+        const operand = operators[symbol];
+        if (symbol === Op.in) {
+          return (operand as unknown[]).includes(value);
+        }
+        if (symbol === Op.ne) {
+          return value !== operand;
+        }
+        throw new Error(`test stub does not understand operator ${String(symbol)}`);
+      });
+    }
+    return value === condition;
+  });
 }
 
 /** In-memory stand-in for the tenant-scoped `User` lookup. */
@@ -105,17 +165,22 @@ function makeUsersRepository(rows: Array<StubUserRow | null>, capture: UsersCapt
     capture.where = options.where;
     capture.attributes = options.attributes;
     capture.findOneCalls += 1;
-    const match = present.find((row) =>
-      Object.entries(options.where).every(([key, value]) => row[key as keyof StubUserRow] === value),
-    );
+    const match = present.find((row) => matchesWhere(row, options.where));
     return Promise.resolve(match ?? null);
   };
+  const findAll = (options: { where: Record<string, unknown> }) => {
+    capture.findAllWhere = options.where;
+    capture.findAllCalls += 1;
+    return Promise.resolve(present.filter((row) => matchesWhere(row, options.where)));
+  };
+  const scoped = { findOne, findAll };
   return {
     findOne: (options: { where: Record<string, unknown>; attributes?: unknown }) =>
       findOne(options),
+    findAll: (options: { where: Record<string, unknown> }) => findAll(options),
     unscoped: () => {
       capture.unscopedCalls += 1;
-      return { findOne };
+      return scoped;
     },
   } as unknown as typeof User;
 }
@@ -259,10 +324,17 @@ function makeHarness(
     now?: number;
     tenantIdByCode?: Record<string, string>;
     schoolAccessible?: boolean;
+    /**
+     * Replaces the PIN sweep's bcrypt comparison. Defaults to
+     * {@link testCompare}; the constant-time specs pass a *counting* double
+     * instead, which turns "how many comparisons ran?" into a counter rather
+     * than a stopwatch — the only way to assert a timing property at all.
+     */
+    compare?: (plaintext: string, hash: string) => Promise<boolean>;
   } = {},
 ): Harness {
   let now = options.now ?? 1_700_000_000_000;
-  const users: UsersCapture = { findOneCalls: 0, unscopedCalls: 0 };
+  const users: UsersCapture = { findOneCalls: 0, findAllCalls: 0, unscopedCalls: 0 };
   const pairings: PairingCapture = {
     updateCalls: 0,
     findOneCalls: 0,
@@ -288,6 +360,7 @@ function makeHarness(
     configService,
     attempts,
     () => now,
+    options.compare ?? testCompare,
   );
 
   return {
@@ -301,10 +374,10 @@ function makeHarness(
   };
 }
 
+/** A PIN login body: school + PIN. There is no user id to override. */
 const pinBody = (overrides: Record<string, unknown> = {}) => ({
   method: 'pin' as const,
   school_id: SCHOOL_ID,
-  user_id: USER_ID,
   pin: PIN,
   ...overrides,
 });
@@ -328,8 +401,31 @@ describe('CrewAuthService — PIN login', () => {
     const result = await harness.service.login(pinBody());
     assert.equal(result.response.access_token, 'mock-access-token');
     assert.equal(result.response.user.role, UserRole.DRIVER);
+    assert.equal(result.response.user.id, USER_ID);
     assert.equal(harness.auth.issuedFor.length, 1, 'the session must be minted exactly once');
     assert.equal(harness.auth.issuedFor[0].id, USER_ID);
+  });
+
+  it('resolves the account from the PIN alone — the body names no user', async () => {
+    // The whole point of the change: three crew at one school, one PIN each,
+    // and the request carries only the school code plus the second driver's PIN.
+    const ana = makeUser({ id: USER_ID, first_name: 'Ana', pin_hash: bcrypt.hashSync('1111', 4) });
+    const bo = makeUser({
+      id: '44444444-4444-4444-8444-444444444444',
+      first_name: 'Bo',
+      pin_hash: bcrypt.hashSync('2222', 4),
+    });
+    const cy = makeUser({
+      id: '55555555-5555-4555-8555-555555555555',
+      role: UserRole.CONDUCTOR,
+      first_name: 'Cy',
+      pin_hash: bcrypt.hashSync('3333', 4),
+    });
+    const harness = makeHarness({ userRows: [ana, bo, cy] });
+
+    const result = await harness.service.login(pinBody({ pin: '2222' }));
+    assert.equal(result.response.user.id, bo.id, 'the second driver, resolved by PIN');
+    assert.equal(result.response.user.first_name, 'Bo');
   });
 
   it('accepts a conductor as well as a driver', async () => {
@@ -347,18 +443,24 @@ describe('CrewAuthService — PIN login', () => {
     assert.deepEqual(harness.auth.resolved, ['lincoln-high']);
   });
 
-  it('looks the user up scoped to the resolved tenant', async () => {
+  it('queries the candidate set scoped to the resolved tenant, crew roles, active, PIN set', async () => {
     const harness = makeHarness();
     await harness.service.login(pinBody());
-    assert.deepEqual(harness.users.where, { school_id: SCHOOL_ID, id: USER_ID });
-    // `unscoped()` is required: the default scope hides `pin_hash`.
+    assert.deepEqual(harness.users.findAllWhere, {
+      school_id: SCHOOL_ID,
+      role: { [Op.in]: ['DRIVER', 'CONDUCTOR'] },
+      is_active: true,
+      pin_hash: { [Op.ne]: null },
+    });
+    // `unscoped()` is required: the default scope hides `pin_hash`, so a
+    // scoped query would return rows this branch cannot compare against.
     assert.equal(harness.users.unscopedCalls, 1);
   });
 
-  it('clears the attempt counter on success', async () => {
+  it('clears the school attempt counter on success', async () => {
     const harness = makeHarness();
     await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
-    const key = CrewPinAttemptStore.keyFor(SCHOOL_ID, USER_ID);
+    const key = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
     assert.equal(harness.attempts.peek(key, harness.now()).failures, 1);
 
     await harness.service.login(pinBody());
@@ -385,29 +487,34 @@ describe('CrewAuthService — PIN login', () => {
   /**
    * The enumeration-resistance property, asserted as an equivalence rather than
    * as a list of individual cases: a client that cannot tell these apart cannot
-   * turn a list of UUIDs into a list of drivers.
+   * turn a list of school codes into a list of schools that run buses here.
    */
-  it('answers identically for a wrong PIN, an unknown user, a non-crew role, an inactive account and a missing PIN', async () => {
+  it('answers identically for a wrong PIN, a school with no crew, a non-crew role, an inactive account, a missing PIN and an unknown code', async () => {
+    const noPin = makeUser({ pin_hash: null, pin_updated_at: null });
     const scenarios: Array<{ name: string; harness: Harness; body: Record<string, unknown> }> = [
       { name: 'wrong PIN', harness: makeHarness(), body: pinBody({ pin: WRONG_PIN }) },
-      { name: 'unknown user', harness: makeHarness({ userRows: [null] }), body: pinBody() },
       {
-        name: 'not a crew role',
+        name: 'school with no crew at all',
+        harness: makeHarness({ userRows: [] }),
+        body: pinBody(),
+      },
+      {
+        name: 'only a non-crew account has the PIN',
         harness: makeHarness({ userRows: [makeUser({ role: UserRole.PARENT })] }),
         body: pinBody(),
       },
       {
-        name: 'inactive account',
+        name: 'the only driver is deactivated',
         harness: makeHarness({ userRows: [makeUser({ is_active: false })] }),
         body: pinBody(),
       },
       {
-        name: 'no PIN set',
-        harness: makeHarness({ userRows: [makeUser({ pin_hash: null, pin_updated_at: null })] }),
+        name: 'the only driver has no PIN set',
+        harness: makeHarness({ userRows: [noPin] }),
         body: pinBody(),
       },
       {
-        name: 'user in another tenant',
+        name: 'the driver belongs to another tenant',
         harness: makeHarness({ userRows: [makeUser({ school_id: OTHER_SCHOOL_ID })] }),
         body: pinBody(),
       },
@@ -448,28 +555,22 @@ describe('CrewAuthService — PIN login', () => {
       signatures[0]!.includes(INVALID_CREW_CREDENTIALS_MESSAGE),
       `the generic message must be the one on the wire: ${signatures[0]}`,
     );
-  });
-
-  it('counts a failure against an unknown user too, so the countdown is not an oracle', async () => {
-    const harness = makeHarness({ userRows: [null] });
-    const seen: number[] = [];
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        await harness.service.login(pinBody());
-      } catch (error) {
-        seen.push(Number(envelopeOf(error).details?.['remaining_attempts']));
-      }
+    // And the message must not echo the PIN, in any of the seven cases.
+    for (const signature of signatures) {
+      assert.ok(!signature.includes(PIN), `a failure leaked the PIN: ${signature}`);
     }
-    // Identical to the countdown a real driver with a wrong PIN would see.
-    assert.deepEqual(seen, [4, 3, 2, 1]);
   });
 
-  it('performs no user lookup for an unknown tenant code', async () => {
+  it('performs no candidate query for an unknown tenant code', async () => {
     const harness = makeHarness({ tenantIdByCode: {} });
     await assert.rejects(() =>
       harness.service.login(pinBody({ school_id: 'no-such-school' })),
     );
-    assert.equal(harness.users.findOneCalls, 0, 'a bogus tenant code must not reach the users table');
+    assert.equal(
+      harness.users.findAllCalls,
+      0,
+      'a bogus tenant code must not reach the users table',
+    );
   });
 
   it('checks the tenant lifecycle only after the PIN is verified', async () => {
@@ -490,8 +591,10 @@ describe('CrewAuthService — PIN login', () => {
   });
 });
 
-describe('CrewAuthService — PIN brute force', () => {
-  it('locks the account on the fifth failure and reports a retry window', async () => {
+// ── School-wide brute force ─────────────────────────────────────────────────
+
+describe('CrewAuthService — PIN brute force (per school)', () => {
+  it('locks the school on the fifth failure and reports a retry window', async () => {
     const harness = makeHarness();
     const remaining: number[] = [];
     for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -518,21 +621,106 @@ describe('CrewAuthService — PIN brute force', () => {
     );
   });
 
-  it('refuses a locked account without touching the database at all', async () => {
+  it('counts every distinct PIN against the same budget — the sweep is what the key exists for', async () => {
+    // The attack the school-wide key is for: 1234, 1235, 1236… Each distinct
+    // guess used to be able to claim a fresh bucket; now all five land in one.
+    const harness = makeHarness();
+    const remaining: number[] = [];
+    for (const pin of ['1234', '1235', '1236', '1237']) {
+      await harness.service.login(pinBody({ pin })).catch((error: unknown) => {
+        remaining.push(Number(envelopeOf(error).details?.['remaining_attempts']));
+      });
+    }
+    assert.deepEqual(remaining, [4, 3, 2, 1]);
+    await assert.rejects(
+      () => harness.service.login(pinBody({ pin: '1238' })),
+      (error: unknown) => envelopeOf(error).status === 429,
+    );
+  });
+
+  it('keys the lockout per school, so a second driver at that school cannot dodge it', async () => {
+    // The documented cost of the school-wide key: one driver's mistypes lock
+    // the whole depot out of the PIN path. Asserted rather than assumed, so the
+    // trade stays visible to whoever reads this next.
+    const other = '44444444-4444-4444-8444-444444444444';
+    const harness = makeHarness({
+      userRows: [makeUser(), makeUser({ id: other, pin_hash: bcrypt.hashSync('2222', 4) })],
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    }
+    // Even the *other* driver's correct PIN is refused while the school is locked.
+    await assert.rejects(
+      () => harness.service.login(pinBody({ pin: '2222' })),
+      (error: unknown) => envelopeOf(error).status === 429,
+    );
+    assert.equal(harness.auth.issuedFor.length, 0);
+  });
+
+  it('counts an unknown school code too, keyed on the raw submitted code', async () => {
+    // A bogus code must consume its own allowance, not a real school's, and the
+    // countdown an attacker sees must look exactly like a real school's.
+    const harness = makeHarness({ tenantIdByCode: {} });
+    const remaining: number[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await harness.service
+        .login(pinBody({ school_id: 'no-such-school', pin: WRONG_PIN }))
+        .catch((error: unknown) => {
+          remaining.push(Number(envelopeOf(error).details?.['remaining_attempts']));
+        });
+    }
+    assert.deepEqual(remaining, [4, 3, 2, 1], 'identical countdown to a real school');
+    await assert.rejects(
+      () => harness.service.login(pinBody({ school_id: 'no-such-school' })),
+      (error: unknown) => envelopeOf(error).status === 429,
+    );
+
+    const key = CrewPinAttemptStore.keyForSchool('no-such-school');
+    assert.ok(
+      harness.attempts.peek(key, harness.now()).lockedUntil !== null,
+      'the lockout is keyed on the raw code',
+    );
+    // …and the real school next door still has a full allowance.
+    assert.equal(
+      harness.attempts.peek(CrewPinAttemptStore.keyForSchool(SCHOOL_ID), harness.now()).failures,
+      0,
+    );
+  });
+
+  it('keeps two real schools on separate budgets', async () => {
+    const harness = makeHarness({
+      userRows: [makeUser(), makeUser({ id: USER_ID, school_id: OTHER_SCHOOL_ID })],
+      tenantIdByCode: {},
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    }
+    await assert.rejects(
+      () => harness.service.login(pinBody({ pin: WRONG_PIN })),
+      (error: unknown) => envelopeOf(error).status === 429,
+    );
+    // The other tenant is untouched.
+    const otherResult = await harness.service.login(
+      pinBody({ school_id: OTHER_SCHOOL_ID }),
+    );
+    assert.equal(otherResult.response.access_token, 'mock-access-token');
+  });
+
+  it('refuses a locked school without touching the database at all', async () => {
     const harness = makeHarness();
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
     }
-    const lookupsBefore = harness.users.findOneCalls;
+    const lookupsBefore = harness.users.findAllCalls;
 
     // Even the *correct* PIN is refused while locked — the throttle is checked
-    // before any credential work, which is what makes a locked account cheap and
-    // keeps the locked response free of any signal about the account.
+    // before any credential work, which is what makes a locked school cheap and
+    // keeps the locked response free of any signal about the tenant.
     await assert.rejects(() => harness.service.login(pinBody()), (error: unknown) => {
       assert.equal(envelopeOf(error).status, 429);
       return true;
     });
-    assert.equal(harness.users.findOneCalls, lookupsBefore, 'no lookup while locked');
+    assert.equal(harness.users.findAllCalls, lookupsBefore, 'no lookup while locked');
     assert.equal(harness.auth.issuedFor.length, 0);
   });
 
@@ -587,23 +775,6 @@ describe('CrewAuthService — PIN brute force', () => {
     assert.equal((await harness.service.login(pinBody())).response.access_token, 'mock-access-token');
   });
 
-  it('keys the lockout per (school, user) so one driver cannot lock another', async () => {
-    const harness = makeHarness({ userRows: [makeUser()] });
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
-    }
-    // A different crew account in the same school still has a full allowance.
-    const other = '44444444-4444-4444-8444-444444444444';
-    await assert.rejects(
-      () => harness.service.login(pinBody({ user_id: other, pin: WRONG_PIN })),
-      (error: unknown) => {
-        assert.equal(envelopeOf(error).status, 401, 'a 429 here would mean the buckets are shared');
-        assert.equal(envelopeOf(error).details?.['remaining_attempts'], 4);
-        return true;
-      },
-    );
-  });
-
   it('reports the shipped policy arithmetic rather than a quoted figure', () => {
     const harness = makeHarness();
     const policy = harness.service.describeBruteForcePolicy();
@@ -612,10 +783,10 @@ describe('CrewAuthService — PIN brute force', () => {
     assert.equal(policy.maxAttempts, 5);
     assert.equal(policy.windowMs, 15 * MINUTE);
     assert.equal(policy.lockoutMs, 15 * MINUTE);
-    assert.equal(policy.guessesPerDay, 480);
+    assert.equal(policy.guessesPerDay, 480, '480 guesses per day *per school*');
     assert.equal(policy.pairingTtlMs, 5 * MINUTE);
     // The claim made in the docs, computed here: ~20.8 days to exhaust 10,000
-    // values against one account at 480 guesses/day.
+    // values against one school at 480 guesses/day.
     assert.ok(policy.exhaustionDays > 20 && policy.exhaustionDays < 21);
     // Stated, not hidden: the counters are process-local.
     assert.equal(policy.counterScope, 'process-local');
@@ -626,8 +797,8 @@ describe('PIN_TIMING_EQUALIZATION_HASH', () => {
   it('is a genuine cost-12 bcrypt digest, not a look-alike string', async () => {
     // A malformed digest would make `bcrypt.compare` return false immediately,
     // without doing the work — which would turn the timing equalization into a
-    // comment rather than a control. This is the one place a real cost-12
-    // comparison is worth the ~300ms.
+    // comment rather than a control, and make the padding in the PIN sweep
+    // free. This is the one place a real cost-12 comparison is worth the ~300ms.
     assert.match(PIN_TIMING_EQUALIZATION_HASH, /^\$2[aby]\$12\$.{53}$/);
     assert.equal(PIN_TIMING_EQUALIZATION_HASH.length, 60);
     assert.equal(await comparePassword('0000', PIN_TIMING_EQUALIZATION_HASH), false);
@@ -635,7 +806,238 @@ describe('PIN_TIMING_EQUALIZATION_HASH', () => {
   });
 });
 
-// ── QR branch ──────────────────────────────────────────────────────────────
+// ── Constant-time account resolution ────────────────────────────────────────
+
+describe('crew PIN constant-time resolution', () => {
+  /**
+   * A counting comparison. The PIN sweep's security property is a *count*, not
+   * a stopwatch: if the number of bcrypt operations depends on whether a match
+   * was found, response time becomes an oracle. Counting is the only way to
+   * assert it deterministically, and `CrewAuthService` takes the comparison
+   * function as a constructor argument precisely so this is possible.
+   */
+  function counter(matching: (hash: string) => boolean = () => false) {
+    const hashes: string[] = [];
+    return {
+      compare: async (_plaintext: string, hash: string) => {
+        hashes.push(hash);
+        return matching(hash);
+      },
+      hashes,
+      get count() {
+        return hashes.length;
+      },
+    };
+  }
+
+  it('always performs exactly CREW_PIN_COMPARISON_COUNT comparisons through the service', async () => {
+    // One driver, three drivers, no drivers at all, and a school code that
+    // resolves to nothing: four wildly different server states, one identical
+    // amount of work.
+    const one = counter();
+    await makeHarness({ compare: one.compare }).service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    assert.equal(one.count, CREW_PIN_COMPARISON_COUNT);
+
+    const three = counter();
+    await makeHarness({
+      compare: three.compare,
+      userRows: [
+        makeUser({ id: USER_ID }),
+        makeUser({ id: '44444444-4444-4444-8444-444444444444', pin_hash: bcrypt.hashSync('2222', 4) }),
+        makeUser({ id: '55555555-5555-4555-8555-555555555555', pin_hash: bcrypt.hashSync('3333', 4) }),
+      ],
+    }).service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    assert.equal(three.count, CREW_PIN_COMPARISON_COUNT);
+
+    const none = counter();
+    await makeHarness({ compare: none.compare, userRows: [] })
+      .service.login(pinBody({ pin: WRONG_PIN }))
+      .catch(() => undefined);
+    assert.equal(none.count, CREW_PIN_COMPARISON_COUNT);
+
+    const unknownSchool = counter();
+    await makeHarness({ compare: unknownSchool.compare, tenantIdByCode: {} })
+      .service.login(pinBody({ school_id: 'no-such-school', pin: WRONG_PIN }))
+      .catch(() => undefined);
+    assert.equal(unknownSchool.count, CREW_PIN_COMPARISON_COUNT);
+  });
+
+  it('pads the shortfall with the timing-equalizer digest, never a malformed string', async () => {
+    const seen = counter();
+    await makeHarness({ compare: seen.compare }).service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+
+    // One real candidate hash, seven padding digests — and every padding digest
+    // is the genuine cost-12 bcrypt value, because a malformed string would be
+    // rejected by `bcrypt.compare` instantly and the padding would be theatre.
+    assert.equal(seen.count, CREW_PIN_COMPARISON_COUNT);
+    assert.equal(seen.hashes[0], PIN_HASH, 'the real candidate is compared first');
+    for (const hash of seen.hashes.slice(1)) {
+      assert.equal(hash, PIN_TIMING_EQUALIZATION_HASH);
+    }
+  });
+
+  it('does the same work for a correct PIN as for a wrong one', async () => {
+    const right = counter((hash) => hash === PIN_HASH);
+    await makeHarness({ compare: right.compare }).service.login(pinBody());
+    const wrong = counter();
+    await makeHarness({ compare: wrong.compare }).service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    assert.equal(right.count, wrong.count);
+    assert.equal(right.count, CREW_PIN_COMPARISON_COUNT);
+  });
+
+  it('compares every candidate even after a match, and compares more than the floor when a school is large', async () => {
+    // A school with 10 PIN-carrying crew cannot be capped at 8 — the ninth
+    // driver has to be able to log in. The count then tracks the candidate
+    // set, which is the one thing timing may reveal (how many crew a school
+    // has); what it must not reveal is whether the PIN matched.
+    const many = counter((hash) => hash === PIN_HASH);
+    // The matching driver is the LAST of ten, so a short-circuiting sweep would
+    // both miss it and do less work than its peers.
+    const rows = Array.from({ length: 10 }, (_, index) =>
+      makeUser({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        pin_hash: index === 9 ? PIN_HASH : bcrypt.hashSync(`${1000 + index}`, 4),
+      }),
+    );
+    const result = await makeHarness({ compare: many.compare, userRows: rows })
+      .service.login(pinBody());
+    assert.equal(result.response.user.id, '00000000-0000-4000-8000-000000000009');
+    assert.equal(many.count, 10, 'all ten candidates are compared, not just the first');
+    assert.equal(
+      many.hashes.filter((hash) => hash === PIN_HASH).length,
+      1,
+      'exactly one real hash, and no padding once the candidate set passes the floor',
+    );
+  });
+
+  describe('resolveCrewPinMatch (the pure sweep)', () => {
+    const candidate = (hash: string | null) => ({ pin_hash: hash });
+
+    it('returns every match, in candidate order, with the comparison count', async () => {
+      const resolution = await resolveCrewPinMatch({
+        pin: '1234',
+        candidates: [candidate('a'), candidate('b'), candidate('c')],
+        compare: async (_pin, hash) => hash === 'b' || hash === 'c',
+      });
+      assert.deepEqual(resolution.matches, [candidate('b'), candidate('c')]);
+      assert.equal(resolution.comparisons, CREW_PIN_COMPARISON_COUNT);
+    });
+
+    it('pads up to the floor and never below it', async () => {
+      for (const size of [0, 1, 5, CREW_PIN_COMPARISON_COUNT]) {
+        const resolution = await resolveCrewPinMatch({
+          pin: '1234',
+          candidates: Array.from({ length: size }, () => candidate('x')),
+          compare: async () => false,
+        });
+        assert.equal(
+          resolution.comparisons,
+          CREW_PIN_COMPARISON_COUNT,
+          `${size} candidates must still cost ${CREW_PIN_COMPARISON_COUNT} comparisons`,
+        );
+      }
+      const bigger = await resolveCrewPinMatch({
+        pin: '1234',
+        candidates: Array.from({ length: CREW_PIN_COMPARISON_COUNT + 3 }, () => candidate('x')),
+        compare: async () => false,
+      });
+      assert.equal(bigger.comparisons, CREW_PIN_COMPARISON_COUNT + 3);
+    });
+
+    it('never lets a hash-less candidate match, however the comparison answers', () => {
+      // The login query excludes them; a caller that hands them in anyway must
+      // not be able to authenticate one by accident.
+      return resolveCrewPinMatch({
+        pin: '1234',
+        candidates: [candidate(null), candidate('x')],
+        compare: async () => true,
+      }).then((resolution) => {
+        assert.deepEqual(resolution.matches, [candidate('x')]);
+      });
+    });
+
+    it('honours an injected minimum, so the policy is a parameter and not a law of physics', async () => {
+      const resolution = await resolveCrewPinMatch({
+        pin: '1234',
+        candidates: [candidate('x')],
+        minComparisons: 3,
+        compare: async () => false,
+      });
+      assert.equal(resolution.comparisons, 3);
+    });
+  });
+});
+
+// ── Ambiguous PINs (defence in depth) ───────────────────────────────────────
+
+describe('CrewAuthService — a PIN shared by two crew members', () => {
+  const SECOND = '44444444-4444-4444-8444-444444444444';
+
+  function sharedPinHarness() {
+    // Two drivers, the same PIN. `setPin` refuses to create this, so the state
+    // can only come from a hand-edited database or a restore from before the
+    // uniqueness rule existed — which is exactly why the branch is kept.
+    return makeHarness({
+      userRows: [makeUser(), makeUser({ id: SECOND, first_name: 'Second', pin_hash: PIN_HASH })],
+    });
+  }
+
+  it('refuses to log in and mints no session', async () => {
+    const harness = sharedPinHarness();
+    await assert.rejects(
+      () => harness.service.login(pinBody()),
+      (error: unknown) => {
+        const envelope = envelopeOf(error);
+        assert.equal(envelope.status, 401);
+        assert.equal(envelope.code, CREW_PIN_AMBIGUOUS_CODE);
+        assert.equal(envelope.message, CREW_PIN_AMBIGUOUS_MESSAGE);
+        return true;
+      },
+    );
+    assert.equal(harness.auth.issuedFor.length, 0, 'an ambiguous PIN must never mint a session');
+  });
+
+  it('tells the driver to involve an admin, without echoing the PIN or naming accounts', async () => {
+    const harness = sharedPinHarness();
+    const error = await harness.service.login(pinBody()).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    const envelope = envelopeOf(error);
+    const wire = JSON.stringify(envelope);
+    assert.ok(!wire.includes(PIN), 'the PIN must never be echoed back');
+    assert.ok(!wire.includes(USER_ID), 'no account id either');
+    assert.ok(!wire.includes(SECOND), 'no account id either');
+    assert.match(String(envelope.message), /school admin/i, 'the message must be actionable');
+  });
+
+  it('counts as a failure against the school budget, like any other bad attempt', async () => {
+    const harness = sharedPinHarness();
+    const remaining: number[] = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await harness.service.login(pinBody()).catch((error: unknown) => {
+        remaining.push(Number(envelopeOf(error).details?.['remaining_attempts']));
+      });
+    }
+    assert.deepEqual(remaining, [4, 3, 2, 1], 'an ambiguous PIN is not a free guess');
+    // …and the fifth one locks the school out like any other failure.
+    await assert.rejects(
+      () => harness.service.login(pinBody()),
+      (error: unknown) => envelopeOf(error).status === 429,
+    );
+  });
+
+  it('is reachable only by a PIN that really does match two hashes', async () => {
+    // The converse: a wrong PIN at a school that happens to have two drivers
+    // must still be the generic failure, so `CREW_PIN_AMBIGUOUS` cannot be used
+    // to probe which schools have collisions.
+    const harness = sharedPinHarness();
+    await assert.rejects(
+      () => harness.service.login(pinBody({ pin: WRONG_PIN })),
+      (error: unknown) => envelopeOf(error).code === CREW_PIN_INVALID_CODE,
+    );
+  });
+});
 
 describe('CrewAuthService — QR pairing login', () => {
   const TOKEN = 'a'.repeat(64);
@@ -774,7 +1176,7 @@ describe('CrewAuthService — QR pairing login', () => {
       consumed_at: null,
     };
     const harness = makeHarness({ pairingRows: [row], userRows: [makeUser()] });
-    const key = CrewPinAttemptStore.keyFor(SCHOOL_ID, USER_ID);
+    const key = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
@@ -861,20 +1263,72 @@ describe('CrewAuthService — setPin', () => {
     assert.equal(cleared.pin_updated_at, null);
   });
 
-  it('lifts the account lockout — an admin reset is the other recovery route', async () => {
+  it('lifts the whole school lockout — an admin reset is the other recovery route', async () => {
     const row = makeUser();
-    const harness = makeHarness({ userRows: [row] });
+    const other = '44444444-4444-4444-8444-444444444444';
+    const harness = makeHarness({ userRows: [row, makeUser({ id: other, pin_hash: null, pin_updated_at: null })] });
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
     }
-    const key = CrewPinAttemptStore.keyFor(SCHOOL_ID, USER_ID);
+    const key = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
     assert.ok(harness.attempts.peek(key, harness.now()).lockedUntil !== null);
 
+    // Resetting ONE driver's PIN clears the counter for the whole school: the
+    // lockout is school-wide, and there is no other driver-facing recovery path.
     await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, USER_ID, '1357');
     assert.equal(harness.attempts.peek(key, harness.now()).lockedUntil, null);
 
     const result = await harness.service.login(pinBody({ pin: '1357' }));
     assert.equal(result.response.access_token, 'mock-access-token');
+  });
+
+  it('lifts the school lockout on a clear as well as on a set', async () => {
+    const row = makeUser();
+    const harness = makeHarness({ userRows: [row] });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+    }
+    const key = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
+    assert.ok(harness.attempts.peek(key, harness.now()).lockedUntil !== null);
+
+    await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, USER_ID, null);
+    assert.equal(
+      harness.attempts.peek(key, harness.now()).lockedUntil,
+      null,
+      'clearing a PIN is an admin action too, so it lifts the lockout as well',
+    );
+  });
+
+  it('leaves another school untouched when one school\'s PIN is reset', async () => {
+    const harness = makeHarness({
+      userRows: [
+        makeUser(),
+        makeUser({ id: USER_ID, school_id: OTHER_SCHOOL_ID, pin_hash: null, pin_updated_at: null }),
+      ],
+    });
+    // Lock both schools.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await harness.service.login(pinBody({ pin: WRONG_PIN })).catch(() => undefined);
+      await harness.service
+        .login(pinBody({ school_id: OTHER_SCHOOL_ID, pin: WRONG_PIN }))
+        .catch(() => undefined);
+    }
+    const own = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
+    const theirs = CrewPinAttemptStore.keyForSchool(OTHER_SCHOOL_ID);
+    assert.ok(harness.attempts.peek(own, harness.now()).lockedUntil !== null);
+    assert.ok(harness.attempts.peek(theirs, harness.now()).lockedUntil !== null);
+
+    await harness.service.setPin(
+      OTHER_SCHOOL_ID,
+      UserRole.DRIVER,
+      USER_ID,
+      '2468',
+    );
+    assert.equal(harness.attempts.peek(theirs, harness.now()).lockedUntil, null);
+    assert.ok(
+      harness.attempts.peek(own, harness.now()).lockedUntil !== null,
+      'one school\'s admin action must not lift another school\'s lockout',
+    );
   });
 
   it('is tenant- and role-scoped: another school or the wrong role is a 404', async () => {
@@ -918,6 +1372,142 @@ describe('CrewAuthService — setPin', () => {
     }
     assert.equal(row.pin_hash, null, 'nothing may be written for a rejected PIN');
     assert.equal(row.saveCalls, 0);
+  });
+});
+
+/**
+ * Per-school PIN uniqueness.
+ *
+ * A PIN login names no user, so "whose hash does this PIN verify against?" has
+ * to have exactly one answer at a school. `setPin` is where that is enforced —
+ * the login side only refuses to guess.
+ */
+describe('CrewAuthService — setPin enforces per-school PIN uniqueness', () => {
+  const SECOND_DRIVER = '44444444-4444-4444-8444-444444444444';
+  const CONDUCTOR = '55555555-5555-4555-8555-555555555555';
+
+  it('refuses a PIN another active driver of the same school already has', async () => {
+    const target = makeUser({ pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({
+      userRows: [target, makeUser({ id: SECOND_DRIVER, first_name: 'Second' })],
+    });
+
+    await assert.rejects(
+      () => harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, target.id, PIN),
+      (error: unknown) => {
+        const envelope = envelopeOf(error);
+        assert.equal(envelope.status, 409);
+        assert.equal(envelope.code, CREW_PIN_DUPLICATE_CODE);
+        assert.equal(envelope.message, CREW_PIN_DUPLICATE_MESSAGE);
+        return true;
+      },
+    );
+    assert.equal(target.pin_hash, null, 'nothing may be written for a rejected PIN');
+    assert.equal(target.saveCalls, 0);
+  });
+
+  it('refuses a PIN held by a crew member of the other crew role', async () => {
+    // A driver and a conductor sharing 1234 is exactly as ambiguous as two
+    // drivers sharing it: the login query spans both roles, so the check must.
+    const target = makeUser({
+      id: CONDUCTOR,
+      role: UserRole.CONDUCTOR,
+      first_name: 'Cleo',
+      pin_hash: null,
+      pin_updated_at: null,
+    });
+    const harness = makeHarness({
+      userRows: [makeUser(), target],
+    });
+    await assert.rejects(
+      () => harness.service.setPin(SCHOOL_ID, UserRole.CONDUCTOR, CONDUCTOR, PIN),
+      (error: unknown) => envelopeOf(error).code === CREW_PIN_DUPLICATE_CODE,
+    );
+    assert.equal(target.pin_hash, null, 'nothing written for a refused PIN');
+  });
+
+  it('allows a PIN another school is using', async () => {
+    const target = makeUser({ pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({
+      userRows: [target, makeUser({ id: SECOND_DRIVER, school_id: OTHER_SCHOOL_ID })],
+    });
+    const result = await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, target.id, PIN);
+    assert.equal(result.pin_set, true, 'uniqueness is per school, not global');
+  });
+
+  it('allows re-setting the same PIN on the same account', async () => {
+    const row = makeUser();
+    const harness = makeHarness({ userRows: [row] });
+    // An admin who clicks "reset" twice with the same digits is not creating a
+    // collision — the only other holder of the PIN would be this same row.
+    const result = await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, USER_ID, PIN);
+    assert.equal(result.pin_set, true);
+  });
+
+  it('ignores a deactivated crew member, who cannot log in anyway', async () => {
+    const target = makeUser({ pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({
+      userRows: [
+        target,
+        makeUser({ id: SECOND_DRIVER, is_active: false }),
+      ],
+    });
+    const result = await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, target.id, PIN);
+    assert.equal(
+      result.pin_set,
+      true,
+      'a deactivated account is not a candidate at login, so it cannot collide',
+    );
+  });
+
+  it('ignores a crew member who has no PIN set', async () => {
+    const target = makeUser({ pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({
+      userRows: [target, makeUser({ id: SECOND_DRIVER, pin_hash: null, pin_updated_at: null })],
+    });
+    const result = await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, target.id, PIN);
+    assert.equal(result.pin_set, true);
+  });
+
+  it('compares against stored hashes, not plaintext, and never leaks the PIN in the error', async () => {
+    const target = makeUser({ pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({
+      userRows: [target, makeUser({ id: SECOND_DRIVER })],
+    });
+    const error = await harness.service
+      .setPin(SCHOOL_ID, UserRole.DRIVER, target.id, PIN)
+      .then(() => null, (thrown: unknown) => thrown);
+    const wire = JSON.stringify((error as HttpException).getResponse());
+    assert.ok(!wire.includes(PIN), 'the PIN must never be echoed back to the admin UI');
+    assert.ok(!wire.includes(SECOND_DRIVER), 'nor the id of the other crew member');
+  });
+
+  it('clearing a PIN never runs the uniqueness check', async () => {
+    const row = makeUser();
+    const harness = makeHarness({ userRows: [row, makeUser({ id: SECOND_DRIVER })] });
+    // Both drivers hold PIN; clearing one must not be refused because the other
+    // still has it.
+    const cleared = await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, USER_ID, null);
+    assert.equal(cleared.pin_set, false);
+    assert.equal(row.pin_hash, null);
+  });
+
+  it('makes the ambiguous login branch unreachable once enforced', async () => {
+    // The end-to-end claim: two drivers cannot both end up with 1234, so the
+    // `CREW_PIN_AMBIGUOUS` branch stays defence in depth rather than a path a
+    // school can walk into from the admin console.
+    const first = makeUser({ pin_hash: null, pin_updated_at: null });
+    const second = makeUser({ id: SECOND_DRIVER, pin_hash: null, pin_updated_at: null });
+    const harness = makeHarness({ userRows: [first, second] });
+
+    await harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, first.id, '1357');
+    await assert.rejects(
+      () => harness.service.setPin(SCHOOL_ID, UserRole.DRIVER, second.id, '1357'),
+      (error: unknown) => envelopeOf(error).status === 409,
+    );
+
+    const result = await harness.service.login(pinBody({ pin: '1357' }));
+    assert.equal(result.response.user.id, first.id, 'the only holder of the PIN logs in');
   });
 });
 

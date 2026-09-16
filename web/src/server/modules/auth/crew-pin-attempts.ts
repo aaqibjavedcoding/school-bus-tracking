@@ -3,8 +3,9 @@
  *
  * A 4-digit PIN covers `10 ** 4 = 10_000` values. That is small enough that an
  * attacker who can submit guesses freely will find any given PIN quickly, so the
- * PIN path is only survivable because guessing is *slow*: a per-user attempt
- * window plus a hard lockout, layered on top of the existing rate limiter.
+ * PIN path is only survivable because guessing is *slow*: a per-**school**
+ * attempt window plus a hard lockout, layered on top of the existing rate
+ * limiter.
  *
  * This file is deliberately framework-free — no Sequelize, no HTTP, no clock of
  * its own. Every function takes `now` as an argument and returns a new state,
@@ -12,14 +13,40 @@
  * Jest/Vitest) and lets `crew-pin-attempts.spec.ts` walk a whole attack
  * timeline deterministically.
  *
+ * ### Why the counter is keyed by SCHOOL and not by user
+ *
+ * A crew PIN login carries no user id: the body is `{ school_id, pin }` and the
+ * server resolves which crew member that PIN belongs to (`crew-auth.service.ts`).
+ * That removes the only per-user identity an attacker had to supply, so the
+ * counter had to move with it:
+ *
+ * - **A per-`(school, user_id)` counter no longer exists to key on.** Nothing in
+ *   the request names a user, so every guess would land in the same "no user"
+ *   bucket anyway.
+ * - **A per-`(school, PIN)` counter would not bound anything at all.** The
+ *   realistic attack is not ten guesses at one PIN; it is a *sweep* — `1234`,
+ *   then `1235`, then `1236`… Ten thousand distinct PINs each get a fresh
+ *   counter, so `maxAttempts` per counter buys the attacker the entire space.
+ * - **A school-wide counter is the only key that bounds the sweep.** Five
+ *   failures per 15-minute window per school, whatever the PIN, is 480
+ *   guesses/day/school and ≈20.8 days to walk 10,000 values
+ *   (`estimatePinExhaustionDays`, pinned by `crew-pin-attempts.spec.ts`).
+ *
+ * The cost of that is stated plainly in `crew-auth.service.ts`: a school-wide
+ * lockout is a **tenant-wide denial of service** — five wrong PINs from anyone
+ * lock every driver of that school out of the PIN path for 15 minutes. That is
+ * the deliberate trade (the alternative is an unbounded guess budget), and the
+ * recovery routes are admin-issued by construction: a QR pairing login or a
+ * PIN reset both clear the school's counter.
+ *
  * ### The three layers, and what each one is for
  *
- * 1. **This per-user lockout.** Keyed by the *user*, not the IP, so an attacker
- *    rotating source addresses still gets five guesses per window against one
- *    driver. This is the layer that actually bounds PIN guessing.
+ * 1. **This per-school lockout.** Keyed by the *school*, not the IP, so an
+ *    attacker rotating source addresses still gets five guesses per window per
+ *    school. This is the layer that actually bounds PIN guessing.
  * 2. **The `auth_crew_login` rate-limit policy** (`config/rate-limit.config.ts`)
- *    — per-IP/per-user plus a per-identity bucket, which stops one host from
- *    spraying many accounts.
+ *    — per-IP/per-user plus a per-identity bucket keyed on the submitted
+ *    school, which stops one host from spraying schools.
  * 3. **The audit trail** — every success and every failure is written to
  *    `audit_logs`, so a slow attack is visible to a human even when it stays
  *    under both throttles.
@@ -36,7 +63,7 @@
  * already names.
  */
 
-/** Tunables of the per-user PIN lockout. */
+/** Tunables of the per-school PIN lockout. */
 export interface CrewPinBruteForcePolicy {
   /** Failed PIN entries allowed inside `windowMs` before the lockout trips. */
   maxAttempts: number;
@@ -54,6 +81,12 @@ export interface CrewPinBruteForcePolicy {
  * window and the lockout are the same 15 minutes so the recovery story is easy
  * to explain to a school ("wait a quarter of an hour, or have the admin reset
  * it") and so the sustainable guess rate has one clean expression.
+ *
+ * Read the budget as **per school**, not per driver: five failures from anyone
+ * at Lincoln High lock the PIN path for every driver at Lincoln High until the
+ * window rolls over. That is the price of a key an attacker cannot rotate (see
+ * the header comment), and it is why `setPin` and a QR pairing login both clear
+ * the counter — they are the only two recovery routes a driver has.
  */
 export const CREW_PIN_DEFAULT_POLICY: Readonly<CrewPinBruteForcePolicy> = {
   maxAttempts: 5,
@@ -61,7 +94,7 @@ export const CREW_PIN_DEFAULT_POLICY: Readonly<CrewPinBruteForcePolicy> = {
   lockoutMs: 15 * 60_000,
 };
 
-/** Per-user attempt counter. Immutable between calls; each call returns a copy. */
+/** Per-school attempt counter. Immutable between calls; each call returns a copy. */
 export interface CrewPinAttemptState {
   /** Consecutive failures counted in the current window. */
   failures: number;
@@ -71,7 +104,7 @@ export interface CrewPinAttemptState {
   lockedUntil: number | null;
 }
 
-/** A fresh user with no recorded activity. */
+/** A fresh school with no recorded activity. */
 export const EMPTY_CREW_PIN_ATTEMPT_STATE: Readonly<CrewPinAttemptState> = {
   failures: 0,
   windowStartedAt: null,
@@ -104,10 +137,11 @@ export function pinLockoutRemainingMs(
 /**
  * Decides whether a PIN attempt may proceed *before* any credential work.
  *
- * Called first on every PIN login: while an account is locked the server never
- * even loads the user row or runs bcrypt, which keeps a locked account cheap to
- * hammer and — more importantly — makes the lockout independent of whether the
- * account exists, so it cannot be used to probe for valid `user_id`s.
+ * Called first on every PIN login: while a school is locked the server never
+ * even loads its crew rows or runs bcrypt, which keeps a locked school cheap to
+ * hammer and — more importantly — makes the lockout independent of what the
+ * school contains, so it cannot be used to probe for which schools have
+ * drivers, or how many.
  */
 export function inspectPinAttempt(
   state: CrewPinAttemptState | null | undefined,
@@ -190,7 +224,7 @@ export function registerPinSuccess(
 
 /**
  * How long a determined attacker needs to exhaust the whole PIN space against
- * **one** user, in days.
+ * **one school**, in days.
  *
  * The model is deliberately blunt and deliberately pessimistic in the
  * attacker's favour: it assumes the lockout lifts exactly on time, that the
@@ -218,13 +252,16 @@ export function estimatePinExhaustionDays(input: {
 }
 
 /**
- * Process-local PIN attempt counters.
+ * Process-local PIN attempt counters, **one bucket per school**.
  *
  * Structurally the same object as `MemoryRateLimitStore` and carrying the same
  * single-instance caveat (see the header comment). Keys are bounded two ways so
  * a hostile client cannot grow the map without limit: expired states are dropped
  * lazily on read, and once the map exceeds `maxKeys` a sweep removes every
- * state whose window and lockout have both passed.
+ * state whose window and lockout have both passed. Note the key space is now
+ * the set of schools (plus one entry per distinct *unknown* school code someone
+ * submitted), which is far smaller than the per-user key space this replaced —
+ * `maxKeys` is correspondingly more headroom than it used to be.
  */
 export class CrewPinAttemptStore {
   private readonly states = new Map<string, CrewPinAttemptState>();
@@ -232,14 +269,18 @@ export class CrewPinAttemptStore {
   constructor(private readonly maxKeys = 20_000) {}
 
   /**
-   * Bucket key for one crew account.
+   * Bucket key for one school's PIN attempts.
    *
-   * Tenant-qualified even though `user_id` is a UUID and already globally
-   * unique, so a key can never be read as belonging to the wrong school in a
-   * log line or a debugger.
+   * Deliberately *not* qualified by a user id any more: the lockout is
+   * school-wide because the login body no longer names a user, and a key that
+   * still carried one would silently partition the budget into buckets an
+   * attacker controls. Callers pass either the resolved tenant UUID or — for a
+   * school code that resolved to nothing — the raw submitted code lower-cased,
+   * so guessing against a bogus code consumes that code's own allowance and
+   * can never eat a real school's.
    */
-  static keyFor(schoolId: string, userId: string): string {
-    return `${schoolId}:${userId}`;
+  static keyForSchool(schoolId: string): string {
+    return `school:${schoolId}`;
   }
 
   peek(key: string, now: number = Date.now()): CrewPinAttemptState {

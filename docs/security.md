@@ -232,36 +232,77 @@ is unchanged by these decisions and must not be weakened.
 
 ## Crew PIN Brute Force
 
-Crew (DRIVER / CONDUCTOR) sign in to the phone app with a **4-digit PIN**
-(`CREW_PIN_LENGTH = 4`, `CREW_PIN_COMBINATIONS = 10_000`) instead of an
-email + password, because a driver standing in a depot at 6am cannot be
-asked for an email address and an 8-character password. A 4-digit PIN
-covers `10_000` values — survivable only because guessing is _slow_, via
-three layered throttles:
+Crew (DRIVER / CONDUCTOR) sign in to the phone app with a **school code
+and a 4-digit PIN** (`CREW_PIN_LENGTH = 4`,
+`CREW_PIN_COMBINATIONS = 10_000`) instead of an email + password,
+because a driver standing in a depot at 6am cannot be asked for an
+email address and an 8-character password.
 
-1. **Per-user PIN lockout** (`web/src/server/modules/auth/crew-pin-attempts.ts`).
-   Keyed by `(school_id, user_id)`, not by IP, so an attacker rotating
-   source addresses still gets a bounded budget per crew account.
-   Shipped defaults (`CREW_PIN_DEFAULT_POLICY`):
+The request body is `{ method: 'pin', school_id, pin }` — **there is no
+user id**. A UUID copied off an admin screen was never a secret, so
+asking for one bought nothing; the server resolves the account itself by
+comparing the submitted PIN against every active DRIVER/CONDUCTOR of the
+resolved tenant that has a PIN set. Two consequences follow, and both are
+enforced in code rather than assumed:
+
+- **A PIN is unique per school.** `CrewAuthService.setPin` refuses a PIN
+  that another _active_ crew member of the same school already holds
+  (`CREW_PIN_DUPLICATE`, HTTP 409) — otherwise "whose hash does this PIN
+  verify against?" would have two answers. `loginWithPin` still refuses
+  to resolve an ambiguous PIN (`CREW_PIN_AMBIGUOUS`, HTTP 401, no
+  session) as defence in depth for a hand-edited or pre-uniqueness
+  database. No unique index can back this: a bcrypt digest is salted per
+  row, so the database cannot see that two hashes are the same PIN.
+- **The brute-force budget is per school, not per driver.** See below.
+
+A 4-digit PIN covers `10_000` values — survivable only because guessing
+is _slow_, via three layered throttles:
+
+1. **Per-school PIN lockout**
+   (`web/src/server/modules/auth/crew-pin-attempts.ts`). Keyed by the
+   **submitted school** (a code that resolves to nothing is keyed on the
+   raw lower-cased code, so a bogus code cannot eat a real school's
+   allowance), not by IP, so an attacker rotating source addresses still
+   gets one bounded budget per tenant. Shipped defaults
+   (`CREW_PIN_DEFAULT_POLICY`):
    - `maxAttempts: 5`
    - `windowMs: 15 * 60_000` (15 minutes)
    - `lockoutMs: 15 * 60_000` (15 minutes)
-     On the fifth failure inside the window the lockout trips immediately —
-     the Nth wrong PIN is refused-with-lock, not allowed-then-locked, so an
-     attacker never gets a free extra guess by racing the boundary. The
-     lockout also covers **unknown** accounts, so a 4-digit PIN cannot be
-     used to enumerate which `user_id`s are drivers.
+
+     On the fifth failure inside the window the lockout trips
+     immediately — the Nth wrong PIN is refused-with-lock, not
+     allowed-then-locked, so an attacker never gets a free extra guess by
+     racing the boundary. **Every** failed attempt counts against the
+     school: a wrong PIN, an ambiguous PIN, and an unknown school code
+     alike, so the `remaining_attempts` countdown is identical for a real
+     school and a random string.
+
+     ### Why the key is the school and not something narrower
+     - A per-`(school, user_id)` counter **no longer exists to key on** —
+       nothing in the request names a user.
+     - A per-`(school, PIN)` counter **would not bound anything**. The
+       realistic attack is a sweep (`1234`, `1235`, `1236`, …): ten
+       thousand distinct PINs would each get a fresh counter, so
+       `maxAttempts` per counter hands the attacker the whole space.
+     - A school-wide counter is the only key an attacker cannot rotate,
+       and it bounds the sweep to **480 guesses/day/school**.
+
 2. **Endpoint rate-limit policy** (`auth_crew_login`, in
    `web/src/server/config/rate-limit.config.ts`). 10 attempts per 60 s
-   per IP _and_ per `(school_id, user_id)` identity bucket — one host
-   cannot walk a list of crew user ids inside the lockout window alone.
+   per IP _and_ per **submitted school** identity bucket — one host
+   cannot walk a list of school codes. The bucket key is the raw
+   submitted code, hashed, because the guard runs before any database
+   work.
 3. **Audit trail**. Every success and every failure is written to
-   `audit_logs` with the attempted identity, so a slow attack is visible
-   to a human even when it stays under both throttles.
+   `audit_logs`. A failed attempt records the school it was aimed at and
+   `entity_id: null` (a rejection is not an action _by_ anyone); a
+   success records the **resolved** crew member in `entity_id`,
+   `actor_user_id` and `metadata.user_id`. Neither the PIN nor a pairing
+   token is ever written to the trail, a log line, or an error message.
 
-With the shipped policy the sustainable guess rate against one account is
+With the shipped policy the sustainable guess rate against one school is
 **5 attempts per 15-minute window, plus a 15-minute lockout**, so one
-account yields **480 guesses per day** and walking the entire PIN space
+school yields **480 guesses per day** and walking the entire PIN space
 takes **≈20.8 days of continuous, perfectly-timed guessing**
 (`estimatePinExhaustionDays` in `crew-pin-attempts.ts` — pinned by
 `crew-pin-attempts.spec.ts`; this figure is computed, not quoted). Every
@@ -269,26 +310,37 @@ one of those attempts is an audited failure.
 
 Two properties make the PIN check itself leak nothing:
 
-- **One bcrypt comparison always runs.** When the account does not exist
-  or has no PIN, the comparison runs against `PIN_TIMING_EQUALIZATION_HASH`
-  (`web/src/server/modules/auth/auth.constants.ts`) — exactly the trick
-  `AuthService.login()` uses for passwords — so response timing cannot
-  reveal which case applied.
-- **The lockout counts unknown accounts too.** A failure is registered
-  against the submitted `(school_id, user_id)` whether or not a row
-  exists, so the `remaining_attempts` countdown is identical for a real
-  driver and for a random UUID. Without that, the countdown alone would
-  be an enumeration oracle.
+- **A fixed number of bcrypt comparisons always runs.**
+  `resolveCrewPinMatch` (`crew-auth.service.ts`) compares the submitted
+  PIN against **every** candidate — never short-circuiting on a match —
+  and pads the shortfall with comparisons against
+  `PIN_TIMING_EQUALIZATION_HASH` up to `CREW_PIN_COMPARISON_COUNT` (8).
+  So a school with no crew PINs, a school with one driver, a wrong PIN
+  and a correct PIN all cost exactly eight cost-12 comparisons, and
+  response timing cannot reveal whether a match was found. A school with
+  _more_ than eight candidates does more work — it must, or the ninth
+  driver could not log in — so timing can reveal roughly how many crew a
+  school has; it cannot reveal whether the PIN was right. The cost is
+  ~2 s of bcrypt per PIN login, which is the deliberate price of the
+  invariant; the comparisons run concurrently and `bcryptjs` yields
+  between chunks, so the server keeps serving other requests.
+- **The lockout counts unknown schools too.** A failure is registered
+  against the submitted code whether or not it resolves, so the
+  countdown is not an enumeration oracle for "which school codes are
+  real".
 
 Recovery routes out of a lockout (admin-issued, by construction):
 
 - **Successful QR pairing login** (`CrewAuthService.loginWithPairingCode`)
-  calls `attempts.forget(...)` — only an administrator can mint the code
-  that gets a device here, which is exactly the authority that should be
-  able to lift a lockout.
-- **Administrator resets the PIN** (`CrewAuthService.setPin`) also calls
-  `attempts.forget(...)` — an admin who has just been told "locked out"
-  must not also wait a quarter of an hour.
+  calls `attempts.forget(...)` on the crew member's school — only an
+  administrator can mint the code that gets a device here, which is
+  exactly the authority that should be able to lift a lockout.
+- **Administrator sets, resets or clears any PIN at that school**
+  (`CrewAuthService.setPin`) also calls `attempts.forget(...)`. Since the
+  lockout is school-wide, this is the only recovery path that does not
+  need a QR, and it clears the counter for every driver at the school —
+  an admin who has just been told "the depot is locked out" must not also
+  wait a quarter of an hour.
 
 ### Known limitations (stated, not hidden)
 
@@ -303,13 +355,20 @@ Recovery routes out of a lockout (admin-issued, by construction):
   names above (see "Before horizontal scaling"). Same precondition, same
   checklist item, same reason to ship it together with the rate limiter
   when the time comes.
-- **A per-user lockout is a targeted denial of service.** Anyone who
-  knows a driver's `user_id` can lock that one account for up to
-  `lockoutMs`. This is inherent to keying on the user rather than the IP
-  and it is the deliberate trade: an IP-keyed throttle would not bound
-  guessing against one account at all. Recovery does not depend on
-  waiting it out — a QR pairing login clears the lockout, and an
-  administrator resetting the PIN clears it too.
+- **A school-wide lockout is a tenant-wide denial of service.** Five
+  wrong PINs from anyone lock the PIN path for **every** driver at that
+  school for up to `lockoutMs`. This is inherent to the only key that
+  bounds a PIN sweep and it is the deliberate trade: the alternative is
+  an unbounded guess budget. It is also a larger blast radius than the
+  per-user lockout this replaced — one driver's mistypes now affect their
+  colleagues — which is exactly why both recovery routes above clear the
+  whole school's counter rather than one account's.
+- **PIN uniqueness is enforced at write time, not by the database.** A
+  bulk import, a restore from an old dump, or a hand edit can still
+  create a collision; `loginWithPin` then refuses the login with
+  `CREW_PIN_AMBIGUOUS` rather than picking one of the two accounts. The
+  fix is an administrator setting a different PIN, and the error message
+  says so.
 - **A stolen `pin_hash` column is crackable.** bcrypt at cost 12 slows an
   offline attack on a password to impracticality, but a 4-digit PIN has
   only 10 000 candidates, so an attacker who has already read the

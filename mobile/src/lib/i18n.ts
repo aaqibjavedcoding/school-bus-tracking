@@ -357,24 +357,30 @@ export const KNOWN_ERROR_CODES: Record<string, StaticTranslationKey> = {
   RATE_LIMIT_EXCEEDED: 'error.RATE_LIMIT_EXCEEDED',
   SERVICE_NOT_READY: 'error.SERVICE_NOT_READY',
   /**
-   * Crew mobile-login (Phase 4b). Three documented codes from
+   * Crew mobile-login (Phase 4b). Four documented codes from
    * `web/src/server/modules/auth/auth.constants.ts`:
    *
-   * - `CREW_PIN_LOCKED`     — per-user lockout (HTTP 429). Has structured
+   * - `CREW_PIN_LOCKED`     — school-wide lockout (HTTP 429). Has structured
    *                          `retry_after_seconds` and `remaining_attempts: 0`
    *                          in `error.details`; `localizeCrewLoginError`
    *                          surfaces them to the lockout countdown.
-   * - `CREW_PIN_INVALID`    — wrong PIN, wrong user_id, or no PIN set
-   *                          (HTTP 401, generic message — see `INVALID_CREW_CREDENTIALS_MESSAGE`).
+   * - `CREW_PIN_INVALID`    — wrong PIN, or a school with no matching crew PIN
+   *                          (HTTP 401, generic message — see
+   *                          `INVALID_CREW_CREDENTIALS_MESSAGE`).
+   * - `CREW_PIN_AMBIGUOUS`  — the PIN matched more than one crew member at that
+   *                          school (HTTP 401). Unreachable while
+   *                          `setPin`'s uniqueness rule holds; it is an
+   *                          admin-action message, not a credential hint.
    * - `CREW_PAIRING_INVALID`— malformed / unknown / expired / already-redeemed
    *                          QR pairing code (HTTP 401, generic message).
    *
-   * `localizeApiError` covers all three with the same fallback rule as the
+   * `localizeApiError` covers all four with the same fallback rule as the
    * other codes: known code → dictionary copy, unknown code → server message
    * + raw-code note.
    */
   CREW_PIN_LOCKED: 'error.CREW_PIN_LOCKED',
   CREW_PIN_INVALID: 'error.CREW_PIN_INVALID',
+  CREW_PIN_AMBIGUOUS: 'error.CREW_PIN_AMBIGUOUS',
   CREW_PAIRING_INVALID: 'error.CREW_PAIRING_INVALID',
 };
 

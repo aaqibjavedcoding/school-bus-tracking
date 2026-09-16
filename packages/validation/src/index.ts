@@ -181,9 +181,10 @@ export type LoginInput = z.infer<typeof loginSchema>;
  * Four digits is a product decision, not a security one: the PIN is typed on
  * a phone by a driver in a bus depot, often in a hurry, often one-handed.
  * Everything that makes a 4-digit secret survivable lives *around* it — the
- * per-user attempt lockout, the rate limiter, the fact that a PIN is only ever
- * checked against one already-identified user, and the audit trail. See
- * `CREW_PIN_COMBINATIONS` and `docs/security.md` → "Crew PIN brute force".
+ * per-**school** attempt lockout, the rate limiter, the per-school PIN
+ * uniqueness rule enforced when an administrator sets a PIN, and the audit
+ * trail. See `CREW_PIN_COMBINATIONS` and `docs/security.md` → "Crew PIN brute
+ * force".
  */
 export const CREW_PIN_LENGTH = 4;
 
@@ -289,26 +290,36 @@ export function parseCrewPairingPayload(text: string | null | undefined): CrewPa
   return { ok: true, token };
 }
 
-/** Canonical UUID of the crew account a PIN is being checked against. */
-const crewUserIdSchema = z.string().uuid('user_id must be a valid UUID');
-
 /**
- * PIN branch of a crew login: an already-paired device proves it is still the
- * same crew member.
+ * PIN branch of a crew login: **school code + 4-digit PIN**, nothing else.
  *
- * `user_id` is **not** a secret and is not a substitute for one — it is the
- * identity the device learned when it scanned that user's pairing QR, and it
- * exists so the PIN is compared against exactly one stored hash instead of
- * being searched across a tenant. Without it a 4-digit PIN would have to be
- * unique per school to be resolvable at all, which would turn it into an
- * enumerable identifier. `school_id` is required alongside it and must match,
- * so a PIN can never be checked against a user in another tenant.
+ * The crew member's `user_id` is deliberately *not* part of this contract any
+ * more. It was never a secret (it is a UUID printed on an admin screen and
+ * carried in every JWT), so asking a driver for it bought no security — it
+ * only bought a second field to misread in a depot at 6am. Dropping it means:
+ *
+ * - the server **resolves the account itself**: it loads every active
+ *   DRIVER/CONDUCTOR of the resolved tenant that has a PIN set and compares
+ *   the submitted PIN against each of them (see
+ *   `CrewAuthService.loginWithPin`);
+ * - a PIN is therefore only unambiguous if it is **unique per school**, which
+ *   is now enforced where PINs are written (`CrewAuthService.setPin` refuses a
+ *   PIN another active crew member of the same school already has) rather than
+ *   assumed;
+ * - the brute-force budget had to move with it. A per-`(school, user_id)`
+ *   counter could no longer bound anything: with no user id in the body an
+ *   attacker simply sweeps distinct PINs, and each distinct guess would land
+ *   in a fresh bucket. The lockout is now **per school** — see
+ *   `crew-pin-attempts.ts` and `docs/security.md` → "Crew PIN brute force".
+ *
+ * `school_id` accepts the tenant UUID *or* the human-friendly code, exactly as
+ * `loginSchema` does, and it is what scopes the candidate set — a PIN can never
+ * be checked against a crew member of another tenant.
  */
 export const crewLoginByPinSchema = z
   .object({
     method: z.literal('pin'),
     school_id: loginTenantIdSchema,
-    user_id: crewUserIdSchema,
     pin: crewPinSchema,
   })
   .strict();

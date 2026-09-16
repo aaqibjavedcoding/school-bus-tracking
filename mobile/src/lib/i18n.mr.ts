@@ -325,6 +325,7 @@ export const mr: Dictionary = {
   'login.emailPlaceholder': 'you@school.edu',
   'login.password': 'पासवर्ड',
   'login.passwordPlaceholder': '••••••••',
+  'login.emailTitle': 'ईमेलने लॉगिन करा',
   'login.submit': 'लॉगिन करा',
   'login.failed': 'लॉगिन करता आले नाही',
   'login.footer':
@@ -336,10 +337,7 @@ export const mr: Dictionary = {
   'login.crewPath.pin.title': 'तुमचे 4-अंकी PIN टाका',
   'login.crewPath.pin.subtitle':
     'शाळेच्या अ‍ॅडमिनने तुमच्या खात्यावर हे PIN सेट केले आहे. ते तुमच्या जोडलेल्या फोनला अनलॉक करते.',
-  'login.crewPath.pin.userIdLabel': 'तुमचा user ID',
-  'login.crewPath.pin.userIdPlaceholder': 'अ‍ॅडमिनकडून मिळालेला UUID',
-  'login.crewPath.pin.userIdHint':
-    'जर तुमच्याकडे नसेल तर शाळेच्या अ‍ॅडमिनकडून विचारा. तो सांगतो की तुम्ही कोणता ड्रायव्हर / कंडक्टर आहात.',
+  'login.crewPath.pin.schoolRequired': 'तुमचा शाळा कोड टाका',
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'अनलॉक करा',
   'login.crewPath.pin.clearKey': 'PIN साफ करा',
@@ -457,5 +455,7 @@ export const mr: Dictionary = {
   'error.unknownCodePrefix': 'सर्व्हर कोड',
   'error.CREW_PIN_LOCKED': 'बऱ्याच वेळा चुकीचे PIN. थोड्या वेळात पुन्हा प्रयत्न करा.',
   'error.CREW_PIN_INVALID': 'हे PIN चुकीचे आहे. पुन्हा प्रयत्न करा.',
+  'error.CREW_PIN_AMBIGUOUS':
+    'हे PIN एकापेक्षा जास्त कर्मचाऱ्यांचे आहे. अ‍ॅडमिनकडून बदलवा.',
   'error.CREW_PAIRING_INVALID': 'तो पेयरिंग कोड वापरता आला नाही. अ‍ॅडमिनकडून नवीन QR घ्या.',
 };

@@ -113,11 +113,12 @@ export default registerAs('rateLimit', () => ({
   /**
    * Identity bucket of the `auth_crew_login` policy.
    *
-   * The "identity" of a crew login is not an email: on the PIN branch it is
-   * `(school_id, user_id)` — the account whose PIN is being guessed — and on the
-   * QR branch it is the presented pairing code itself, so replaying one
-   * consumed or stolen code is throttled per code. Both are hashed before they
-   * become a bucket key, so no raw identifier or token is held in memory.
+   * The "identity" of a crew login is not an email: on the PIN branch it is the
+   * **submitted school** — the body is `{ school_id, pin }` and names no user,
+   * so the school is the only thing an attempt is *about* — and on the QR
+   * branch it is the presented pairing code itself, so replaying one consumed or
+   * stolen code is throttled per code. Both are hashed before they become a
+   * bucket key, so no raw identifier or token is held in memory.
    */
   crewLogin: {
     identityLimit: positiveInt(process.env.RATE_LIMIT_CREW_LOGIN_IDENTITY_LIMIT, 8),

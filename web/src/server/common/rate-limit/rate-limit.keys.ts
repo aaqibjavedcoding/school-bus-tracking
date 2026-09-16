@@ -123,16 +123,21 @@ export function buildRateLimitBuckets(
  * A crew login has no email to key on, so the identity is whatever the attempt
  * is actually *about*:
  *
- * - **PIN branch** — `(school_id, user_id)`: the account whose 4-digit PIN is
- *   being guessed. This bucket is what stops one host from walking a list of
- *   crew user ids, and it survives an attacker rotating source addresses.
+ * - **PIN branch** — the **submitted school**. The body is `{ school_id, pin }`
+ *   and names no user, so the school is the only identity there is: this bucket
+ *   is what stops one host from sweeping PINs across a list of school codes,
+ *   and it survives an attacker rotating source addresses. It is deliberately
+ *   the *raw submitted* string (trimmed, lower-cased), not a resolved tenant
+ *   id: the guard runs before any database work, so an unresolvable code still
+ *   gets its own bucket rather than sharing an `unknown-tenant` one with every
+ *   other typo an attacker sends.
  * - **QR branch** — the presented pairing code. A code is single-use and
  *   expires in minutes, so the realistic abuse is replaying one captured code;
  *   keying on the code throttles exactly that, per code.
  *
  * The returned string is always passed through {@link hashIdentity} before it
- * becomes a bucket key, so neither a user id nor a live pairing token is ever
- * held in the limiter's memory in the clear.
+ * becomes a bucket key, so neither a school code nor a live pairing token is
+ * ever held in the limiter's memory in the clear.
  */
 export function extractCrewLoginIdentity(body: unknown): string | null {
   if (!body || typeof body !== 'object') {
@@ -141,19 +146,16 @@ export function extractCrewLoginIdentity(body: unknown): string | null {
   const candidate = body as {
     method?: unknown;
     school_id?: unknown;
-    user_id?: unknown;
     pairing_token?: unknown;
   };
 
   if (candidate.method === 'pin') {
-    if (typeof candidate.user_id !== 'string' || candidate.user_id.trim() === '') {
+    if (typeof candidate.school_id !== 'string' || candidate.school_id.trim() === '') {
+      // No school means nothing to key on. The DTO rejects the body with a 400
+      // anyway; the IP bucket above already counted the request.
       return null;
     }
-    const school =
-      typeof candidate.school_id === 'string' && candidate.school_id.trim() !== ''
-        ? candidate.school_id.trim().toLowerCase()
-        : 'unknown-tenant';
-    return `pin:${school}:${candidate.user_id.trim().toLowerCase()}`;
+    return `pin:${candidate.school_id.trim().toLowerCase()}`;
   }
 
   if (candidate.method === 'qr') {

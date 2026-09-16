@@ -17,8 +17,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, useRouter } from 'expo-router';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import { loginText, loginTouch } from '../src/theme';
 import { useAuth } from '../src/features/auth';
-import { Button, Field, LanguagePillRow } from '../src/components';
+import { Button, Field, LanguageMenu } from '../src/components';
 import { useTranslation } from '../src/lib/i18n-provider';
 import {
   emptyToNull,
@@ -54,11 +55,13 @@ import type { CrewLoginByPinRequest, CrewLoginByQrRequest } from '@school-bus-tr
  * - **Email/password** — school users (driver, conductor, parent, school
  *   admin). The school code is optional here so platform super admins still
  *   work; for everyone else the API resolves a tenant id.
- * - **PIN / QR** — DRIVER and CONDUCTOR on a phone. The school code is
- *   required (the API must resolve the tenant the same way `LoginRequest`
- *   does), plus the crew's own `user_id`. The PIN is typed on the
- *   `CrewPinPad`; the QR is scanned with the `CrewQrScanner`. The PIN
- *   path is rate-limited server-side; the QR path is single-use.
+ * - **PIN / QR** — DRIVER and CONDUCTOR on a phone. The PIN path asks for
+ *   exactly two things: the **school code** (the API resolves the tenant the
+ *   same way `LoginRequest` does) and the **4-digit PIN**. There is no user
+ *   id — the server resolves which crew member that PIN belongs to, so a
+ *   driver never has to read a UUID off an admin screen. The PIN is typed on
+ *   the `CrewPinPad`; the QR is scanned with the `CrewQrScanner`. The PIN
+ *   path is rate-limited server-side (per school); the QR path is single-use.
  *
  * Platform super admins are still web-only and are told so on a notice
  * screen (the platform console is not part of the mobile app).
@@ -92,7 +95,6 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   // -- Crew state --
   const [crewSchoolId, setCrewSchoolId] = useState('');
-  const [crewUserId, setCrewUserId] = useState('');
   const [pinDraft, setPinDraft] = useState('');
   const [crewSubmode, setCrewSubmode] = useState<CrewSubmode>('pin');
   const [crewError, setCrewError] = useState<CrewLoginErrorPresentation | null>(null);
@@ -236,17 +238,14 @@ export default function LoginScreen() {
    */
   const submitCrewPin = useCallback(
     async (pin: string) => {
-      const draft = buildCrewPinDraft({
-        schoolId: crewSchoolId,
-        userId: crewUserId,
-        pin,
-      });
+      const draft = buildCrewPinDraft({ schoolId: crewSchoolId, pin });
       if ('error' in draft) {
-        // The PIN pad enforces four digits and the fields are non-empty by the
-        // time we get here; reaching this branch means the parent forgot to
-        // validate, which is a programming error rather than a runtime one.
+        // The PIN pad enforces four digits, so the only way to land here is an
+        // empty school code. It is checked locally rather than sent: the
+        // server's lockout is **per school**, so a blank-code guess would burn
+        // one of the real school's five attempts per window on a typo.
         setCrewError({
-          message: t('login.crewPath.pin.userIdHint'),
+          message: t('login.crewPath.pin.schoolRequired'),
           codeNote: null,
           lockedForSeconds: null,
         });
@@ -258,7 +257,6 @@ export default function LoginScreen() {
         const body: CrewLoginByPinRequest = {
           method: 'pin',
           school_id: draft.schoolId,
-          user_id: draft.userId,
           pin: draft.pin,
         };
         await crewLogin(body);
@@ -281,7 +279,7 @@ export default function LoginScreen() {
         setBusy(false);
       }
     },
-    [crewLogin, crewSchoolId, crewUserId, t],
+    [crewLogin, crewSchoolId, t],
   );
 
   /**
@@ -321,8 +319,14 @@ export default function LoginScreen() {
 
     return (
       <View style={styles.card}>
-        <Text style={styles.crewTitle}>{t('login.crewPath.pin.title')}</Text>
-        <Text style={styles.crewSubtitle}>{t('login.crewPath.pin.subtitle')}</Text>
+        <Text style={styles.cardTitle}>{t('login.crewPath.pin.title')}</Text>
+        <Text style={styles.cardSubtitle}>{t('login.crewPath.pin.subtitle')}</Text>
+        {/*
+         * The crew card asks for two things and nothing else: the school code
+         * and the PIN below. A school code is the one identifier a driver can
+         * be expected to remember ("lincoln-high"), and the server resolves
+         * which crew member the PIN belongs to — so no user id, no UUID field.
+         */}
         <Field
           id="crew-school"
           label={t('login.schoolLabel')}
@@ -331,17 +335,11 @@ export default function LoginScreen() {
           placeholder={t('login.schoolPlaceholder')}
           autoCapitalize="none"
           hint={t('login.schoolHint')}
+          autoCorrect={false}
+          returnKeyType="done"
           editable={!busy && !lockoutActive}
-        />
-        <Field
-          id="crew-user-id"
-          label={t('login.crewPath.pin.userIdLabel')}
-          value={crewUserId}
-          onChangeText={setCrewUserId}
-          placeholder={t('login.crewPath.pin.userIdPlaceholder')}
-          autoCapitalize="none"
-          hint={t('login.crewPath.pin.userIdHint')}
-          editable={!busy && !lockoutActive}
+          style={styles.fieldInput}
+          containerStyle={styles.fieldBlock}
         />
         <View style={styles.submodeTabs} accessibilityRole="tablist">
           <Pressable
@@ -357,6 +355,7 @@ export default function LoginScreen() {
             style={[styles.submodeTab, crewSubmode === 'qr' ? styles.submodeTabActive : null]}
             accessibilityRole="tab"
             accessibilityState={{ selected: crewSubmode === 'qr' }}
+            accessibilityLabel={t('login.crewPath.qr.title')}
           >
             <Text style={styles.submodeTabLabel}>QR</Text>
           </Pressable>
@@ -426,9 +425,13 @@ export default function LoginScreen() {
     );
   };
 
-  // -- Email/password render (unchanged) ---------------------------------
+  // -- Email/password render ----------------------------------------------
+  // Behaviour is untouched: same three fields, same focus chaining, same
+  // submit, same error mapping. Only the type scale and the spacing rhythm are
+  // shared with the crew card, so the two paths look like one screen.
   const renderEmailPath = () => (
     <View style={styles.card}>
+      <Text style={styles.cardTitle}>{t('login.emailTitle')}</Text>
       <Field
         ref={schoolRef}
         label={t('login.schoolLabel')}
@@ -438,6 +441,8 @@ export default function LoginScreen() {
         autoCapitalize="none"
         error={fieldErrors.school_id}
         hint={t('login.schoolHint')}
+        style={styles.fieldInput}
+        containerStyle={styles.fieldBlock}
         returnKeyType="next"
         submitBehavior="submit"
         onFocus={onFocusField(schoolRef)}
@@ -453,6 +458,8 @@ export default function LoginScreen() {
         textContentType="username"
         autoComplete="email"
         error={fieldErrors.email}
+        style={styles.fieldInput}
+        containerStyle={styles.fieldBlock}
         returnKeyType="next"
         submitBehavior="submit"
         onFocus={onFocusField(emailRef)}
@@ -468,6 +475,8 @@ export default function LoginScreen() {
         textContentType="password"
         autoComplete="current-password"
         error={fieldErrors.password}
+        style={styles.fieldInput}
+        containerStyle={styles.fieldBlock}
         returnKeyType="done"
         onFocus={onFocusField(passwordRef)}
         onSubmitEditing={() => {
@@ -523,8 +532,12 @@ export default function LoginScreen() {
            * Language lives on the login screen so a driver can pick Hindi or
            * Marathi BEFORE signing in — the app opens in English by default
            * (CREW_DEFAULT_LOCALE) and the saved choice wins from then on.
+           *
+           * One compact dropdown, not a row of pills: three identical buttons
+           * above the card read as three separate actions and cost two extra
+           * rows of vertical space on the screen a driver has to complete.
            */}
-          <LanguagePillRow />
+          <LanguageMenu />
 
           {pathMode === 'email' ? renderEmailPath() : renderCrewPath()}
 
@@ -610,56 +623,87 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: colors.neutral[400],
-    fontSize: typography.fontSizes.sm,
+    fontSize: loginText.label,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#ffffff',
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
-    gap: spacing.sm,
+    gap: spacing.md,
+  },
+  /**
+   * Card title — 24 dp, the login screen's own scale (`loginText.cardTitle`).
+   * One title per card, one primary action per card; the rest of the card is
+   * inputs.
+   */
+  cardTitle: {
+    fontSize: loginText.cardTitle,
+    fontWeight: '800',
+    color: colors.neutral[900],
+    lineHeight: 30,
+  },
+  cardSubtitle: {
+    fontSize: loginText.secondary,
+    color: colors.neutral[700],
+    lineHeight: 20,
+  },
+  /**
+   * What the driver typed, at 18 dp instead of the in-app 16. Applied to every
+   * field on this screen through the `style` prop `Field` forwards, so the
+   * shared `Field` keeps its own default for the rest of the app.
+   */
+  fieldInput: {
+    fontSize: loginText.inputValue,
+  },
+  /**
+   * The card's `gap` (spacing.md) is the only vertical rhythm on this screen,
+   * so a Field's own `marginBottom` is cancelled here. Two sources of spacing
+   * on one axis is how a form ends up with 32 dp between some rows and 16 dp
+   * between others.
+   */
+  fieldBlock: {
+    marginBottom: spacing.none,
   },
   formError: {
     color: colors.status.danger,
-    fontSize: typography.fontSizes.sm,
-    marginBottom: spacing.md,
+    fontSize: loginText.secondary,
+    lineHeight: 20,
   },
   footerHit: {
     alignSelf: 'stretch',
   },
   footer: {
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
+    // neutral-400 on the neutral-900 background = 6.97:1 (AA). neutral-500 was
+    // 3.75:1 — fine for a light screen, short of AA on this dark hero, and the
+    // footer is the sentence that tells a parent they are in the right place.
+    color: colors.neutral[400],
+    fontSize: loginText.secondary,
     textAlign: 'center',
-    lineHeight: 18,
-  },
-  crewTitle: {
-    fontSize: typography.fontSizes.lg,
-    fontWeight: '700',
-    color: colors.neutral[900],
-  },
-  crewSubtitle: {
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[700],
-    marginBottom: spacing.sm,
+    lineHeight: 20,
   },
   submodeTabs: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   submodeTab: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    minHeight: loginTouch.min,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: colors.neutral[200],
     backgroundColor: colors.neutral[100],
   },
   submodeTabActive: {
     backgroundColor: colors.secondary[100],
+    borderColor: colors.secondary[700],
   },
   submodeTabLabel: {
     color: colors.neutral[900],
-    fontSize: typography.fontSizes.base,
-    fontWeight: '600',
+    fontSize: loginText.label,
+    fontWeight: '700',
   },
   pinPadWrap: {
     gap: spacing.md,
@@ -670,19 +714,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     gap: spacing.xs,
   },
+  // Amber card, kept: #92400E on #FEF3C7 = 6.37:1, #78350F on #FEF3C7 = 8.15:1.
   lockoutTitle: {
     color: '#92400E',
-    fontSize: typography.fontSizes.base,
+    fontSize: loginText.label,
     fontWeight: '700',
   },
   lockoutCountdown: {
     color: '#92400E',
-    fontSize: typography.fontSizes['2xl'],
+    fontSize: loginText.countdown,
     fontWeight: '800',
   },
   lockoutHint: {
     color: '#78350F',
-    fontSize: typography.fontSizes.sm,
+    fontSize: loginText.secondary,
+    lineHeight: 20,
   },
   qrWrap: {
     gap: spacing.md,
@@ -693,13 +739,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     gap: spacing.xs,
   },
+  // Red card, kept: #991B1B on #FEE2E2 = 6.80:1, #7F1D1D on #FEE2E2 = 8.20:1.
   errorCardText: {
     color: '#991B1B',
-    fontSize: typography.fontSizes.base,
+    fontSize: loginText.label,
+    lineHeight: 22,
   },
   errorCardNote: {
     color: '#7F1D1D',
-    fontSize: typography.fontSizes.sm,
+    fontSize: loginText.secondary,
     fontFamily: 'monospace',
   },
 });

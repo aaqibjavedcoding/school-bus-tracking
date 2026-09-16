@@ -1,7 +1,6 @@
 import {
   IsIn,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -53,16 +52,18 @@ export class CrewLoginDto {
    * `POST /auth/login` accepts, so a crew member and an administrator at the
    * same school cannot have to remember different identifiers. The service
    * trims and resolves it.
+   *
+   * It is also the *only* identity on this branch: the submitted school scopes
+   * the set of crew accounts the PIN is compared against (there is no
+   * `user_id` any more), and it is the key of the school-wide brute-force
+   * counter, so a body that cannot name a tenant cannot reach the users table
+   * at all.
    */
   @ValidateIf(onPinBranch)
   @IsString({ message: 'school_id must be a string' })
   @MaxLength(63, { message: 'school_id must be at most 63 characters' })
   @Matches(UUID_OR_SCHOOL_CODE, { message: 'school_id must be a valid UUID or school code' })
   school_id!: string;
-
-  @ValidateIf(onPinBranch)
-  @IsUUID('4', { message: 'user_id must be a valid UUID' })
-  user_id!: string;
 
   /**
    * Exactly four ASCII digits. This is a *shape* check only: a PIN that looks
@@ -116,12 +117,15 @@ export class CrewLoginDto {
  *
  * ### It parses the DTO's *own keys*, and that is the point
  *
- * The obvious implementation — rebuild `{ method: 'pin', school_id, user_id, pin }`
+ * The obvious implementation — rebuild `{ method: 'pin', school_id, pin }`
  * from the declared branch and parse that — is wrong, and was tried. Rebuilding
  * discards the very field this step exists to catch: a QR login carrying a `pin`
  * arrives at the schema as a clean two-field candidate that `.strict()` happily
  * accepts. Keeping the DTO's keys means the foreign branch's field is still
- * there when the strict schema looks, so it is rejected.
+ * there when the strict schema looks, so it is rejected. A body carrying a
+ * stale `user_id` — from an older mobile build, or hand-built — is refused by
+ * the same mechanism: the shared PIN schema is `.strict()` and no longer
+ * declares one.
  *
  * ### But `undefined` keys have to be dropped first
  *

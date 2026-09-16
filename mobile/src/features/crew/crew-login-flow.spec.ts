@@ -14,57 +14,42 @@ import {
  *
  * `t()` is not exercised here — the dictionary and the error-code map have
  * their own parity/clipping specs (`i18n-parity.spec.ts`,
- * `i18n-literals.spec.ts`). What we cover here is the *pure* glue:
+ * `i18n-literals.spec.ts`). What we cover here is the *pure* glue, including
+ * the exact shape of the PIN request body: a crew login is
+ * `{ method: 'pin', school_id, pin }`, and the server resolves which crew
+ * member the PIN belongs to.
  */
 
 describe('buildCrewPinDraft', () => {
-  it('trims school and user ids, digit-strips the pin, and clamps to four digits', () => {
-    const result = buildCrewPinDraft({
-      schoolId: ' lincoln-high ',
-      userId: ' 11111111-1111-1111-1111-111111111111 ',
-      pin: '12-34',
-    });
-    assert.deepEqual(result, {
-      schoolId: 'lincoln-high',
-      userId: '11111111-1111-1111-1111-111111111111',
-      pin: '1234',
-    });
+  it('trims the school code, digit-strips the pin, and clamps to four digits', () => {
+    const result = buildCrewPinDraft({ schoolId: ' lincoln-high ', pin: '12-34' });
+    assert.deepEqual(result, { schoolId: 'lincoln-high', pin: '1234' });
   });
 
-  it('returns a typed error for an empty school id', () => {
-    const result = buildCrewPinDraft({
-      schoolId: '   ',
-      userId: '11111111-1111-1111-1111-111111111111',
-      pin: '1234',
-    });
-    assert.deepEqual(result, { error: 'schoolId' });
+  it('builds exactly the two-field body the server accepts — no user id', () => {
+    // The wire contract, pinned here so a re-added `userId` fails the suite
+    // rather than shipping a field the DTO no longer declares.
+    const result = buildCrewPinDraft({ schoolId: 'lincoln-high', pin: '4821' });
+    assert.deepEqual(result, { schoolId: 'lincoln-high', pin: '4821' });
+    assert.deepEqual(Object.keys(result).sort(), ['pin', 'schoolId']);
   });
 
-  it('returns a typed error for an empty user id', () => {
-    const result = buildCrewPinDraft({
-      schoolId: 'lincoln-high',
-      userId: '',
-      pin: '1234',
+  it('returns a typed error for an empty school code', () => {
+    assert.deepEqual(buildCrewPinDraft({ schoolId: '   ', pin: '1234' }), {
+      error: 'schoolId',
     });
-    assert.deepEqual(result, { error: 'userId' });
   });
 
   it('returns a typed error for a non-numeric pin', () => {
-    const result = buildCrewPinDraft({
-      schoolId: 'lincoln-high',
-      userId: '11111111-1111-1111-1111-111111111111',
-      pin: 'abcd',
+    assert.deepEqual(buildCrewPinDraft({ schoolId: 'lincoln-high', pin: 'abcd' }), {
+      error: 'pin',
     });
-    assert.deepEqual(result, { error: 'pin' });
   });
 
   it('returns a typed error for a pin that is the wrong length after stripping', () => {
-    const result = buildCrewPinDraft({
-      schoolId: 'lincoln-high',
-      userId: '11111111-1111-1111-1111-111111111111',
-      pin: '12',
+    assert.deepEqual(buildCrewPinDraft({ schoolId: 'lincoln-high', pin: '12' }), {
+      error: 'pin',
     });
-    assert.deepEqual(result, { error: 'pin' });
   });
 });
 

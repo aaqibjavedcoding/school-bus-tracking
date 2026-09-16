@@ -31,7 +31,11 @@ import { CrewLoginDto, narrowCrewLoginDto } from '../modules/auth/dto/crew-login
 import { isCrewRole } from '../modules/auth/crew-auth.service';
 import { RefreshTokenRotationConflictException } from '../modules/auth/auth.service';
 import { parseCookieHeader } from '../auth';
-import { buildCsrfClearCookieOptions, buildCsrfCookieOptions, generateCsrfToken } from '../common/security';
+import {
+  buildCsrfClearCookieOptions,
+  buildCsrfCookieOptions,
+  generateCsrfToken,
+} from '../common/security';
 
 /** Payload of `GET /api/v1/auth/csrf`. */
 export interface CsrfTokenResponse {
@@ -45,9 +49,7 @@ function isHttpsRequest(request: AdaptedRequest): boolean {
     return true;
   }
   const forwardedProto = request.headers['x-forwarded-proto'];
-  const first = Array.isArray(forwardedProto)
-    ? forwardedProto[0]
-    : forwardedProto?.split(',')[0];
+  const first = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0];
   return first?.trim().toLowerCase() === 'https';
 }
 
@@ -71,10 +73,7 @@ function issueCsrfToken(request: AdaptedRequest, cookies: CookieJar): string {
 }
 
 function clearCsrfCookie(request: AdaptedRequest, cookies: CookieJar): void {
-  cookies.clearCookie(
-    csrfCookieName(),
-    buildCsrfClearCookieOptions(csrfCookieInput(request)),
-  );
+  cookies.clearCookie(csrfCookieName(), buildCsrfClearCookieOptions(csrfCookieInput(request)));
 }
 
 function setRefreshTokenCookie(
@@ -149,10 +148,7 @@ function setSessionPresentCookie(request: AdaptedRequest, cookies: CookieJar): v
 }
 
 function clearSessionPresentCookie(request: AdaptedRequest, cookies: CookieJar): void {
-  cookies.clearCookie(
-    SESSION_PRESENT_COOKIE_NAME,
-    sessionPresentClearOptions(request),
-  );
+  cookies.clearCookie(SESSION_PRESENT_COOKIE_NAME, sessionPresentClearOptions(request));
 }
 
 /**
@@ -174,8 +170,7 @@ function extractRefreshToken(request: AdaptedRequest): string | undefined {
     }
   }
 
-  const allowBody =
-    container().config().get<boolean>('security.allowRefreshTokenInBody') === true;
+  const allowBody = container().config().get<boolean>('security.allowRefreshTokenInBody') === true;
   const body = request.body as { refresh_token?: string } | undefined;
   if (allowBody && body && typeof body === 'object' && body.refresh_token) {
     return body.refresh_token;
@@ -199,30 +194,34 @@ export const postAuthLogin: EndpointDefinition<LoginDto> = {
       // attempted identifier. The actor is unknown by definition; the
       // original error is rethrown unchanged so audit cannot alter the
       // auth outcome.
-      await container().audit().log({
-        school_id: null,
-        actor_user_id: null,
-        action: AUDIT_ACTIONS.AUTH_LOGIN,
-        entity_type: AUDIT_ENTITY_TYPES.USER,
-        entity_id: null,
-        ...auditRequestContext({ request }),
-        metadata: { success: false, email: body.email },
-      });
+      await container()
+        .audit()
+        .log({
+          school_id: null,
+          actor_user_id: null,
+          action: AUDIT_ACTIONS.AUTH_LOGIN,
+          entity_type: AUDIT_ENTITY_TYPES.USER,
+          entity_id: null,
+          ...auditRequestContext({ request }),
+          metadata: { success: false, email: body.email },
+        });
       throw error;
     }
     const { response, refreshToken } = session;
     setRefreshTokenCookie(request, cookies, refreshToken);
     setSessionPresentCookie(request, cookies);
     issueCsrfToken(request, cookies);
-    await container().audit().log({
-      school_id: response.user.school_id,
-      actor_user_id: response.user.id,
-      action: AUDIT_ACTIONS.AUTH_LOGIN,
-      entity_type: AUDIT_ENTITY_TYPES.USER,
-      entity_id: response.user.id,
-      ...auditRequestContext({ request }),
-      metadata: { success: true },
-    });
+    await container()
+      .audit()
+      .log({
+        school_id: response.user.school_id,
+        actor_user_id: response.user.id,
+        action: AUDIT_ACTIONS.AUTH_LOGIN,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: response.user.id,
+        ...auditRequestContext({ request }),
+        metadata: { success: true },
+      });
     return response satisfies LoginResponse;
   },
 };
@@ -240,12 +239,13 @@ export const postAuthLogin: EndpointDefinition<LoginDto> = {
  * ### What is deliberately NOT in the audit trail
  *
  * Neither the PIN nor the pairing token is ever written to `audit_logs`, to a
- * log line, or into an error `details` object. A PIN has 10,000 possible values,
- * so an audit trail that recorded attempted PINs would be a dictionary of the
- * ones real drivers use; and a live pairing token in a log would be a
- * replayable credential. The trail records that an attempt happened, which
- * branch it took, and the identity it claimed — which is everything brute-force
- * forensics needs.
+ * log line, or into an error `details` object — nor is a PIN ever echoed back in
+ * an error *message*, including the ambiguous-PIN case. A PIN has 10,000
+ * possible values, so an audit trail that recorded attempted PINs would be a
+ * dictionary of the ones real drivers use; and a live pairing token in a log
+ * would be a replayable credential. The trail records that an attempt happened,
+ * which branch it took, and the school it was aimed at (plus the resolved user
+ * on success) — which is everything brute-force forensics needs.
  *
  * ### Failure auditing
  *
@@ -278,28 +278,35 @@ export const postAuthCrewLogin: EndpointDefinition<CrewLoginDto> = {
       });
     }
 
-    // Audited identity: what the attempt *claimed*. Never a credential.
+    // Audited identity: what the attempt *claimed*. Never a credential, and on
+    // the PIN branch never a user — the body no longer carries one, so there is
+    // no client-claimed identity left to record (and a claimed one would only
+    // ever have been a guess anyway). What survives forensically is the school
+    // the attempt was aimed at, which is what a brute-force investigation needs.
     const attempted =
       crewBody.method === 'pin'
-        ? { method: 'pin' as const, school_id: crewBody.school_id, user_id: crewBody.user_id }
+        ? { method: 'pin' as const, school_id: crewBody.school_id }
         : { method: 'qr' as const };
 
     let session;
     try {
       session = await container().crewAuth().login(crewBody);
     } catch (error) {
-      await container().audit().log({
-        school_id: null,
-        actor_user_id: null,
-        action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
-        entity_type: AUDIT_ENTITY_TYPES.USER,
-        // `user_id` on the PIN branch is a client claim, not a verified
-        // identity, so it goes in the metadata and never in `entity_id` — an
-        // auditor must not read a failed attempt as an action by that user.
-        entity_id: null,
-        ...auditRequestContext({ request }),
-        metadata: { success: false, ...attempted },
-      });
+      await container()
+        .audit()
+        .log({
+          school_id: null,
+          actor_user_id: null,
+          action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
+          entity_type: AUDIT_ENTITY_TYPES.USER,
+          // A failed attempt is not an action *by* anyone: `entity_id` stays null
+          // so an auditor never reads a rejected login as activity by the account
+          // it was aimed at. On success the resolved user is recorded below, in
+          // `entity_id`/`actor_user_id`, exactly as `postAuthLogin` does.
+          entity_id: null,
+          ...auditRequestContext({ request }),
+          metadata: { success: false, ...attempted },
+        });
       throw error;
     }
 
@@ -316,15 +323,21 @@ export const postAuthCrewLogin: EndpointDefinition<CrewLoginDto> = {
     setRefreshTokenCookie(request, cookies, refreshToken);
     setSessionPresentCookie(request, cookies);
     issueCsrfToken(request, cookies);
-    await container().audit().log({
-      school_id: response.user.school_id,
-      actor_user_id: response.user.id,
-      action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
-      entity_type: AUDIT_ENTITY_TYPES.USER,
-      entity_id: response.user.id,
-      ...auditRequestContext({ request }),
-      metadata: { success: true, ...attempted },
-    });
+    await container()
+      .audit()
+      .log({
+        school_id: response.user.school_id,
+        actor_user_id: response.user.id,
+        action: AUDIT_ACTIONS.AUTH_CREW_LOGIN,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: response.user.id,
+        ...auditRequestContext({ request }),
+        // `user_id` here is the **resolved** account — the one whose stored hash
+        // the PIN verified against — not a client claim. It is the answer to the
+        // question the failure rows cannot answer: which crew member actually got
+        // in, from which school.
+        metadata: { success: true, ...attempted, user_id: response.user.id },
+      });
     return response satisfies CrewLoginResponse;
   },
 };
@@ -380,14 +393,16 @@ export const postAuthLogout: EndpointDefinition = {
     // wire). No-op logouts carry no identity and would only flood the trail.
     const { revoked_user_id, revoked_school_id, ...response } = result;
     if (revoked_user_id) {
-      await container().audit().log({
-        school_id: revoked_school_id ?? null,
-        actor_user_id: revoked_user_id,
-        action: AUDIT_ACTIONS.AUTH_LOGOUT,
-        entity_type: AUDIT_ENTITY_TYPES.USER,
-        entity_id: revoked_user_id,
-        ...auditRequestContext({ request }),
-      });
+      await container()
+        .audit()
+        .log({
+          school_id: revoked_school_id ?? null,
+          actor_user_id: revoked_user_id,
+          action: AUDIT_ACTIONS.AUTH_LOGOUT,
+          entity_type: AUDIT_ENTITY_TYPES.USER,
+          entity_id: revoked_user_id,
+          ...auditRequestContext({ request }),
+        });
     }
     return response satisfies LogoutResponse;
   },
@@ -401,8 +416,7 @@ export const getAuthCsrf: EndpointDefinition = {
     const token = issueCsrfToken(request, cookies);
     return {
       csrf_token: token,
-      header_name:
-        container().config().get<string>('security.csrf.headerName') ?? 'x-csrf-token',
+      header_name: container().config().get<string>('security.csrf.headerName') ?? 'x-csrf-token',
     } satisfies CsrfTokenResponse;
   },
 };

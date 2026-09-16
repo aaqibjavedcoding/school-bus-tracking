@@ -56,20 +56,62 @@ export const DEFAULT_REFRESH_COOKIE_NAME = 'refresh_token';
 // ── Crew PIN + QR login (Mobile-UX Phase 4) ─────────────────────────────────
 
 /**
- * Single generic message for **every** crew credential failure: unknown user,
- * user in another tenant, account not a DRIVER/CONDUCTOR, deactivated account,
- * no PIN ever set, and wrong PIN.
+ * Single generic message for **every** crew credential failure: unknown school
+ * code, a school with no crew PINs at all, a deactivated account, and a wrong
+ * PIN.
  *
  * Reusing the email/password rule (`INVALID_CREDENTIALS_MESSAGE`) is deliberate
- * and load-bearing. The PIN branch takes a client-supplied `user_id`, so any
- * distinguishing message — "no PIN set", "not a crew account", "unknown user" —
- * would be an oracle that turns a list of UUIDs into a list of *drivers*. The
- * per-user lockout is keyed and incremented whether or not the account exists,
- * and exactly one bcrypt comparison runs either way (see
- * `PIN_TIMING_EQUALIZATION_HASH`), so neither the message, the attempt
- * countdown nor the response timing reveals which case applied.
+ * and load-bearing. The PIN branch names a *tenant*, so any distinguishing
+ * message — "no drivers here", "that school has no PINs set", "unknown code" —
+ * would be an oracle that turns a list of school codes into a list of schools
+ * that run buses with this app. The per-school lockout is keyed and incremented
+ * whether or not the school resolves at all, and the same fixed number of
+ * bcrypt comparisons runs either way (see `PIN_TIMING_EQUALIZATION_HASH`), so
+ * neither the message, the attempt countdown nor the response timing reveals
+ * which case applied.
  */
 export const INVALID_CREW_CREDENTIALS_MESSAGE = INVALID_CREDENTIALS_MESSAGE;
+
+/**
+ * Error-envelope `code` for a PIN that matched **more than one** crew account
+ * (HTTP 401), with {@link CREW_PIN_AMBIGUOUS_MESSAGE}.
+ *
+ * Reachable only by a PIN that genuinely verifies against two stored hashes at
+ * the same school, which `CrewAuthService.setPin` refuses to create — so in a
+ * healthy deployment this branch never fires, and it exists as defence in depth
+ * for a database that was edited by hand or restored from a pre-uniqueness
+ * backup. It leaks nothing a caller did not already earn: to reach it they had
+ * to submit a PIN that is correct for two of that school's crew.
+ */
+export const CREW_PIN_AMBIGUOUS_CODE = 'CREW_PIN_AMBIGUOUS';
+
+/**
+ * Message for the ambiguous-PIN case. Unlike the credential failures this one
+ * is *specific on purpose* — it is an instruction to a human ("tell your
+ * admin"), and the situation it describes is an administrator's to fix, not a
+ * secret to hide. No PIN value is ever interpolated into it.
+ */
+export const CREW_PIN_AMBIGUOUS_MESSAGE =
+  'More than one crew member has this PIN. Ask your school admin to change it.';
+
+/**
+ * Error-envelope `code` for "another active crew member of this school already
+ * has that PIN" (HTTP 409), with {@link CREW_PIN_DUPLICATE_MESSAGE}.
+ */
+export const CREW_PIN_DUPLICATE_CODE = 'CREW_PIN_DUPLICATE';
+
+/**
+ * Message an administrator sees when the PIN they are setting would collide
+ * with another crew member's.
+ *
+ * Uniqueness is a *login* requirement, not a housekeeping preference: a PIN
+ * login carries no user id, so the server resolves the account by finding which
+ * crew member's hash the PIN verifies against. Two matches cannot be resolved,
+ * and a PIN that was settable in one request must never make the login it
+ * authorises unusable in the next.
+ */
+export const CREW_PIN_DUPLICATE_MESSAGE =
+  'Another crew member at this school already uses that PIN. Choose a different one.';
 
 /**
  * Message for every QR pairing failure: malformed, unknown, expired or already
@@ -100,9 +142,12 @@ export const CREW_PAIRING_INVALID_CODE = 'CREW_PAIRING_INVALID';
 
 /**
  * Valid bcrypt digest of a random throwaway value, used on the crew PIN path for
- * the same reason `TIMING_EQUALIZATION_HASH` exists on the password path: when
- * the account does not exist, or exists but has no PIN, exactly one bcrypt
- * comparison still runs so response timing cannot reveal which.
+ * the same reason `TIMING_EQUALIZATION_HASH` exists on the password path: when a
+ * school has no crew PINs to compare against — or has fewer than
+ * `CREW_PIN_COMPARISON_COUNT` of them — the missing comparisons still run,
+ * against this digest, so the *number* of bcrypt operations (and therefore the
+ * response time) says nothing about whether a match was found or how many crew
+ * members a school has.
  */
 export const PIN_TIMING_EQUALIZATION_HASH =
   '$2b$12$haAsEdkQOODaSSistEENOOOlN7eXiw32QUlozHEFDAJ2ZNoHZ99DO';

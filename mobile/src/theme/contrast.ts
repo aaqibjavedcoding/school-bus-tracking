@@ -162,6 +162,101 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
     background: colors.neutral[50],
     minimum: AA_TEXT,
   },
+  // ── Login screen (2026-09 polish) ────────────────────────────────────────
+  // The login screen is the only dark-background surface in the app, so every
+  // pair on it is checked against the *dark* hero rather than a light page.
+  // The footer pair is the regression here: neutral-500 on neutral-900 is
+  // 3.75:1, which fails AA for body text — it moved to neutral-400 (6.97:1).
+  {
+    name: 'login brand title on dark hero',
+    foreground: WHITE,
+    background: colors.neutral[900],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'login subtitle on dark hero',
+    foreground: colors.neutral[400],
+    background: colors.neutral[900],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'login footer on dark hero',
+    foreground: colors.neutral[400],
+    background: colors.neutral[900],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'login brand mark label on amber',
+    foreground: colors.neutral[900],
+    background: colors.primary[500],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'language chip label on dark hero',
+    foreground: WHITE,
+    background: colors.neutral[900],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'language chip border on dark hero',
+    foreground: colors.neutral[500],
+    background: colors.neutral[900],
+    minimum: AA_UI_COMPONENT,
+  },
+  {
+    name: 'language menu item on white',
+    foreground: colors.neutral[800],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'language menu selected item on white',
+    foreground: colors.secondary[700],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'crew card title on white card',
+    foreground: colors.neutral[900],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'crew card subtitle on white card',
+    foreground: colors.neutral[700],
+    background: WHITE,
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'PIN pad digit on key surface',
+    foreground: colors.neutral[900],
+    background: colors.neutral[100],
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'lockout card title/countdown (amber)',
+    foreground: '#92400E',
+    background: '#FEF3C7',
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'lockout card hint (amber)',
+    foreground: '#78350F',
+    background: '#FEF3C7',
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'error card message (red)',
+    foreground: '#991B1B',
+    background: '#FEE2E2',
+    minimum: AA_TEXT,
+  },
+  {
+    name: 'error card server-code note (red)',
+    foreground: '#7F1D1D',
+    background: '#FEE2E2',
+    minimum: AA_TEXT,
+  },
 ];
 
 /**

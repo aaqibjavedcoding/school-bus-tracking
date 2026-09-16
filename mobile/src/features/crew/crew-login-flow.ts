@@ -38,7 +38,6 @@ import {
 /** What the pure part of the PIN pad hands to the network call. */
 export interface CrewPinDraft {
   schoolId: string;
-  userId: string;
   pin: string;
 }
 
@@ -46,32 +45,31 @@ export interface CrewPinDraft {
  * Reduce arbitrary input (typed / pasted / autofilled) to the exact shape
  * the server expects.
  *
- * - `schoolId` is trimmed; an empty string becomes `null` so the DTO can
- *   surface "school code required" rather than send a blank UUID.
- * - `userId` is trimmed verbatim — the DTO rejects anything that is not a
- *   UUID, so the pad does not second-guess casing.
+ * - `schoolId` is trimmed; an empty string becomes `{ error: 'schoolId' }` so
+ *   the screen can say "enter your school code" rather than send a blank code
+ *   and burn one of the school's five attempts per window on it.
  * - `pin` is digit-stripped and clamped to `CREW_PIN_LENGTH`. The same
  *   helper is reused on the admin side.
+ *
+ * There is deliberately **no** `userId`: a crew PIN login is
+ * `{ method: 'pin', school_id, pin }` and the server resolves which crew
+ * member that PIN belongs to (see `crewLoginByPinSchema` and
+ * `CrewAuthService.loginWithPin`).
  */
 export function buildCrewPinDraft(input: {
   schoolId: string;
-  userId: string;
   pin: string;
 }): CrewPinDraft | { error: string } {
   const schoolId = input.schoolId.trim();
   if (schoolId.length === 0) {
     return { error: 'schoolId' };
   }
-  const userId = input.userId.trim();
-  if (userId.length === 0) {
-    return { error: 'userId' };
-  }
   const digits = input.pin.replace(/\D/g, '').slice(0, CREW_PIN_LENGTH);
   const parsed = crewPinSchema.safeParse(digits);
   if (!parsed.success) {
     return { error: 'pin' };
   }
-  return { schoolId, userId, pin: parsed.data };
+  return { schoolId, pin: parsed.data };
 }
 
 /**

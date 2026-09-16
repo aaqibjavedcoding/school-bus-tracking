@@ -328,6 +328,7 @@ export const en = {
   'login.emailPlaceholder': 'you@school.edu',
   'login.password': 'Password',
   'login.passwordPlaceholder': '••••••••',
+  'login.emailTitle': 'Sign in with email',
   'login.submit': 'Sign in',
   'login.failed': 'Could not sign in',
   'login.footer':
@@ -344,10 +345,7 @@ export const en = {
   'login.crewPath.pin.title': 'Enter your 4-digit PIN',
   'login.crewPath.pin.subtitle':
     'The school admin set this PIN on your account. It unlocks the phone you already paired.',
-  'login.crewPath.pin.userIdLabel': 'Your user ID',
-  'login.crewPath.pin.userIdPlaceholder': 'UUID from the admin',
-  'login.crewPath.pin.userIdHint':
-    'Ask your school admin if you do not have this. It identifies which driver or conductor you are.',
+  'login.crewPath.pin.schoolRequired': 'Enter your school code',
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'Unlock',
   'login.crewPath.pin.clearKey': 'Clear PIN',
@@ -479,6 +477,8 @@ export const en = {
    */
   'error.CREW_PIN_LOCKED': 'Too many wrong PINs. Try again later.',
   'error.CREW_PIN_INVALID': 'That PIN did not work. Please try again.',
+  'error.CREW_PIN_AMBIGUOUS':
+    'More than one crew member has this PIN. Ask your school admin to change it.',
   'error.CREW_PAIRING_INVALID':
     'That pairing code could not be used. Ask the admin for a fresh QR.',
 } as const satisfies Record<string, string>;

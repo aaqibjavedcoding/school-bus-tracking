@@ -314,6 +314,7 @@ export const hi: Dictionary = {
   'login.emailPlaceholder': 'you@school.edu',
   'login.password': 'पासवर्ड',
   'login.passwordPlaceholder': '••••••••',
+  'login.emailTitle': 'ईमेल से साइन इन करें',
   'login.submit': 'साइन इन करें',
   'login.failed': 'साइन इन नहीं हो सका',
   'login.footer':
@@ -325,10 +326,7 @@ export const hi: Dictionary = {
   'login.crewPath.pin.title': 'अपना 4-अंकीय PIN डालें',
   'login.crewPath.pin.subtitle':
     'स्कूल एडमिन ने आपके अकाउंट पर यह PIN सेट किया है। यह उसी फ़ोन को खोलता है जिसे आपने पहले जोड़ा है।',
-  'login.crewPath.pin.userIdLabel': 'आपकी user ID',
-  'login.crewPath.pin.userIdPlaceholder': 'एडमिन से मिला UUID',
-  'login.crewPath.pin.userIdHint':
-    'अगर आपके पास यह नहीं है तो स्कूल एडमिन से पूछें। यह बताता है कि आप कौन-से ड्राइवर / कंडक्टर हैं।',
+  'login.crewPath.pin.schoolRequired': 'अपना स्कूल कोड डालें',
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'अनलॉक करें',
   'login.crewPath.pin.clearKey': 'PIN मिटाएँ',
@@ -443,6 +441,8 @@ export const hi: Dictionary = {
   // ── Crew mobile-login (Phase 4b) ────────────────────────────────────────
   'error.CREW_PIN_LOCKED': 'बहुत बार ग़लत PIN डाला गया। थोड़ी देर बाद फिर कोशिश करें',
   'error.CREW_PIN_INVALID': 'PIN काम नहीं किया। फिर कोशिश करें।',
+  'error.CREW_PIN_AMBIGUOUS':
+    'यह PIN एक से ज़्यादा कर्मचारी का है। एडमिन से बदलने को कहें।',
   'error.CREW_PAIRING_INVALID':
     'वह पेयरिंग कोड काम नहीं आया। एडमिन से नया QR लें।',
 };
