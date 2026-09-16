@@ -306,6 +306,8 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'login.brandName',
   'login.emailPlaceholder',
   'login.passwordPlaceholder',
+  'login.crewPath.pin.padLabel',
+  'login.crewPath.qr.pastePlaceholder',
   'settings.language.nameEn',
   'settings.language.nameHi',
   'trip.emptyValue',
@@ -350,6 +352,26 @@ export const KNOWN_ERROR_CODES: Record<string, StaticTranslationKey> = {
   INTERNAL_SERVER_ERROR: 'error.INTERNAL_SERVER_ERROR',
   RATE_LIMIT_EXCEEDED: 'error.RATE_LIMIT_EXCEEDED',
   SERVICE_NOT_READY: 'error.SERVICE_NOT_READY',
+  /**
+   * Crew mobile-login (Phase 4b). Three documented codes from
+   * `web/src/server/modules/auth/auth.constants.ts`:
+   *
+   * - `CREW_PIN_LOCKED`     — per-user lockout (HTTP 429). Has structured
+   *                          `retry_after_seconds` and `remaining_attempts: 0`
+   *                          in `error.details`; `localizeCrewLoginError`
+   *                          surfaces them to the lockout countdown.
+   * - `CREW_PIN_INVALID`    — wrong PIN, wrong user_id, or no PIN set
+   *                          (HTTP 401, generic message — see `INVALID_CREW_CREDENTIALS_MESSAGE`).
+   * - `CREW_PAIRING_INVALID`— malformed / unknown / expired / already-redeemed
+   *                          QR pairing code (HTTP 401, generic message).
+   *
+   * `localizeApiError` covers all three with the same fallback rule as the
+   * other codes: known code → dictionary copy, unknown code → server message
+   * + raw-code note.
+   */
+  CREW_PIN_LOCKED: 'error.CREW_PIN_LOCKED',
+  CREW_PIN_INVALID: 'error.CREW_PIN_INVALID',
+  CREW_PAIRING_INVALID: 'error.CREW_PAIRING_INVALID',
 };
 
 /**
@@ -426,5 +448,67 @@ export function localizeApiError(input: {
     message: serverMessage ?? t('common.error'),
     codeNote: null,
     localized: false,
+  };
+}
+
+// ── Crew mobile-login error mapping (Phase 4b) ───────────────────────────
+
+/**
+ * Read `retry_after_seconds` from the server's structured `error.details`.
+ *
+ * The server puts this on every `CREW_PIN_LOCKED` envelope so the login
+ * screen can show a live countdown instead of an opaque "wait a quarter of
+ * an hour". Anything that is not a positive integer number of seconds is
+ * treated as absent — the caller falls back to a static message and the
+ * countdown stays hidden.
+ */
+export function readRetryAfterSeconds(details: unknown): number | null {
+  if (!details || typeof details !== 'object') return null;
+  const value = (details as Record<string, unknown>).retry_after_seconds;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return Math.ceil(value);
+}
+
+/**
+ * Outcome of mapping a `POST /auth/crew-login` error envelope to UI state.
+ *
+ * What the login screen needs to render:
+ *
+ * - `message`   — the line of copy to show, already localised (or the server
+ *                 message verbatim when the code is unknown — never hidden);
+ * - `codeNote`  — the "Server code XYZ" note for an unknown code, so support
+ *                 can be told the exact code (`null` when the code was known);
+ * - `lockedForSeconds` — non-null **only** when the server returned
+ *                 `CREW_PIN_LOCKED` with a usable `retry_after_seconds`. The
+ *                 login screen uses it to drive the lockout countdown; an
+ *                 `error.CREW_PIN_LOCKED` with no structured detail still
+ *                 gets the static message but no countdown (defensive — the
+ *                 server contract is the source of truth, but never invent
+ *                 a number the server did not send).
+ */
+export interface CrewLoginErrorPresentation {
+  message: string;
+  codeNote: string | null;
+  lockedForSeconds: number | null;
+}
+
+export function localizeCrewLoginError(input: {
+  code?: string | null;
+  message?: string | null;
+  status?: number | null;
+  details?: unknown;
+}): CrewLoginErrorPresentation {
+  const localized = localizeApiError(input);
+  let lockedForSeconds: number | null = null;
+  const code = typeof input.code === 'string' && input.code.length > 0 ? input.code : null;
+  if (code === 'CREW_PIN_LOCKED') {
+    lockedForSeconds = readRetryAfterSeconds(input.details);
+  }
+  return {
+    message: localized.message,
+    codeNote: localized.codeNote,
+    lockedForSeconds,
   };
 }

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { AuthenticatedUser, LoginRequest } from '@school-bus-tracking/shared-types';
+import type { AuthenticatedUser, CrewLoginRequest, LoginRequest } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
@@ -24,6 +24,14 @@ interface AuthContextValue {
   status: AuthStatus;
   user: AuthenticatedUser | null;
   login: (body: LoginRequest) => Promise<void>;
+  /**
+   * Crew mobile-login (Mobile-UX Phase 4b). A 4-digit PIN or a scanned QR
+   * pairing code against `POST /auth/crew-login`. Throws on failure — the
+   * login screen translates the error envelope into a user-facing message
+   * via `crew-login-errors.ts`. On success the session is identical to an
+   * email/password login (same JWT, same refresh rotation).
+   */
+  crewLogin: (body: CrewLoginRequest) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -91,6 +99,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void setupPushNotifications(envelope.data.user);
   }, []);
 
+  /**
+   * Crew PIN/QR login (Phase 4b). Mirrors `login()` — `apiClient.crewLogin`
+   * already persists the access token in the session module before returning,
+   * so this method only owns the React-side state transition and push
+   * registration. Errors are thrown so the login screen can map them
+   * through `crew-login-errors.ts`.
+   */
+  const crewLogin = useCallback(async (body: CrewLoginRequest) => {
+    const envelope = await apiClient.crewLogin(body);
+    if (!envelope.data?.access_token || !envelope.data.user) {
+      throw new Error(envelope.error?.message || envelope.message || 'Sign in failed');
+    }
+    setUser(envelope.data.user);
+    setStatus('authenticated');
+    void setupPushNotifications(envelope.data.user);
+  }, []);
+
   const logout = useCallback(async () => {
     // The device token must be released *before* the session is revoked:
     // `DELETE /notifications/devices/:token` is JWT-scoped. Bounded so a dead
@@ -107,7 +132,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearSession();
   }, [clearSession]);
 
-  const value = useMemo(() => ({ status, user, login, logout }), [status, user, login, logout]);
+  const value = useMemo(
+    () => ({ status, user, login, crewLogin, logout }),
+    [status, user, login, crewLogin, logout],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

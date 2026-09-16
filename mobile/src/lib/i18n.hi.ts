@@ -318,6 +318,42 @@ export const hi: Dictionary = {
   'login.footer':
     'ड्राइवर, कंडक्टर, अभिभावक और स्कूल एडमिन — सब यहीं साइन इन करते हैं। ऐप आपकी भूमिका के अनुसार खुद बदल जाता है।',
 
+  // ── Crew mobile-login (Phase 4b) ────────────────────────────────────────
+  'login.crewPath.cta': 'ड्राइवर / कंडक्टर के रूप में साइन इन करें',
+  'login.crewPath.backToAdmin': 'इसके बजाय ईमेल और पासवर्ड इस्तेमाल करें',
+  'login.crewPath.pin.title': 'अपना 4-अंकीय PIN डालें',
+  'login.crewPath.pin.subtitle':
+    'स्कूल एडमिन ने आपके अकाउंट पर यह PIN सेट किया है। यह उसी फ़ोन को खोलता है जिसे आपने पहले जोड़ा है।',
+  'login.crewPath.pin.userIdLabel': 'आपकी user ID',
+  'login.crewPath.pin.userIdPlaceholder': 'एडमिन से मिला UUID',
+  'login.crewPath.pin.userIdHint':
+    'अगर आपके पास यह नहीं है तो स्कूल एडमिन से पूछें। यह बताता है कि आप कौन-से ड्राइवर / कंडक्टर हैं।',
+  'login.crewPath.pin.padLabel': 'PIN',
+  'login.crewPath.pin.submit': 'अनलॉक करें',
+  'login.crewPath.pin.clearKey': 'PIN मिटाएँ',
+  'login.crewPath.qr.title': 'पेयरिंग QR स्कैन करें',
+  'login.crewPath.qr.subtitle':
+    'स्कूल एडमिन से अपने कंप्यूटर पर QR दिखाने को कहें। कैमरे को उस पर ले जाएँ।',
+  'login.crewPath.qr.openScanner': 'कैमरा खोलें',
+  'login.crewPath.qr.cancelScan': 'स्कैनिंग रद्द करें',
+  'login.crewPath.qr.permission.title': 'कैमरे की अनुमति चाहिए',
+  'login.crewPath.qr.permission.body':
+    'कैमरा सिर्फ़ स्कूल के पेयरिंग कोड को देखता है। हम कुछ भी रिकॉर्ड या अपलोड नहीं करते।',
+  'login.crewPath.qr.permission.openSettings': 'सेटिंग खोलें',
+  'login.crewPath.qr.useTypeInstead': 'इसके बजाय कोड टाइप करें',
+  'login.crewPath.qr.pasteTitle': 'या पेयरिंग कोड पेस्ट करें',
+  'login.crewPath.qr.pastePlaceholder': 'SBT-CREW-1:…',
+  'login.crewPath.qr.pasteSubmit': 'इस कोड का इस्तेमाल करें',
+  'login.crewPath.qr.scanned': 'कोड स्कैन हो गया — साइन इन हो रहा है…',
+  'login.crewPath.usePin': 'इसके बजाय PIN इस्तेमाल करें',
+  'login.crewPath.useQr': 'इसके बजाय QR स्कैन करें',
+  'login.crewPath.lockout.wait':
+    'बहुत बार ग़लत PIN डाला गया। {seconds} सेकंड बाद फिर कोशिश करें — या एडमिन से रीसेट करवाएँ।',
+  'login.crewPath.lockout.adminHint':
+    'स्कूल एडमिन एक नया पेयरिंग QR भी बना सकते हैं — QR से साइन इन करने पर लॉकआउट खुल जाता है।',
+  'login.crewPath.expired':
+    'वह पेयरिंग कोड एक्सपायर हो गया है। एडमिन से नया QR बनवाएँ।',
+
   // ── Shared status vocabulary ───────────────────────────────────────────
   'status.label.scheduled': 'निर्धारित',
   'status.label.boarding': 'बोर्डिंग',
@@ -403,4 +439,9 @@ export const hi: Dictionary = {
   'error.SERVICE_NOT_READY': 'सर्वर अभी शुरू हो रहा है। थोड़ी देर में फिर कोशिश करें।',
   'error.networkOffline': 'इंटरनेट नहीं है। आपका काम फ़ोन में सहेजा गया है और बाद में sync होगा।',
   'error.unknownCodePrefix': 'सर्वर कोड',
+  // ── Crew mobile-login (Phase 4b) ────────────────────────────────────────
+  'error.CREW_PIN_LOCKED': 'बहुत बार ग़लत PIN डाला गया। थोड़ी देर बाद फिर कोशिश करें',
+  'error.CREW_PIN_INVALID': 'PIN काम नहीं किया। फिर कोशिश करें।',
+  'error.CREW_PAIRING_INVALID':
+    'वह पेयरिंग कोड काम नहीं आया। एडमिन से नया QR लें।',
 };
