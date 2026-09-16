@@ -113,12 +113,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   stateLine: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#1e293b',
   },
   updateLine: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#475569',
   },
   helpLink: {

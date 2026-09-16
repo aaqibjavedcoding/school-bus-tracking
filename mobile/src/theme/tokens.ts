@@ -17,28 +17,30 @@ export type Theme = typeof theme;
  * not change, so nothing below edits the token scales; every value is a
  * *view* over those tokens chosen for the phone form factor:
  *
- * - drivers/conductors read the screen at arm's length, in daylight, often
- *   without reading glasses — body text starts at 16px and the numbers that
- *   matter (status, ETA, counts) are 22–28px bold;
+ * - **Standard density** (owner decision, 2026-09): the app reads like a
+ *   normal consumer app (Instagram-class type scale) — body 14px, labels
+ *   13px, titles 18px, the trip-carrying numbers 20px bold, the state word
+ *   22px. Legibility still holds through weight, spacing and contrast, not
+ *   through oversized type;
  * - gloved/rough taps need ≥56px targets, and the crew's primary field
  *   actions get 64px;
  * - every filled action surface is chosen to reach WCAG AA (≥4.5:1) with its
  *   label — see `contrast.ts` / `contrast.spec.ts`, which pin the ratios.
  */
 
-/** Type scale for app screens. `secondary` (14) is the floor and only for
- *  short labels/hints — never for primary content; crew screens stay ≥16. */
+/** Type scale for app screens. `secondary` (13) is the floor and only for
+ *  short labels/hints — never for primary content. */
 export const text = {
   /** Default reading size. Nothing below this carries information. */
-  body: typography.fontSizes.base, // 16
-  /** Short labels / hints (never on crew screens — those use `body`). */
-  secondary: typography.fontSizes.sm, // 14
+  body: typography.fontSizes.sm, // 14
+  /** Short labels / hints. */
+  secondary: 13,
   /** Card/screen titles. */
-  title: typography.fontSizes.xl, // 20
+  title: typography.fontSizes.lg, // 18
   /** Numbers that carry the trip: counts, minutes, stop sequence. */
-  numeric: typography.fontSizes['2xl'], // 24
-  /** The one giant state word on a crew status card (\"BOARDING\"). */
-  statusWord: 28,
+  numeric: typography.fontSizes.xl, // 20
+  /** The one big state word on a crew status card (BOARDING). */
+  statusWord: 22,
 } as const;
 
 /** Touch-target floors (React Native dp). */
@@ -53,8 +55,15 @@ export const touch = {
 
 /** Filled-action and border colours that pass WCAG AA against their content. */
 export const surface = {
-  /** Solid primary button: white text on primary-700 = 5.02:1 (primary-500 was 2.15:1). */
-  actionPrimary: colors.primary[700],
+  /**
+   * Solid primary button: **green** (white on secondary-700 = 5.01:1).
+   * Product decision (owner, 2026-09): the action colour is green, not the
+   * school-bus amber — the amber read as "dark orange" on the trip/map
+   * screens. Amber (primary) stays the brand accent (badges, the
+   * IN_PROGRESS state word, the brand mark); every primary/filled action
+   * surface is green.
+   */
+  actionPrimary: colors.secondary[700],
   /** Solid success button (\"board\"-style confirmations): white on secondary-700 = 5.01:1. */
   actionSuccess: colors.secondary[700],
   /** Solid danger button: white on status.danger = 4.83:1. */

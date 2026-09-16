@@ -112,12 +112,12 @@ const SoundToggle: React.FC<{
 
 const styles = StyleSheet.create({
   hint: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     marginBottom: spacing.sm,
   },
   note: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     marginTop: spacing.sm,
     lineHeight: 22,
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[900],
   },
   rowHint: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
   },
   stateBlock: {
@@ -150,13 +150,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   stateWord: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     // neutral[700] on white = 8.59:1 (measured in `contrast.ts`).
     color: colors.neutral[700],
   },
   stateWordOn: {
-    // primary[700] on white = 5.02:1 — the measured action surface.
+    // secondary[700] on white = 5.01:1 — the measured action surface (green).
     color: surface.actionPrimary,
   },
   track: {
@@ -170,8 +170,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   trackOn: {
-    backgroundColor: colors.primary[700],
-    borderColor: colors.primary[700],
+    backgroundColor: colors.secondary[700],
+    borderColor: colors.secondary[700],
   },
   thumb: {
     width: 20,

@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
 import { en } from './i18n.en.ts';
-import { hi } from './i18n.hi.ts';
 import { CONSTRAINED_KEYS, budgetFor, growthCeiling } from './i18n-budget.ts';
 import { SUPPORTED_LOCALES, dictionary, type TranslationKey } from './i18n.ts';
 
@@ -28,9 +27,10 @@ const read = (path: string): string => readFileSync(`${mobileRoot}${path}`, 'utf
 const chromeLength = (value: string): number => value.replace(/\{[^}]*\}/g, '').trim().length;
 
 const enKeys = Object.keys(en) as TranslationKey[];
+const otherLocales = SUPPORTED_LOCALES.filter((locale) => locale !== 'en');
 
 describe('per-key length budget (fixed-width / single-line containers)', () => {
-  test('every constrained key fits its container in BOTH locales', () => {
+  test('every constrained key fits its container in every locale', () => {
     const over: string[] = [];
     for (const key of Object.keys(CONSTRAINED_KEYS) as TranslationKey[]) {
       const budget = budgetFor(key);
@@ -45,16 +45,19 @@ describe('per-key length budget (fixed-width / single-line containers)', () => {
     assert.deepEqual(over, [], `over budget: ${over.join('; ')}`);
   });
 
-  test('no translation grows past the global allowance', () => {
+  test('no translation grows past the global allowance (every locale)', () => {
     const over: string[] = [];
-    for (const key of enKeys) {
-      const ceiling = growthCeiling(chromeLength(en[key]));
-      const length = chromeLength(hi[key]);
-      if (length > ceiling) {
-        over.push(`${key} en=${chromeLength(en[key])} hi=${length}>${ceiling}`);
+    for (const locale of otherLocales) {
+      const dict = dictionary(locale);
+      for (const key of enKeys) {
+        const ceiling = growthCeiling(chromeLength(en[key]));
+        const length = chromeLength(dict[key]);
+        if (length > ceiling) {
+          over.push(`${locale}:${key} en=${chromeLength(en[key])} ${locale}=${length}>${ceiling}`);
+        }
       }
     }
-    assert.deepEqual(over, [], `translation grew too far: ${over.join('; ')}`);
+    assert.deepEqual(over, [], `translation grew too far: ${over.join(', ')}`);
   });
 
   /**
@@ -66,37 +69,39 @@ describe('per-key length budget (fixed-width / single-line containers)', () => {
    * pushes the tail past 2.5×, the tight containers are in trouble even when
    * the averages look fine.
    */
-  test('per-key growth stays inside the measured envelope', () => {
-    const rows = enKeys.map((key) => ({
-      key,
-      en: chromeLength(en[key]),
-      hi: chromeLength(hi[key]),
-      delta: chromeLength(hi[key]) - chromeLength(en[key]),
-    }));
-    const grown = rows.filter((row) => row.delta > 0);
+  for (const locale of otherLocales) {
+    test(`per-key growth stays inside the measured envelope (${locale})`, () => {
+      const dict = dictionary(locale);
+      const rows = enKeys.map((key) => ({
+        key,
+        en: chromeLength(en[key]),
+        other: chromeLength(dict[key]),
+        delta: chromeLength(dict[key]) - chromeLength(en[key]),
+      }));
+      const grown = rows.filter((row) => row.delta > 0);
 
-    assert.ok(
-      grown.length >= 40,
-      `expected a substantial number of keys to grow in Hindi, saw ${grown.length} — is the guard vacuous?`,
-    );
+      assert.ok(
+        grown.length >= 40,
+        `expected a substantial number of keys to grow in ${locale}, saw ${grown.length} — is the guard vacuous?`,
+      );
 
-    // A ratio only means something once the English is long enough to have one.
-    // `'ETA'` (3) → `'पहुँचने में'` (11) is 3.7× and still fits its card easily;
-    // what matters there is the absolute delta, checked below.
-    const ratiable = grown.filter((row) => row.en >= 6);
-    const worst = [...ratiable].sort((a, b) => b.hi / b.en - a.hi / a.en)[0]!;
-    const worstRatio = worst.hi / worst.en;
-    assert.ok(
-      worstRatio <= 2.5,
-      `${worst.key} grew ${worst.en}→${worst.hi} (${worstRatio.toFixed(2)}×), past the measured 2.25× envelope`,
-    );
+      // A ratio only means something once the English is long enough to
+      // have one; what matters for the short labels is the absolute delta.
+      const ratiable = grown.filter((row) => row.en >= 6);
+      const worst = [...ratiable].sort((a, b) => b.other / b.en - a.other / a.en)[0]!;
+      const worstRatio = worst.other / worst.en;
+      assert.ok(
+        worstRatio <= 2.5,
+        `${worst.key} grew ${worst.en}→${worst.other} (${worstRatio.toFixed(2)}×), past the measured 2.25× envelope`,
+      );
 
-    const widest = [...grown].sort((a, b) => b.delta - a.delta)[0]!;
-    assert.ok(
-      widest.delta <= 20,
-      `${widest.key} grew by ${widest.delta} characters (${widest.en}→${widest.hi})`,
-    );
-  });
+      const widest = [...grown].sort((a, b) => b.delta - a.delta)[0]!;
+      assert.ok(
+        widest.delta <= 20,
+        `${widest.key} grew by ${widest.delta} characters (${widest.en}→${widest.other})`,
+      );
+    });
+  }
 });
 
 describe('single-line containers on crew surfaces are budgeted', () => {
@@ -127,11 +132,14 @@ describe('single-line containers on crew surfaces are budgeted', () => {
   test('crew rows that flash/confirm keep the name and time in one measured line', () => {
     // The "Ramesh ✓ 7:42 AM" confirmation is data + a glyph; only the offline
     // variant adds translated chrome, and it is budgeted via the growth rule.
-    for (const key of ['manifest.queuedBoard', 'manifest.queuedDrop'] as TranslationKey[]) {
-      assert.ok(
-        chromeLength(hi[key]) <= growthCeiling(chromeLength(en[key])),
-        `${key} grew past the allowance`,
-      );
+    for (const locale of otherLocales) {
+      const dict = dictionary(locale);
+      for (const key of ['manifest.queuedBoard', 'manifest.queuedDrop'] as TranslationKey[]) {
+        assert.ok(
+          chromeLength(dict[key]) <= growthCeiling(chromeLength(en[key])),
+          `${locale}:${key} grew past the allowance`,
+        );
+      }
     }
   });
 

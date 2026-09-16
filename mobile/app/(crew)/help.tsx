@@ -106,18 +106,18 @@ export default function CrewHelpScreen() {
 
 const styles = StyleSheet.create({
   title: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.neutral[900],
     marginBottom: spacing.xs,
   },
   intro: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     marginBottom: spacing.md,
   },
   body: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[700],
   },
   sosStatus: {

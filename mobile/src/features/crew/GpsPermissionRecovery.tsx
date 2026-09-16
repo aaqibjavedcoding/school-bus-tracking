@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   icon: {
-    fontSize: 48,
+    fontSize: 40,
   },
   title: {
     fontSize: 20,
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   description: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     textAlign: 'center',
     lineHeight: 20,
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   lastUpdate: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[500],
     marginBottom: 24,
   },

@@ -134,10 +134,12 @@ const BUTTON_HEIGHTS: Record<ButtonSize, number> = {
 };
 
 const BUTTON_TEXT_SIZES: Record<ButtonSize, number> = {
-  sm: typography.fontSizes.sm,
-  md: typography.fontSizes.base,
-  lg: typography.fontSizes.lg,
-  field: typography.fontSizes.xl,
+  // Standard (consumer-app) button type: 13/14/15/16 — dense to bold,
+  // never oversized (owner decision, 2026-09).
+  sm: 13,
+  md: 14,
+  lg: 15,
+  field: 16,
 };
 
 const BUTTON_ICON_SIZES: Record<ButtonSize, number> = {
@@ -444,8 +446,8 @@ export function screenRefreshControl(
     <RefreshControl
       refreshing={refreshing}
       onRefresh={refresh}
-      tintColor={colors.primary[700]}
-      colors={[colors.primary[700]]}
+      tintColor={colors.secondary[700]}
+      colors={[colors.secondary[700]]}
       title=""
       titleColor="transparent"
       progressViewOffset={0}
@@ -490,7 +492,7 @@ export const Screen: React.FC<{
 
 export const LoadingView: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (
   <View style={styles.centered}>
-    <ActivityIndicator size="large" color={colors.primary[700]} />
+    <ActivityIndicator size="large" color={colors.secondary[700]} />
     <Text style={styles.centeredText}>{label}</Text>
   </View>
 );
@@ -629,7 +631,10 @@ const styles = StyleSheet.create({
   },
   buttonBase: {
     borderRadius: borderRadius.md,
+    // Standard padding/margins (2026-09 pass): 24dp inner horizontal,
+    // 10dp vertical so label and icon sit centred with room to spare.
     paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -740,8 +745,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   chipActive: {
-    backgroundColor: colors.primary[700],
-    borderColor: colors.primary[700],
+    backgroundColor: surface.actionPrimary,
+    borderColor: surface.actionPrimary,
   },
   chipText: {
     fontSize: typography.fontSizes.sm,
@@ -770,7 +775,7 @@ const styles = StyleSheet.create({
   },
   filterSummaryActionText: {
     fontSize: typography.fontSizes.sm,
-    color: colors.primary[700],
+    color: surface.actionPrimary,
     fontWeight: '700',
   },
   screen: {

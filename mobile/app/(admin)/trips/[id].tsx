@@ -181,8 +181,8 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   backText: {
-    color: colors.primary[700],
-    fontSize: 16,
+    color: colors.secondary[700],
+    fontSize: 14,
     fontWeight: '600',
   },
   badgeRow: {

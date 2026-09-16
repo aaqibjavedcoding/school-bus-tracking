@@ -581,8 +581,8 @@ const styles = StyleSheet.create({
     borderColor: colors.neutral[200],
   },
   dayButtonText: {
-    fontSize: 26,
-    color: colors.primary[700],
+    fontSize: 20,
+    color: colors.secondary[700],
     fontWeight: '700',
     marginTop: -4,
   },
@@ -628,7 +628,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   chevron: {
-    fontSize: 22,
+    fontSize: 20,
     color: colors.neutral[300],
     fontWeight: '700',
   },

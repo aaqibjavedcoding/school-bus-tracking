@@ -1,5 +1,6 @@
 import { en, type Dictionary, type EnglishDictionary } from './i18n.en.ts';
 import { hi } from './i18n.hi.ts';
+import { mr } from './i18n.mr.ts';
 
 /**
  * The app's localisation layer (Phase 3) — small, typed and **dependency-free**.
@@ -34,27 +35,29 @@ import { hi } from './i18n.hi.ts';
 
 // ── Locales ────────────────────────────────────────────────────────────────
 
-export type Locale = 'en' | 'hi';
+export type Locale = 'en' | 'hi' | 'mr';
 
 /** Every locale the app can render. Adding one means adding a dictionary. */
-export const SUPPORTED_LOCALES: readonly Locale[] = ['en', 'hi'];
+export const SUPPORTED_LOCALES: readonly Locale[] = ['en', 'hi', 'mr'];
 
 /** The fallback of last resort — English is the source of truth. */
 export const DEFAULT_LOCALE: Locale = 'en';
 
 /**
- * Crew (DRIVER / CONDUCTOR) default. The audience this refactor exists for
- * reads Devanagari, not Latin script, so a crew member's app opens in Hindi
- * even on an English-locale phone — and the switch on the Help screen is one
- * tap away and persists. Admins and parents default to the device locale
- * instead, because their screens are also used from the English web console.
+ * Crew (DRIVER / CONDUCTOR) default. Product decision (owner, 2026-09): the
+ * app opens in **English** for everyone — crew included — and the driver
+ * picks their own language from the switch (login screen + Help screen); the
+ * choice persists and always wins over this default. English first, regional
+ * languages on demand: a Marathi driver who never touches the switch sees an
+ * app they can still operate (numbers, PIN, icons), while a Hindi-only driver
+ * is one tap from Devanagari.
  */
-export const CREW_DEFAULT_LOCALE: Locale = 'hi';
+export const CREW_DEFAULT_LOCALE: Locale = 'en';
 
 /** The roles that get `CREW_DEFAULT_LOCALE`, matched against `UserRole`. */
 export const CREW_LOCALE_ROLES: readonly string[] = ['DRIVER', 'CONDUCTOR'];
 
-const dictionaries: Record<Locale, Dictionary> = { en, hi };
+const dictionaries: Record<Locale, Dictionary> = { en, hi, mr };
 
 export function isSupportedLocale(value: unknown): value is Locale {
   return typeof value === 'string' && (SUPPORTED_LOCALES as readonly string[]).includes(value);
@@ -310,6 +313,7 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'login.crewPath.qr.pastePlaceholder',
   'settings.language.nameEn',
   'settings.language.nameHi',
+  'settings.language.nameMr',
   'trip.emptyValue',
   'manifest.confirmBoard',
   'manifest.confirmDrop',

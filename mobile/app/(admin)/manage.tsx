@@ -55,7 +55,7 @@ const ITEMS: ManageItem[] = [
     title: 'Drivers & conductors',
     description: 'Crew accounts',
     icon: 'people',
-    tone: colors.primary[700],
+    tone: colors.secondary[700],
   },
   {
     href: '/manage/assignments',

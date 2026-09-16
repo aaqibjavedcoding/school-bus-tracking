@@ -49,7 +49,7 @@ function ParentTabs() {
           headerStyle: { backgroundColor: colors.neutral[900] },
           headerTintColor: '#ffffff',
           headerTitleStyle: { fontWeight: 'bold' },
-          tabBarActiveTintColor: colors.primary[700],
+          tabBarActiveTintColor: colors.secondary[700],
           tabBarInactiveTintColor: colors.neutral[500],
           // Safe-area aware bar: never overlaps the device navigation area.
           tabBarStyle: {

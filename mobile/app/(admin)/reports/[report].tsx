@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', padding: spacing.md },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
+  backText: { color: colors.secondary[700], fontSize: 14, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',

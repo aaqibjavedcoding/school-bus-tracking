@@ -137,16 +137,16 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stateWord: {
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   nextStop: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
   },
   nextStopSub: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     opacity: 1,
   },
@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   detailsToggleText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   detailsBody: {},

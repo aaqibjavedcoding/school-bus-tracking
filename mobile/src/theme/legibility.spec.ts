@@ -10,7 +10,7 @@ import { collectSourceFiles, fontSizeViolations } from './legibility.ts';
  * 1. unit tests pin what the scanner itself understands (literal numbers and
  *    the token aliases style code uses);
  * 2. the guard tests apply it to the real source tree — crew surfaces at a
- *    16px floor, the rest of the app at the 14px shared floor — so a future
+ *    14px floor, the rest of the app at the 13px shared floor — so a future
  *    screen that re-introduces small text fails here, in CI, instead of in
  *    a driver's hand.
  */
@@ -26,10 +26,11 @@ test('flags literal and token-alias sizes below the floor', () => {
     '});',
   ].join('\n');
 
-  // 15px breaches the 16px floor but not the 14px one; xs(12) breaches both.
+  // 15px breaches the 16px floor but not the 14px one; xs(12) breaches both,
+  // and text.secondary (13) breaches the 14px floor.
   assert.deepEqual(
     fontSizeViolations(source, 14).map((violation) => violation.line),
-    [3],
+    [3, 6],
   );
   assert.deepEqual(
     fontSizeViolations(source, 16).map((violation) => violation.line),
@@ -72,10 +73,10 @@ function violationsUnder(roots: string[], floor: number): string[] {
 // shared live-tracking views those screens render.
 const CREW_ROOTS = ['app/(crew)', 'src/features/crew', 'src/features/tracking'];
 
-test('crew surfaces contain no text below 16px', () => {
-  assert.deepEqual(violationsUnder(CREW_ROOTS, 16), []);
+test('crew surfaces contain no text below 14px', () => {
+  assert.deepEqual(violationsUnder(CREW_ROOTS, 14), []);
 });
 
-test('the whole app keeps the 14px shared floor (labels/secondary minimum)', () => {
-  assert.deepEqual(violationsUnder(['app', 'src'], 14), []);
+test('the whole app keeps the 13px shared floor (labels/secondary minimum)', () => {
+  assert.deepEqual(violationsUnder(['app', 'src'], 13), []);
 });

@@ -1,7 +1,7 @@
 export { Card } from './Card';
 export { StatusBadge } from './StatusBadge';
 export { SegmentedControl } from './SegmentedControl';
-export { LanguageSwitcher } from './LanguageSwitcher';
+export { LanguagePillRow, LanguageSwitcher } from './LanguageSwitcher';
 export type { SegmentOption } from './SegmentedControl';
 export {
   Badge,

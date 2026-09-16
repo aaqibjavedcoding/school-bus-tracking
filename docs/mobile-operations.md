@@ -172,21 +172,25 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
 
 ### Language
 
-- **Two languages**: English (source of truth) and Hindi. Nothing else is
-  offered, so "the app is in a language I don't have" is not a possible state.
-- **Where the switch is**: crew app → **Help & support** (reached from the
-  trip screen) → _Language_ / _भाषा_ → tap **English** or **हिन्दी**. Each
-  option names itself in its own script, so a crew member who cannot read
-  English can still find हिन्दी while the app is showing English.
+- **Three languages (batch 1 of the regional rollout)**: English (source of
+  truth), Hindi and Marathi. More regional languages are additive — each is a
+  typed dictionary plus one row in `SUPPORTED_LOCALES`, nothing else.
+- **Where the switch is**: **login screen** (a row of self-naming pills above
+  the sign-in card) *and* crew app → **Help & support** (reached from the
+  trip screen) → _Language_ / _भाषा_ / _भाषा_ → tap **English**, **हिन्दी**
+  or **मराठी**. Each option names itself in its own script, so a crew member
+  who cannot read English can still find मराठी while the app is showing
+  English.
 - **It applies instantly** — no restart, no re-login, nothing is lost on
   screen. If someone reports "I changed it and nothing happened", the app is
   on a build without Phase 3, not misconfigured.
 - **It persists** in AsyncStorage under `sbt.mobile.locale`. Clearing app data
   (or a reinstall) resets it to the default.
-- **Default**: `DRIVER`/`CONDUCTOR` → **Hindi**, even on an English-locale
-  phone. `SCHOOL_ADMIN`/`PARENT` → the device language. This is deliberate: the
-  crew app is built for the person who cannot read English, and the switch is
-  the escape hatch.
+- **Default**: everyone → **English** (owner decision, 2026-09 — including
+  crew, who used to default to Hindi). `SCHOOL_ADMIN`/`PARENT` follow the
+  device language (a Marathi-locale parent gets Marathi). The saved choice
+  always beats the default, and the switch is one tap away on the login
+  screen and on the Help screen.
 - **Deliberately still English**, and not a bug to file:
   - student names, route/bus codes, stop names, school names — that is data;
   - API error messages, emergency type/status labels, document type labels —
@@ -238,7 +242,10 @@ gaya_") because many budget Androids in service have an English TTS voice and
 no `hi-IN` one; Devanagari text sent to an English voice is read as gibberish
 or skipped entirely. Latin-script Hinglish read by the English voice is
 understood by Hindi-speaking crew. The **screen** stays in proper Devanagari —
-the two channels are deliberately different.
+the two channels are deliberately different. Marathi follows the same design:
+screen in Devanagari (Marathi), voice in **Latin-script Marathi**
+("_Ramesh bas madhe aaun gele_") read by the `en-IN` voice, because an
+`mr-IN` voice pack is even less commonly installed than `hi-IN`.
 
 **"It talks too much."** It should not: rapid taps collapse. Boarding forty
 students back to back produces **three** announcements, not forty — the first

@@ -130,13 +130,13 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.status.danger,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: spacing.sm,
   },
   muted: {
     color: colors.neutral[600],
-    fontSize: 16,
+    fontSize: 14,
   },
   arrivalsCard: {
     backgroundColor: '#ffffff',
@@ -150,12 +150,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   arrivalName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   arrivalMeta: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
   },
 });

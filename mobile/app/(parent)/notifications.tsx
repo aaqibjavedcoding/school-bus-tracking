@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   rowUnread: {
-    borderLeftColor: colors.primary[700],
+    borderLeftColor: colors.secondary[700],
     backgroundColor: '#fffbeb',
   },
   rowTop: {
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.primary[700],
+    backgroundColor: colors.secondary[700],
   },
   title: {
     fontSize: typography.fontSizes.base,

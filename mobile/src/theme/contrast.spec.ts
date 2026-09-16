@@ -50,11 +50,11 @@ test('every text/background pair the UI ships meets its WCAG floor', () => {
   assert.deepEqual(failures, []);
 });
 
-test('the primary action pair keeps its published 5.02:1 ratio', () => {
+test('the primary action pair keeps its published 5.01:1 ratio', () => {
   const pair = CONTRAST_PAIRS.find((entry) => entry.name === 'primary action label');
   assert.ok(pair);
   assert.ok(
-    Math.abs(contrastRatio(pair.foreground, pair.background) - 5.02) < 0.05,
-    'white on primary[700] must stay at the verified 5.02:1',
+    Math.abs(contrastRatio(pair.foreground, pair.background) - 5.01) < 0.05,
+    'white on secondary[700] must stay at the verified 5.01:1',
   );
 });

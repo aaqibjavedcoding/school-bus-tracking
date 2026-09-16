@@ -55,12 +55,18 @@ describe('normalizeLocaleTag', () => {
     assert.equal(normalizeLocaleTag('en-US'), 'en');
   });
 
+  test('accepts Marathi, the regional-language rollout batch 1', () => {
+    assert.equal(normalizeLocaleTag('mr'), 'mr');
+    assert.equal(normalizeLocaleTag('mr-IN'), 'mr');
+    assert.equal(isSupportedLocale('mr'), true);
+  });
+
   test('rejects an unsupported language instead of guessing a neighbour', () => {
-    assert.equal(normalizeLocaleTag('mr-IN'), null);
+    assert.equal(normalizeLocaleTag('ta-IN'), null);
     assert.equal(normalizeLocaleTag(''), null);
     assert.equal(normalizeLocaleTag(null), null);
     assert.equal(normalizeLocaleTag(undefined), null);
-    assert.equal(isSupportedLocale('mr'), false);
+    assert.equal(isSupportedLocale('ta'), false);
   });
 });
 
@@ -74,10 +80,11 @@ describe('resolution order: saved → device (per role) → en', () => {
     assert.equal(resolveInitialLocale({ saved: 'hi', device: 'en-US', role: 'PARENT' }), 'hi');
   });
 
-  test('crew default to Hindi even on an English-locale device', () => {
-    assert.equal(CREW_DEFAULT_LOCALE, 'hi');
-    assert.equal(resolveInitialLocale({ saved: null, device: 'en-US', role: 'DRIVER' }), 'hi');
-    assert.equal(resolveInitialLocale({ saved: null, device: 'en-US', role: 'CONDUCTOR' }), 'hi');
+  test('crew default to English, whatever the device locale (product rule)', () => {
+    assert.equal(CREW_DEFAULT_LOCALE, 'en');
+    assert.equal(resolveInitialLocale({ saved: null, device: 'en-US', role: 'DRIVER' }), 'en');
+    assert.equal(resolveInitialLocale({ saved: null, device: 'hi-IN', role: 'DRIVER' }), 'en');
+    assert.equal(resolveInitialLocale({ saved: null, device: 'mr-IN', role: 'CONDUCTOR' }), 'en');
   });
 
   test('admin and parent follow the device locale', () => {
@@ -86,17 +93,25 @@ describe('resolution order: saved → device (per role) → en', () => {
       resolveInitialLocale({ saved: null, device: 'en-GB', role: 'SCHOOL_ADMIN' }),
       'en',
     );
-    assert.equal(localeForRole('SCHOOL_ADMIN', 'mr-IN'), DEFAULT_LOCALE);
+    // A Marathi-locale parent gets Marathi — regional locales are device-resolved.
+    assert.equal(resolveInitialLocale({ saved: null, device: 'mr-IN', role: 'PARENT' }), 'mr');
+    assert.equal(localeForRole('SCHOOL_ADMIN', 'ta-IN'), DEFAULT_LOCALE);
   });
 
   test('an unknown/absent device falls back to English, never to a guess', () => {
-    assert.equal(resolveInitialLocale({ saved: null, device: 'mr-IN', role: 'PARENT' }), 'en');
+    assert.equal(resolveInitialLocale({ saved: null, device: 'ta-IN', role: 'PARENT' }), 'en');
     assert.equal(resolveInitialLocale({ saved: null, device: null, role: null }), 'en');
     assert.equal(DEFAULT_LOCALE, 'en');
   });
 
   test('a corrupt saved value is ignored, not trusted', () => {
-    assert.equal(resolveInitialLocale({ saved: 'klingon', device: 'hi-IN', role: 'DRIVER' }), 'hi');
+    // Crew role falls back to the crew default (en), not to the device locale.
+    assert.equal(
+      resolveInitialLocale({ saved: 'klingon', device: 'hi-IN', role: 'DRIVER' }),
+      'en',
+    );
+    // Non-crew roles fall back to the device locale.
+    assert.equal(resolveInitialLocale({ saved: 'klingon', device: 'hi-IN', role: 'PARENT' }), 'hi');
   });
 });
 

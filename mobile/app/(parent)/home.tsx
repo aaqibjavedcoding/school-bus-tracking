@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   chevron: {
-    fontSize: 22,
+    fontSize: 20,
     color: colors.neutral[300],
     fontWeight: '700',
   },

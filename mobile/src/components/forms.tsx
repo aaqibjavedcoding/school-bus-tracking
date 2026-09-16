@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   pickerRowActive: {
-    backgroundColor: colors.primary[50],
+    backgroundColor: colors.secondary[50],
   },
   pickerRowText: {
     flex: 1,
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[700],
   },
   pickerRowTextActive: {
-    color: colors.primary[700],
+    color: colors.secondary[700],
     fontWeight: '700',
   },
   switchRow: {
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     height: 56,
     paddingHorizontal: spacing.md,
     borderRadius: 28,
-    backgroundColor: colors.primary[700],
+    backgroundColor: colors.secondary[700],
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
