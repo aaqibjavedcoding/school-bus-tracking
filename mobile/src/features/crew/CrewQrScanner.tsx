@@ -86,6 +86,36 @@ export const CrewQrScanner: React.FC<CrewQrScannerProps> = ({ onClose, onPayload
   );
 
   /**
+   * Normalizes a barcode event to a plain payload string.
+   *
+   * `expo-camera` changed the shape of the value passed to
+   * `onBarcodeScanned` between SDKs: older SDKs wrap the result in
+   * `nativeEvent` (`{ nativeEvent: { data, type } }`), newer SDKs pass the
+   * result object itself (`{ data, type }`). Reading
+   * `event.nativeEvent.data` directly crashed on the new shape
+   * (`TypeError: Cannot read property 'data' of undefined` on every scan
+   * frame), so both shapes are accepted here.
+   */
+  const handleBarcodeScanned = useCallback(
+    (event: unknown) => {
+      let data: string | null = null;
+      if (typeof event === 'string') {
+        data = event;
+      } else if (event !== null && typeof event === 'object') {
+        const candidate = event as { data?: unknown; nativeEvent?: { data?: unknown } };
+        const wrapped = candidate.nativeEvent?.data;
+        if (typeof wrapped === 'string') {
+          data = wrapped;
+        } else if (typeof candidate.data === 'string') {
+          data = candidate.data;
+        }
+      }
+      forwardOnce(data);
+    },
+    [forwardOnce],
+  );
+
+  /**
    * Cancel = dismiss the camera (so it is not running in the background while
    * the parent navigates away) and notify the parent.
    */
@@ -157,9 +187,7 @@ export const CrewQrScanner: React.FC<CrewQrScannerProps> = ({ onClose, onPayload
           barcodeScannerSettings={{
             barcodeTypes: ['qr'],
           }}
-          onBarcodeScanned={(event: { nativeEvent: { data: string } }) =>
-            forwardOnce(event.nativeEvent.data)
-          }
+          onBarcodeScanned={handleBarcodeScanned}
         />
         <View style={styles.overlay} pointerEvents="none">
           <Ionicons name="scan-circle-outline" size={56} color="#ffffff" />
