@@ -310,7 +310,6 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'login.emailPlaceholder',
   'login.passwordPlaceholder',
   'login.crewPath.pin.padLabel',
-  'login.crewPath.qr.pastePlaceholder',
   'settings.language.nameEn',
   'settings.language.nameHi',
   'settings.language.nameMr',
@@ -371,17 +370,14 @@ export const KNOWN_ERROR_CODES: Record<string, StaticTranslationKey> = {
    *                          school (HTTP 401). Unreachable while
    *                          `setPin`'s uniqueness rule holds; it is an
    *                          admin-action message, not a credential hint.
-   * - `CREW_PAIRING_INVALID`— malformed / unknown / expired / already-redeemed
-   *                          QR pairing code (HTTP 401, generic message).
    *
-   * `localizeApiError` covers all four with the same fallback rule as the
+   * `localizeApiError` covers all three with the same fallback rule as the
    * other codes: known code → dictionary copy, unknown code → server message
    * + raw-code note.
    */
   CREW_PIN_LOCKED: 'error.CREW_PIN_LOCKED',
   CREW_PIN_INVALID: 'error.CREW_PIN_INVALID',
   CREW_PIN_AMBIGUOUS: 'error.CREW_PIN_AMBIGUOUS',
-  CREW_PAIRING_INVALID: 'error.CREW_PAIRING_INVALID',
 };
 
 /**

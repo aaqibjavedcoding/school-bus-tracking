@@ -113,8 +113,7 @@ export const mr: Dictionary = {
   'manifest.unavailable': 'यादी उपलब्ध नाही',
   'manifest.hint.driver':
     'तुम्ही किती बालेक नेत आहात. रवाना होण्यापूर्वी कंडक्टरांकडून विचारून घ्या.',
-  'manifest.hint.conductor':
-    'बालक बसताना "बसव" दाबा, उतरताना "उतरव" — वेळ आपोआप नोंद होते.',
+  'manifest.hint.conductor': 'बालक बसताना "बसव" दाबा, उतरताना "उतरव" — वेळ आपोआप नोंद होते.',
   'manifest.counts': '{boarded} बसले · {pending} बाकी · {dropped} उतरले',
   'manifest.summary.total': '{count} बालेक',
   'manifest.summary.pending': '{count} बाकी',
@@ -155,8 +154,7 @@ export const mr: Dictionary = {
   'sos.holdLabel': 'दडपून ठेवा — SOS',
   'sos.holdingHint': 'दडपून ठेवा…',
   'sos.a11yLabel': 'आपत्कालीन SOS. शाळेला कळवण्यासाठी दडपून ठेवा.',
-  'sos.holdA11yHint':
-    'एक सेकंदापुरते दडपून ठेवा; भरल्यावर अ‍ॅलर्ट आपोआप पाठवला जातो.',
+  'sos.holdA11yHint': 'एक सेकंदापुरते दडपून ठेवा; भरल्यावर अ‍ॅलर्ट आपोआप पाठवला जातो.',
   'sos.sent': 'SOS पाठवला ✅',
   'sos.queued': 'SOS रांगेत ⏳ — इंटरनेट मिळताच पाठवला जाईल',
   'sos.queuedShort': 'रांगेत ⏳ ऑनलाइन झाल्यावर जाईल',
@@ -176,8 +174,7 @@ export const mr: Dictionary = {
   'sos.notified': 'शाळेला कळवले आहे. तुमचा फोन सोबत ठेवा.',
   'sos.cancelAlert': 'अ‍ॅलर्ट रद्द करा',
   'sos.cardTitle': 'आपत्कालीन SOS',
-  'sos.cardBodyTrip':
-    'लाल बटण दडपून ठेवा — शाळेला लगेच कळते आणि तुमची सध्याची ट्रिप जोडली जाते.',
+  'sos.cardBodyTrip': 'लाल बटण दडपून ठेवा — शाळेला लगेच कळते आणि तुमची सध्याची ट्रिप जोडली जाते.',
   'sos.cardBodyNoTrip': 'लाल बटण दडपून ठेवा — शाळेला लगेच कळते.',
   'sos.noReadingNeeded':
     'वाचण्याची गरज नाही: दडपून ठेवा, लोकेशन्सह पाठवला जातो. वेळ आहे तर "प्रथम तपशील द्या" निवडा — अ‍ॅलर्ट तुमच्या {role} खात्याशी नोंदवला जातो.',
@@ -208,8 +205,7 @@ export const mr: Dictionary = {
   'gps.panelTitle': 'लाइव्ह GPS शेअरिंग',
   'gps.badgeSharing': 'शेअरिंग सुरू',
   'gps.badgeOff': 'बंद',
-  'gps.notReady':
-    'ट्रिप बोर्डिंग किंवा सुरू असतानाच GPS स्वीकारला जातो. सध्याची स्थिती: {status}.',
+  'gps.notReady': 'ट्रिप बोर्डिंग किंवा सुरू असतानाच GPS स्वीकारला जातो. सध्याची स्थिती: {status}.',
   'gps.share': 'GPS शेअर करा',
   'gps.stopSharing': 'शेअरिंग थांबवा',
   'gps.backgroundTitle': 'बॅकग्राउंडमध्ये शेअर सुरू ठेवा',
@@ -279,8 +275,7 @@ export const mr: Dictionary = {
 
   // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
   'settings.sound.title': 'आवाज आणि कंपन',
-  'settings.sound.hint':
-    'प्रत्येक कारवाईची पुष्टी फोन बोलून, कंपनाने किंवा दोन्ही मार्गाने करतो.',
+  'settings.sound.hint': 'प्रत्येक कारवाईची पुष्टी फोन बोलून, कंपनाने किंवा दोन्ही मार्गाने करतो.',
   'settings.sound.voiceLabel': 'बोलून पुष्टी द्या',
   'settings.sound.voiceHint': 'प्रत्येक बसवण्या-उतरवण्यानंतर पहिले नाव आणि वेळ बोलतो.',
   'settings.sound.vibrationLabel': 'कारवाईवर कंपन',
@@ -319,8 +314,7 @@ export const mr: Dictionary = {
   'login.subtitle': 'तुमच्या शाळेच्या खात्याने लॉगिन करा',
   'login.schoolLabel': 'शाळेचा कोड',
   'login.schoolPlaceholder': 'उदा. lincoln-high',
-  'login.schoolHint':
-    'तुमच्या शाळेचा तेनेंट कोड. फक्त प्लॅटफॉर्म अ‍ॅडमिन्ससाठी रिकामे छोडा.',
+  'login.schoolHint': 'तुमच्या शाळेचा तेनेंट कोड. फक्त प्लॅटफॉर्म अ‍ॅडमिन्ससाठी रिकामे छोडा.',
   'login.email': 'ईमेल',
   'login.emailPlaceholder': 'you@school.edu',
   'login.password': 'पासवर्ड',
@@ -335,34 +329,15 @@ export const mr: Dictionary = {
   'login.crewPath.cta': 'ड्रायव्हर / कंडक्टर म्हणून लॉगिन करा',
   'login.crewPath.backToAdmin': 'इथे बदलायला ईमेल आणि पासवर्ड वापरा',
   'login.crewPath.pin.title': 'तुमचे 4-अंकी PIN टाका',
-  'login.crewPath.pin.subtitle':
-    'शाळेच्या अ‍ॅडमिनने तुमच्या खात्यावर हे PIN सेट केले आहे. ते तुमच्या जोडलेल्या फोनला अनलॉक करते.',
+  'login.crewPath.pin.subtitle': 'तुमचा शाळेचा कोड आणि शाळेच्या अ‍ॅडमिनने सेट केलेला PIN टाका.',
   'login.crewPath.pin.schoolRequired': 'तुमचा शाळा कोड टाका',
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'अनलॉक करा',
   'login.crewPath.pin.clearKey': 'PIN साफ करा',
-  'login.crewPath.qr.title': 'पेयरिंग QR स्कॅन करा',
-  'login.crewPath.qr.subtitle':
-    'शाळेच्या अ‍ॅडमिनला त्यांच्या संगणकावर QR दाखवण्यास सांगा. कॅमेरा त्याकडे ठेवा.',
-  'login.crewPath.qr.openScanner': 'कॅमेरा उघडा',
-  'login.crewPath.qr.cancelScan': 'स्कॅनिंग रद्द करा',
-  'login.crewPath.qr.permission.title': 'कॅमेरा परवानगी आवश्यक',
-  'login.crewPath.qr.permission.body':
-    'कॅमेरा फक्त शाळेच्या पेयरिंग कोड शोधतो. इतर काहीही रेकॉर्ड किंवा अपलोड केले जात नाही.',
-  'login.crewPath.qr.permission.openSettings': 'सेटिंग्ज उघडा',
-  'login.crewPath.qr.useTypeInstead': 'इथे बदलायला कोड टाइप करा',
-  'login.crewPath.qr.pasteTitle': 'किंवा पेयरिंग कोड पेस्ट करा',
-  'login.crewPath.qr.pastePlaceholder': 'SBT-CREW-1:…',
-  'login.crewPath.qr.pasteSubmit': 'हा कोड वापरा',
-  'login.crewPath.qr.scanned': 'कोड स्कॅन झाला — लॉगिन होत आहे…',
-  'login.crewPath.usePin': 'इथे बदलायला PIN वापरा',
-  'login.crewPath.useQr': 'इथे बदलायला QR स्कॅन करा',
   'login.crewPath.lockout.wait':
     'बऱ्याच वेळा चुकीचे PIN. {seconds} सेकंदांनंतर पुन्हा करा — किंवा अ‍ॅडमिनला रीसेट करा.',
   'login.crewPath.lockout.adminHint':
-    'शाळेच्या अ‍ॅडमिनने नवीन पेयरिंग QRही तयार करू शकतात — QR ने लॉगिन केल्यास लॉकआउट मिटतो.',
-  'login.crewPath.expired':
-    'तो पेयरिंग कोड अ‍ॅक्सपायर झाला आहे. अ‍ॅडमिनला नवीन QR तयार करून घ्या.',
+    'लॉकआउट दूर करण्यासाठी शाळेच्या अ‍ॅडमिनला तुमचा PIN रीसेट करण्यास सांगा.',
 
   // ── Shared status vocabulary ───────────────────────────────────────────
   'status.label.scheduled': 'निर्धारित',
@@ -450,12 +425,9 @@ export const mr: Dictionary = {
     'सर्व्हरने अनुरोध पूर्ण करू शकला नाही. थोड्या वेळात पुन्हा प्रयत्न करा.',
   'error.RATE_LIMIT_EXCEEDED': 'बऱ्याच वेळा अनुरोध. थोडा वेळ थांबून पुन्हा करा.',
   'error.SERVICE_NOT_READY': 'सर्व्हर सुरू होत आहे. थोड्या वेळात पुन्हा प्रयत्न करा.',
-  'error.networkOffline':
-    'इंटरनेट नाही. तुमची कारवाई या फोनवर जतन झाली आणि नंतर सिंक होईल.',
+  'error.networkOffline': 'इंटरनेट नाही. तुमची कारवाई या फोनवर जतन झाली आणि नंतर सिंक होईल.',
   'error.unknownCodePrefix': 'सर्व्हर कोड',
   'error.CREW_PIN_LOCKED': 'बऱ्याच वेळा चुकीचे PIN. थोड्या वेळात पुन्हा प्रयत्न करा.',
   'error.CREW_PIN_INVALID': 'हे PIN चुकीचे आहे. पुन्हा प्रयत्न करा.',
-  'error.CREW_PIN_AMBIGUOUS':
-    'हे PIN एकापेक्षा जास्त कर्मचाऱ्यांचे आहे. अ‍ॅडमिनकडून बदलवा.',
-  'error.CREW_PAIRING_INVALID': 'तो पेयरिंग कोड वापरता आला नाही. अ‍ॅडमिनकडून नवीन QR घ्या.',
+  'error.CREW_PIN_AMBIGUOUS': 'हे PIN एकापेक्षा जास्त कर्मचाऱ्यांचे आहे. अ‍ॅडमिनकडून बदलवा.',
 };

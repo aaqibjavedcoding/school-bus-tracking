@@ -2,9 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
-  Modal as RNModal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, useRouter } from 'expo-router';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
-import { loginText, loginTouch } from '../src/theme';
+import { loginText } from '../src/theme';
 import { useAuth } from '../src/features/auth';
 import { Button, Field, LanguageMenu } from '../src/components';
 import { useTranslation } from '../src/lib/i18n-provider';
@@ -36,14 +34,9 @@ import {
 } from '../src/lib/keyboard-aware';
 import { CrewLoginErrorPresentation, localizeCrewLoginError } from '../src/lib/i18n.ts';
 import { CrewPinPad } from '../src/features/crew/CrewPinPad';
-import { CrewQrScanner } from '../src/features/crew/CrewQrScanner';
 import { feedback } from '../src/features/crew/crew-feedback.ts';
-import {
-  buildCrewPinDraft,
-  buildCrewQrPayload,
-  lockoutCountdown,
-} from '../src/features/crew/crew-login-flow.ts';
-import type { CrewLoginByPinRequest, CrewLoginByQrRequest } from '@school-bus-tracking/shared-types';
+import { buildCrewPinDraft, lockoutCountdown } from '../src/features/crew/crew-login-flow.ts';
+import type { CrewLoginByPinRequest } from '@school-bus-tracking/shared-types';
 
 /**
  * Sign-in against the existing `POST /auth/login` plus the crew-only
@@ -55,24 +48,21 @@ import type { CrewLoginByPinRequest, CrewLoginByQrRequest } from '@school-bus-tr
  * - **Email/password** — school users (driver, conductor, parent, school
  *   admin). The school code is optional here so platform super admins still
  *   work; for everyone else the API resolves a tenant id.
- * - **PIN / QR** — DRIVER and CONDUCTOR on a phone. The PIN path asks for
+ * - **PIN** — DRIVER and CONDUCTOR on a phone. The PIN path asks for
  *   exactly two things: the **school code** (the API resolves the tenant the
  *   same way `LoginRequest` does) and the **4-digit PIN**. There is no user
  *   id — the server resolves which crew member that PIN belongs to, so a
  *   driver never has to read a UUID off an admin screen. The PIN is typed on
- *   the `CrewPinPad`; the QR is scanned with the `CrewQrScanner`. The PIN
- *   path is rate-limited server-side (per school); the QR path is single-use.
+ *   the `CrewPinPad`. The PIN path is rate-limited server-side (per school).
  *
  * Platform super admins are still web-only and are told so on a notice
  * screen (the platform console is not part of the mobile app).
  *
- * Feedback is *only* fired for rejections (lockout, wrong PIN, expired
- * code). Successful logins are silent — the user is already navigating to
+ * Feedback is *only* fired for rejections (lockout, wrong PIN). Successful logins are silent — the user is already navigating to
  * the role's home, and the haptic would fire too late to register.
  */
 
 type PathMode = 'email' | 'crew';
-type CrewSubmode = 'pin' | 'qr';
 
 interface LockoutState {
   /** Seconds the server told us to wait; `null` when the server did not send one. */
@@ -96,7 +86,6 @@ export default function LoginScreen() {
   // -- Crew state --
   const [crewSchoolId, setCrewSchoolId] = useState('');
   const [pinDraft, setPinDraft] = useState('');
-  const [crewSubmode, setCrewSubmode] = useState<CrewSubmode>('pin');
   const [crewError, setCrewError] = useState<CrewLoginErrorPresentation | null>(null);
   const [lockout, setLockout] = useState<LockoutState | null>(null);
   const [nowEpochSeconds, setNowEpochSeconds] = useState(() => Math.floor(Date.now() / 1000));
@@ -282,29 +271,6 @@ export default function LoginScreen() {
     [crewLogin, crewSchoolId, t],
   );
 
-  /**
-   * Run a QR login. The QR payload is parsed through `buildCrewQrPayload`
-   * before reaching this method (the scanner and the paste path share it),
-   * so we only need to dispatch the request body.
-   */
-  const submitCrewQr = useCallback(
-    async (body: { method: 'qr'; pairing_token: string }) => {
-      setBusy(true);
-      setCrewError(null);
-      try {
-        const payload: CrewLoginByQrRequest = body;
-        await crewLogin(payload);
-      } catch (error) {
-        const presentation = localizeCrewLoginError(extractErrorPayload(error));
-        setCrewError(presentation);
-        feedback.on({ type: 'action.rejected' });
-      } finally {
-        setBusy(false);
-      }
-    },
-    [crewLogin],
-  );
-
   // -- Render guards ------------------------------------------------------
   if (status === 'authenticated' && user) {
     return <Redirect href={homeRoute(user.role)} />;
@@ -341,79 +307,35 @@ export default function LoginScreen() {
           style={styles.fieldInput}
           containerStyle={styles.fieldBlock}
         />
-        <View style={styles.submodeTabs} accessibilityRole="tablist">
-          <Pressable
-            onPress={() => setCrewSubmode('pin')}
-            style={[styles.submodeTab, crewSubmode === 'pin' ? styles.submodeTabActive : null]}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: crewSubmode === 'pin' }}
-          >
-            <Text style={styles.submodeTabLabel}>{t('login.crewPath.pin.padLabel')}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setCrewSubmode('qr')}
-            style={[styles.submodeTab, crewSubmode === 'qr' ? styles.submodeTabActive : null]}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: crewSubmode === 'qr' }}
-            accessibilityLabel={t('login.crewPath.qr.title')}
-          >
-            <Text style={styles.submodeTabLabel}>QR</Text>
-          </Pressable>
+        <View style={styles.pinPadWrap}>
+          <CrewPinPad
+            value={pinDraft}
+            onChange={(next) => {
+              setPinDraft(next);
+              if (crewError) setCrewError(null);
+            }}
+            onSubmit={(pin) => void submitCrewPin(pin)}
+            disabled={busy || lockoutActive}
+          />
+          {lockoutActive ? (
+            <View style={styles.lockoutCard} accessible accessibilityLiveRegion="polite">
+              <Text style={styles.lockoutTitle}>{t('error.CREW_PIN_LOCKED')}</Text>
+              <Text style={styles.lockoutCountdown}>
+                {t('login.crewPath.lockout.wait', { seconds: countdown.label })}
+              </Text>
+              <Text style={styles.lockoutHint}>{t('login.crewPath.lockout.adminHint')}</Text>
+            </View>
+          ) : crewError ? (
+            <View style={styles.errorCard}>
+              <Text style={styles.errorCardText} accessibilityLiveRegion="polite">
+                {crewError.message}
+              </Text>
+              {crewError.codeNote ? (
+                <Text style={styles.errorCardNote}>{crewError.codeNote}</Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
-
-        {crewSubmode === 'pin' ? (
-          <View style={styles.pinPadWrap}>
-            <CrewPinPad
-              value={pinDraft}
-              onChange={(next) => {
-                setPinDraft(next);
-                if (crewError) setCrewError(null);
-              }}
-              onSubmit={(pin) => void submitCrewPin(pin)}
-              disabled={busy || lockoutActive}
-            />
-            {lockoutActive ? (
-              <View style={styles.lockoutCard} accessible accessibilityLiveRegion="polite">
-                <Text style={styles.lockoutTitle}>{t('error.CREW_PIN_LOCKED')}</Text>
-                <Text style={styles.lockoutCountdown}>
-                  {t('login.crewPath.lockout.wait', { seconds: countdown.label })}
-                </Text>
-                <Text style={styles.lockoutHint}>{t('login.crewPath.lockout.adminHint')}</Text>
-              </View>
-            ) : crewError ? (
-              <View style={styles.errorCard}>
-                <Text style={styles.errorCardText} accessibilityLiveRegion="polite">
-                  {crewError.message}
-                </Text>
-                {crewError.codeNote ? (
-                  <Text style={styles.errorCardNote}>{crewError.codeNote}</Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ) : (
-          <View style={styles.qrWrap}>
-            <RNModal visible animationType="slide" onRequestClose={() => setCrewSubmode('pin')}>
-              <CrewQrScanner
-                onClose={() => setCrewSubmode('pin')}
-                onPayload={(body) => void submitCrewQr(body)}
-              />
-            </RNModal>
-            <Button
-              label={t('login.crewPath.qr.openScanner')}
-              onPress={() => setCrewSubmode('qr')}
-              disabled={busy}
-            />
-            {crewError ? (
-              <View style={styles.errorCard}>
-                <Text style={styles.errorCardText}>{crewError.message}</Text>
-                {crewError.codeNote ? (
-                  <Text style={styles.errorCardNote}>{crewError.codeNote}</Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        )}
 
         <Button
           variant="ghost"
@@ -579,12 +501,6 @@ function extractErrorPayload(error: unknown): {
   return {};
 }
 
-// Suppress an unused-import warning: `buildCrewQrPayload` is exported by
-// the helpers module so the scanner and the paste form share one source of
-// truth; the login screen does not call it directly but the import is the
-// documented seam for "QR payload accepted by the screen".
-void buildCrewQrPayload;
-
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
@@ -682,29 +598,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  submodeTabs: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  submodeTab: {
-    flex: 1,
-    minHeight: loginTouch.min,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    borderWidth: 1.5,
-    borderColor: colors.neutral[200],
-    backgroundColor: colors.neutral[100],
-  },
-  submodeTabActive: {
-    backgroundColor: colors.secondary[100],
-    borderColor: colors.secondary[700],
-  },
-  submodeTabLabel: {
-    color: colors.neutral[900],
-    fontSize: loginText.label,
-    fontWeight: '700',
-  },
   pinPadWrap: {
     gap: spacing.md,
   },
@@ -729,9 +622,6 @@ const styles = StyleSheet.create({
     color: '#78350F',
     fontSize: loginText.secondary,
     lineHeight: 20,
-  },
-  qrWrap: {
-    gap: spacing.md,
   },
   errorCard: {
     padding: spacing.md,
