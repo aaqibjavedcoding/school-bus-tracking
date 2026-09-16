@@ -2,7 +2,12 @@
 
 import Link from 'next/link';
 import React, { useState } from 'react';
-import type { StaffCreateRequest, StaffResponse } from '@school-bus-tracking/shared-types';
+import type {
+  CrewPairingResponse,
+  CrewPinSetResponse,
+  StaffCreateRequest,
+  StaffResponse,
+} from '@school-bus-tracking/shared-types';
 import { ExportDataset, ImportModule, UserRole } from '@school-bus-tracking/shared-types';
 import { staffCreateSchema, staffUpdateSchema } from '@school-bus-tracking/validation';
 import {
@@ -20,6 +25,7 @@ import {
   useToast,
 } from '../../../components/ui';
 import { ListActions } from '../../../features/data-transfer';
+import { CrewLoginModal, type CrewLoginModalMode } from '../../../features/crew/CrewLoginModal';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
   emptyToNull,
@@ -33,6 +39,16 @@ import { apiClient } from '../../../services/api';
 import { useManagedSchool } from '../../../features/managed';
 
 type Tab = 'drivers' | 'conductors';
+
+/**
+ * The crew mobile-login modal is keyed by the row that opened it and the
+ * mode (PIN or QR). Keeping both together is what stops a "Set PIN" click
+ * on row A from racing a "Generate QR" click on row B.
+ */
+interface CrewModalState {
+  mode: CrewLoginModalMode;
+  person: StaffResponse;
+}
 
 const emptyForm = {
   first_name: '',
@@ -64,6 +80,7 @@ export default function StaffPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<StaffResponse | null>(null);
+  const [crewModal, setCrewModal] = useState<CrewModalState | null>(null);
 
   const startCreate = () => {
     setEditing(null);
@@ -84,6 +101,52 @@ export default function StaffPage() {
     });
     setFieldErrors({});
     setOpen(true);
+  };
+
+  const openCrewPin = (person: StaffResponse) => {
+    setCrewModal({ mode: 'pin', person });
+  };
+  const openCrewQr = (person: StaffResponse) => {
+    setCrewModal({ mode: 'qr', person });
+  };
+  const closeCrewModal = () => setCrewModal(null);
+
+  /**
+   * PIN submit — calls the right endpoint per role and refreshes the list so
+   * the row's `pin_set` / `pin_updated_at` update immediately. The plaintext
+   * PIN is forwarded to the API in the request body and is **not** kept in
+   * any state the modal could render back: the modal wipes its local PIN
+   * copy as soon as the response returns and the server never returns it.
+   */
+  const submitCrewPin = async (
+    person: StaffResponse,
+    pin: string,
+  ): Promise<CrewPinSetResponse> => {
+    const envelope =
+      person.role === UserRole.DRIVER
+        ? await apiClient.setDriverPin(person.id, { pin })
+        : await apiClient.setConductorPin(person.id, { pin });
+    const response = unwrapEnvelope(envelope);
+    toast.push(
+      pin ? `PIN set for ${fullName(person)}.` : `PIN cleared for ${fullName(person)}.`,
+      'success',
+    );
+    await list.reload();
+    return response;
+  };
+
+  /**
+   * Pairing QR submit — server returns a single-use, short-lived code. We
+   * forward the server payload to the modal untouched; the modal owns the
+   * countdown and the regenerate flow.
+   */
+  const submitCrewPairing = async (person: StaffResponse): Promise<CrewPairingResponse> => {
+    const envelope =
+      person.role === UserRole.DRIVER
+        ? await apiClient.createDriverPairingQr(person.id)
+        : await apiClient.createConductorPairingQr(person.id);
+    const response = unwrapEnvelope(envelope);
+    return response;
   };
 
   const save = async (event: React.FormEvent) => {
@@ -170,6 +233,9 @@ export default function StaffPage() {
     }
   };
 
+  const isCrewRole = (role: string) =>
+    role === UserRole.DRIVER || role === UserRole.CONDUCTOR;
+
   return (
     <div className="page">
       <PageHeader
@@ -247,9 +313,7 @@ export default function StaffPage() {
                       <div className="table-actions">
                         {/* Compliance documents are outside the assisted-management
                             scope, so the link only exists in the school's own workspace. */}
-                        {!managed &&
-                        (person.role === UserRole.DRIVER ||
-                          person.role === UserRole.CONDUCTOR) ? (
+                        {!managed && isCrewRole(person.role) ? (
                           <Link
                             className="btn btn-secondary"
                             href={`/drivers/${person.id}/documents`}
@@ -263,6 +327,29 @@ export default function StaffPage() {
                         <Button variant="ghost" onClick={() => setPendingDelete(person)}>
                           Delete
                         </Button>
+                        {/* Crew mobile-login (Phase 4 wiring): drivers and conductors
+                            sign in on a phone with a 4-digit PIN or a QR pairing code
+                            minted by the school admin. The actions are exposed only on
+                            crew rows; the modal owns the PIN entry, the QR vector and
+                            the countdown, and the page never logs or stores the PIN. */}
+                        {!managed && isCrewRole(person.role) ? (
+                          <>
+                            <Button
+                              variant="secondary"
+                              size="md"
+                              onClick={() => openCrewPin(person)}
+                            >
+                              {person.pin_set ? 'Reset PIN' : 'Set PIN'}
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="md"
+                              onClick={() => openCrewQr(person)}
+                            >
+                              Generate QR
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -355,6 +442,15 @@ export default function StaffPage() {
         busy={busy}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => void remove()}
+      />
+      {/* Crew mobile-login modal — single instance, keyed by row + mode. */}
+      <CrewLoginModal
+        open={crewModal !== null}
+        mode={crewModal?.mode ?? 'pin'}
+        person={crewModal?.person ?? null}
+        onClose={closeCrewModal}
+        onSubmitPin={submitCrewPin}
+        onCreatePairing={submitCrewPairing}
       />
     </div>
   );
