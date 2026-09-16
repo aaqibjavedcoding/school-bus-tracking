@@ -173,6 +173,29 @@ export default function LoginScreen() {
     return () => window.clearInterval(handle);
   }, [lockout]);
 
+  // Lockout expiry bookkeeping lives at the component top level — it MUST
+  // not be inside `renderCrewPath` (which only runs when the crew path is
+  // mounted) or the hook count changes between email/crew renders and
+  // React throws "Rendered more hooks than during the previous render".
+  const lockoutElapsedSeconds = lockout ? nowEpochSeconds - lockout.startedAt : 0;
+  const lockoutCountdownState = lockout
+    ? lockoutCountdown(lockout.totalSeconds, lockoutElapsedSeconds)
+    : null;
+  // The countdown is `expired: true` when the total was exhausted — that
+  // is the moment we drop the lockout card and let the user try again.
+  const lockoutShouldClear =
+    lockout !== null &&
+    lockoutCountdownState !== null &&
+    lockoutCountdownState.expired &&
+    lockoutElapsedSeconds > 0;
+
+  useEffect(() => {
+    if (lockoutShouldClear) {
+      setLockout(null);
+      setCrewError(null);
+    }
+  }, [lockoutShouldClear]);
+
   // -- Routing -----------------------------------------------------------
   useEffect(() => {
     if (status === 'authenticated' && user) {
@@ -290,24 +313,11 @@ export default function LoginScreen() {
   }
 
   // -- Crew path render ---------------------------------------------------
+  // Plain render helper — no hooks in here (see the top-level lockout
+  // bookkeeping above); `countdown` is computed once per render there.
   const renderCrewPath = () => {
     const lockoutActive = lockout !== null;
-    const elapsed = lockout ? nowEpochSeconds - lockout.startedAt : 0;
-    const lockoutRemaining = lockout ? Math.max(0, lockout.totalSeconds! - elapsed) : 0;
-    const countdown = lockout
-      ? lockoutCountdown(lockout.totalSeconds, lockout.startedAt)
-      : { expired: true, label: '0:00' };
-    // The countdown is `expired: true` when the total was exhausted OR when
-    // we have already waited it out — the latter is the moment we drop the
-    // lockout card and let the user try again.
-    const lockoutShouldClear = lockout && countdown.expired && elapsed > 0;
-    useEffect(() => {
-      if (lockoutShouldClear) {
-        setLockout(null);
-        setCrewError(null);
-      }
-    }, [lockoutShouldClear]);
-    void lockoutRemaining;
+    const countdown = lockoutCountdownState ?? { expired: true, label: '0:00' };
 
     return (
       <View style={styles.card}>
