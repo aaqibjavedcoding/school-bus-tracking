@@ -18,7 +18,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { useAuth } from '../src/features/auth';
-import { Button, Field } from '../src/components';
+import { Button, Field, LanguagePillRow } from '../src/components';
 import { useTranslation } from '../src/lib/i18n-provider';
 import {
   emptyToNull,
@@ -509,6 +509,13 @@ export default function LoginScreen() {
             <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
           </View>
 
+          {/*
+           * Language lives on the login screen so a driver can pick Hindi or
+           * Marathi BEFORE signing in — the app opens in English by default
+           * (CREW_DEFAULT_LOCALE) and the saved choice wins from then on.
+           */}
+          <LanguagePillRow />
+
           {pathMode === 'email' ? renderEmailPath() : renderCrewPath()}
 
           <View>
@@ -637,7 +644,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[100],
   },
   submodeTabActive: {
-    backgroundColor: colors.primary[100],
+    backgroundColor: colors.secondary[100],
   },
   submodeTabLabel: {
     color: colors.neutral[900],

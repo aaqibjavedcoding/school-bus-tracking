@@ -328,7 +328,10 @@ PostgreSQL (`crew_pairing_tokens`, migration
 restart and are correct under more than one instance. The plaintext
 token is returned to the administrator **once** and only its SHA-256
 digest is stored, so a later database read — or a leaked backup —
-cannot resurrect a live code.
+cannot resurrect a live code. Each pairing code is **single-use and
+expires after 5 minutes** (`pairingTtlMs` in
+`web/src/server/config/crew-auth.config.ts`); a redeemed or expired
+code is rejected with `CREW_PAIRING_INVALID`.
 
 ## Audit Logging
 

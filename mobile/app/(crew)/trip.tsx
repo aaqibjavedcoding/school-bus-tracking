@@ -212,11 +212,11 @@ const styles = StyleSheet.create({
     minHeight: 32,
   },
   connectionLabel: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#334155',
   },
   muted: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#475569',
   },
   linkRow: {

@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[800],
   },
@@ -552,12 +552,12 @@ const styles = StyleSheet.create({
   },
   activeText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   muted: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     marginTop: spacing.xs,
   },
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
   },
   historyText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[700],
   },
 });

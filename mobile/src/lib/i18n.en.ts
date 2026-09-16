@@ -274,8 +274,9 @@ export const en = {
   // ── Language switcher (self-designations are locale-invariant) ─────────
   'settings.language.nameEn': 'English',
   'settings.language.nameHi': 'हिन्दी',
+  'settings.language.nameMr': 'मराठी',
   'settings.language.a11y': 'Change app language',
-  'settings.language.a11yHint': 'Switches every screen between English and Hindi.',
+  'settings.language.a11yHint': 'Switches every screen between English, Hindi and Marathi.',
 
   // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
   'settings.sound.title': 'Sound & vibration',

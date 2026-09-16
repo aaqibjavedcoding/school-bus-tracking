@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   groupTitle: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[800],
     marginTop: spacing.md,
@@ -458,16 +458,16 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rowName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   rowMeta: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
   },
   confirmation: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.secondary[800],
   },
@@ -475,7 +475,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[700],
   },
   waiting: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
   },
   glyphZone: {
@@ -498,7 +498,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[200],
   },
   settledSymbol: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
     color: colors.neutral[500],
   },

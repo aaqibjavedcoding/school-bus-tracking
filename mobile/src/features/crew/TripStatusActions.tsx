@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   },
   terminalNote: {
     color: colors.neutral[600],
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
   },
   cancelBox: {
@@ -242,11 +242,11 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.status.danger,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   queued: {
     color: colors.neutral[700],
-    fontSize: 16,
+    fontSize: 14,
   },
 });

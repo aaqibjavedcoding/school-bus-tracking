@@ -63,13 +63,15 @@ import { getLocale, t, type Locale, type StaticTranslationKey } from '../../lib/
  * UI locale → the BCP-47 tag handed to the TTS engine.
  *
  * Keyed by locale so a third locale is additive, but the *value* follows the
- * script of that locale's `voice.*` phrases. Today both are Latin, so both
- * are `en-IN`; a future locale that ships Devanagari (or Tamil) voice copy
- * would change its own row here and nothing else.
+ * script of that locale's `voice.*` phrases. Today all three phrase sets are
+ * Latin (English, Hinglish, Marathi-in-Latin), so all ask for `en-IN`; a
+ * future locale that ships Devanagari (or Tamil-script) voice copy would
+ * change its own row here and nothing else.
  */
 export const VOICE_LANGUAGE_TAG: Readonly<Record<Locale, string>> = {
   en: 'en-IN',
   hi: 'en-IN',
+  mr: 'en-IN',
 };
 
 /**

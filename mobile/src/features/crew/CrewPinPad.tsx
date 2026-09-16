@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[300],
   },
   dotFilled: {
-    backgroundColor: colors.primary[700],
+    backgroundColor: colors.secondary[700],
   },
   grid: {
     gap: spacing.sm,

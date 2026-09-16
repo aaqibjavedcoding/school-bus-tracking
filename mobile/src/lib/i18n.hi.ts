@@ -197,7 +197,7 @@ export const hi: Dictionary = {
   'gps.panelTitle': 'लाइव GPS शेयरिंग',
   'gps.badgeSharing': 'शेयर हो रहा है',
   'gps.badgeOff': 'बंद',
-  'gps.notReady': 'ट्रिप बोर्डिंग या चालू होने पर ही GPS लिया जाता है। अभी की स्थिति: {status}।',
+  'gps.notReady': 'ट्रिप बोर्डिंग या चालू होने पर ही GPS लिया जाता है। मौजूदा स्थिति: {status}।',
   'gps.share': 'GPS शेयर करें',
   'gps.stopSharing': 'शेयरिंग रोकें',
   'gps.backgroundTitle': 'बैकग्राउंड में शेयर करते रहें',
@@ -261,8 +261,9 @@ export const hi: Dictionary = {
   // ── Language switcher (self-designations stay in their own script) ─────
   'settings.language.nameEn': 'English',
   'settings.language.nameHi': 'हिन्दी',
+  'settings.language.nameMr': 'मराठी',
   'settings.language.a11y': 'ऐप की भाषा बदलें',
-  'settings.language.a11yHint': 'हर स्क्रीन को अंग्रेज़ी और हिन्दी में बदलता है।',
+  'settings.language.a11yHint': 'हर स्क्रीन को अंग्रेज़ी, हिन्दी और मराठी में बदलता है।',
 
   // ── Sound & vibration settings (Phase 3b) ──────────────────────────────
   'settings.sound.title': 'आवाज़ और कंपन',

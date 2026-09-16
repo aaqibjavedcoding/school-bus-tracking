@@ -45,7 +45,7 @@ import {
   pinBadge,
   qrToSvg,
   validatePinDraft,
-} from './crew-login.ts';
+} from './crew-login';
 
 export type CrewLoginModalMode = 'pin' | 'qr';
 

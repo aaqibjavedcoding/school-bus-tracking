@@ -56,10 +56,13 @@ export const WHITE = '#ffffff';
  */
 export const CONTRAST_PAIRS: ContrastPair[] = [
   // Filled action buttons (label on solid surface).
+  //
+  // Primary = green (product decision, 2026-09 — amber read as "dark orange");
+  // the `success` row stays as the documented green confirm pair.
   {
     name: 'primary action label',
     foreground: WHITE,
-    background: colors.primary[700],
+    background: colors.secondary[700],
     minimum: AA_TEXT,
   },
   {
@@ -125,10 +128,10 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   {
     name: 'active chip label',
     foreground: WHITE,
-    background: colors.primary[700],
+    background: colors.secondary[700],
     minimum: AA_TEXT,
   },
-  { name: 'active tab tint', foreground: colors.primary[700], background: WHITE, minimum: AA_TEXT },
+  { name: 'active tab tint', foreground: colors.secondary[700], background: WHITE, minimum: AA_TEXT },
   { name: 'toast success', foreground: WHITE, background: colors.secondary[700], minimum: AA_TEXT },
   { name: 'toast danger', foreground: WHITE, background: colors.status.danger, minimum: AA_TEXT },
   // Phase 2 giant status card: the 28px bold state word (white) on the
@@ -144,7 +147,7 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   {
     name: 'status card IN_PROGRESS (white on amber)',
     foreground: WHITE,
-    background: colors.primary[700],
+    background: colors.secondary[700],
     minimum: AA_TEXT,
   },
   {

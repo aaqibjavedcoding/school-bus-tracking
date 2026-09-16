@@ -287,7 +287,7 @@ export default function ManageStudentDetailScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
+  backText: { color: colors.secondary[700], fontSize: 14, fontWeight: '600' },
   badgeRow: {
     flexDirection: 'row',
     gap: spacing.sm,

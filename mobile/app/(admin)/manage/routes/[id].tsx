@@ -250,7 +250,7 @@ export default function ManageRouteStopsScreen() {
                 </Pressable>
                 <View style={styles.spacer} />
                 <Pressable onPress={() => startEdit(stop)} style={styles.textBtn} hitSlop={6}>
-                  <Ionicons name="create-outline" size={16} color={colors.primary[700]} />
+                  <Ionicons name="create-outline" size={16} color={colors.secondary[700]} />
                   <Text style={styles.textBtnLabel}>Edit</Text>
                 </Pressable>
                 <Pressable
@@ -286,9 +286,9 @@ export default function ManageRouteStopsScreen() {
               style={styles.runsLink}
               accessibilityRole="button"
             >
-              <Ionicons name="bus-outline" size={16} color={colors.primary[700]} />
+              <Ionicons name="bus-outline" size={16} color={colors.secondary[700]} />
               <Text style={styles.runsLinkText}>Runs — bell windows, buses & crew</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.primary[700]} />
+              <Ionicons name="chevron-forward" size={16} color={colors.secondary[700]} />
             </Pressable>
             {data.stops.length > 0 ? (
               <SearchBar
@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', padding: spacing.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
+  backText: { color: colors.secondary[700], fontSize: 14, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   runsLinkText: {
-    color: colors.primary[700],
+    color: colors.secondary[700],
     fontSize: typography.fontSizes.sm,
     fontWeight: '700',
   },
@@ -459,7 +459,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.primary[100],
+    backgroundColor: colors.secondary[100],
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -514,6 +514,6 @@ const styles = StyleSheet.create({
   textBtnLabel: {
     fontSize: typography.fontSizes.sm,
     fontWeight: '600',
-    color: colors.primary[700],
+    color: colors.secondary[700],
   },
 });

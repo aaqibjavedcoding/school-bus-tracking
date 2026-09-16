@@ -68,10 +68,10 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.neutral[600],
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
   labelActive: {
-    color: colors.primary[700],
+    color: colors.secondary[700],
   },
 });

@@ -18,27 +18,31 @@ them.**
    is unchanged.
 2. **Mobile-only aliases** (`mobile/src/theme/tokens.ts`): a semantic layer
    _over_ the shared tokens, picked for the phone:
-   - `text.body` 16 (floor for anything that carries information), `text.secondary` 14
-     (short labels only), `text.title` 20, `text.numeric` 24, `text.statusWord` 28.
+   - `text.body` 14 (floor for anything that carries information), `text.secondary` 13
+     (short labels only), `text.title` 16, `text.numeric` 20, `text.statusWord` 20 —
+     the standard consumer-app scale (owner decision, 2026-09).
    - `touch.compact` 44 (dense admin rows only), `touch.target` 56 (every
      button's default), `touch.field` 64 (crew field actions: start trip,
      board, SOS, share GPS).
-   - `surface.actionPrimary` = `primary[700]`, `actionSuccess` = `secondary[700]`,
+   - `surface.actionPrimary` = `secondary[700]` — **green is the action colour**
+     (owner decision, 2026-09: the school-bus amber read as "dark orange" on the
+     trip/map screens; amber stays the brand accent and the IN_PROGRESS state),
+     `actionSuccess` = `secondary[700]`,
      `actionDanger` = `status.danger`, `actionInfo` = `status.info`,
      `borderInteractive` / `placeholder` = `neutral[500]` — every filled action
      surface reaches WCAG AA with its label (measured table below).
 3. **Machine-checked guards** (run in `npm --prefix mobile test`):
    - `theme/contrast.spec.ts` pins every text/background pair below and the
      regression marker for the old primary button.
-   - `theme/legibility.spec.ts` scans the source tree: **0 text under 16px on
+   - `theme/legibility.spec.ts` scans the source tree: **0 text under 14px on
      crew surfaces** (`app/(crew)`, `src/features/crew`,
-     `src/features/tracking`) and a 14px floor app-wide.
+     `src/features/tracking`) and a 13px floor app-wide.
 
 ## Measured contrast (computed by `contrast.spec.ts`, not by eye)
 
 | Pair                                                  | Background                | Foreground              | Ratio       | WCAG floor |
 | ----------------------------------------------------- | ------------------------- | ----------------------- | ----------- | ---------- |
-| primary action label                                  | `#b45309` (primary-700)   | white                   | **5.02:1**  | 4.5:1      |
+| primary action label                                  | `#15803d` (secondary-700) | white                   | **5.01:1**  | 4.5:1      |
 | success action label                                  | `#15803d` (secondary-700) | white                   | **5.01:1**  | 4.5:1      |
 | danger action label                                   | `#dc2626` (status.danger) | white                   | **4.83:1**  | 4.5:1      |
 | info action label                                     | `#2563eb` (status.info)   | white                   | **5.17:1**  | 4.5:1      |
@@ -51,7 +55,7 @@ them.**
 | badge danger                                          | `#fee2e2`                 | `#b91c1c`               | **5.30:1**  | 4.5:1      |
 | interactive border (inputs, chips, secondary buttons) | white                     | `#64748b` (neutral-500) | **4.76:1**  | 3:1        |
 | placeholder text                                      | white                     | `#64748b` (neutral-500) | **4.76:1**  | 3:1        |
-| active chip / active tab tint                         | white                     | `#b45309` (primary-700) | **5.02:1**  | 4.5:1      |
+| active chip / active tab tint                         | white                     | `#15803d` (secondary-700) | **5.01:1** | 4.5:1      |
 | toast success                                         | `#15803d`                 | white                   | **5.01:1**  | 4.5:1      |
 | toast danger                                          | `#dc2626`                 | white                   | **4.83:1**  | 4.5:1      |
 | muted text on screen background                       | `#f8fafc`                 | `#475569`               | **7.24:1**  | 4.5:1      |
@@ -94,7 +98,7 @@ One `Button` for everything (`src/components/ui.tsx`):
 - **Tab-bar labels are platform chrome** (every OS ships ~10–13pt captions
   there). They were still bumped phone 11 → 13, tablet 13 → 14
   (`bottom-bar-metrics.ts`), and the active/inactive tints moved to
-  `primary[700]` / `neutral[500]` (both AA).
+  `secondary[700]` / `neutral[500]` (both AA).
 - Where a visual element must stay small (banner ✕, search clear), its _hit
   area_ was raised to ≥44px with `hitSlop`, keeping the visible icon compact.
 
@@ -126,8 +130,9 @@ One `Button` for everything (`src/components/ui.tsx`):
 
 - Every button grew: trip actions are 64px with icons ("Start boarding" 🧍,
   "Depart & drive" 🧭, "Share GPS" 📍) — previously 44px text-only.
-- The brand-amber buttons are now dark amber with readable white text
-  (2.15:1 → 5.02:1); green means "good to go" everywhere.
+- The brand-amber buttons are now **green** with readable white text
+  (2.15:1 → 5.01:1); amber is reserved for brand accents and the IN_PROGRESS
+  state word, so the map/trip area no longer reads as dark orange.
 - Manifest rows: names 15 → 18px bold, "Board" is a green 60px icon button,
   filter chips are 56px with icons and counts.
 - All trip ETA numbers are 24px bold; "Next stop" headline is 20px.
@@ -200,7 +205,7 @@ The mapping lives in `features/crew/trip-status-style.ts` and is pinned by
 
 | Trip state    | Card background           | Word        | Icon           | White-word contrast |
 | ------------- | ------------------------- | ----------- | -------------- | ------------------- |
-| `BOARDING`    | `#15803d` (secondary-700) | BOARDING    | people         | **5.02:1**          |
+| `BOARDING`    | `#15803d` (secondary-700) | BOARDING    | people         | **5.01:1**          |
 | `IN_PROGRESS` | `#b45309` (primary-700)   | ON THE ROAD | navigate       | **5.02:1**          |
 | `COMPLETED`   | `#475569` (neutral-600)   | COMPLETED   | checkmark-done | **7.58:1**          |
 | `CANCELLED`   | `#475569` (neutral-600)   | CANCELLED   | close-circle   | **7.58:1**          |
@@ -280,29 +285,31 @@ switch and the guards. **3b is voice + haptics** (`expo-speech` /
 
 ### The key set
 
-`mobile/src/lib/i18n.en.ts` is the **source of truth**: **314 keys** (286 at
-Phase 3a, +28 added by Phase 3b for voice lines and the sound settings), flat and
-dotted (`manifest.confirmBoard`, `gps.tierGood`, `error.HTTP_409`).
-`mobile/src/lib/i18n.hi.ts` is typed as `Dictionary` — the same key set with
-widened values — so a missing or extra Hindi key is a **compile** error before
-it is ever a runtime one.
+`mobile/src/lib/i18n.en.ts` is the **source of truth**: **345 keys** (286 at
+Phase 3a, +28 by Phase 3b for voice lines and sound settings, +29 by Phase 4b
+for the crew PIN/QR login, +1 for `settings.language.nameMr` when Marathi
+joined), flat and dotted (`manifest.confirmBoard`, `gps.tierGood`,
+`error.HTTP_409`). `mobile/src/lib/i18n.hi.ts` and `mobile/src/lib/i18n.mr.ts`
+are typed as `Dictionary` — the same key set with widened values — so a
+missing or extra key in any locale is a **compile** error before it is ever a
+runtime one.
 
 | Group                                                | Keys    | Covers                                                                   |
 | ---------------------------------------------------- | ------- | ------------------------------------------------------------------------ |
 | `nav.*`, `role.*`                                    | 20      | tab labels, screen titles, role words                                    |
-| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 28px card words                    |
+| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 20px card words                    |
 | `trip.*`                                             | 39      | trip screen, "More details", lifecycle actions, cancel flow              |
 | `manifest.*`                                         | 42      | board/drop, filters, summary badges, search, a11y labels + announcements |
 | `sos.*`                                              | 39      | hold-to-confirm, status line, details sheet, cancel flow                 |
 | `gps.*` (incl. `gps.recovery.*`)                     | 44      | sharing strip + panel, permission recovery                               |
 | `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                          |
 | `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                  |
-| `help.*`, `settings.*`                               | 22      | Help screen, the language switch + the Phase-3b sound settings           |
-| `login.*`                                            | 13      | sign-in labels (the flow/endpoint is untouched)                          |
+| `help.*`, `settings.*`                               | 23      | Help screen, the language switch + the Phase-3b sound settings           |
+| `login.*`                                            | 40      | sign-in labels + the Phase-4b crew PIN/QR path (flow/endpoint untouched) |
 | `common.*`, `time.*`                                 | 12      | shared chrome, relative time, minutes, the On/Off switch words           |
-| `error.*`                                            | 14      | known server error codes + the unknown-code prefix                       |
-| `voice.*`                                            | 17      | **spoken only** — Latin script in both locales, never rendered on screen |
-| **total**                                            | **314** | the groups above are exhaustive — every key is in exactly one            |
+| `error.*`                                            | 17      | known server error codes + the crew-login codes + the unknown-code prefix|
+| `voice.*`                                            | 17      | **spoken only** — Latin script in every locale, never rendered on screen |
+| **total**                                            | **345** | the groups above are exhaustive — every key is in exactly one            |
 
 ### Resolution order
 
@@ -311,15 +318,18 @@ Implemented once, in `resolveInitialLocale` (`src/lib/i18n.ts`), and pinned by
 
 1. **saved preference** (AsyncStorage key `sbt.mobile.locale`) — an explicit
    choice always wins;
-2. **role default** — `DRIVER`/`CONDUCTOR` → **`hi`**; everyone else → the
-   device locale;
+2. **role default** — `DRIVER`/`CONDUCTOR` → **`en`** (owner decision, 2026-09:
+   the app opens in English and the driver picks their language); everyone
+   else → the device locale;
 3. **`en`** — an unsupported or absent device locale falls back to the source
    of truth rather than to a guess.
 
-The deliberate consequence: **a crew member on an English-locale phone still
-opens in Hindi**, because "crew default = Hindi" is the product rule and the
-switch on the Help screen is the escape hatch. Admins and parents follow the
-device, since their screens are also used from the English web console.
+The deliberate consequence: **a crew member on a Hindi- or Marathi-locale
+phone still opens in English** until they pick a language themselves — the
+switch lives on the **login screen** (a row of self-naming pills) *and* on
+the Help screen, and once tapped the saved choice wins forever. Admins and
+parents follow the device, since their screens are also used from the English
+web console.
 
 **No `expo-localization`.** The device locale is probed in
 `src/lib/i18n-preferences.ts` from first-party sources only — iOS
@@ -451,8 +461,8 @@ dictionary — a screen reader announces in the same language the screen shows.
 
 | Spec                        | Pins                                                                                                                                                                                                                                                                                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `i18n.spec.ts` (21)         | resolution order (saved → role/device → `en`), crew-default-Hindi, tag normalisation, interpolation (an unknown placeholder stays visible, never `undefined`), subscribe/notify, persist-on-choice vs no-persist-on-default, a failing store is non-fatal, `pluralKey`, the whole server-string boundary table |
-| `i18n-parity.spec.ts` (9)   | **0 missing / 0 extra** keys, no empty values, identical placeholder names _and_ counts, complete `.one`/`.other` pairs, every `hi === en` key declared in `LOCALE_INVARIANT_KEYS`, distinct status words in both locales, ✓/✕/⏳ glyphs survive translation                                                   |
+| `i18n.spec.ts` (21)         | resolution order (saved → role/device → `en`), crew-default-English (a saved choice always wins), tag normalisation, interpolation (an unknown placeholder stays visible, never `undefined`), subscribe/notify, persist-on-choice vs no-persist-on-default, a failing store is non-fatal, `pluralKey`, the whole server-string boundary table |
+| `i18n-parity.spec.ts` (9)   | **0 missing / 0 extra** keys, no empty values, identical placeholder names _and_ counts, complete `.one`/`.other` pairs, every key identical to English in any locale declared in `LOCALE_INVARIANT_KEYS`, distinct status words in every locale, ✓/✕/⏳ glyphs survive translation                                                   |
 | `i18n-clipping.spec.ts` (6) | all 46 budgeted keys fit in **both** locales, no key grows past `growthCeiling`, the per-key growth envelope, the single-line filter chip is fed only budgeted keys, the tab bar stays four labelled actions                                                                                                   |
 | `i18n-literals.spec.ts` (5) | **0** hardcoded English UI literals on crew screens _and_ crew components, every copy-rendering screen subscribes to the locale, the scan is not empty                                                                                                                                                         |
 
@@ -524,7 +534,7 @@ from listening, and optimising the two channels separately serves the same
 person better than making them match.
 
 Consequence, spelled out in `crew-voice.ts`: the speech **language tag follows
-the script, not the locale** — `en-IN` for both locales, because the Hindi
+the script, not the locale** — `en-IN` for every locale, because the Hindi
 lines are Latin characters. Asking for `hi-IN` would send Latin text to a
 Devanagari voice, which is the same bug in reverse.
 
@@ -627,7 +637,7 @@ something the server refused.
 
 | Spec                                | Pins                                                                                                                                                                                                                   |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `crew-voice.spec.ts` (32)           | phrase shape and 6–9 word budget in both locales, time-of-day wording, `t()` read at call time (a language switch changes the **next** announcement), the privacy deny-list, throttle latest-wins + summary, web no-op |
+| `crew-voice.spec.ts` (32)           | phrase shape and 6–9 word budget in every locale, time-of-day wording, `t()` read at call time (a language switch changes the **next** announcement), the privacy deny-list, throttle latest-wins + summary, web no-op |
 | `crew-haptics.spec.ts` (11)         | the event → pattern table, 40 boards ⇒ 40 taps, `sos.fired` (success) distinct from `sos.queued` (warning), missing native API is not a crash                                                                          |
 | `crew-feedback.spec.ts` (24)        | role defaults, the full role × (voice, vibration) × on/off matrix with **zero** native calls when off, persistence and cold start, non-blocking, a throwing driver never changes a result                              |
 | `crew-feedback-wiring.spec.ts` (11) | only the native wrapper imports `expo-speech`/`expo-haptics`, no `await` on the speech path, all six surfaces report, no surface touches patterns or phrases, zero-touch boundaries hold                               |

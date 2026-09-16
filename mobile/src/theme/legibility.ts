@@ -6,9 +6,10 @@ import { text } from './tokens.ts';
  * rules enforceable under `node --test`:
  *
  * - crew surfaces (`app/(crew)`, `src/features/crew`, `src/features/tracking`):
- *   nothing below 16px — a driver reads the screen at arm's length;
- * - everything else: the shared floor is 14px (`labels/secondary` minimum) —
- *   the design tokens' `xs` (12px) has no place on a phone screen.
+ *   nothing below 14px — the standard body size (owner decision, 2026-09:
+ *   Instagram-class scale; legibility carries on weight + spacing, not size);
+ * - everything else: the shared floor is 13px (`text.secondary`) — the
+ *   design tokens' `xs` (12px) still has no place on a phone screen.
  *
  * The scanner only understands the literal forms style code actually uses
  * (`fontSize: 13`, `fontSize: typography.fontSizes.xs`,

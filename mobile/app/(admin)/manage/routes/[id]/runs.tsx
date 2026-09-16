@@ -391,12 +391,12 @@ export default function ManageRouteRunsScreen() {
             </View>
             <View style={styles.runActions}>
               <Pressable onPress={() => openCrew(run)} style={styles.textBtn} hitSlop={6}>
-                <Ionicons name="people-outline" size={16} color={colors.primary[700]} />
+                <Ionicons name="people-outline" size={16} color={colors.secondary[700]} />
                 <Text style={styles.textBtnLabel}>Crew</Text>
               </Pressable>
               <View style={styles.spacer} />
               <Pressable onPress={() => startEdit(run)} style={styles.textBtn} hitSlop={6}>
-                <Ionicons name="create-outline" size={16} color={colors.primary[700]} />
+                <Ionicons name="create-outline" size={16} color={colors.secondary[700]} />
                 <Text style={styles.textBtnLabel}>Edit</Text>
               </Pressable>
               {!run.is_default ? (
@@ -543,7 +543,7 @@ export default function ManageRouteRunsScreen() {
                     </Text>
                   </View>
                   <Pressable onPress={() => startCrewEdit(row)} hitSlop={6} style={styles.textBtn}>
-                    <Ionicons name="create-outline" size={16} color={colors.primary[700]} />
+                    <Ionicons name="create-outline" size={16} color={colors.secondary[700]} />
                     <Text style={styles.textBtnLabel}>Edit</Text>
                   </Pressable>
                   <Pressable
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   spacer: { flex: 1 },
   backRow: { alignSelf: 'flex-start', marginBottom: spacing.sm },
-  backText: { color: colors.primary[700], fontSize: 16, fontWeight: '600' },
+  backText: { color: colors.secondary[700], fontSize: 14, fontWeight: '600' },
   title: {
     fontSize: typography.fontSizes.xl,
     fontWeight: '800',
@@ -732,7 +732,7 @@ const styles = StyleSheet.create({
   textBtnLabel: {
     fontSize: typography.fontSizes.sm,
     fontWeight: '600',
-    color: colors.primary[700],
+    color: colors.secondary[700],
   },
   crewEmpty: {
     color: colors.neutral[500],

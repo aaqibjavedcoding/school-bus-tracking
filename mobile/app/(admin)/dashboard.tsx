@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   link: {
-    color: colors.primary[700],
+    color: colors.secondary[700],
     fontSize: typography.fontSizes.sm,
     fontWeight: '700',
   },

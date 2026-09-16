@@ -136,21 +136,21 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   emoji: {
-    fontSize: 22,
+    fontSize: 20,
   },
   headline: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.neutral[900],
     flex: 1,
   },
   currentStop: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
     fontWeight: '600',
   },
   muted: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[500],
   },
   kvRow: {
@@ -187,19 +187,19 @@ const styles = StyleSheet.create({
   stopNumberText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 14,
   },
   stopMain: {
     flex: 1,
     gap: 2,
   },
   stopName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[900],
   },
   stopMeta: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.neutral[600],
   },
 });

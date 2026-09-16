@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { en } from '../../lib/i18n.en.ts';
 import { hi } from '../../lib/i18n.hi.ts';
-import { setLocale, t, type TranslationKey } from '../../lib/i18n.ts';
+import { dictionary, setLocale, SUPPORTED_LOCALES, t, type Locale, type TranslationKey } from '../../lib/i18n.ts';
 import {
   PRIORITY_EVENTS,
   SILENT_EVENTS,
@@ -39,7 +39,7 @@ const boardAt = (name: string, at: string | null = null): CrewFeedbackEvent => (
 });
 
 /** Runs `body` in `locale` and restores the previous one. */
-function inLocale(locale: 'en' | 'hi', body: () => void): void {
+function inLocale(locale: Locale, body: () => void): void {
   setLocale('en', { persist: false });
   setLocale(locale, { persist: false });
   try {
@@ -55,9 +55,12 @@ describe('voice copy is Latin-script Hinglish, not Devanagari', () => {
   const DEVANAGARI = /[\u0900-\u097F]/;
   const voiceKeys = (Object.keys(en) as TranslationKey[]).filter((key) => key.startsWith('voice.'));
 
-  test('the voice namespace exists in both dictionaries', () => {
+  test('the voice namespace exists in every dictionary', () => {
     assert.ok(voiceKeys.length >= 16, `expected the voice namespace, found ${voiceKeys.length}`);
-    for (const key of voiceKeys) assert.ok(key in hi, `${key} missing from hi`);
+    for (const locale of ['en', 'hi', 'mr'] as const) {
+      const dict = dictionary(locale);
+      for (const key of voiceKeys) assert.ok(key in dict, `${key} missing from ${locale}`);
+    }
   });
 
   test('NO Hindi voice phrase contains a Devanagari character', () => {
@@ -97,10 +100,8 @@ describe('voice copy is Latin-script Hinglish, not Devanagari', () => {
   test('every spoken phrase stays inside the 6–9 word budget', () => {
     const tooLong: string[] = [];
     for (const key of voiceKeys) {
-      for (const [locale, dict] of [
-        ['en', en],
-        ['hi', hi],
-      ] as const) {
+      for (const locale of SUPPORTED_LOCALES) {
+        const dict = dictionary(locale);
         // Placeholders stand in for one spoken token each ({name} → "Ramesh",
         // {time} → "7:42 subah" ≈ 2), so measure the template's own words.
         const words = dict[key].split(/\s+/).filter(Boolean).length;
@@ -114,9 +115,10 @@ describe('voice copy is Latin-script Hinglish, not Devanagari', () => {
 // ── Language derivation ────────────────────────────────────────────────────
 
 describe('language is derived from the UI locale, at call time', () => {
-  test('both locales ask for an Indian-English voice, because both phrase sets are Latin', () => {
-    assert.equal(VOICE_LANGUAGE_TAG.en, 'en-IN');
-    assert.equal(VOICE_LANGUAGE_TAG.hi, 'en-IN');
+  test('every locale asks for an Indian-English voice, because every phrase set is Latin', () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      assert.equal(VOICE_LANGUAGE_TAG[locale], 'en-IN', `${locale} must keep the Latin-script en-IN tag`);
+    }
   });
 
   test('a language switch changes the NEXT announcement — nothing is frozen at import', () => {
@@ -137,6 +139,7 @@ describe('language is derived from the UI locale, at call time', () => {
 
   test('voiceLanguageTag follows the active locale', () => {
     inLocale('hi', () => assert.equal(voiceLanguageTag(), 'en-IN'));
+    inLocale('mr', () => assert.equal(voiceLanguageTag(), 'en-IN'));
     inLocale('en', () => assert.equal(voiceLanguageTag(), 'en-IN'));
   });
 
@@ -188,7 +191,7 @@ describe('phrase shape: first name + action + time', () => {
     });
   });
 
-  test('every non-silent event produces a phrase in both locales', () => {
+  test('every non-silent event produces a phrase in every locale', () => {
     const events: CrewFeedbackEvent[] = [
       boardAt('Ramesh'),
       { type: 'drop.confirmed', firstName: 'Sita' },
@@ -201,7 +204,7 @@ describe('phrase shape: first name + action + time', () => {
       { type: 'gps.on' },
       { type: 'gps.off' },
     ];
-    for (const locale of ['en', 'hi'] as const) {
+    for (const locale of ['en', 'hi', 'mr'] as const) {
       inLocale(locale, () => {
         for (const event of events) {
           const phrase = voicePhrase(event);
@@ -233,14 +236,12 @@ describe('privacy: what must never reach the speaker', () => {
     assert.deepEqual([...SPOKEN_STUDENT_FIELDS], ['first_name']);
   });
 
-  test('no denied field name appears in any voice template, in either locale', () => {
+  test('no denied field name appears in any voice template, in every locale', () => {
     const voiceKeys = (Object.keys(en) as TranslationKey[]).filter((k) => k.startsWith('voice.'));
     const leaks: string[] = [];
     for (const key of voiceKeys) {
-      for (const [locale, dict] of [
-        ['en', en],
-        ['hi', hi],
-      ] as const) {
+      for (const locale of SUPPORTED_LOCALES) {
+        const dict = dictionary(locale);
         const placeholders = dict[key].match(/\{(\w+)\}/g) ?? [];
         for (const field of VOICE_DENIED_FIELDS) {
           if (placeholders.some((p) => p.toLowerCase().includes(field.replace(/_/g, '')))) {
@@ -429,5 +430,8 @@ test('voice phrases come from t(), so a third locale is purely additive', () => 
   });
   inLocale('hi', () => {
     assert.equal(t('voice.gps.on'), 'Location bhejna chalu');
+  });
+  inLocale('mr', () => {
+    assert.equal(t('voice.gps.on'), 'Location pathavne suru');
   });
 });

@@ -39,7 +39,7 @@ function AdminTabs() {
         headerStyle: { backgroundColor: colors.neutral[900] },
         headerTintColor: '#ffffff',
         headerTitleStyle: { fontWeight: 'bold' },
-        tabBarActiveTintColor: colors.primary[700],
+        tabBarActiveTintColor: colors.secondary[700],
         tabBarInactiveTintColor: colors.neutral[500],
         // Height + padding derive from the live safe-area insets so the bar
         // never sits under the Android nav bar / iOS home indicator, on any

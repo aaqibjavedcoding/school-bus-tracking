@@ -47,7 +47,7 @@ export const ListCard: React.FC<{
         <View style={styles.actions}>
           {onEdit ? (
             <Pressable onPress={onEdit} style={styles.actionBtn} hitSlop={6}>
-              <Ionicons name="create-outline" size={16} color={colors.primary[700]} />
+              <Ionicons name="create-outline" size={16} color={colors.secondary[700]} />
               <Text style={styles.actionText}>Edit</Text>
             </Pressable>
           ) : null}
@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: typography.fontSizes.base,
     fontWeight: '600',
-    color: colors.primary[700],
+    color: colors.secondary[700],
   },
   pager: {
     flexDirection: 'row',
