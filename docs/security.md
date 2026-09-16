@@ -230,6 +230,106 @@ shared backend is a drop-in):
 Login/refresh rate limiting itself (limits, identity bucketing, windowing)
 is unchanged by these decisions and must not be weakened.
 
+## Crew PIN Brute Force
+
+Crew (DRIVER / CONDUCTOR) sign in to the phone app with a **4-digit PIN**
+(`CREW_PIN_LENGTH = 4`, `CREW_PIN_COMBINATIONS = 10_000`) instead of an
+email + password, because a driver standing in a depot at 6am cannot be
+asked for an email address and an 8-character password. A 4-digit PIN
+covers `10_000` values — survivable only because guessing is _slow_, via
+three layered throttles:
+
+1. **Per-user PIN lockout** (`web/src/server/modules/auth/crew-pin-attempts.ts`).
+   Keyed by `(school_id, user_id)`, not by IP, so an attacker rotating
+   source addresses still gets a bounded budget per crew account.
+   Shipped defaults (`CREW_PIN_DEFAULT_POLICY`):
+   - `maxAttempts: 5`
+   - `windowMs: 15 * 60_000` (15 minutes)
+   - `lockoutMs: 15 * 60_000` (15 minutes)
+     On the fifth failure inside the window the lockout trips immediately —
+     the Nth wrong PIN is refused-with-lock, not allowed-then-locked, so an
+     attacker never gets a free extra guess by racing the boundary. The
+     lockout also covers **unknown** accounts, so a 4-digit PIN cannot be
+     used to enumerate which `user_id`s are drivers.
+2. **Endpoint rate-limit policy** (`auth_crew_login`, in
+   `web/src/server/config/rate-limit.config.ts`). 10 attempts per 60 s
+   per IP _and_ per `(school_id, user_id)` identity bucket — one host
+   cannot walk a list of crew user ids inside the lockout window alone.
+3. **Audit trail**. Every success and every failure is written to
+   `audit_logs` with the attempted identity, so a slow attack is visible
+   to a human even when it stays under both throttles.
+
+With the shipped policy the sustainable guess rate against one account is
+**5 attempts per 15-minute window, plus a 15-minute lockout**, so one
+account yields **480 guesses per day** and walking the entire PIN space
+takes **≈20.8 days of continuous, perfectly-timed guessing**
+(`estimatePinExhaustionDays` in `crew-pin-attempts.ts` — pinned by
+`crew-pin-attempts.spec.ts`; this figure is computed, not quoted). Every
+one of those attempts is an audited failure.
+
+Two properties make the PIN check itself leak nothing:
+
+- **One bcrypt comparison always runs.** When the account does not exist
+  or has no PIN, the comparison runs against `PIN_TIMING_EQUALIZATION_HASH`
+  (`web/src/server/modules/auth/auth.constants.ts`) — exactly the trick
+  `AuthService.login()` uses for passwords — so response timing cannot
+  reveal which case applied.
+- **The lockout counts unknown accounts too.** A failure is registered
+  against the submitted `(school_id, user_id)` whether or not a row
+  exists, so the `remaining_attempts` countdown is identical for a real
+  driver and for a random UUID. Without that, the countdown alone would
+  be an enumeration oracle.
+
+Recovery routes out of a lockout (admin-issued, by construction):
+
+- **Successful QR pairing login** (`CrewAuthService.loginWithPairingCode`)
+  calls `attempts.forget(...)` — only an administrator can mint the code
+  that gets a device here, which is exactly the authority that should be
+  able to lift a lockout.
+- **Administrator resets the PIN** (`CrewAuthService.setPin`) also calls
+  `attempts.forget(...)` — an admin who has just been told "locked out"
+  must not also wait a quarter of an hour.
+
+### Known limitations (stated, not hidden)
+
+- **The PIN attempt counters are process-local.** `CrewPinAttemptStore`
+  is an in-memory map, exactly like `MemoryRateLimitStore`. README §18
+  pins the supported topology at a single Node process; **behind N
+  instances behind a load balancer an attacker's guesses are spread
+  across processes and the effective allowance becomes `N × maxAttempts`
+  per window**, and **a restart clears every counter mid-window**. Raising
+  the configured numbers does **not** fix this — a distributed counter
+  does, and it is the same deferred Redis work the rate limiter already
+  names above (see "Before horizontal scaling"). Same precondition, same
+  checklist item, same reason to ship it together with the rate limiter
+  when the time comes.
+- **A per-user lockout is a targeted denial of service.** Anyone who
+  knows a driver's `user_id` can lock that one account for up to
+  `lockoutMs`. This is inherent to keying on the user rather than the IP
+  and it is the deliberate trade: an IP-keyed throttle would not bound
+  guessing against one account at all. Recovery does not depend on
+  waiting it out — a QR pairing login clears the lockout, and an
+  administrator resetting the PIN clears it too.
+- **A stolen `pin_hash` column is crackable.** bcrypt at cost 12 slows an
+  offline attack on a password to impracticality, but a 4-digit PIN has
+  only 10 000 candidates, so an attacker who has already read the
+  database can exhaust them in minutes regardless of the work factor.
+  The PIN is therefore not a standalone secret: it authorises a device
+  that has already been paired by an administrator, and a database
+  compromise is game over on every credential in it. This is documented
+  rather than papered over with a higher cost factor that would only
+  make login slower.
+
+### Pairing QR — the recovery half
+
+The QR half does **not** share the first limitation: pairing codes live in
+PostgreSQL (`crew_pairing_tokens`, migration
+`20260915120100-create-crew-pairing-tokens.ts`), so they survive a
+restart and are correct under more than one instance. The plaintext
+token is returned to the administrator **once** and only its SHA-256
+digest is stored, so a later database read — or a leaked backup —
+cannot resurrect a live code.
+
 ## Audit Logging
 
 All security-relevant operations are logged:
