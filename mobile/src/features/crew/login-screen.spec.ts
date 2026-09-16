@@ -2,11 +2,21 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { loginText, loginTouch, touch } from '../src/theme/tokens.ts';
+import { loginText, loginTouch, touch } from '../../theme/tokens.ts';
 import { typography } from '@school-bus-tracking/design-tokens';
 
 /**
- * The login screen's contract, pinned without a device.
+ * The login screen's (`app/login.tsx`) contract, pinned without a device.
+ *
+ * ### Why this file is not next to the screen
+ *
+ * `mobile/app/` is Expo Router's **route directory**: `expo-router/entry.js`
+ * pulls it in with `require.context`, so Metro tries to bundle *every* file in
+ * there — a spec included. It fails on the first `node:` import
+ * (`Unable to resolve module node:assert/strict`), which is what the CI
+ * "Android Expo export" job catches. Specs about a screen therefore live under
+ * `src/`, which Metro only reaches through real imports: the precedent is
+ * `help-routing.spec.ts`, which does the same for `app/(crew)/help.tsx`.
  *
  * Two kinds of assertion, because the screen has two kinds of risk:
  *
