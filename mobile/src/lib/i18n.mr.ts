@@ -114,7 +114,7 @@ export const mr: Dictionary = {
   'manifest.hint.driver':
     'तुम्ही किती बालेक नेत आहात. रवाना होण्यापूर्वी कंडक्टरांकडून विचारून घ्या.',
   'manifest.hint.conductor':
-    'बालक बसताना "बसव" दाबा, उतरताना "उतरव" — वेळ आपोआप नोंद होतो.',
+    'बालक बसताना "बसव" दाबा, उतरताना "उतरव" — वेळ आपोआप नोंद होते.',
   'manifest.counts': '{boarded} बसले · {pending} बाकी · {dropped} उतरले',
   'manifest.summary.total': '{count} बालेक',
   'manifest.summary.pending': '{count} बाकी',
@@ -146,8 +146,8 @@ export const mr: Dictionary = {
   'manifest.earlier': 'आधी',
   'manifest.queuedBoardToast': 'ऑफलाइन जतन — इंटरनेट मिळताच बोर्डिंग सिंक होईल.',
   'manifest.queuedDropToast': 'ऑफलाइन जतन — इंटरनेट मिळताच उतरवणे सिंक होईल.',
-  'manifest.boardFailed': 'बालकाचे बसवता आले नाही',
-  'manifest.dropFailed': 'बालकाचे उतरवता आले नाही',
+  'manifest.boardFailed': 'बालक बसवता आले नाही',
+  'manifest.dropFailed': 'बालक उतरवता आले नाही',
 
   // ── SOS ────────────────────────────────────────────────────────────────
   // 16 chars — the buttonFull budget (22). A longer wording wraps on the 64px
@@ -156,7 +156,7 @@ export const mr: Dictionary = {
   'sos.holdingHint': 'दडपून ठेवा…',
   'sos.a11yLabel': 'आपत्कालीन SOS. शाळेला कळवण्यासाठी दडपून ठेवा.',
   'sos.holdA11yHint':
-    'मदोबद एक सेकंदासाठी दडपून ठेवा; भरल्यावर अ‍ॅलर्ट आपोआप पाठवला जातो.',
+    'एक सेकंदापुरते दडपून ठेवा; भरल्यावर अ‍ॅलर्ट आपोआप पाठवला जातो.',
   'sos.sent': 'SOS पाठवला ✅',
   'sos.queued': 'SOS रांगेत ⏳ — इंटरनेट मिळताच पाठवला जाईल',
   'sos.queuedShort': 'रांगेत ⏳ ऑनलाइन झाल्यावर जाईल',
@@ -186,14 +186,14 @@ export const mr: Dictionary = {
   'sos.sheetTitle': 'आपत्काळ नोंदवा',
   'sos.typeLabel': 'काय चालू आहे?',
   'sos.messageLabel': 'संदेश',
-  'sos.messagePlaceholder': 'उदा. बस वॉलवर आदळली, सर्व बालेक सुरक्षित.',
+  'sos.messagePlaceholder': 'उदा. बसचा वॉलला धक्का लागला, सर्व बालेक सुरक्षित.',
   'sos.locationLabel': 'माझे स्थान जोडा',
   'sos.locationHint':
     'फक्त तेव्हा जेव्हा डिव्हाइसमध्ये आधीच GPS फिक्स आहे — स्थान कधीही काढून लावले जात नाही.',
   'sos.back': 'मागे',
   'sos.cancelTitle': 'हा अ‍ॅलर्ट रद्द करावा?',
   'sos.cancelMessage':
-    'फक्त तेव्हा रद्द करा जेव्हा अ‍ॅलर्ट चुकीने गेला असून — नोंद शाळेच्या इतिहासात राहते.',
+    'फक्त तेव्हा रद्द करा जेव्हा अ‍ॅलर्ट चुकीने गेला असेल — नोंद शाळेच्या इतिहासात राहते.',
   'sos.cancelConfirm': 'अ‍ॅलर्ट रद्द करा',
   'sos.cancelFailed': 'अ‍ॅलर्ट रद्द करता आला नाही',
 
@@ -300,13 +300,13 @@ export const mr: Dictionary = {
   'voice.board.summary': '{count} balek bas madhe aaun gele',
   'voice.drop.summary': '{count} balek bas madheun uatle',
   'voice.trip.boarding': 'Boarding suru zavli',
-  'voice.trip.inProgress': 'Trip suru, savdhanni chal',
-  'voice.trip.completed': 'Trip sampurna, dhanyavad',
+  'voice.trip.inProgress': 'Trip suru, savdhannin raho',
+  'voice.trip.completed': 'Trip sampurna zali, dhanyavad',
   'voice.sos.fired': 'Emergency alert school la pavla',
-  'voice.sos.queued': 'Network nasle, alert pun pathavlya jayel',
-  'voice.offline.synced': '{count} save kelil kaam pathavle',
-  'voice.gps.on': 'Location bhejan suru',
-  'voice.gps.off': 'Location bhejan band',
+  'voice.sos.queued': 'Network nasle, alert pun pathavle jayel',
+  'voice.offline.synced': '{count} pending kaam pathavle',
+  'voice.gps.on': 'Location pathavne suru',
+  'voice.gps.off': 'Location pathavne band',
   'voice.time.now': 'atatach',
   'voice.time.morning': 'subah',
   'voice.time.afternoon': 'dopahar',
@@ -335,7 +335,7 @@ export const mr: Dictionary = {
   'login.crewPath.backToAdmin': 'इथे बदलायला ईमेल आणि पासवर्ड वापरा',
   'login.crewPath.pin.title': 'तुमचे 4-अंकी PIN टाका',
   'login.crewPath.pin.subtitle':
-    'शाळेच्या अ‍ॅडमिनने तुमच्या खात्यावर हे PIN सेट केले आहे. ते तुमच्या जुळवलेल्या फोनला उघडते.',
+    'शाळेच्या अ‍ॅडमिनने तुमच्या खात्यावर हे PIN सेट केले आहे. ते तुमच्या जोडलेल्या फोनला अनलॉक करते.',
   'login.crewPath.pin.userIdLabel': 'तुमचा user ID',
   'login.crewPath.pin.userIdPlaceholder': 'अ‍ॅडमिनकडून मिळालेला UUID',
   'login.crewPath.pin.userIdHint':
@@ -360,7 +360,7 @@ export const mr: Dictionary = {
   'login.crewPath.usePin': 'इथे बदलायला PIN वापरा',
   'login.crewPath.useQr': 'इथे बदलायला QR स्कॅन करा',
   'login.crewPath.lockout.wait':
-    'बऱ्याच वेळा चुकीचे PIN. {seconds} सेकंदांनी पुन्हा करा — किंवा अ‍ॅडमिनला रीसेट करा.',
+    'बऱ्याच वेळा चुकीचे PIN. {seconds} सेकंदांनंतर पुन्हा करा — किंवा अ‍ॅडमिनला रीसेट करा.',
   'login.crewPath.lockout.adminHint':
     'शाळेच्या अ‍ॅडमिनने नवीन पेयरिंग QRही तयार करू शकतात — QR ने लॉगिन केल्यास लॉकआउट मिटतो.',
   'login.crewPath.expired':
@@ -456,6 +456,6 @@ export const mr: Dictionary = {
     'इंटरनेट नाही. तुमची कारवाई या फोनवर जतन झाली आणि नंतर सिंक होईल.',
   'error.unknownCodePrefix': 'सर्व्हर कोड',
   'error.CREW_PIN_LOCKED': 'बऱ्याच वेळा चुकीचे PIN. थोड्या वेळात पुन्हा प्रयत्न करा.',
-  'error.CREW_PIN_INVALID': 'हे PIN कामेले नाही. पुन्हा प्रयत्न करा.',
+  'error.CREW_PIN_INVALID': 'हे PIN चुकीचे आहे. पुन्हा प्रयत्न करा.',
   'error.CREW_PAIRING_INVALID': 'तो पेयरिंग कोड वापरता आला नाही. अ‍ॅडमिनकडून नवीन QR घ्या.',
 };

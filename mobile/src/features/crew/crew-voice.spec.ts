@@ -432,6 +432,6 @@ test('voice phrases come from t(), so a third locale is purely additive', () => 
     assert.equal(t('voice.gps.on'), 'Location bhejna chalu');
   });
   inLocale('mr', () => {
-    assert.equal(t('voice.gps.on'), 'Location bhejan suru');
+    assert.equal(t('voice.gps.on'), 'Location pathavne suru');
   });
 });

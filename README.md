@@ -833,20 +833,22 @@ adding one needs no migration.
   contracts, the offline queue, GPS sharing, sockets and session logic are untouched
   (full map: `docs/mobile-ux.md` → Phase 2).
 - **Localisation (Phase 3a)**: a dependency-free typed i18n layer in `mobile/src/lib/i18n.ts` with
-  `en` (source of truth) + `hi` dictionaries — **314 keys** (286 at Phase 3a + 28 for voice and sound
-  settings), key-set equality enforced at compile
+  `en` (source of truth) + `hi` + `mr` dictionaries — **345 keys**, key-set
+  equality enforced at compile
   time _and_ by `i18n-parity.spec.ts` (**0 missing / 0 extra**, no empty values, identical
   `{placeholder}` sets). A key typo or a wrong interpolation param is a **compile error**
   (`ParamsFor` is inferred from each template's placeholders). Resolution order: **saved
-  preference → role default (crew = Hindi, admin/parent = device locale) → `en`**; the device
-  locale is read from `Intl` / `NativeModules.I18nManager` (**no `expo-localization`, zero new
-  dependencies**). The switch lives on the Help & support screen, applies instantly (no restart)
-  and persists in AsyncStorage under `sbt.mobile.locale`.
+  preference → role default (crew = English, admin/parent = device locale) → `en`**; the
+  device locale is read from `Intl` / `NativeModules.I18nManager` (**no `expo-localization`,
+  zero new dependencies**). The switch lives on the login screen (a row of self-naming pills)
+  and the Help & support screen, applies instantly (no restart) and persists in AsyncStorage
+  under `sbt.mobile.locale`.
   **Two classes of string are deliberately never translated**: data (student/route/stop/school
   names) and server-supplied English (API error messages, `EMERGENCY_TYPE_LABELS`, the four GPS
   support counters). A **known** server error code maps to local copy via `localizeApiError`; an
-  **unknown** one is shown as-is with its raw code visible. Hindi length is guarded by a per-key
-  character budget (`i18n-budget.ts`, 46 keys) and hardcoded English UI copy on crew surfaces is
+  **unknown** one is shown as-is with its raw code visible. Every locale's length is
+  guarded by a per-key character budget (`i18n-budget.ts`, 46 keys) and hardcoded English UI
+  copy on crew surfaces is
   blocked by a source-scanning spec (`i18n-literals.spec.ts`) — boundary + guards documented in
   `docs/mobile-ux.md` → Phase 3.
 - **Voice feedback + haptics (Phase 3b)**: a confirmed action is reported on a fourth channel —
@@ -855,9 +857,11 @@ adding one needs no migration.
   `~57.0.2`, Expo-Go compatible, no `app.json` change). Every surface calls one entry point,
   `feedback.on({ type: … })`, and the dispatcher decides the phrase and the pattern; speech is
   **never awaited and never fails an action**, so a phone with no TTS engine records a boarding
-  exactly like a healthy one. Hindi voice lines are **Latin-script Hinglish** (_"Ramesh ka boarding
-  ho gaya, 7:42 subah"_) in their own `voice.*` namespace while the screen stays Devanagari —
-  budget Androids often have no `hi-IN` voice, and Devanagari sent to an English engine is noise.
+  exactly like a healthy one. Voice lines are **Latin script in every locale** — Hinglish
+  (_"Ramesh ka boarding ho gaya, 7:42 subah"_) and Marathi-in-Latin (_"Ramesh bas madhe aaun
+  gele, 7:42 subah"_) — in their own `voice.*` namespace while the screen stays in native
+  script (Devanagari for both Hindi and Marathi) — budget Androids often have no `hi-IN`/`mr-IN`
+  voice, and native script sent to an English engine is noise.
   A latest-wins throttle collapses a burst (measured: **40 rapid boards → 3 announcements**, pending
   depth 1, never a queue), and a spec-enforced deny-list keeps medical notes, phone numbers,
   guardian contacts and admission numbers out of anything spoken aloud on a public bus. Voice and
@@ -1107,13 +1111,15 @@ The workflow file says this inline — do not "streamline" it away.
 14. **Mobile UI copy comes from the i18n module** (`mobile/src/lib/i18n.ts`), never from a literal
     in a component. **Data and server-supplied strings are never translated** — student/route/stop/
     school names, API error messages, `*_LABELS` maps and the GPS support counters render as the
-    server sent them. A new UI string = a key in `i18n.en.ts` + its Hindi value in `i18n.hi.ts`;
-    the parity, clipping and grep-gate specs enforce the rest.
+    server sent them. A new UI string = a key in `i18n.en.ts` + its Hindi value in
+    `i18n.hi.ts` + its Marathi value in `i18n.mr.ts`; the parity, clipping and grep-gate specs
+    enforce the rest.
 15. **Crew feedback is dispatched from one module** (`mobile/src/features/crew/crew-feedback.ts`):
     a surface reports _what happened_ with `feedback.on({ type: … })` and never picks a phrase or a
     haptic pattern itself. **Speech is never awaited and never fails an action** — no `await` on the
     speech path, every native call swallows its own throw, and voice copy lives in the `voice.*`
-    namespace (Latin script, even in Hindi) so audio and screen text can be changed independently.
+    namespace (Latin script in every locale — Hinglish / Marathi-in-Latin) so audio and
+    screen text can be changed independently.
 
 ---
 

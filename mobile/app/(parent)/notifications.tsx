@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   },
   rowUnread: {
     borderLeftColor: colors.secondary[700],
-    backgroundColor: '#fffbeb',
+    backgroundColor: '#f0fdf4',
   },
   rowTop: {
     flexDirection: 'row',

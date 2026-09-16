@@ -193,7 +193,6 @@ const pillStyles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: spacing.sm,
-    marginBottom: spacing.md,
   },
   pill: {
     minHeight: touch.compact,
