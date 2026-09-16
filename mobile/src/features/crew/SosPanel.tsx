@@ -498,6 +498,14 @@ export const SosPanel: React.FC<SosPanelProps> = ({ tripId, roleLabel }) => {
  * Resolves to `{}` when permission is denied or the fix times out: an SOS must
  * never be blocked by a missing fix, and a fallback coordinate is never
  * invented — the backend stores `null` and reports it as such.
+ *
+ * Speed is the requirement here. The trip screen already keeps a foreground
+ * GPS watch running (`useCrewLocationSharing`), so a **recent** fix is almost
+ * always warm in the OS cache; `getLastKnownPositionAsync` returns it
+ * instantly instead of blocking on `getCurrentPositionAsync`, which can take
+ * tens of seconds when the GPS chip has to cold-start. A live fix is only
+ * attempted afterwards, bounded by {@link POSITION_READ_TIMEOUT_MS}, so the
+ * SOS request itself never waits on the radio.
  */
 async function readPosition(): Promise<{
   latitude?: number;
@@ -513,9 +521,28 @@ async function readPosition(): Promise<{
     if (!granted) {
       return {};
     }
-    const position = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
+
+    // Fast path: the fix the trip's own GPS watch already produced.
+    const lastKnown = await Location.getLastKnownPositionAsync({
+      maxAge: POSITION_MAX_AGE_MS,
+      requiredAccuracy: POSITION_REQUIRED_ACCURACY,
+    }).catch(() => null);
+    if (lastKnown) {
+      return {
+        latitude: lastKnown.coords.latitude,
+        longitude: lastKnown.coords.longitude,
+        accuracy: lastKnown.coords.accuracy ?? null,
+      };
+    }
+
+    // Slow path, bounded: a live fix, but never at the cost of the alarm.
+    const position = await withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      POSITION_READ_TIMEOUT_MS,
+    );
+    if (!position) {
+      return {};
+    }
     return {
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
@@ -523,6 +550,39 @@ async function readPosition(): Promise<{
     };
   } catch {
     return {};
+  }
+}
+
+/** A cached fix this fresh is good enough for an emergency report. */
+const POSITION_MAX_AGE_MS = 60_000;
+
+/** A cached fix this accurate (nm—metres) is good enough for an emergency report. */
+const POSITION_REQUIRED_ACCURACY = 250;
+
+/**
+ * Upper bound on a cold GPS fix. `Accuracy.Balanced` can otherwise block for
+ * tens of seconds; an SOS must go out on the first network request, not the
+ * first satellite fix.
+ */
+const POSITION_READ_TIMEOUT_MS = 3_500;
+
+/**
+ * Resolves to `value` once it settles, or `null` if `timeoutMs` elapses first —
+ * in which case the underlying promise keeps running but its result is ignored.
+ */
+async function withTimeout<T>(value: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      value,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 

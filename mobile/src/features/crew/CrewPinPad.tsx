@@ -238,9 +238,8 @@ const styles = StyleSheet.create({
   },
   keyLabel: {
     color: colors.neutral[900],
-    // 28 dp — the login screen's own scale (`loginText.pinDigit`), not the
-    // in-app one: this is the only control on the screen a driver uses with
-    // one hand, often in daylight.
+    // Standard numeral size (`loginText.pinDigit`), paired with the
+    // trip-carrying numbers on the crew home screen.
     fontSize: loginText.pinDigit,
     fontWeight: '700',
   },

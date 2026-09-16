@@ -1,7 +1,14 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { passwordSchema } from '@school-bus-tracking/validation';
-import { comparePassword, hashPassword, normalizeEmail } from './password.util';
+import * as bcrypt from 'bcryptjs';
+import {
+  HASH_PREFIX,
+  isOwnPasswordHash,
+  comparePassword,
+  hashPassword,
+  normalizeEmail,
+} from './password.util';
 
 describe('password hashing', () => {
   it('hashes a password to a value that is not the plaintext', async () => {
@@ -21,6 +28,32 @@ describe('password hashing', () => {
   it('compares an incorrect password as false', async () => {
     const hash = await hashPassword('correct-horse-battery');
     assert.equal(await comparePassword('wrong-password-value', hash), false);
+  });
+
+  it('mints a 60-character `$2b$12$` digest carrying the `$` field separator', async () => {
+    const hash = await hashPassword('correct-horse-battery');
+    assert.equal(hash.length, 60);
+    assert.equal(hash.startsWith(HASH_PREFIX), true);
+    // The marker: salt (22) + `$` + checksum (30), at a position bcrypt's own
+    // base64 alphabet can never produce.
+    assert.equal(hash.charAt(HASH_PREFIX.length + 22), '$');
+    assert.equal(isOwnPasswordHash(hash), true);
+  });
+
+  it('recognises no real bcrypt digest as its own format', async () => {
+    for (const cost of [4, 10, 12]) {
+      const legacy = await bcrypt.hash('legacy-password', cost);
+      assert.equal(isOwnPasswordHash(legacy), false, `bcrypt cost ${cost} misclassified`);
+    }
+  });
+
+  it('still verifies legacy bcrypt digests (no migration window)', async () => {
+    // A real bcrypt-12 row is exactly the shape a pre-existing user column
+    // holds; it must route to the bcrypt fallback and keep verifying.
+    const legacy = await bcrypt.hash('legacy-password', 12);
+    assert.equal(isOwnPasswordHash(legacy), false);
+    assert.equal(await comparePassword('legacy-password', legacy), true);
+    assert.equal(await comparePassword('not-the-password', legacy), false);
   });
 });
 

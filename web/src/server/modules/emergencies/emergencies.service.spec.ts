@@ -550,6 +550,7 @@ describe('EmergenciesService push sink (Phase 4)', () => {
       driverActor,
       sos({ trip_id: TRIP_A, message: 'Bus hit a divider' }),
     );
+    await harness.service.flushPush();
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].school_id, SCHOOL_A);
@@ -572,6 +573,7 @@ describe('EmergenciesService push sink (Phase 4)', () => {
       event.id,
       statusBody(EmergencyStatus.ACKNOWLEDGED),
     );
+    await harness.service.flushPush();
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0].user_ids, [DRIVER_A]);
     assert.deepEqual(calls[0].roles, [UserRole.DRIVER, UserRole.CONDUCTOR]);
@@ -590,6 +592,7 @@ describe('EmergenciesService push sink (Phase 4)', () => {
       statusBody(EmergencyStatus.CANCELLED),
       { requireOwnership: true },
     );
+    await harness.service.flushPush();
     assert.equal(calls.length, 0);
   });
 

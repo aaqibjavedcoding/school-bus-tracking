@@ -465,11 +465,12 @@ export class CrewAuthService {
       // `comparePassword` the login path uses, so the two sides cannot
       // disagree about what "the same PIN" means.
       //
-      // Cost, stated rather than hidden: one cost-12 bcrypt comparison per
-      // active crew member who has a PIN, run concurrently. A school with 20
-      // PIN-carrying crew therefore spends ~20 × 250–300 ms of CPU on a rare
-      // admin action. That is the price of not storing a second, fast digest
-      // column; it is acceptable here and would not be on a login hot path.
+      // Cost, stated rather than hidden: one comparison per active crew member
+      // who has a PIN, run concurrently. A school with 20 PIN-carrying crew
+      // spends ~20 × the per-digest cost of its stored format (native PBKDF2
+      // for new rows, bcrypt for legacy rows) on a rare admin action. That is
+      // the price of not storing a second, fast digest column; it is acceptable
+      // here and would not be on a login hot path.
       const others = await this.users.unscoped().findAll({
         where: {
           school_id: schoolId,
@@ -679,10 +680,13 @@ export class CrewAuthService {
  * was correct, which is the property that matters, and the school-wide lockout
  * bounds how many probes an attacker gets anyway.
  *
- * Latency is the deliberate cost: at bcrypt cost 12 each comparison is
- * ~250–300 ms of pure-JS CPU, so a PIN login spends ~2 s before answering. The
- * comparisons are issued concurrently and `bcryptjs` yields to the event loop
- * between chunks, so the server keeps serving other requests throughout.
+ * Latency is bounded, not free: the fixed work is still *real* per comparison
+ * (so the count cannot be faked), but the digest format produced by
+ * `auth/password.util` costs ~15 ms of native PBKDF2 per comparison instead of
+ * ~250–300 ms of pure-JS bcrypt — a PIN login answers in a few tens of
+ * milliseconds of comparison work rather than a couple of seconds. The
+ * comparisons are issued concurrently and the KDF runs on OpenSSL's threadpool,
+ * so the server keeps serving other requests throughout.
  */
 export const CREW_PIN_COMPARISON_COUNT = 8;
 
@@ -730,9 +734,10 @@ export async function resolveCrewPinMatch<T extends CrewPinCandidate>(input: {
   const compare = input.compare ?? comparePassword;
 
   // Real comparisons first, then padding up to the floor. Padding against a
-  // genuine cost-12 digest (never against a malformed string, which `bcrypt`
-  // would reject without doing the work — see the `PIN_TIMING_EQUALIZATION_HASH`
-  // spec) is what makes the padded and unpadded paths equally expensive.
+  // genuine digest that costs real work (never against a malformed string,
+  // which `bcrypt`/PBKDF2 would reject without doing the work — see the
+  // `PIN_TIMING_EQUALIZATION_HASH` spec) is what makes the padded and unpadded
+  // paths equally expensive.
   const padded = Math.max(0, min - input.candidates.length);
   const results = await Promise.all([
     ...input.candidates.map((candidate) =>

@@ -105,6 +105,9 @@ export class EmergenciesService {
   private broadcaster: EmergencyBroadcaster | null = null;
   private pushSink: EmergencyPushSink | null = null;
 
+  /** In-flight fire-and-forget push deliveries, tracked so tests can await them. */
+  private readonly pendingPush: Promise<unknown>[] = [];
+
   constructor(
     private readonly events: typeof EmergencyEvent,
     private readonly trips: typeof Trip,
@@ -121,6 +124,28 @@ export class EmergenciesService {
   /** Installs the OS-push sink (container wiring); best-effort delivery. */
   attachPushSink(sink: EmergencyPushSink): void {
     this.pushSink = sink;
+  }
+
+  /**
+   * Starts a push delivery without letting it delay the caller, keeping a
+   * handle so {@link flushPush} can await it (tests, graceful shutdown).
+   */
+  private pushInBackground(task: Promise<void>): void {
+    const tracked = task.catch(() => undefined);
+    this.pendingPush.push(tracked);
+    void tracked.then(() => {
+      const index = this.pendingPush.indexOf(tracked);
+      if (index !== -1) {
+        this.pendingPush.splice(index, 1);
+      }
+    });
+  }
+
+  /** Resolves once every fire-and-forget push delivery has settled. */
+  async flushPush(): Promise<void> {
+    while (this.pendingPush.length > 0) {
+      await Promise.all([...this.pendingPush]);
+    }
   }
 
   /**
@@ -172,8 +197,11 @@ export class EmergenciesService {
     const response = await this.toResponse(event);
     this.broadcast(EMERGENCY_EVENTS.new, response);
     // School admins get an OS-level push in addition to the live dashboard
-    // feed: an SOS must reach them even with the console closed.
-    await this.pushSosRaised(response);
+    // feed: an SOS must reach them even with the console closed. Delivered
+    // fire-and-forget — the push (device-token lookups + FCM HTTP) can take
+    // seconds, especially cold, and must never make the SOS response wait; the
+    // socket broadcast and the recorded event are already durable.
+    this.pushInBackground(this.pushSosRaised(response));
     return response;
   }
 
@@ -311,8 +339,10 @@ export class EmergenciesService {
     this.broadcast(EMERGENCY_EVENTS.updated, response);
     // The crew member who raised it learns the school is handling it (an
     // admin's ack/resolve); a crew's own cancel needs no push to themselves.
+    // Fire-and-forget for the same reason as raiseSos: push must not make the
+    // status update (and the admin dashboard feedback) wait on FCM latency.
     if (actor.id !== event.raised_by_user_id) {
-      await this.pushSosUpdated(response);
+      this.pushInBackground(this.pushSosUpdated(response));
     }
     return response;
   }

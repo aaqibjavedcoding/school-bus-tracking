@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { loginText, loginTouch, touch } from '../../theme/tokens.ts';
+import { loginText, loginTouch, touch, text } from '../../theme/tokens.ts';
 import { typography } from '@school-bus-tracking/design-tokens';
 
 /**
@@ -21,8 +21,9 @@ import { typography } from '@school-bus-tracking/design-tokens';
  * Two kinds of assertion, because the screen has two kinds of risk:
  *
  * 1. **Token values** — imported from `theme/tokens.ts` and compared to the
- *    numbers the design pass specified (title 24, labels 16, input values 18,
- *    PIN digits 28, 48 dp touch floor). A token that drifts fails here.
+ *    numbers the design pass specified (title 16, labels 13, input values 16,
+ *    PIN digits 20, 56 dp touch floor — the standard in-app scale). A token
+ *    that drifts fails here.
  * 2. **Source wiring** — the login screen is mostly JSX, which no unit test can
  *    render here, so the *seams* are asserted against the source: which
  *    components the screen mounts, which fields the crew card contains, and
@@ -42,22 +43,23 @@ const pinPadSource = () => read('src/features/crew/CrewPinPad.tsx');
 const languageSource = () => read('src/components/LanguageSwitcher.tsx');
 
 describe('login screen type scale', () => {
-  it('matches the specified sizes, and reuses the shared scale where it has a step', () => {
-    assert.equal(loginText.cardTitle, 24);
-    assert.equal(loginText.label, 16);
-    assert.equal(loginText.inputValue, 18);
-    assert.equal(loginText.pinDigit, 28);
+  it('matches the standard in-app scale, not a larger login-only one', () => {
+    // The login screen reads at the same density as the rest of the app
+    // (Instagram-class: body 14 / labels 13 / titles 16 / numerals 20).
+    assert.equal(loginText.cardTitle, 16);
+    assert.equal(loginText.label, 13);
+    assert.equal(loginText.inputValue, 16);
+    assert.equal(loginText.pinDigit, 20);
 
-    // Three of the four are existing shared tokens; only the 28 dp PIN digit
-    // is a local addition, because the shared scale steps 24 → 30.
-    assert.equal(loginText.cardTitle, typography.fontSizes['2xl']);
-    assert.equal(loginText.label, typography.fontSizes.base);
-    assert.equal(loginText.inputValue, typography.fontSizes.lg);
-    const sharedSizes = Object.values(typography.fontSizes) as number[];
-    assert.ok(
-      !sharedSizes.includes(loginText.pinDigit),
-      'the PIN digit is the one value the shared scale does not have',
-    );
+    // Every value is an alias of the standard scale in this theme — the old
+    // oversized 24/18/28 draft is gone, and `text`/`typography` are the only
+    // sources of a size.
+    assert.equal(loginText.cardTitle, text.title);
+    assert.equal(loginText.label, text.secondary);
+    assert.equal(loginText.inputValue, text.title);
+    assert.equal(loginText.pinDigit, text.numeric);
+    assert.equal(loginText.pinDigit, typography.fontSizes.xl);
+    assert.equal(loginText.countdown, typography.fontSizes['2xl']);
   });
 
   it('wires those tokens into the screen and the pad, not hardcoded numbers', () => {
@@ -69,27 +71,27 @@ describe('login screen type scale', () => {
     assert.ok(pad.includes('loginText.pinDigit'), 'the PIN digits must use loginText.pinDigit');
   });
 
-  it('applies the bigger input size to every field on both cards', () => {
+  it('applies the same input size to every field on both cards', () => {
     const login = loginSource();
     // Three email fields + the crew school field, all carrying the override.
     assert.equal(
       login.match(/style=\{styles\.fieldInput\}/g)?.length ?? 0,
       4,
-      'every Field on the login screen gets the 18 dp input size',
+      'every Field on the login screen gets the shared input size',
     );
     assert.ok(
       /fieldInput:\s*\{[^}]*fontSize: loginText\.inputValue/.test(login),
-      'styles.fieldInput is the 18 dp override',
+      'styles.fieldInput is the standard-size override',
     );
   });
 });
 
 describe('login screen touch targets', () => {
-  it('floors every tappable row at 48 dp and keeps the in-app floors untouched', () => {
-    assert.equal(loginTouch.min, 48);
-    assert.equal(loginTouch.chip, 48);
-    assert.equal(loginTouch.menuRow, 48);
-    // The shared in-app floors are other screens' business and must not move.
+  it('floors every tappable row at the standard target and keeps the in-app floors untouched', () => {
+    assert.equal(loginTouch.min, touch.target);
+    assert.equal(loginTouch.chip, touch.target);
+    assert.equal(loginTouch.menuRow, touch.target);
+    // The shared in-app floors are the single source of truth.
     assert.equal(touch.compact, 44);
     assert.equal(touch.target, 56);
     assert.equal(touch.field, 64);
@@ -105,11 +107,11 @@ describe('login screen touch targets', () => {
     assert.ok(keyStyle.length > 0, 'the pad stylesheet declares a `key` style');
     assert.match(keyStyle, /flex: 1/, 'each key takes a third of the card width');
     assert.match(keyStyle, /aspectRatio: 1/, 'and stays square at any screen size');
-    assert.match(keyStyle, /minHeight: loginTouch\.min/, 'with the 48 dp floor as a backstop');
+    assert.match(keyStyle, /minHeight: loginTouch\.min/, 'with the standard floor as a backstop');
     assert.ok(!/width: 64/.test(keyStyle), 'the old fixed 64×56 box must be gone');
   });
 
-  it('gives the language control the login touch floor', () => {
+  it('gives the language control the standard touch floor', () => {
     const language = languageSource();
     assert.match(language, /minHeight: loginTouch\.chip/, 'the closed dropdown chip');
     assert.match(language, /minHeight: loginTouch\.menuRow/, 'and every row inside it');
