@@ -7,7 +7,9 @@ import { RateLimitGuard } from './rate-limit.guard';
 import { RateLimitExceededException } from './rate-limit-exceeded.exception';
 import {
   buildRateLimitBuckets,
+  extractCrewLoginIdentity,
   extractLoginIdentity,
+  hashIdentity,
   resolveClientIp,
   retryAfterSeconds,
 } from './rate-limit.keys';
@@ -83,6 +85,75 @@ describe('extractLoginIdentity', () => {
     );
     assert.equal(extractLoginIdentity({ school_id: 'abc' }), null);
     assert.equal(extractLoginIdentity(null), null);
+  });
+});
+
+describe('extractCrewLoginIdentity', () => {
+  it('keys the PIN branch on the submitted school, lower-cased and trimmed', () => {
+    // A crew PIN login names no user, so the school is the only identity an
+    // attempt has. This is what stops one host from sweeping PINs across a list
+    // of school codes.
+    assert.equal(
+      extractCrewLoginIdentity({ method: 'pin', school_id: ' Lincoln-High ', pin: '1234' }),
+      'pin:lincoln-high',
+    );
+    assert.equal(
+      extractCrewLoginIdentity({ method: 'pin', school_id: 'lincoln-high', pin: '9999' }),
+      'pin:lincoln-high',
+      'the PIN must not widen the bucket — different guesses, one identity',
+    );
+  });
+
+  it('gives an unresolvable school code its own bucket rather than sharing one', () => {
+    // The guard runs before any database work, so a code that resolves to
+    // nothing is still keyed on the raw string. Bucketing every typo together
+    // would let an attacker burn one shared allowance instead of their own.
+    assert.equal(
+      extractCrewLoginIdentity({ method: 'pin', school_id: 'no-such-school', pin: '1234' }),
+      'pin:no-such-school',
+    );
+    assert.notEqual(
+      extractCrewLoginIdentity({ method: 'pin', school_id: 'no-such-school' }),
+      extractCrewLoginIdentity({ method: 'pin', school_id: 'other-typo' }),
+    );
+  });
+
+  it('returns null when there is nothing to key on, and never echoes the PIN', () => {
+    assert.equal(extractCrewLoginIdentity({ method: 'pin', pin: '1234' }), null);
+    assert.equal(extractCrewLoginIdentity({ method: 'pin', school_id: '  ', pin: '1234' }), null);
+    assert.equal(extractCrewLoginIdentity({ method: 'qr' }), null);
+    assert.equal(extractCrewLoginIdentity(null), null);
+
+    const identity = extractCrewLoginIdentity({
+      method: 'pin',
+      school_id: 'lincoln-high',
+      pin: '4821',
+    })!;
+    assert.ok(!identity.includes('4821'), 'the PIN must never enter a bucket key');
+    assert.ok(!hashIdentity(identity).includes('4821'));
+  });
+
+  it('keeps the QR branch keyed on the presented pairing code', () => {
+    assert.equal(extractCrewLoginIdentity({ method: 'qr', pairing_token: ' abc ' }), 'qr:abc');
+    assert.equal(extractCrewLoginIdentity({ method: 'qr', pairing_token: '' }), null);
+  });
+
+  it('lands in the crew identity bucket of the auth_crew_login policy only', () => {
+    const policy = { limit: 10, windowMs: 60_000 };
+    const login = { identityLimit: 5, identityWindowMs: 900_000 };
+    const buckets = buildRateLimitBuckets(
+      {
+        policy: 'auth_crew_login',
+        ip: '1.2.3.4',
+        body: { method: 'pin', school_id: 'lincoln-high', pin: '1234' },
+      },
+      policy,
+      login,
+      { identityLimit: 8, identityWindowMs: 900_000 },
+    );
+    assert.equal(buckets.length, 2, 'an IP bucket plus the per-school identity bucket');
+    assert.equal(buckets[1]!.key, `auth_crew_login|identity:${hashIdentity('pin:lincoln-high')}`);
+    assert.equal(buckets[1]!.limit, 8, 'the crew settings, not the email-login ones');
   });
 });
 

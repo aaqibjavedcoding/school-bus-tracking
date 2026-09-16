@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/ui';
 import { useTranslation } from '../../lib/i18n-provider';
-import { borderRadius, colors, spacing, typography } from '@school-bus-tracking/design-tokens';
+import { loginText, loginTouch } from '../../theme';
+import { borderRadius, colors, spacing } from '@school-bus-tracking/design-tokens';
 import { CREW_PIN_LENGTH } from '@school-bus-tracking/validation';
 
 /**
@@ -14,8 +15,10 @@ import { CREW_PIN_LENGTH } from '@school-bus-tracking/validation';
  * - the four round dots that show the PIN being typed (one per character,
  *   filled as the user enters digits, empty after backspace — never the
  *   digits themselves, never the typed string);
- * - the 3×4 keypad (1..9, backspace, 0, clear) with the touch target the
- *   Phase-1 type scale requires (`touch.field` ≈ 56 dp);
+ * - the 3×4 keypad (1..9, backspace, 0, clear) as **full-width square
+ *   cells** — each key is `flex: 1` with `aspectRatio: 1`, so on a 360 dp-wide
+ *   phone a key is ≈90 dp across and the digits are 28 dp, well past the 48 dp
+ *   touch floor for a gloved or one-handed tap in a moving bus;
  * - a "submit when full" effect that hands the typed PIN to the parent.
  *
  * What this component does NOT own:
@@ -24,10 +27,10 @@ import { CREW_PIN_LENGTH } from '@school-bus-tracking/validation';
  *   submit, wiped after submit, never logged);
  * - the network call. The parent wires `onSubmit(pin)` to
  *   `useAuth().crewLogin(...)`;
- * - the school / user_id fields. Those are out of scope here because the
- *   school code is shared with the email/password path and the user_id
- *   needs its own field (the spec in `crew-login-flow.ts` covers the
- *   shape).
+ * - the school-code field. That belongs to the login screen (it is shared
+ *   with the email/password path); a crew PIN login is
+ *   `{ school_id, pin }` — there is no user id any more, and the shape the
+ *   pad's parent builds is pinned in `crew-login-flow.spec.ts`.
  *
  * The component deliberately exposes **only** `value` (4 digits or empty)
  * and `onChange` (called once per digit/clear). A "submit" button is fine
@@ -177,7 +180,7 @@ const PadKey: React.FC<{
       ]}
     >
       {iconName ? (
-        <Ionicons name={iconName} size={24} color={colors.neutral[900]} />
+        <Ionicons name={iconName} size={30} color={colors.neutral[900]} />
       ) : (
         <Text style={styles.keyLabel}>{label}</Text>
       )}
@@ -197,9 +200,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: colors.neutral[300],
   },
   dotFilled: {
@@ -211,12 +214,15 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: spacing.sm,
-    justifyContent: 'center',
   },
   key: {
-    width: 64,
-    height: 56,
-    borderRadius: borderRadius.md,
+    // Full-width square cells: `flex: 1` splits the card width three ways and
+    // `aspectRatio: 1` keeps them square at any screen size, so the pad is as
+    // wide as the card and every key is far past the 48 dp touch floor.
+    flex: 1,
+    aspectRatio: 1,
+    minHeight: loginTouch.min,
+    borderRadius: borderRadius.lg,
     backgroundColor: colors.neutral[100],
     alignItems: 'center',
     justifyContent: 'center',
@@ -232,7 +238,10 @@ const styles = StyleSheet.create({
   },
   keyLabel: {
     color: colors.neutral[900],
-    fontSize: typography.fontSizes.xl,
+    // 28 dp — the login screen's own scale (`loginText.pinDigit`), not the
+    // in-app one: this is the only control on the screen a driver uses with
+    // one hand, often in daylight.
+    fontSize: loginText.pinDigit,
     fontWeight: '700',
   },
   actionsRow: {

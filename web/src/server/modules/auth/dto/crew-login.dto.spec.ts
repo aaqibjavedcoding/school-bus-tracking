@@ -13,9 +13,14 @@ import { BadRequestException, globalValidationPipe } from '../../../framework';
 import { CrewLoginDto, narrowCrewLoginDto } from './crew-login.dto';
 
 const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
-const USER_ID = '22222222-2222-4222-8222-222222222222';
 
-const PIN_BODY = { method: 'pin', school_id: SCHOOL_ID, user_id: USER_ID, pin: '4821' };
+/**
+ * The PIN branch is two fields and a discriminator. There is deliberately no
+ * `user_id` — the server resolves which crew member the PIN belongs to — and
+ * the assertions below pin that absence as hard as they pin the presence of
+ * the fields that remain.
+ */
+const PIN_BODY = { method: 'pin', school_id: SCHOOL_ID, pin: '4821' };
 const QR_BODY = { method: 'qr', pairing_token: 'a'.repeat(64) };
 
 async function errorsFor(body: Record<string, unknown>) {
@@ -72,22 +77,38 @@ describe('CrewLoginDto validation', () => {
     assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, pin: 4821 })), ['pin']);
   });
 
-  it('requires the PIN-branch identity fields', async () => {
-    assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, user_id: undefined })), ['user_id']);
+  it('requires the school and refuses a malformed one', async () => {
     assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, school_id: undefined })), [
       'school_id',
-    ]);
-    assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, user_id: 'not-a-uuid' })), [
-      'user_id',
     ]);
     assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, school_id: 'not a code!' })), [
       'school_id',
     ]);
+    assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, school_id: '' })), ['school_id']);
+  });
+
+  it('has no user_id field at all — a stale client cannot smuggle one in', async () => {
+    // Two halves of the same guarantee. The DTO does not declare the property,
+    // so `forbidNonWhitelisted` turns a body carrying one into a 400 that names
+    // it; and the narrowed result never gains one, so nothing downstream can
+    // read an identity the client claimed.
+    await assert.rejects(
+      () => throughPipe({ ...PIN_BODY, user_id: '22222222-2222-4222-8222-222222222222' }),
+      (error: unknown) => {
+        const response = (error as BadRequestException).getResponse() as { message: string[] };
+        assert.deepEqual(response.message, ['property user_id should not exist']);
+        return true;
+      },
+    );
+    const narrowed = narrowCrewLoginDto(await throughPipe(PIN_BODY)) as unknown as Record<
+      string,
+      unknown
+    >;
+    assert.deepEqual(Object.keys(narrowed).sort(), ['method', 'pin', 'school_id']);
   });
 
   it('does not require the PIN-branch fields on the QR branch', async () => {
     assert.deepEqual(properties(await errorsFor(QR_BODY)), []);
-    assert.deepEqual(properties(await errorsFor({ ...QR_BODY, user_id: undefined })), []);
   });
 
   it('requires a pairing token and bounds its length', async () => {
@@ -134,7 +155,6 @@ describe('narrowCrewLoginDto — the compile-time link to the shared contract', 
     assert.deepEqual(narrowCrewLoginDto(dto), {
       method: 'pin',
       school_id: SCHOOL_ID,
-      user_id: USER_ID,
       pin: '4821',
     });
   });
@@ -146,14 +166,14 @@ describe('narrowCrewLoginDto — the compile-time link to the shared contract', 
 
   it('tolerates the undefined keys plainToInstance adds for every declared field', async () => {
     // class-transformer's `exposeUnsetFields` defaults to true, so a piped DTO
-    // instance carries ALL five declared properties as own keys — the other
+    // instance carries ALL four declared properties as own keys — the other
     // branch's field included, set to `undefined`. `crewPinLoginSchema` is
     // `.strict()`, so handing it the instance directly rejects every valid
     // login. This pins the workaround: narrow must survive that shape.
     const dto = await throughPipe(PIN_BODY);
     assert.deepEqual(
       Object.keys(dto).sort(),
-      ['method', 'pairing_token', 'pin', 'school_id', 'user_id'],
+      ['method', 'pairing_token', 'pin', 'school_id'],
       'precondition: the pipe exposes unset fields',
     );
     assert.equal(dto.pairing_token, undefined);
@@ -219,7 +239,7 @@ describe('DTO ↔ shared crewPinLoginSchema agreement', () => {
     const invalidBodies: Array<Record<string, unknown>> = [
       { ...PIN_BODY, pin: '123' },
       { ...PIN_BODY, pin: 4821 },
-      { ...PIN_BODY, user_id: 'nope' },
+      { ...PIN_BODY, school_id: 'not a code!' },
       { ...PIN_BODY, method: 'password' },
       { method: 'qr', pairing_token: '' },
     ];
@@ -238,6 +258,18 @@ describe('DTO ↔ shared crewPinLoginSchema agreement', () => {
 
   it('both layers reject an unknown field', async () => {
     const body = { ...PIN_BODY, extra: true };
+    await assert.rejects(() => throughPipe(body), BadRequestException);
+    assert.equal(crewPinLoginSchema.safeParse(body).success, false);
+  });
+
+  it('both layers reject a retired user_id, which is now just an unknown field', async () => {
+    // The retired field is checked through the *pipe* rather than in the
+    // `invalidBodies` list above: bare `validate()` silently strips properties
+    // the DTO does not declare, so only the pipe's `forbidNonWhitelisted` sees
+    // it — the same mechanism that catches any other unknown key. The strict
+    // shared schema refuses it independently, so an older mobile build gets a
+    // clean 400 rather than a confusing credential failure.
+    const body = { ...PIN_BODY, user_id: '22222222-2222-4222-8222-222222222222' };
     await assert.rejects(() => throughPipe(body), BadRequestException);
     assert.equal(crewPinLoginSchema.safeParse(body).success, false);
   });

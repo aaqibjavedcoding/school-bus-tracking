@@ -2,13 +2,16 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
-import { fontScaleCaps, surface, touch } from '../theme';
+import { fontScaleCaps, loginText, loginTouch, surface, touch } from '../theme';
 import { SUPPORTED_LOCALES, setLocale, type Locale } from '../lib/i18n';
 import { useLocale, useTranslation } from '../lib/i18n-provider';
 import { Card } from './Card';
 
 /**
  * The "English / हिन्दी / मराठी" switch (Phase 3a + regional rollout).
+ *
+ * Two surfaces share it: {@link LanguageSwitcher} is the full card on the Help
+ * screen, {@link LanguageMenu} is the single dropdown on the login screen.
  *
  * Three deliberate choices:
  *
@@ -93,54 +96,102 @@ const LanguageOption: React.FC<{ value: Locale; selected: boolean }> = ({ value,
 };
 
 /**
- * The compact switch for the **login screen** — a row of self-naming pills
- * above the sign-in card, on the dark hero background.
+ * The compact switch for the **login screen** — ONE dropdown control above the
+ * sign-in card, on the dark hero background.
  *
- * Same behaviour as the Help-screen switcher (instant, persisted,
- * self-naming), smaller chrome: no card, no hint — the login screen is the
- * first screen a driver sees, and the default is English until they pick
- * otherwise (product rule — see `CREW_DEFAULT_LOCALE` in `lib/i18n.ts`).
+ * Replaces the earlier row of three identical pills. Same behaviour (instant,
+ * persisted, each language names itself), far less chrome: a closed control
+ * shows a globe, the current language and a caret; opening it lists
+ * `English / हिंदी / मराठी` with a tick on the active one.
+ *
+ * Implementation notes, because they are constraints rather than preferences:
+ *
+ * - **No new dependency.** `docs/mobile-expo-sdk.md` pins the Expo SDK line and
+ *   every new native module is a risk, so this is a `Pressable` plus an
+ *   absolutely-positioned menu inside a `View` that owns its own stacking —
+ *   not a picker library. The backdrop `Pressable` is what closes it on an
+ *   outside tap.
+ * - **The menu renders *after* the chip in the same relatively-positioned
+ *   wrapper**, so it paints on top of the sign-in card below without a `Modal`
+ *   (a `Modal` would also swallow the Android back button and re-mount the
+ *   screen's focus state).
+ * - **Persistence is the provider's**, via `setLocale` — the same call the Help
+ *   screen's switcher makes, so both stay in step and the choice survives a
+ *   cold start.
  */
-export const LanguagePillRow: React.FC = () => {
+export const LanguageMenu: React.FC = () => {
   const locale = useLocale();
   const t = useTranslation();
+  const [open, setOpen] = React.useState(false);
+
+  const currentLabel = t(SELF_NAME_KEY[locale] ?? 'settings.language.nameEn');
 
   return (
-    <View
-      style={pillStyles.row}
-      accessibilityRole="radiogroup"
-      accessibilityLabel={t('settings.language.a11y')}
-    >
-      {SUPPORTED_LOCALES.map((option) => (
-        <LanguagePill key={option} value={option} selected={option === locale} />
-      ))}
+    <View style={menuStyles.wrap}>
+      <Pressable
+        onPress={() => setOpen((wasOpen) => !wasOpen)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={t('settings.language.a11y')}
+        accessibilityHint={t('settings.language.a11yHint')}
+        style={({ pressed }) => [menuStyles.chip, pressed ? menuStyles.chipPressed : null]}
+      >
+        <Ionicons name="language" size={18} color="#ffffff" />
+        <Text {...fontScaleCaps.label} style={menuStyles.chipLabel} numberOfLines={1}>
+          {currentLabel}
+        </Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={16}
+          color={colors.neutral[300]}
+        />
+      </Pressable>
+
+      {open ? (
+        <>
+          {/* Closes on an outside tap; covers the card underneath so a tap
+              there cannot fall through to a field. */}
+          <Pressable
+            style={menuStyles.backdrop}
+            onPress={() => setOpen(false)}
+            accessibilityRole="none"
+          />
+          <View style={menuStyles.list} accessibilityRole="menu">
+            {SUPPORTED_LOCALES.map((option) => {
+              const selected = option === locale;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => {
+                    setLocale(option);
+                    setOpen(false);
+                  }}
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ selected, checked: selected }}
+                  accessibilityLabel={t(SELF_NAME_KEY[option])}
+                  style={({ pressed }) => [
+                    menuStyles.item,
+                    pressed ? menuStyles.itemPressed : null,
+                  ]}
+                >
+                  <Ionicons
+                    name={selected ? 'checkmark' : 'language'}
+                    size={18}
+                    color={selected ? surface.actionPrimary : colors.neutral[500]}
+                  />
+                  <Text
+                    {...fontScaleCaps.label}
+                    style={[menuStyles.itemLabel, selected ? menuStyles.itemLabelSelected : null]}
+                  >
+                    {t(SELF_NAME_KEY[option])}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
     </View>
-  );
-};
-
-/** One 44dp pill on the dark login hero. */
-const LanguagePill: React.FC<{ value: Locale; selected: boolean }> = ({ value, selected }) => {
-  const t = useTranslation();
-  const label = t(SELF_NAME_KEY[value]);
-
-  return (
-    <Pressable
-      onPress={() => setLocale(value)}
-      accessibilityRole="radio"
-      accessibilityState={{ selected, checked: selected }}
-      accessibilityLabel={label}
-      accessibilityHint={t('settings.language.a11yHint')}
-      style={[pillStyles.pill, selected ? pillStyles.pillSelected : null]}
-    >
-      <Ionicons
-        name="language"
-        size={16}
-        color={selected ? '#ffffff' : colors.neutral[400]}
-      />
-      <Text {...fontScaleCaps.label} style={[pillStyles.pillLabel, selected ? pillStyles.pillLabelSelected : null]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 };
 
@@ -187,34 +238,75 @@ const styles = StyleSheet.create({
   },
 });
 
-const pillStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.sm,
+/** Login-screen dropdown. Colours are for the dark hero background. */
+const menuStyles = StyleSheet.create({
+  // `zIndex` + a self-stretching wrapper are what let the menu paint over the
+  // sign-in card that follows it in the same scroll view.
+  wrap: {
+    alignSelf: 'center',
+    zIndex: 10,
   },
-  pill: {
-    minHeight: touch.compact,
+  chip: {
+    minHeight: loginTouch.chip,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
     borderWidth: 1.5,
-    borderColor: colors.neutral[600],
+    borderColor: colors.neutral[500],
     borderRadius: borderRadius.full,
   },
-  pillSelected: {
-    backgroundColor: surface.actionPrimary,
-    borderColor: surface.actionPrimary,
+  chipPressed: {
+    opacity: 0.8,
   },
-  pillLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.neutral[200],
-  },
-  pillLabelSelected: {
+  chipLabel: {
+    fontSize: loginText.label,
+    fontWeight: '700',
     color: '#ffffff',
+  },
+  backdrop: {
+    position: 'absolute',
+    // Stretches well past the chip in every direction so an outside tap closes
+    // the menu instead of hitting the form underneath.
+    top: -2000,
+    bottom: -2000,
+    left: -2000,
+    right: -2000,
+  },
+  list: {
+    position: 'absolute',
+    top: loginTouch.chip + spacing.xs,
+    alignSelf: 'center',
+    minWidth: 180,
+    backgroundColor: '#ffffff',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    paddingVertical: spacing.xs,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  item: {
+    minHeight: loginTouch.menuRow,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  itemPressed: {
+    backgroundColor: colors.neutral[100],
+  },
+  itemLabel: {
+    fontSize: loginText.label,
+    fontWeight: '600',
+    color: colors.neutral[800],
+  },
+  itemLabelSelected: {
+    color: surface.actionPrimary,
+    fontWeight: '700',
   },
 });

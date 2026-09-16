@@ -222,21 +222,31 @@ export interface LogoutResponse {
 export type CrewLoginMethod = 'pin' | 'qr';
 
 /**
- * PIN branch of `POST /api/v1/auth/crew-login`.
+ * PIN branch of `POST /api/v1/auth/crew-login`: **school code + PIN only**.
  *
- * `user_id` identifies the crew account whose stored PIN hash is checked. It
- * is not a secret: it is the identity the device learned when it scanned that
- * user's pairing QR, and it exists so a 4-digit PIN is compared against
- * exactly one hash instead of being searched across a tenant (which would
- * force PINs to be unique per school and turn them into an enumerable
- * identifier). `school_id` is required alongside it and must match, so a PIN
- * can never be verified against a user in another tenant.
+ * There is no `user_id` on this body, and that is the point: a driver in a
+ * depot is asked for two things they can remember (their school's code and a
+ * 4-digit PIN), not for a UUID copied off an admin screen. The server resolves
+ * the account itself — it loads every active DRIVER/CONDUCTOR of the resolved
+ * tenant that has a PIN set and compares the submitted PIN against each — so
+ * `school_id` is what scopes the search, and a PIN can never be verified
+ * against a crew member of another tenant.
+ *
+ * Two consequences, both enforced server-side and both documented in
+ * `docs/security.md` → "Crew PIN brute force":
+ *
+ * - a PIN must be **unique per school**, or the match would be ambiguous
+ *   (`CrewAuthService.setPin` refuses a PIN another active crew member of the
+ *   same school already holds, and a login that somehow matched two accounts
+ *   is rejected rather than resolved by coin-flip);
+ * - the brute-force lockout is **per school**, not per user — without a user
+ *   id in the body there is no per-user identity left to key a counter on, and
+ *   a per-`(school, PIN)` counter would not bound a sweep of distinct PINs.
  */
 export interface CrewLoginByPinRequest {
   method: 'pin';
   /** Tenant UUID or human tenant code, exactly as for `LoginRequest`. */
   school_id: string;
-  user_id: string;
   /** The plaintext 4-digit PIN. Never stored, never logged, never returned. */
   pin: string;
 }

@@ -53,6 +53,51 @@ export const touch = {
   field: 64,
 } as const;
 
+/**
+ * Type scale for the **login screen only** (2026-09 login polish).
+ *
+ * Separate from {@link text} on purpose. The in-app scale is tuned for dense,
+ * repeat-glance screens a driver already knows; the login screen is the one
+ * screen every driver meets cold, once per shift, often in daylight on a cheap
+ * panel, and its three inputs are the whole task. So it reads a step larger
+ * than the app — and the shared `@school-bus-tracking/design-tokens` scales are
+ * *not* edited to get there, because the web console consumes those too.
+ *
+ * Every value is either an existing shared token or, where the shared scale has
+ * no step (the 28 dp PIN digit), a local addition documented here.
+ */
+export const loginText = {
+  /** Card title ("Sign in", "Enter your 4-digit PIN"). */
+  cardTitle: typography.fontSizes['2xl'], // 24
+  /** Field labels and tab labels. */
+  label: typography.fontSizes.base, // 16
+  /** What the driver typed into a field. */
+  inputValue: typography.fontSizes.lg, // 18
+  /** One key on the PIN pad. Between the shared `2xl` (24) and `3xl` (30). */
+  pinDigit: 28,
+  /** Secondary copy: the card subtitle, a hint, the footer. */
+  secondary: typography.fontSizes.sm, // 14
+  /** The lockout countdown — the one number worth shouting. */
+  countdown: typography.fontSizes['3xl'], // 30
+} as const;
+
+/**
+ * Touch-target floors for the login screen.
+ *
+ * 48 dp is the floor for anything tappable here (the shared `touch.target` of
+ * 56 dp still governs the in-app buttons the login screen reuses); the PIN pad
+ * keys are square and full-width rather than a fixed box, so they land near
+ * 90 dp on a 360 dp-wide phone.
+ */
+export const loginTouch = {
+  /** Minimum height of a tappable row on the login screen. */
+  min: 48,
+  /** Language dropdown chip. */
+  chip: 48,
+  /** One row of the language menu. */
+  menuRow: 48,
+} as const;
+
 /** Filled-action and border colours that pass WCAG AA against their content. */
 export const surface = {
   /**

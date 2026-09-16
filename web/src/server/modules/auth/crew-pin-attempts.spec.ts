@@ -18,12 +18,18 @@ import {
 /**
  * The brute-force policy of the crew PIN path, pinned by number.
  *
+ * The unit is the **school**, not the driver: a PIN login body is
+ * `{ school_id, pin }`, so the counter is keyed by school and 480 guesses/day
+ * is the budget for a whole tenant. See `crew-pin-attempts.ts` for why no
+ * narrower key would bound a sweep of distinct PINs.
+ *
  * These are the figures `docs/security.md` and README §10 quote, so the specs
  * assert them literally: a change to the defaults has to fail here and force
  * the documentation to be updated in the same commit, rather than leaving a
  * markdown file describing a policy the code no longer implements.
  */
 const MINUTE = 60_000;
+const SCHOOL_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('crew PIN brute-force defaults', () => {
   it('ships the documented policy: 5 attempts / 15 min window / 15 min lockout', () => {
@@ -37,10 +43,10 @@ describe('crew PIN brute-force defaults', () => {
     assert.equal(CREW_PIN_COMBINATIONS, 10_000);
   });
 
-  it('bounds a single-user exhaustive attack to weeks, not minutes', () => {
+  it('bounds a single-school exhaustive attack to weeks, not minutes', () => {
     // 5 guesses per 15-minute cycle = 20/hour = 480/day, so 10,000 values
     // needs 10000/480 = 20.83 days of continuous, perfectly-timed guessing
-    // against ONE account — and every one of those 10,000 attempts is an
+    // against ONE school — and every one of those 10,000 attempts is an
     // audited failure. The assertion is on the order of magnitude, not the
     // exact fraction, so a tweak to the lockout does not churn the spec.
     const days = estimatePinExhaustionDays({
@@ -204,22 +210,38 @@ describe('registerPinSuccess', () => {
 });
 
 describe('CrewPinAttemptStore', () => {
-  it('round-trips a state per (school, user) key', () => {
+  it('round-trips a state per school key', () => {
     const store = new CrewPinAttemptStore();
-    const key = CrewPinAttemptStore.keyFor('school-1', 'user-1');
-    assert.equal(key, 'school-1:user-1');
+    const key = CrewPinAttemptStore.keyForSchool('school-1');
+    assert.equal(key, 'school:school-1');
 
     store.write(key, registerPinFailure(null, 0).state, 0);
     assert.equal(store.peek(key, 1_000).failures, 1);
-    // A different user in the same school, and the same user id in a different
-    // school, are separate buckets.
-    assert.equal(store.peek(CrewPinAttemptStore.keyFor('school-1', 'user-2'), 1_000).failures, 0);
-    assert.equal(store.peek(CrewPinAttemptStore.keyFor('school-2', 'user-1'), 1_000).failures, 0);
+    // Another school is a separate bucket — one school's failures must never
+    // consume another's allowance.
+    assert.equal(store.peek(CrewPinAttemptStore.keyForSchool('school-2'), 1_000).failures, 0);
+  });
+
+  it('keys one bucket per school, so a distinct user id cannot mint a fresh budget', () => {
+    // The regression this pins: the store used to be keyed by
+    // `(school_id, user_id)`. With no user id in the login body there is
+    // nothing for an attacker to vary, and a key that still carried one would
+    // quietly hand every guess its own bucket — i.e. no bound at all.
+    const store = new CrewPinAttemptStore();
+    const key = CrewPinAttemptStore.keyForSchool(SCHOOL_ID);
+    let state = registerPinFailure(null, 0).state;
+    store.write(key, state, 0);
+    for (let index = 1; index < 4; index += 1) {
+      state = registerPinFailure(store.peek(key, index), index).state;
+      store.write(key, state, index);
+    }
+    assert.equal(store.peek(key, 10).failures, 4, 'four failures, one school, one bucket');
+    assert.equal(store.size, 1);
   });
 
   it('evicts an exhausted window lazily on read', () => {
     const store = new CrewPinAttemptStore();
-    const key = CrewPinAttemptStore.keyFor('s', 'u');
+    const key = CrewPinAttemptStore.keyForSchool('s');
     store.write(key, registerPinFailure(null, 0).state, 0);
     assert.equal(store.size, 1);
 
@@ -229,7 +251,7 @@ describe('CrewPinAttemptStore', () => {
 
   it('keeps a live lockout even though its failure count is zero', () => {
     const store = new CrewPinAttemptStore();
-    const key = CrewPinAttemptStore.keyFor('s', 'u');
+    const key = CrewPinAttemptStore.keyForSchool('s');
     let state: CrewPinAttemptState = { ...EMPTY_CREW_PIN_ATTEMPT_STATE };
     for (let index = 0; index < CREW_PIN_DEFAULT_POLICY.maxAttempts; index += 1) {
       state = registerPinFailure(state, index * 1_000).state;
@@ -243,7 +265,7 @@ describe('CrewPinAttemptStore', () => {
   it('never writes an already-expired state', () => {
     const store = new CrewPinAttemptStore();
     store.write(
-      CrewPinAttemptStore.keyFor('s', 'u'),
+      CrewPinAttemptStore.keyForSchool('s'),
       { ...EMPTY_CREW_PIN_ATTEMPT_STATE },
       0,
     );
@@ -252,11 +274,13 @@ describe('CrewPinAttemptStore', () => {
 
   it('bounds the map so a hostile client cannot grow it without limit', () => {
     const store = new CrewPinAttemptStore(10);
-    // Eleven distinct locked-out users, all still live, exceed maxKeys; the
+    // Eleven distinct locked-out schools, all still live, exceed maxKeys; the
     // sweep cannot drop a live lockout, so the bound is best-effort by design —
-    // but the expired residue must go.
+    // but the expired residue must go. (The key space is now the set of schools
+    // plus one entry per bogus code someone submitted, which is far smaller
+    // than the per-user key space this replaced.)
     for (let index = 0; index < 11; index += 1) {
-      const key = CrewPinAttemptStore.keyFor('s', `u${index}`);
+      const key = CrewPinAttemptStore.keyForSchool(`s${index}`);
       const locked = registerPinFailure(null, 0, {
         maxAttempts: 1,
         windowMs: MINUTE,
@@ -269,20 +293,20 @@ describe('CrewPinAttemptStore', () => {
     // Once they expire, the next write over the bound clears them all.
     const stale = new CrewPinAttemptStore(2);
     for (let index = 0; index < 3; index += 1) {
-      stale.write(CrewPinAttemptStore.keyFor('s', `u${index}`), registerPinFailure(null, 0).state, 0);
+      stale.write(CrewPinAttemptStore.keyForSchool(`s${index}`), registerPinFailure(null, 0).state, 0);
     }
     assert.equal(stale.size, 3);
     stale.write(
-      CrewPinAttemptStore.keyFor('s', 'fresh'),
+      CrewPinAttemptStore.keyForSchool('fresh'),
       registerPinFailure(null, CREW_PIN_DEFAULT_POLICY.windowMs + 1).state,
       CREW_PIN_DEFAULT_POLICY.windowMs + 1,
     );
     assert.equal(stale.size, 1, 'the sweep must reclaim the expired windows');
   });
 
-  it('forgets a key on demand (admin reset / successful login)', () => {
+  it('forgets a key on demand (admin PIN reset / successful login)', () => {
     const store = new CrewPinAttemptStore();
-    const key = CrewPinAttemptStore.keyFor('s', 'u');
+    const key = CrewPinAttemptStore.keyForSchool('s');
     store.write(key, registerPinFailure(null, 0).state, 0);
     store.forget(key);
     assert.equal(store.size, 0);

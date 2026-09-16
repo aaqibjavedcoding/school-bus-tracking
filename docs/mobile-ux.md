@@ -305,9 +305,9 @@ runtime one.
 | `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                          |
 | `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                  |
 | `help.*`, `settings.*`                               | 23      | Help screen, the language switch + the Phase-3b sound settings           |
-| `login.*`                                            | 40      | sign-in labels + the Phase-4b crew PIN/QR path (flow/endpoint untouched) |
+| `login.*`                                            | 39      | sign-in labels + the crew PIN/QR path (school code + PIN, no user id)    |
 | `common.*`, `time.*`                                 | 12      | shared chrome, relative time, minutes, the On/Off switch words           |
-| `error.*`                                            | 17      | known server error codes + the crew-login codes + the unknown-code prefix|
+| `error.*`                                            | 18      | known server error codes + the four crew-login codes + the unknown-code prefix|
 | `voice.*`                                            | 17      | **spoken only** — Latin script in every locale, never rendered on screen |
 | **total**                                            | **345** | the groups above are exhaustive — every key is in exactly one            |
 
