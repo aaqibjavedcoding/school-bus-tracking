@@ -728,6 +728,16 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   sensitive and excluded from exports; document files are served through the API (no public dir)
   with hard extension/size checks and UUID filenames.
 - **Dependency security**: `package.json` `overrides` pin `lodash ^4.17.24` and `postcss 8.5.28`.
+- **Crew mobile login** (DRIVER / CONDUCTOR): a 4-digit PIN or a short-lived QR pairing code
+  (`POST /auth/crew-login`). The PIN path is gated by a per-user lockout
+  (`crew-pin-attempts.ts`: 5 attempts per 15-minute window, 15-minute lockout, single-process
+  counter) layered under the `auth_crew_login` rate policy (10 req / 60 s per IP and per identity).
+  Pairing codes are PostgreSQL-backed, single-use and short-lived (5 min default TTL) and survive
+  a restart. `pin_hash` is bcrypt cost 12 and **never returned by any API** — an administrator who
+  has lost a PIN must set a new one. Exact policy, the recovery routes, and the
+  **single-instance caveat** (effective allowance is `N × maxAttempts` per window behind a load
+  balancer; a restart clears the counter mid-window) are documented rather than hidden — see
+  `docs/security.md` → "Crew PIN Brute Force".
 - Full details: `docs/security.md` (incl. the **move-to-multi-instance checklist**).
 
 ---
