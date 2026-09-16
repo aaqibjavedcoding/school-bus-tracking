@@ -332,6 +332,47 @@ export const en = {
   'login.footer':
     'Drivers, conductors, parents and school admins all sign in here — the app adapts to your role.',
 
+  // ── Crew mobile-login (Phase 4b) — second path on the same login screen ─
+  // The two paths share the brand, the "school code" field and the routing;
+  // they differ in *what the crew member has in their hand* (a phone with a
+  // paired device → 4-digit PIN; a fresh phone or a re-pair → QR scanned by
+  // the school admin). Copy is intentionally short and step-numbered so a
+  // driver who is standing in a depot can read it in one glance.
+  'login.crewPath.cta': 'Sign in as driver / conductor',
+  'login.crewPath.backToAdmin': 'Use email and password instead',
+  'login.crewPath.pin.title': 'Enter your 4-digit PIN',
+  'login.crewPath.pin.subtitle':
+    'The school admin set this PIN on your account. It unlocks the phone you already paired.',
+  'login.crewPath.pin.userIdLabel': 'Your user ID',
+  'login.crewPath.pin.userIdPlaceholder': 'UUID from the admin',
+  'login.crewPath.pin.userIdHint':
+    'Ask your school admin if you do not have this. It identifies which driver or conductor you are.',
+  'login.crewPath.pin.padLabel': 'PIN',
+  'login.crewPath.pin.submit': 'Unlock',
+  'login.crewPath.pin.clearKey': 'Clear PIN',
+  'login.crewPath.qr.title': 'Scan the pairing QR',
+  'login.crewPath.qr.subtitle':
+    'Ask your school admin to show the QR on their computer. Point your camera at it.',
+  'login.crewPath.qr.openScanner': 'Open camera',
+  'login.crewPath.qr.cancelScan': 'Cancel scanning',
+  'login.crewPath.qr.permission.title': 'Camera access needed',
+  'login.crewPath.qr.permission.body':
+    'The camera only looks for the school pairing code. We do not record or upload anything else.',
+  'login.crewPath.qr.permission.openSettings': 'Open settings',
+  'login.crewPath.qr.useTypeInstead': 'Type the code instead',
+  'login.crewPath.qr.pasteTitle': 'Or paste the pairing code',
+  'login.crewPath.qr.pastePlaceholder': 'SBT-CREW-1:…',
+  'login.crewPath.qr.pasteSubmit': 'Use this code',
+  'login.crewPath.qr.scanned': 'Code scanned — signing you in…',
+  'login.crewPath.usePin': 'Use PIN instead',
+  'login.crewPath.useQr': 'Scan QR instead',
+  'login.crewPath.lockout.wait':
+    'Too many wrong PINs. Try again in {seconds}s — or ask the admin to reset it.',
+  'login.crewPath.lockout.adminHint':
+    'A school admin can also generate a fresh pairing QR — the QR login clears the lockout.',
+  'login.crewPath.expired':
+    'That pairing code has expired. Ask the admin to generate a new one.',
+
   // ── Shared status vocabulary (badges used by crew + admin) ─────────────
   'status.label.scheduled': 'Scheduled',
   'status.label.boarding': 'Boarding',
@@ -422,6 +463,23 @@ export const en = {
   'error.networkOffline': 'No internet. Your action is saved on this phone and will sync later.',
   /** Prefix for an unknown code, so the raw code is visible, never hidden. */
   'error.unknownCodePrefix': 'Server code',
+  /**
+   * Crew mobile-login (Phase 4b). The three codes map one-to-one onto the
+   * server's constants in `web/src/server/modules/auth/auth.constants.ts`.
+   *
+   * - `CREW_PIN_LOCKED` carries a structured `{retry_after_seconds}` and is
+   *   rendered by the login screen with a live countdown — see
+   *   `localizeCrewLoginError` in `i18n.ts`.
+   * - `CREW_PIN_INVALID` is the generic "wrong PIN / wrong user / no PIN set"
+   *   rejection, deliberately identical to the server's
+   *   `INVALID_CREW_CREDENTIALS_MESSAGE` to avoid enumeration.
+   * - `CREW_PAIRING_INVALID` is the generic "QR malformed / unknown / expired
+   *   / already redeemed" rejection — same one-message rule, no enumeration.
+   */
+  'error.CREW_PIN_LOCKED': 'Too many wrong PINs. Try again later.',
+  'error.CREW_PIN_INVALID': 'That PIN did not work. Please try again.',
+  'error.CREW_PAIRING_INVALID':
+    'That pairing code could not be used. Ask the admin for a fresh QR.',
 } as const satisfies Record<string, string>;
 
 /**
