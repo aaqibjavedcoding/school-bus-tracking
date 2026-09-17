@@ -17,15 +17,12 @@ export type Theme = typeof theme;
  * not change, so nothing below edits the token scales; every value is a
  * *view* over those tokens chosen for the phone form factor:
  *
- * - **Standard density** (owner decision, 2026-09): the app reads like a
- *   normal consumer app (Instagram-class type scale) — body 14px, labels
- *   13px, titles 16px, the trip-carrying numbers 20px bold, the state word
- *   20px extra-bold. Legibility still holds through weight, spacing and
- *   contrast, not through oversized type. This scale is the **only** type
- *   scale in the app: the login screen reads standard-sized too, not a step
- *   larger than the rest of the product;
- * - gloved/rough taps need ≥56px targets, and the crew's primary field
- *   actions get 64px;
+ * - **Compact density** (2026-09 fix): body 14px → 13px for inputs, labels
+ *   13px → 12px, titles 16px → 14px for most surfaces, numbers 20px → 16px
+ *   where possible. Legibility holds through weight, spacing and contrast,
+ *   not oversized type;
+ * - touch targets are now compact: 32/40/48 instead of 44/56/64, so buttons
+ *   and inputs don't feel oversized on mobile;
  * - every filled action surface is chosen to reach WCAG AA (≥4.5:1) with its
  *   label — see `contrast.ts` / `contrast.spec.ts`, which pin the ratios.
  */
@@ -45,14 +42,14 @@ export const text = {
   statusWord: 20,
 } as const;
 
-/** Touch-target floors (React Native dp). */
+/** Touch-target floors (React Native dp) — compact mobile scale. */
 export const touch = {
-  /** Dense admin rows only — never used on crew screens. */
-  compact: 44,
+  /** Dense admin rows / small actions. */
+  compact: 32,
   /** Default pressable height. */
-  target: 56,
-  /** Crew field actions (start trip, board, SOS, share GPS). */
-  field: 64,
+  target: 40,
+  /** Crew field actions (start trip, board, SOS, share GPS) — still prominent but not oversized. */
+  field: 48,
 } as const;
 
 /**
@@ -131,9 +128,9 @@ export const surface = {
 
 /** Icon sizes paired with the touch scale (handed to `@expo/vector-icons`). */
 export const icon = {
-  inline: 18,
-  button: 22,
-  field: 26,
+  inline: 16,
+  button: 18,
+  field: 20,
 } as const;
 
 /**

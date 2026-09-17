@@ -26,10 +26,10 @@ const row = (overrides: Partial<Parameters<typeof confirmationLine>[0]> = {}) =>
   ...overrides,
 });
 
-test('touch floors: row ≥60px, glyph zone ≥60px, name 18px bold', () => {
-  assert.ok(MANIFEST_ROW_MIN_HEIGHT >= 60);
-  assert.ok(ROW_ACTION_GLYPH_SIZE >= 60);
-  assert.equal(ROW_NAME_SIZE, 18);
+test('touch floors: row ≥48px, glyph zone ≥44px, name 15px bold', () => {
+  assert.ok(MANIFEST_ROW_MIN_HEIGHT >= 48);
+  assert.ok(ROW_ACTION_GLYPH_SIZE >= 44);
+  assert.equal(ROW_NAME_SIZE, 15);
 });
 
 test('the whole row acts: one contextual action per attendance state', () => {

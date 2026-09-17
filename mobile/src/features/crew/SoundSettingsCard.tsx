@@ -114,19 +114,19 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 14,
     color: colors.neutral[600],
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   note: {
     fontSize: 14,
     color: colors.neutral[600],
-    marginTop: spacing.sm,
-    lineHeight: 22,
+    marginTop: spacing.xs,
+    lineHeight: 18,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    minHeight: touch.field,
+    minHeight: 44,
     paddingVertical: spacing.xs,
   },
   rowPressed: {
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rowLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.neutral[900],
   },
@@ -160,14 +160,14 @@ const styles = StyleSheet.create({
     color: surface.actionPrimary,
   },
   track: {
-    width: 52,
-    height: 30,
+    width: 44,
+    height: 26,
     borderRadius: borderRadius.full,
     backgroundColor: colors.neutral[300],
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: surface.borderInteractive,
     justifyContent: 'center',
-    paddingHorizontal: 3,
+    paddingHorizontal: 2,
   },
   trackOn: {
     backgroundColor: colors.secondary[700],

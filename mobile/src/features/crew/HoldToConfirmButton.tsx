@@ -177,9 +177,9 @@ export const HoldToConfirmButton: React.FC<{
       />
       <View style={styles.content} pointerEvents="none">
         {busy ? (
-          <ActivityIndicator color="#ffffff" />
+          <ActivityIndicator color="#ffffff" size="small" />
         ) : (
-          <Ionicons name={icon} size={touch.field / 2} color="#ffffff" />
+          <Ionicons name={icon} size={20} color="#ffffff" />
         )}
         <Text {...fontScaleCaps.button} style={styles.label}>
           {holding ? holdingLabel : label}
@@ -196,8 +196,8 @@ const styles = StyleSheet.create({
     backgroundColor: surface.actionDanger,
     overflow: 'hidden',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   fill: {
     position: 'absolute',
@@ -213,13 +213,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   label: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   disabled: {
     opacity: 0.6,

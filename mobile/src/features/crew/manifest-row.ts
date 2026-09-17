@@ -16,12 +16,12 @@ import { fullName } from '../../lib/format.ts';
  * here so the component stays thin and CI catches regressions.
  */
 
-/** Row floor — comfortably above the required ≥60px touch target. */
-export const MANIFEST_ROW_MIN_HEIGHT = 64;
-/** The big ✓/✕ glyph zone on the right (acceptance: ≥60px). */
-export const ROW_ACTION_GLYPH_SIZE = 60;
-/** Student name size (Phase-1 floor: 18px bold). */
-export const ROW_NAME_SIZE = 18;
+/** Row floor — compact but still tappable. */
+export const MANIFEST_ROW_MIN_HEIGHT = 52;
+/** The ✓/✕ glyph zone on the right. */
+export const ROW_ACTION_GLYPH_SIZE = 48;
+/** Student name size. */
+export const ROW_NAME_SIZE = 15;
 
 /** Green flash on success: tinted surface from the measured badge-success pair. */
 export const ROW_FLASH_GREEN = '#dcfce7';

@@ -106,15 +106,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
-    minHeight: 56,
+    minHeight: 44,
   },
   statusBlock: {
     flex: 1,
     gap: 2,
   },
   stateLine: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#1e293b',
   },
   updateLine: {

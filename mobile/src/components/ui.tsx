@@ -24,9 +24,9 @@ import type { Tone } from '../lib/format';
  * Mobile UI kit — the small set of primitives every screen is built from.
  * Tokens come from the shared `@school-bus-tracking/design-tokens` package;
  * the legibility layer (`theme/tokens.ts`: text/touch/surface aliases) sits
- * on top so phone screens stay readable at arm's length and every tappable
- * element meets the 56/64px crew touch floors. Contrast choices are pinned
- * by `theme/contrast.spec.ts`.
+ * on top so phone screens stay readable. Compact touch floors (32/40/48)
+ * keep buttons and inputs from feeling oversized on mobile. Contrast choices
+ * are pinned by `theme/contrast.spec.ts`.
  */
 
 const TONE_COLORS: Record<Tone, { bg: string; text: string }> = {
@@ -101,9 +101,9 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 /** Tint override for the filled variants — e.g. a green confirm ("Board"). */
 export type ButtonTone = 'primary' | 'success' | 'danger' | 'neutral';
 /**
- * `sm` is the dense admin row action (44px); `md` (56px) is the default every
- * button gets; `lg` (60px) for prominent actions; `field` (64px) is the crew
- * floor for field work — start trip, board, SOS, share GPS.
+ * `sm` is the dense admin row action (32px); `md` (40px) is the default every
+ * button gets; `lg` (44px) for prominent actions; `field` (48px) is the crew
+ * floor for field work — start trip, board, SOS, share GPS — compact, not oversized.
  */
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'field';
 
@@ -127,26 +127,25 @@ export interface ButtonProps {
 }
 
 const BUTTON_HEIGHTS: Record<ButtonSize, number> = {
-  sm: touch.compact,
-  md: touch.target,
-  lg: 60,
-  field: touch.field,
+  sm: touch.compact, // 32
+  md: touch.target, // 40
+  lg: 44,
+  field: touch.field, // 48
 };
 
 const BUTTON_TEXT_SIZES: Record<ButtonSize, number> = {
-  // Standard (consumer-app) button type: 13/14/15/16 — dense to bold,
-  // never oversized (owner decision, 2026-09).
-  sm: 13,
-  md: 14,
-  lg: 15,
-  field: 16,
+  // Compact scale: smaller than before so buttons don't feel oversized.
+  sm: 12,
+  md: 13,
+  lg: 13,
+  field: 14,
 };
 
 const BUTTON_ICON_SIZES: Record<ButtonSize, number> = {
-  sm: iconSizes.inline,
-  md: 20,
-  lg: iconSizes.button,
-  field: iconSizes.field,
+  sm: 14,
+  md: 16,
+  lg: 18,
+  field: 20,
 };
 
 const FILLED_TONES: Record<ButtonTone, string> = {
@@ -177,8 +176,7 @@ export const Button: React.FC<ButtonProps> = ({
   const resolvedSize: ButtonSize = size ?? (small ? 'sm' : 'md');
   const filled = variant === 'primary' || variant === 'danger';
   const resolvedTone: ButtonTone = tone ?? (variant === 'danger' ? 'danger' : 'primary');
-  // `small` on legacy densely-packed rows is exempt from the 56px floor by
-  // design (admin tables); everything else starts at 56 and field at 64.
+  // Compact floors: small rows 32px, default 40px, field 48px.
   const inert = disabled || busy;
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -631,10 +629,9 @@ const styles = StyleSheet.create({
   },
   buttonBase: {
     borderRadius: borderRadius.md,
-    // Standard padding/margins (2026-09 pass): 24dp inner horizontal,
-    // 10dp vertical so label and icon sit centred with room to spare.
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
+    // Compact padding: 16dp horizontal, 6dp vertical — less bulky on mobile.
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -666,22 +663,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.neutral[100],
   },
   field: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   fieldLabel: {
-    fontSize: typography.fontSizes.base,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
     color: colors.neutral[700],
     marginBottom: spacing.xs,
   },
   fieldInput: {
     backgroundColor: '#ffffff',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: surface.borderInteractive,
     borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    fontSize: typography.fontSizes.base,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[900],
     minHeight: touch.target,
   },
@@ -689,32 +686,32 @@ const styles = StyleSheet.create({
     borderColor: colors.status.danger,
   },
   fieldHint: {
-    fontSize: typography.fontSizes.base,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[600],
     marginTop: spacing.xs,
   },
   fieldError: {
-    fontSize: typography.fontSizes.base,
+    fontSize: typography.fontSizes.sm,
     color: colors.status.danger,
     marginTop: spacing.xs,
   },
   searchBar: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   searchInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
     backgroundColor: '#ffffff',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: surface.borderInteractive,
     borderRadius: borderRadius.full,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: spacing.sm + 2,
-    fontSize: typography.fontSizes.base,
+    paddingVertical: spacing.xs + 2,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[900],
   },
   searchClear: {
@@ -726,34 +723,34 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: 'row',
     gap: spacing.xs,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.xs,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     borderRadius: borderRadius.full,
     backgroundColor: '#ffffff',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: surface.borderInteractive,
-    minHeight: 36,
+    minHeight: 28,
     justifyContent: 'center',
   },
   chipField: {
     minHeight: touch.target,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
   },
   chipActive: {
     backgroundColor: surface.actionPrimary,
     borderColor: surface.actionPrimary,
   },
   chipText: {
-    fontSize: typography.fontSizes.sm,
+    fontSize: 13,
     fontWeight: '600',
   },
   chipFieldText: {
-    fontSize: typography.fontSizes.base,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '700',
   },
   filterSummary: {

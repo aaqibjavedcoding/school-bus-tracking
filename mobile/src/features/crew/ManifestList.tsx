@@ -458,7 +458,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rowName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.neutral[900],
   },
