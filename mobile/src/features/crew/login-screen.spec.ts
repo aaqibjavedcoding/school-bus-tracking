@@ -91,10 +91,10 @@ describe('login screen touch targets', () => {
     assert.equal(loginTouch.min, touch.target);
     assert.equal(loginTouch.chip, touch.target);
     assert.equal(loginTouch.menuRow, touch.target);
-    // The shared in-app floors are the single source of truth.
-    assert.equal(touch.compact, 44);
-    assert.equal(touch.target, 56);
-    assert.equal(touch.field, 64);
+    // The shared in-app floors are the single source of truth — compact mobile scale.
+    assert.equal(touch.compact, 32);
+    assert.equal(touch.target, 40);
+    assert.equal(touch.field, 48);
   });
 
   it('makes the PIN pad full-width square cells instead of fixed boxes', () => {

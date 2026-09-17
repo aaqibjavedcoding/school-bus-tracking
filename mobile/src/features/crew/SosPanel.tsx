@@ -590,25 +590,25 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   flexText: { flex: 1 },
   quickWrap: {
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
   },
   statusLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 32,
+    gap: spacing.xs,
+    minHeight: 28,
   },
   statusText: {
     flex: 1,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: colors.neutral[800],
   },
   activeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   activeText: {
     flex: 1,
@@ -622,18 +622,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   action: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     borderRadius: borderRadius.md,
   },
   detailsButton: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     alignSelf: 'flex-start',
   },
   historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: 4,
+    gap: spacing.xs,
+    paddingVertical: 2,
   },
   historyText: {
     flex: 1,

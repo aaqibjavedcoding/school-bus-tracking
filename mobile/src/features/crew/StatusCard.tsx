@@ -137,16 +137,16 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stateWord: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   nextStop: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
   },
   nextStopSub: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     opacity: 1,
   },
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   detailsToggle: {
-    minHeight: 44,
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

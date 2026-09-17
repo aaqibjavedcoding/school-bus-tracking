@@ -190,11 +190,11 @@ const styles = StyleSheet.create({
   backgroundRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
     backgroundColor: colors.neutral[50],
     borderRadius: borderRadius.md,
-    padding: spacing.sm + 2,
-    minHeight: 64,
+    padding: spacing.xs + 2,
+    minHeight: 48,
   },
   backgroundTitle: {
     fontSize: typography.fontSizes.base,
