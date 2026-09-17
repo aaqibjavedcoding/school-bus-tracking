@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
+import { getApiErrorMessage } from '../../lib/errors.ts';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import {
   CREW_LOCATION_TASK,
@@ -155,7 +156,9 @@ export function useCrewLocationSharing(trip: TripResponse | null): CrewLocationS
       );
       setSharing(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not start GPS sharing.');
+      // A native/expo-location failure keeps its own message; an API
+      // failure is mapped to user copy instead of a status code.
+      setMessage(getApiErrorMessage(error, 'Could not start GPS sharing.'));
     } finally {
       setBusy(false);
     }
@@ -215,7 +218,7 @@ export function useCrewLocationSharing(trip: TripResponse | null): CrewLocationS
       });
       setBackgroundActive(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not enable background sharing.');
+      setMessage(getApiErrorMessage(error, 'Could not enable background sharing.'));
     } finally {
       setBusy(false);
     }

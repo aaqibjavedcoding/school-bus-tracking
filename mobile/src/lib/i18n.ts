@@ -1,6 +1,7 @@
 import { en, type Dictionary, type EnglishDictionary } from './i18n.en.ts';
 import { hi } from './i18n.hi.ts';
 import { mr } from './i18n.mr.ts';
+import { isTechnicalMessage } from './error-messages.ts';
 
 /**
  * The app's localisation layer (Phase 3) — small, typed and **dependency-free**.
@@ -395,6 +396,33 @@ export function isKnownErrorCode(code: string | null | undefined): boolean {
   return typeof code === 'string' && code in KNOWN_ERROR_CODES;
 }
 
+/**
+ * Status → dictionary key, used when the envelope carried **no** code: the API
+ * always sends one, but a proxy, a captive portal or a future endpoint may not,
+ * and a bare status must still reach the crew as a sentence in their own
+ * language rather than as a technical string.
+ */
+const STATUS_ERROR_KEYS: Readonly<Record<number, StaticTranslationKey>> = {
+  400: 'error.HTTP_400',
+  401: 'error.HTTP_401',
+  403: 'error.HTTP_403',
+  404: 'error.HTTP_404',
+  409: 'error.HTTP_409',
+  422: 'error.HTTP_422',
+  429: 'error.HTTP_429',
+  500: 'error.HTTP_500',
+  503: 'error.HTTP_503',
+};
+
+/** The dictionary key for a status, or `null` when nothing maps. */
+export function errorKeyForStatus(status: number | null | undefined): StaticTranslationKey | null {
+  if (typeof status !== 'number') return null;
+  if (STATUS_ERROR_KEYS[status]) return STATUS_ERROR_KEYS[status]!;
+  // Every other 5xx shares the "server could not complete the request" copy.
+  if (status >= 500) return 'error.HTTP_500';
+  return null;
+}
+
 export interface LocalizedApiError {
   /** What the UI shows. */
   message: string;
@@ -417,7 +445,19 @@ export interface LocalizedApiError {
  *   note. Never translated by guesswork, never hidden;
  * - **status 0** (no network) → the localised offline line, because there is no
  *   server message at all and the crew needs to know the action was saved;
+ * - **no code, no usable message, but a status** → the locale's copy for that
+ *   status, so a bare `403`/`500` still reads as a sentence;
  * - **nothing at all** → `common.error`.
+ *
+ * ### Technical messages are never "the server's message"
+ *
+ * A message that is a *diagnostic* — `Request failed with status 401`, an HTML
+ * error page, a stack trace, a bare `Forbidden` reason phrase — is not a
+ * server-string: it is transport noise. `isTechnicalMessage` classifies it,
+ * the message is dropped, and the copy above takes over. This is what keeps
+ * `Request failed with status 401` off a driver's screen even when the code is
+ * unknown to the app (the "unknown code" branch used to pass it straight
+ * through).
  */
 export function localizeApiError(input: {
   code?: string | null;
@@ -426,7 +466,9 @@ export function localizeApiError(input: {
 }): LocalizedApiError {
   const code = typeof input.code === 'string' && input.code.length > 0 ? input.code : null;
   const serverMessage =
-    typeof input.message === 'string' && input.message.trim().length > 0
+    typeof input.message === 'string' &&
+    input.message.trim().length > 0 &&
+    !isTechnicalMessage(input.message)
       ? input.message.trim()
       : null;
 
@@ -443,18 +485,31 @@ export function localizeApiError(input: {
   }
 
   if (code) {
+    if (serverMessage) {
+      return {
+        message: serverMessage,
+        codeNote: `${t('error.unknownCodePrefix')} ${code}`,
+        localized: false,
+      };
+    }
+    // An unknown code with a diagnostic instead of a message: show the
+    // locale's status copy and keep the code visible for support.
+    const key = errorKeyForStatus(input.status) ?? 'common.error';
     return {
-      message: serverMessage ?? t('common.error'),
+      message: t(key),
       codeNote: `${t('error.unknownCodePrefix')} ${code}`,
-      localized: false,
+      localized: true,
     };
   }
 
-  return {
-    message: serverMessage ?? t('common.error'),
-    codeNote: null,
-    localized: false,
-  };
+  if (serverMessage) {
+    return { message: serverMessage, codeNote: null, localized: false };
+  }
+
+  const key = errorKeyForStatus(input.status);
+  return key
+    ? { message: t(key), codeNote: null, localized: true }
+    : { message: t('common.error'), codeNote: null, localized: false };
 }
 
 // ── Crew mobile-login error mapping (Phase 4b) ───────────────────────────

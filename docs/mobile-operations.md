@@ -106,6 +106,48 @@ Provides:
 - 429 → rate limited message
 - 500 → server error message
 
+### Error Message Boundary (every screen)
+
+**No technical text is ever rendered.** The API client's own message
+(`Request failed with status 401`, plus a slice of the raw body for a non-JSON
+response) is a _diagnostic_: it belongs in logs, not on a driver's screen. The
+same rule covers a proxy's HTML page, a Nest default body
+(`{"statusCode":500,"message":"Internal server error"}`), a bare HTTP reason
+phrase (`Forbidden`), an axios/fetch `Network Error`, a stack trace, a request
+id and a database error.
+
+One module owns the classification — `mobile/src/lib/error-messages.ts` (pure,
+dependency-free) — with three consumers:
+
+| Consumer                               | Used by                                                     |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `lib/errors.ts` → `getApiErrorMessage` | every screen, hook and toast (login, admin, parent, crew)   |
+| `lib/i18n.ts` → `localizeApiError`     | crew surfaces, which read the copy in en / hi / mr          |
+| `features/crew/offline/queue-core.ts`  | the offline banner's `lastError` (persisted, then rendered) |
+
+Precedence for a thrown error:
+
+1. the API envelope's message (`error.message` / `error.details`) — **kept
+   verbatim** when it is something a person can act on, because the server owns
+   the business rule ("A student with this admission number already exists.",
+   "Run overlaps the 07:10 window", the four 403 reasons, a plan limit);
+2. otherwise the status-based copy: 400 _check the information_, 401 _invalid
+   email or password_ on a credential form / _session expired_ elsewhere, 403
+   _no permission_, 404 _not found_, 409 _conflicts with the current data_,
+   422 _check the entered information_, 429 _too many attempts_, 5xx
+   _something went wrong, try again later_, no network _check your connection_;
+3. otherwise the screen's own fallback sentence (also sanitised).
+
+Server-side **field** validation messages (`error.details` on a 422) keep their
+specific text; a field whose message is a diagnostic is dropped so it can
+never render under an input.
+
+The guard rails: `src/lib/error-messages.spec.ts` pins the mapping and the
+classification, and it also scans the display tree (`app/`, `src/components/`,
+`src/features/`) plus all three dictionaries for hardcoded status codes or the
+client's diagnostic prefix — so the rule cannot be reintroduced by the next
+screen.
+
 ### Progress Indication Contract
 
 Token refresh is **always silent** — it never renders UI. Two separate
@@ -176,7 +218,7 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
   truth), Hindi and Marathi. More regional languages are additive — each is a
   typed dictionary plus one row in `SUPPORTED_LOCALES`, nothing else.
 - **Where the switch is**: **login screen** (a row of self-naming pills above
-  the sign-in card) *and* crew app → **Help & support** (reached from the
+  the sign-in card) _and_ crew app → **Help & support** (reached from the
   trip screen) → _Language_ / _भाषा_ / _भाषा_ → tap **English**, **हिन्दी**
   or **मराठी**. Each option names itself in its own script, so a crew member
   who cannot read English can still find मराठी while the app is showing

@@ -9,6 +9,7 @@ import {
   SERVER_MESSAGE_WINS,
   applyResolvedLocale,
   configureLocaleStore,
+  errorKeyForStatus,
   getLocale,
   interpolate,
   isSupportedLocale,
@@ -253,6 +254,54 @@ describe('server-string boundary (localizeApiError)', () => {
   test('every known code maps to a real dictionary key', () => {
     for (const [code, key] of Object.entries(KNOWN_ERROR_CODES)) {
       assert.ok(key in en, `${code} maps to a missing key ${key}`);
+    }
+  });
+
+  test('a code-less status still becomes the locale’s own sentence', () => {
+    setLocale('hi', { persist: false });
+    const result = localizeApiError({ code: null, message: null, status: 500 });
+    assert.equal(result.message, t('error.HTTP_500'));
+    assert.equal(result.localized, true);
+    assert.equal(result.codeNote, null);
+
+    const notFound = localizeApiError({ code: null, message: null, status: 404 });
+    assert.equal(notFound.message, t('error.HTTP_404'));
+    setLocale('en', { persist: false });
+  });
+
+  test('every 5xx shares the “server could not complete” copy', () => {
+    assert.equal(errorKeyForStatus(500), 'error.HTTP_500');
+    assert.equal(errorKeyForStatus(502), 'error.HTTP_500');
+    assert.equal(errorKeyForStatus(504), 'error.HTTP_500');
+    assert.equal(errorKeyForStatus(418), null);
+  });
+
+  test('a diagnostic is never passed through as the server’s message', () => {
+    const result = localizeApiError({
+      code: null,
+      message: 'Request failed with status 401',
+      status: 401,
+    });
+    assert.equal(result.message, t('error.HTTP_401'));
+    assert.doesNotMatch(result.message, /request failed|HTTP/i);
+  });
+
+  test('an unknown code keeps the code visible but drops the diagnostic', () => {
+    const result = localizeApiError({
+      code: 'BUS_WINDOW_OVERLAP',
+      message: 'Request failed with status 422',
+      status: 422,
+    });
+    assert.equal(result.message, t('error.HTTP_422'));
+    assert.equal(result.codeNote, `${t('error.unknownCodePrefix')} BUS_WINDOW_OVERLAP`);
+  });
+
+  test('the localised 5xx copy carries no status code', () => {
+    for (const locale of ['en', 'hi', 'mr'] as const) {
+      setLocale(locale, { persist: false });
+      assert.doesNotMatch(t('error.HTTP_500'), /HTTP\s*\d/i);
+      assert.doesNotMatch(t('error.HTTP_503'), /HTTP\s*\d/i);
+      setLocale('en', { persist: false });
     }
   });
 });

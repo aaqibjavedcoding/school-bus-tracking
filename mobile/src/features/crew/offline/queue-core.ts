@@ -1,5 +1,6 @@
 import type { TripStatus } from '@school-bus-tracking/shared-types';
 import { generateIdempotencyKey } from '../../../lib/idempotency.ts';
+import { sanitizeUserFacingMessage, statusFallbackMessage } from '../../../lib/error-messages.ts';
 
 /**
  * Pure offline-queue logic (no native imports — unit-testable in plain Node).
@@ -104,7 +105,10 @@ export function normalizeQueueItem(raw: unknown): QueuedAttendanceEvent | null {
     status:
       item.status === 'failed' || item.status === 'success' ? item.status : 'pending',
     retryCount: typeof item.retryCount === 'number' ? item.retryCount : 0,
-    lastError: typeof item.lastError === 'string' ? item.lastError : null,
+    // A queue written by an older build may hold the API client's diagnostic
+    // ("Request failed with status 400") in `lastError`; sanitising on load
+    // means such an entry can never resurface in the banner after an upgrade.
+    lastError: sanitizeUserFacingMessage(item.lastError),
     lastStatusCode: typeof item.lastStatusCode === 'number' ? item.lastStatusCode : null,
     lastSyncAt: typeof item.lastSyncAt === 'string' ? item.lastSyncAt : null,
   };
@@ -184,6 +188,16 @@ export type SyncOutcome =
  * - 401 / 403 → the session is being refreshed or the role changed → retry
  *   (never dropped: the action is preserved until confirmed).
  * - 0 (network), 429, 5xx, anything else → retry with backoff.
+ *
+ * ### The `error` field is *copy*
+ *
+ * It is persisted as `lastError` and rendered by `OfflineSyncBanner` to the
+ * crew, so it obeys the same rule as every other user-facing string: the
+ * server's own sentence when it is useful ("Invalid transition"), and never a
+ * diagnostic — the API client's `Request failed with status 400`, a proxy's
+ * HTML page, a bare 5xx — which used to reach the banner as
+ * `Request failed (HTTP 500)`. `lib/error-messages.ts` owns that
+ * classification; this module stays pure and dependency-light.
  */
 export function classifySyncOutcome(result: {
   ok: boolean;
@@ -194,7 +208,9 @@ export function classifySyncOutcome(result: {
     return { action: 'success' };
   }
   const status = result.status ?? 0;
-  const error = result.message?.trim() || `Request failed (HTTP ${status || 'network'})`;
+  const error =
+    sanitizeUserFacingMessage(result.message) ??
+    statusFallbackMessage(status, 'Could not sync this action.');
   if (status === 409) {
     return { action: 'success' };
   }
