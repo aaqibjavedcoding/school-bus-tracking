@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { surface, touch } from '../theme';
 import { Button } from './ui';
+import { optionList } from './option-list';
 
 /**
  * Form + interaction primitives for the mobile CRUD surfaces.
@@ -124,33 +125,53 @@ export const Select: React.FC<{
                 accessibilityLabel={`Filter ${label} options`}
               />
             ) : null}
-            <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              style={styles.pickerList}
+              contentContainerStyle={styles.pickerListContent}
+              keyboardShouldPersistTaps="handled"
+            >
               {options.length === 0 ? (
                 <Text style={styles.pickerEmpty}>No options available.</Text>
               ) : visibleOptions.length === 0 ? (
                 <Text style={styles.pickerEmpty}>No options match “{query.trim()}”.</Text>
               ) : (
-                visibleOptions.map((option) => {
+                visibleOptions.map((option, index) => {
                   const active = option.value === value;
+                  // One hairline *between* rows — never under the last one, so
+                  // the list does not end on a stray rule.
+                  const divider = index < visibleOptions.length - 1;
                   return (
-                    <Pressable
-                      key={option.value}
-                      onPress={() => {
-                        onChange(option.value);
-                        close();
-                      }}
-                      style={[styles.pickerRow, active ? styles.pickerRowActive : null]}
-                    >
-                      <Text
-                        style={[styles.pickerRowText, active ? styles.pickerRowTextActive : null]}
-                        numberOfLines={2}
+                    <View key={option.value}>
+                      <Pressable
+                        onPress={() => {
+                          onChange(option.value);
+                          close();
+                        }}
+                        accessibilityRole="menuitem"
+                        accessibilityState={{ selected: active }}
+                        accessibilityLabel={option.label}
+                        style={({ pressed }) => [
+                          styles.pickerRow,
+                          active ? styles.pickerRowActive : null,
+                          pressed ? styles.pickerRowPressed : null,
+                        ]}
                       >
-                        {option.label}
-                      </Text>
-                      {active ? (
-                        <Ionicons name="checkmark" size={18} color={colors.primary[600]} />
-                      ) : null}
-                    </Pressable>
+                        <Text
+                          style={[styles.pickerRowText, active ? styles.pickerRowTextActive : null]}
+                          numberOfLines={2}
+                        >
+                          {option.label}
+                        </Text>
+                        {active ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={optionList.tickSize}
+                            color={optionList.tickColor}
+                          />
+                        ) : null}
+                      </Pressable>
+                      {divider ? <View style={styles.pickerDivider} /> : null}
+                    </View>
                   );
                 })
               )}
@@ -371,7 +392,14 @@ const styles = StyleSheet.create({
     minHeight: touch.target,
   },
   pickerList: {
+    // `flexShrink` (not the default 0) is what lets the card's `maxHeight`
+    // actually bound a long option list: the list shrinks and scrolls instead
+    // of overflowing the sheet.
     flexGrow: 0,
+    flexShrink: 1,
+  },
+  pickerListContent: {
+    paddingVertical: spacing.xs,
   },
   pickerEmpty: {
     color: colors.neutral[600],
@@ -379,25 +407,36 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     textAlign: 'center',
   },
+  // Every value below comes from `./option-list` so this picker and the login
+  // screen's language menu cannot drift apart.
   pickerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.sm,
-    borderRadius: borderRadius.md,
-    gap: spacing.sm,
+    minHeight: optionList.rowMinHeight,
+    paddingVertical: optionList.rowPaddingVertical,
+    paddingHorizontal: optionList.rowPaddingHorizontal,
+    borderRadius: optionList.rowRadius,
+    gap: optionList.rowGap,
   },
   pickerRowActive: {
-    backgroundColor: colors.secondary[50],
+    backgroundColor: optionList.rowBackgroundSelected,
+  },
+  pickerRowPressed: {
+    backgroundColor: optionList.rowBackgroundPressed,
+  },
+  pickerDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: optionList.dividerColor,
+    marginLeft: optionList.dividerInset,
   },
   pickerRowText: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
-    color: colors.neutral[700],
+    fontSize: optionList.labelSize,
+    color: optionList.labelColor,
   },
   pickerRowTextActive: {
-    color: colors.secondary[700],
+    color: optionList.labelColorSelected,
     fontWeight: '700',
   },
   switchRow: {

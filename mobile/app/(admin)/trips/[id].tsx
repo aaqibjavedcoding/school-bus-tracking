@@ -36,6 +36,13 @@ import { formatDate, formatTime } from '../../../src/lib/format';
  * Admin trip cockpit: lifecycle control (including cancellation with a
  * reason), the live map + ETA stream, recorded geofence arrivals and the
  * student manifest with the same board/drop endpoints the crew uses.
+ *
+ * **One scroll owner.** The manifest is a `SectionList`, so as soon as it has
+ * rows it owns the screen's scrolling and the cockpit above it is passed in
+ * as the list's header. Only when there is no manifest to virtualize does the
+ * screen fall back to the plain `<Screen>` ScrollView. See
+ * `src/components/scroll-owner.spec.ts`, which pins that invariant for every
+ * screen that mounts a virtualized list.
  */
 export default function AdminTripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -109,8 +116,13 @@ export default function AdminTripDetailScreen() {
     );
   }
 
-  return (
-    <Screen refresh={() => void refresh()} refreshing={refreshing}>
+  /**
+   * Everything above the manifest — the cockpit chrome. It is built once and
+   * handed to *whichever* scroll surface renders it, which is what keeps the
+   * two layouts below identical in content and only different in container.
+   */
+  const cockpit = (
+    <>
       {/* Detail routes hidden from the tab bar get no automatic back button
           (the group is a tab navigator, not a stack) — offer one explicitly. */}
       <Pressable
@@ -151,30 +163,58 @@ export default function AdminTripDetailScreen() {
       <StopsEtaList eta={live.eta} />
 
       <SectionTitle>Student manifest</SectionTitle>
+    </>
+  );
+
+  const cancellation = trip.cancellation_reason ? (
+    <Text style={styles.cancelReason}>Cancelled: {trip.cancellation_reason}</Text>
+  ) : null;
+
+  // One scroll owner per screen. `ManifestList` is a `SectionList` (a
+  // virtualized list), so when there are rows to show it *becomes* the
+  // screen's scroll surface and the cockpit above it rides along as its
+  // `ListHeaderComponent` — the same arrangement the crew manifest and the
+  // admin attendance screens already use. Wrapping it in `<Screen>` (a plain
+  // vertical ScrollView) instead nests two same-direction scrollers and makes
+  // React Native warn "VirtualizedLists should never be nested inside plain
+  // ScrollViews", while also losing row recycling for a long manifest.
+  if (data.manifest && data.manifest.items.length > 0) {
+    return (
+      <View style={styles.flex}>
+        <ManifestList
+          manifest={data.manifest}
+          canAct={isTripOpen(trip.status)}
+          busyStudentId={busyStudentId}
+          onBoard={(studentId) => void withAttendance(studentId, 'board')}
+          onDrop={(studentId) => void withAttendance(studentId, 'drop')}
+          header={cockpit}
+          footer={cancellation}
+          refresh={() => void refresh()}
+          refreshing={refreshing}
+        />
+      </View>
+    );
+  }
+
+  // No virtualized list below, so the plain scrolling screen is correct here
+  // and the cockpit keeps its usual layout.
+  return (
+    <Screen refresh={() => void refresh()} refreshing={refreshing}>
+      {cockpit}
       {data.manifest ? (
-        data.manifest.items.length === 0 ? (
-          <EmptyState title="No students on this route" />
-        ) : (
-          <ManifestList
-            manifest={data.manifest}
-            canAct={isTripOpen(trip.status)}
-            busyStudentId={busyStudentId}
-            onBoard={(studentId) => void withAttendance(studentId, 'board')}
-            onDrop={(studentId) => void withAttendance(studentId, 'drop')}
-          />
-        )
+        <EmptyState title="No students on this route" />
       ) : (
         <Text style={styles.muted}>The manifest could not be loaded.</Text>
       )}
-
-      {trip.cancellation_reason ? (
-        <Text style={styles.cancelReason}>Cancelled: {trip.cancellation_reason}</Text>
-      ) : null}
+      {cancellation}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   backRow: {
     alignSelf: 'flex-start',
     marginBottom: spacing.sm,

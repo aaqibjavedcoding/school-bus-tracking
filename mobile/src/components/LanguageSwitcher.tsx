@@ -6,6 +6,7 @@ import { fontScaleCaps, loginText, loginTouch, surface, touch } from '../theme';
 import { SUPPORTED_LOCALES, setLocale, type Locale } from '../lib/i18n';
 import { useLocale, useTranslation } from '../lib/i18n-provider';
 import { Card } from './Card';
+import { optionList } from './option-list';
 
 /**
  * The "English / हिन्दी / मराठी" switch (Phase 3a + regional rollout).
@@ -59,8 +60,7 @@ export const LanguageSwitcher: React.FC = () => {
         ))}
       </View>
       <Text style={styles.current}>
-        {t('help.languageCurrent')}:{' '}
-        {t(SELF_NAME_KEY[locale] ?? 'settings.language.nameEn')}
+        {t('help.languageCurrent')}: {t(SELF_NAME_KEY[locale] ?? 'settings.language.nameEn')}
       </Text>
     </Card>
   );
@@ -157,35 +157,41 @@ export const LanguageMenu: React.FC = () => {
             accessibilityRole="none"
           />
           <View style={menuStyles.list} accessibilityRole="menu">
-            {SUPPORTED_LOCALES.map((option) => {
+            {SUPPORTED_LOCALES.map((option, index) => {
               const selected = option === locale;
               return (
-                <Pressable
-                  key={option}
-                  onPress={() => {
-                    setLocale(option);
-                    setOpen(false);
-                  }}
-                  accessibilityRole="menuitem"
-                  accessibilityState={{ selected, checked: selected }}
-                  accessibilityLabel={t(SELF_NAME_KEY[option])}
-                  style={({ pressed }) => [
-                    menuStyles.item,
-                    pressed ? menuStyles.itemPressed : null,
-                  ]}
-                >
-                  <Ionicons
-                    name={selected ? 'checkmark' : 'language'}
-                    size={18}
-                    color={selected ? surface.actionPrimary : colors.neutral[500]}
-                  />
-                  <Text
-                    {...fontScaleCaps.label}
-                    style={[menuStyles.itemLabel, selected ? menuStyles.itemLabelSelected : null]}
+                <React.Fragment key={option}>
+                  <Pressable
+                    onPress={() => {
+                      setLocale(option);
+                      setOpen(false);
+                    }}
+                    accessibilityRole="menuitem"
+                    accessibilityState={{ selected, checked: selected }}
+                    accessibilityLabel={t(SELF_NAME_KEY[option])}
+                    style={({ pressed }) => [
+                      menuStyles.item,
+                      pressed ? menuStyles.itemPressed : null,
+                    ]}
                   >
-                    {t(SELF_NAME_KEY[option])}
-                  </Text>
-                </Pressable>
+                    <Ionicons
+                      name={selected ? 'checkmark' : 'language'}
+                      size={18}
+                      color={selected ? surface.actionPrimary : colors.neutral[500]}
+                    />
+                    <Text
+                      {...fontScaleCaps.label}
+                      style={[menuStyles.itemLabel, selected ? menuStyles.itemLabelSelected : null]}
+                    >
+                      {t(SELF_NAME_KEY[option])}
+                    </Text>
+                  </Pressable>
+                  {/* The same hairline the shared `Select` uses, so the login
+                      dropdown reads like every other option list in the app. */}
+                  {index < SUPPORTED_LOCALES.length - 1 ? (
+                    <View style={menuStyles.itemDivider} />
+                  ) : null}
+                </React.Fragment>
               );
             })}
           </View>
@@ -290,18 +296,27 @@ const menuStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
+  // Row metrics come from the shared `option-list` module so this menu and the
+  // app-wide `Select` are the same control, not two similar-looking ones.
   item: {
     minHeight: loginTouch.menuRow,
+    paddingVertical: optionList.rowPaddingVertical,
     paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: optionList.rowGap,
   },
   itemPressed: {
-    backgroundColor: colors.neutral[100],
+    backgroundColor: optionList.rowBackgroundPressed,
+  },
+  itemDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: optionList.dividerColor,
+    marginLeft: optionList.dividerInset + spacing.md,
+    marginRight: spacing.md,
   },
   itemLabel: {
-    fontSize: loginText.label,
+    fontSize: optionList.labelSize,
     fontWeight: '600',
     color: colors.neutral[800],
   },
