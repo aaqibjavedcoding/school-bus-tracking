@@ -11,6 +11,7 @@ import {
 } from './attendance-queue.ts';
 import { classifySyncOutcome, countFailed, countOpen, selectDueItems } from './queue-core.ts';
 import { apiClient } from '../../../services/api.ts';
+import { getApiErrorMessage } from '../../../lib/errors.ts';
 
 /**
  * Offline crew-action sync manager.
@@ -252,12 +253,21 @@ async function replayItem(item: QueuedAttendanceEvent) {
     });
   } catch (error) {
     if (error instanceof ApiClientError) {
-      return classifySyncOutcome({ ok: false, status: error.status, message: error.message });
+      // `error.message` is the client's own diagnostic ("Request failed with
+      // status 400"); `getApiErrorMessage` keeps the API's business message
+      // when the envelope carried one and maps the status to user copy
+      // otherwise. `classifySyncOutcome` sanitises again, so the banner (and
+      // the persisted `lastError`) can never hold a technical string.
+      return classifySyncOutcome({
+        ok: false,
+        status: error.status,
+        message: getApiErrorMessage(error),
+      });
     }
     return classifySyncOutcome({
       ok: false,
       status: 0,
-      message: error instanceof Error ? error.message : 'Network error',
+      message: getApiErrorMessage(error, 'Could not sync this action.'),
     });
   }
 }

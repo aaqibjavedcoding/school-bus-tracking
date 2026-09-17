@@ -428,10 +428,8 @@ export const en = {
   'error.HTTP_409': 'That was already done — the app now shows the latest state.',
   'error.HTTP_422': 'Some details are missing or not valid. Check and try again.',
   'error.HTTP_429': 'Too many requests. Please wait a moment and try again.',
-  'error.HTTP_500':
-    'The server could not complete the request (HTTP 500). Please try again in a moment.',
-  'error.HTTP_503':
-    'The server could not complete the request (HTTP 503). Please try again in a moment.',
+  'error.HTTP_500': 'The server could not complete the request. Please try again in a moment.',
+  'error.HTTP_503': 'The server could not complete the request. Please try again in a moment.',
   'error.INTERNAL_SERVER_ERROR':
     'The server could not complete the request. Please try again in a moment.',
   'error.RATE_LIMIT_EXCEEDED': 'Too many requests. Please wait a moment and try again.',

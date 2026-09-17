@@ -1,7 +1,47 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ApiClientError } from '@school-bus-tracking/api-client';
-import { getApiErrorMessage } from './errors.ts';
+import {
+  USER_MESSAGES,
+  fieldErrorsFromUnknown,
+  getApiErrorMessage,
+  getLocalizedApiError,
+  isRawDocumentBody,
+} from './errors.ts';
+import { setLocale } from './i18n.ts';
+
+/**
+ * The mapper every screen uses: `getApiErrorMessage`.
+ *
+ * The reported bug was a login screen showing `Request failed with status
+ * 401`. These tests pin both halves of the contract:
+ *
+ * - **never** show a diagnostic (status code, client message, raw document,
+ *   stack trace, reason phrase, request id, database error);
+ * - **always** keep a server message that is genuinely useful (plan limit,
+ *   duplicate admission number, the documented 403 taxonomy).
+ */
+
+const HTML_500 =
+  '<!DOCTYPE html><html><head><title>500: Internal Server Error</title></head><body><h1>500</h1></body></html>';
+
+/** Patterns that must never appear in anything shown to a user. */
+const FORBIDDEN = [
+  /request failed/i,
+  /\bhttp\b/i,
+  /\b[1-5]\d{2}\b/,
+  /<!doctype|<html/i,
+  /\bat\s+\w+\.\w+\s*\(/, // a stack frame
+  /\bstatuscode\b/i,
+  /\bsequelize\b/i,
+  /\brequest[-_ ]?id\b/i,
+];
+
+function assertNoLeak(message: string, label: string): void {
+  for (const pattern of FORBIDDEN) {
+    assert.doesNotMatch(message, pattern, `${label} leaked ${pattern}: "${message}"`);
+  }
+}
 
 describe('mobile plan-limit error handling', () => {
   it('surfaces the API plan-limit message instead of a generic error', () => {
@@ -22,9 +62,6 @@ describe('mobile plan-limit error handling', () => {
 });
 
 describe('mobile raw document error bodies', () => {
-  const HTML_500 =
-    '<!DOCTYPE html><html><head><title>500: Internal Server Error</title></head><body><h1>500</h1></body></html>';
-
   it('never surfaces an HTML error page as the screen error text', () => {
     const error = new ApiClientError(
       `Request failed with status 500: ${HTML_500.slice(0, 200)}`,
@@ -32,27 +69,25 @@ describe('mobile raw document error bodies', () => {
       HTML_500,
     );
     const message = getApiErrorMessage(error);
-    assert.doesNotMatch(message, /<!doctype|<html/i);
-    assert.match(message, /HTTP 500/);
+    assert.equal(isRawDocumentBody(HTML_500), true);
+    assertNoLeak(message, 'HTML 500');
+    assert.equal(message, USER_MESSAGES.server);
   });
 
-  it('keeps envelope messages and the 401/403/network sentences unchanged', () => {
+  it('keeps envelope messages and the 401/403/network sentences', () => {
     const enveloped = new ApiClientError('Request failed with status 500', 500, {
       success: false,
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred.' },
     });
     assert.equal(getApiErrorMessage(enveloped), 'An unexpected error occurred.');
-    assert.equal(
-      getApiErrorMessage(new ApiClientError('x', 0, undefined)),
-      'Network error. Check your connection and try again.',
-    );
+    assert.equal(getApiErrorMessage(new ApiClientError('x', 0, undefined)), USER_MESSAGES.network);
     assert.equal(
       getApiErrorMessage(new ApiClientError('x', 401, undefined)),
-      'Your session has expired. Please sign in again.',
+      USER_MESSAGES.sessionExpired,
     );
     assert.equal(
       getApiErrorMessage(new ApiClientError('x', 403, undefined)),
-      'You do not have permission to do that.',
+      USER_MESSAGES.forbidden,
     );
   });
 });
@@ -86,6 +121,133 @@ describe('mobile 403 surface', () => {
     const message = getApiErrorMessage(
       new ApiClientError('Request failed with status 403', 403, ''),
     );
-    assert.equal(message, 'You do not have permission to do that.');
+    assert.equal(message, USER_MESSAGES.forbidden);
+  });
+
+  it('replaces a bare reason phrase with the app’s own sentence', () => {
+    // Nest's default body carries the reason phrase, not the API envelope.
+    const error = new ApiClientError('Request failed with status 403', 403, {
+      statusCode: 403,
+      message: 'Forbidden',
+      error: 'Forbidden',
+    });
+    assert.equal(getApiErrorMessage(error), USER_MESSAGES.forbidden);
+  });
+});
+
+describe('login credential errors', () => {
+  it('maps an envelope-less 401 to the credential sentence, not the status', () => {
+    const message = getApiErrorMessage(
+      new ApiClientError('Request failed with status 401', 401, undefined),
+      'Could not sign in',
+      { context: 'login' },
+    );
+    assert.equal(message, USER_MESSAGES.loginCredentials);
+    assertNoLeak(message, 'login 401');
+  });
+
+  it('still prefers the server’s own credential message when it sends one', () => {
+    const error = new ApiClientError('Request failed with status 401', 401, {
+      success: false,
+      error: { code: 'HTTP_401', message: 'Invalid email or password' },
+    });
+    assert.equal(
+      getApiErrorMessage(error, 'Could not sign in', { context: 'login' }),
+      'Invalid email or password',
+    );
+  });
+});
+
+describe('status mapping without a server message', () => {
+  it('maps every status to actionable copy — never the client diagnostic', () => {
+    const cases: Array<[number, string]> = [
+      [0, USER_MESSAGES.network],
+      [400, USER_MESSAGES.badRequest],
+      [401, USER_MESSAGES.sessionExpired],
+      [403, USER_MESSAGES.forbidden],
+      [404, USER_MESSAGES.notFound],
+      [409, USER_MESSAGES.conflict],
+      [422, USER_MESSAGES.validation],
+      [429, USER_MESSAGES.tooManyAttempts],
+      [500, USER_MESSAGES.server],
+      [502, USER_MESSAGES.server],
+      [503, USER_MESSAGES.server],
+    ];
+    for (const [status, expected] of cases) {
+      const message = getApiErrorMessage(
+        new ApiClientError('Request failed with status ' + status, status),
+      );
+      assert.equal(message, expected, `status ${status}`);
+      assertNoLeak(message, `status ${status}`);
+    }
+  });
+
+  it('sanitises non-API errors too', () => {
+    assertNoLeak(getApiErrorMessage(new Error('Network request failed')), 'fetch failure');
+    assert.equal(getApiErrorMessage(new Error('Network request failed')), USER_MESSAGES.network);
+    assert.equal(getApiErrorMessage(new TypeError('x is not a function')), USER_MESSAGES.unknown);
+    // App-thrown copy is kept.
+    assert.equal(
+      getApiErrorMessage(new Error('Could not dispatch the trip.')),
+      'Could not dispatch the trip.',
+    );
+    // A screen fallback is used when there is nothing better, and is itself
+    // sanitised when unsafe.
+    assert.equal(
+      getApiErrorMessage('nonsense', 'Could not save the route.'),
+      'Could not save the route.',
+    );
+    assert.equal(
+      getApiErrorMessage('nonsense', 'Request failed with status 400'),
+      USER_MESSAGES.unknown,
+    );
+  });
+
+  it('keeps server validation arrays and field detail messages', () => {
+    const error = new ApiClientError('Request failed with status 422', 422, {
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: ['email must be an email', 'password is too short'],
+      },
+    });
+    assert.equal(getApiErrorMessage(error), 'email must be an email password is too short');
+  });
+
+  it('drops a field error that is a diagnostic instead of rendering it under an input', () => {
+    const error = new ApiClientError('Request failed with status 422', 422, {
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        details: { email: 'email must be an email', password: ['Request failed with status 422'] },
+      },
+    });
+    assert.deepEqual(fieldErrorsFromUnknown(error), { email: 'email must be an email' });
+  });
+});
+
+describe('localised twin', () => {
+  it('maps an envelope-less 401 to a sentence in the active locale', () => {
+    try {
+      setLocale('hi', { persist: false });
+      const localized = getLocalizedApiError(
+        new ApiClientError('Request failed with status 401', 401),
+      );
+      assert.equal(localized.message, 'आपका सेशन ख़त्म हो गया है। कृपया दोबारा साइन इन करें।');
+      assert.equal(localized.codeNote, null);
+    } finally {
+      setLocale('en', { persist: false });
+    }
+  });
+
+  it('never returns the client diagnostic for an unknown code', () => {
+    const error = new ApiClientError('Request failed with status 500', 500, {
+      success: false,
+      error: { code: 'SOMETHING_NEW', message: 'Request failed with status 500' },
+    });
+    const localized = getLocalizedApiError(error);
+    assertNoLeak(localized.message, 'unknown code');
+    assert.match(localized.codeNote ?? '', /SOMETHING_NEW/);
   });
 });

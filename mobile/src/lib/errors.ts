@@ -1,56 +1,72 @@
 import { ApiClientError } from '@school-bus-tracking/api-client';
 import { localizeApiError, type LocalizedApiError } from './i18n.ts';
+import {
+  USER_MESSAGES,
+  isNetworkFailureMessage,
+  isTechnicalMessage,
+  sanitizeUserFacingMessage,
+  statusFallbackMessage,
+  type ErrorMessageContext,
+} from './error-messages.ts';
 
 /**
- * Mobile port of the shared error helpers used by the web app, so both
- * clients surface the exact same API error messages (nested envelope errors,
+ * Mobile port of the shared error helpers used by the web app: both clients
+ * read the same API envelope (nested `error.message` / `error.details`,
  * network failures, session expiry) instead of raw fetch errors.
+ *
+ * The mobile app is deliberately **stricter** than the web console on one
+ * point — it classifies a message before showing it. The console is used by
+ * staff on a desktop; the phone is used by a driver at the wheel and by a
+ * parent at the school gate, so `Request failed with status 401` is never
+ * acceptable copy on any of its screens. The classification lives in
+ * `./error-messages.ts` and is shared with the localised crew path
+ * (`lib/i18n.ts`) and the offline banner (`features/crew/offline/queue-core.ts`).
+ *
+ * ### The one rule
+ *
+ * **No technical text ever reaches a screen.** An error that reaches the UI is
+ * mapped to a sentence a user can act on, and a technical message — the API
+ * client's `Request failed with status 401`, a proxy's HTML page, a Nest
+ * default `{"statusCode":500,"message":"Internal server error"}`, a Postgres
+ * error, a stack trace, an axios `Network Error` — is *classified* (see
+ * `./error-messages.ts`) and replaced. A server message that is actually
+ * useful ("A student with this admission number already exists.", "You've
+ * reached your plan limit of 50 buses.") is passed through verbatim: it is
+ * more specific than anything the app could invent, and the server owns the
+ * business rule.
+ *
+ * Order of preference, per error:
+ *
+ * 1. a safe message from the API envelope (`error.message`, `error.details`);
+ * 2. a safe message from the thrown `Error` (only when it is not the client's
+ *    own diagnostic — `ApiClientError.message` is *never* shown, because the
+ *    client builds it from the status and a slice of the raw body);
+ * 3. the status-based copy in the caller's context (login vs signed-in);
+ * 4. the caller's fallback sentence.
  */
 
-/**
- * True for a response body that is a *document*, not a message (a framework
- * or proxy HTML error page). Mirrors the web helper: such a body must never be
- * rendered verbatim as the error text.
- */
-export function isRawDocumentBody(value: unknown): boolean {
-  if (typeof value !== 'string') {
-    return false;
-  }
-  const head = value.trimStart().slice(0, 256).toLowerCase();
-  return (
-    head.startsWith('<!doctype') ||
-    head.startsWith('<html') ||
-    head.startsWith('<?xml') ||
-    /^<[a-z][\s\S]*>/.test(head)
-  );
-}
+export {
+  USER_MESSAGES,
+  isNetworkFailureMessage,
+  isRawDocumentBody,
+  isTechnicalMessage,
+  sanitizeUserFacingMessage,
+  statusFallbackMessage,
+  type ErrorMessageContext,
+} from './error-messages.ts';
 
-/** User-facing text for an error the API did not describe itself. */
-export function statusFallbackMessage(status: number, fallback: string): string {
-  if (status === 0) {
-    return 'Network error. Check your connection and try again.';
-  }
-  if (status === 401) {
-    return 'Your session has expired. Please sign in again.';
-  }
-  if (status === 403) {
-    return 'You do not have permission to do that.';
-  }
-  if (status === 404) {
-    return 'The requested resource was not found.';
-  }
-  if (status === 429) {
-    return 'Too many requests. Please wait a moment and try again.';
-  }
-  if (status >= 500) {
-    return `The server could not complete the request (HTTP ${status}). Please try again in a moment.`;
-  }
-  return fallback;
+/** Per-call presentation hints. */
+export interface ApiErrorMessageOptions {
+  /**
+   * `'login'` maps a 401 to "Invalid email or password…" instead of the
+   * signed-in "Your session has expired…". Defaults to `'session'`.
+   */
+  context?: ErrorMessageContext;
 }
 
 function readMessage(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim().length > 0) {
-    return isRawDocumentBody(value) ? null : value;
+  if (typeof value === 'string') {
+    return sanitizeUserFacingMessage(value);
   }
   if (Array.isArray(value)) {
     const parts = value
@@ -73,57 +89,78 @@ function readMessage(value: unknown): string | null {
   return null;
 }
 
-export function getApiErrorMessage(error: unknown, fallback = 'Something went wrong'): string {
+/**
+ * The user-facing message for a thrown error.
+ *
+ * Never returns an HTTP status code, a raw document, a stack trace or the API
+ * client's own diagnostic string — see the module doc for the precedence
+ * order. `fallback` is the screen's own sentence for the cases with no
+ * status-specific copy; it is sanitised too, so a bad fallback cannot leak.
+ */
+export function getApiErrorMessage(
+  error: unknown,
+  fallback: string = USER_MESSAGES.unknown,
+  options: ApiErrorMessageOptions = {},
+): string {
+  const context = options.context ?? 'session';
+  const safeFallback = sanitizeUserFacingMessage(fallback) ?? USER_MESSAGES.unknown;
+
   if (error instanceof ApiClientError) {
+    // 1. The API's own message, when it is something a person can act on.
     const fromDetails = readMessage(error.details);
     if (fromDetails) return fromDetails;
-    if (error.status === 0 || error.status === 401 || error.status === 403) {
-      return statusFallbackMessage(error.status, fallback);
-    }
-    // Empty or raw-document body: never echo markup into the UI.
-    if (isRawDocumentBody(error.details) || error.status >= 500) {
-      return statusFallbackMessage(error.status, fallback);
-    }
-    return error.message || fallback;
+    // 2. Never `error.message`: the client builds it as
+    //    `Request failed with status <n>` (plus a slice of the raw body for a
+    //    non-JSON response). It is a diagnostic, not copy.
+    return statusFallbackMessage(error.status, safeFallback, context);
   }
+
   if (error instanceof Error && error.message) {
+    // 3. An app-thrown error ("Could not dispatch the trip.", a Zod message)
+    //    is copy; a transport/framework error is not.
+    if (isTechnicalMessage(error.message)) {
+      return isNetworkFailureMessage(error.message) ? USER_MESSAGES.network : safeFallback;
+    }
     return error.message;
   }
-  return fallback;
+
+  return safeFallback;
 }
 
 /**
  * Localised twin of {@link getApiErrorMessage} (Phase 3).
  *
- * `getApiErrorMessage` is deliberately **not** changed: its English sentences
- * are pinned by `errors.spec.ts` and, per the server-string boundary, a server
- * message is passed through untouched. This helper adds the localisation step
- * on top, for the surfaces that want it:
+ * `getApiErrorMessage` stays the English contract; this helper adds the
+ * localisation step on top for the surfaces that want it:
  *
  * - a **known** error code (`HTTP_409`, `RATE_LIMIT_EXCEEDED`…) → the app's own
  *   copy in the active locale;
  * - an **unknown** code → the server's message as-is plus a visible
  *   "Server code XYZ" note, so support still gets the exact code;
- * - `HTTP_403` → the server's own message always wins (documented taxonomy).
+ * - `HTTP_403` → the server's own message always wins (documented taxonomy);
+ * - **no code at all** → the locale's copy for the status (a bare 401/500 on a
+ *   crew screen still reads as a sentence in Hindi or Marathi);
+ * - a message that is actually a diagnostic → dropped, so it can never ride
+ *   through under an unknown code.
+ *
+ * Note what is *not* passed on: the English sentence `getApiErrorMessage`
+ * would have produced. Handing that to `localizeApiError` as if it were a
+ * server message would defeat the localisation (and mark the result "not
+ * localized"); the API's own message is the only thing worth forwarding, and
+ * `localizeApiError` owns everything else.
  */
-export function getLocalizedApiError(
-  error: unknown,
-  fallback = 'Something went wrong',
-): LocalizedApiError {
+export function getLocalizedApiError(error: unknown): LocalizedApiError {
   if (error instanceof ApiClientError) {
     const details = error.details as { error?: { code?: unknown } } | undefined;
     const rawCode = details?.error?.code;
     return localizeApiError({
       code: typeof rawCode === 'string' ? rawCode : null,
-      message: getApiErrorMessage(error, fallback),
+      message: readMessage(error.details),
       status: error.status,
     });
   }
-  return localizeApiError({
-    code: null,
-    message: getApiErrorMessage(error, fallback),
-    status: null,
-  });
+  const message = error instanceof Error ? readMessage(error.message) : null;
+  return localizeApiError({ code: null, message, status: null });
 }
 
 /** The slice of a Zod error the form helpers need (mirrors the web helper). */
@@ -160,13 +197,22 @@ export function formErrorsFromZod(error: ZodErrorLike): string[] {
 }
 
 export function unwrapEnvelope<T>(
-  envelope: { success: boolean; data?: T; message?: string; error?: { message: string } },
+  envelope: {
+    success: boolean;
+    data?: T;
+    message?: string;
+    error?: { message: string; code?: string };
+  },
   fallback = 'Request failed',
 ): T {
   if (envelope.data !== undefined) {
     return envelope.data;
   }
-  throw new Error(envelope.error?.message || envelope.message || fallback);
+  // A `success: false` envelope is a business rejection; only its safe,
+  // human-readable message may surface (never a diagnostic or a raw body).
+  throw new Error(
+    readMessage(envelope.error) ?? sanitizeUserFacingMessage(envelope.message) ?? fallback,
+  );
 }
 
 export function emptyToNull(value: string): string | null {
@@ -178,6 +224,11 @@ export function emptyToNull(value: string): string | null {
  * Maps server-side field validation errors (the `error.details` map returned
  * by the API on a 422) to the `field -> message` shape the mobile forms
  * render — mirrors the web `fieldErrorsFromUnknown` helper.
+ *
+ * A field whose server message is a diagnostic (or a raw document) is dropped
+ * rather than rendered under an input: the form then falls back to its own
+ * validation copy instead of printing `Request failed with status 422` next to
+ * a text box.
  */
 export function fieldErrorsFromUnknown(error: unknown): Record<string, string> {
   if (!(error instanceof ApiClientError) || !error.details || typeof error.details !== 'object') {

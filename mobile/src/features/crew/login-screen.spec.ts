@@ -174,6 +174,23 @@ describe('crew card asks for a school code and a PIN only', () => {
   });
 });
 
+describe('login errors are mapped, never raw', () => {
+  it('passes the login context so a 401 reads as bad credentials', () => {
+    // `Request failed with status 401` was the reported bug; the login form
+    // must ask the mapper for credential copy (see lib/error-messages.ts).
+    assert.match(
+      loginSource(),
+      /getApiErrorMessage\(error, t\('login\.failed'\), \{ context: 'login' \}\)/,
+    );
+  });
+
+  it('never interpolates a thrown error into the form', () => {
+    const login = loginSource();
+    assert.ok(!/\{(caught|error)\.message\}/.test(login), 'no raw error interpolation in JSX');
+    assert.ok(!/\{(caught|error)\.stack\}/.test(login), 'no stack trace in JSX');
+  });
+});
+
 describe('language is one dropdown, not a row of pills', () => {
   it('mounts a single LanguageMenu on the login screen', () => {
     const login = loginSource();

@@ -32,11 +32,14 @@ const { ApiClientError } = await import('@school-bus-tracking/api-client');
 const serverCalls: { kind: string; key: string }[] = [];
 const applied = new Map<string, unknown>();
 const state = { online: true, failNext: 0, reject: 0 };
+// Errors are thrown in the shape the real client produces: `ApiClientError`
+// with the API envelope on `.details` (the client's own `.message` is the
+// diagnostic "Request failed with status N", which the app must never show).
 function serverPost(kind: string, key: string) {
   serverCalls.push({ kind, key });
   if (!state.online) throw new ApiClientError('Network request failed', 0);
-  if (state.failNext > 0) { state.failNext -= 1; throw new ApiClientError('Bad gateway', 502); }
-  if (state.reject > 0) { state.reject -= 1; throw new ApiClientError('Invalid transition', 400); }
+  if (state.failNext > 0) { state.failNext -= 1; throw new ApiClientError('Request failed with status 502', 502, '<html><body>502</body></html>'); }
+  if (state.reject > 0) { state.reject -= 1; throw new ApiClientError('Request failed with status 400', 400, { success: false, error: { code: 'INVALID_TRANSITION', message: 'Invalid transition' } }); }
   if (applied.has(key)) return applied.get(key);
   const res = { success: true, data: { kind } };
   applied.set(key, res);

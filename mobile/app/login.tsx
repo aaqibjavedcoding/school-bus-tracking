@@ -212,7 +212,10 @@ export default function LoginScreen() {
     try {
       await login(parsed.data);
     } catch (error) {
-      setFormError(getApiErrorMessage(error, t('login.failed')));
+      // `context: 'login'` — a 401 here means the credentials were wrong, not
+      // that a session expired: "Invalid email or password…", never
+      // "Request failed with status 401".
+      setFormError(getApiErrorMessage(error, t('login.failed'), { context: 'login' }));
     } finally {
       setBusy(false);
     }

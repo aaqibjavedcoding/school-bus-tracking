@@ -71,7 +71,9 @@ export const OfflineSyncBanner: React.FC = () => {
 
   const detail = !sync.isOnline
     ? t('offline.detailOffline')
-    : // `lastError` is the server's own English message — passed through as-is.
+    : // `lastError` is classified by `classifySyncOutcome`: the server's own
+      // English message when it is useful, user copy otherwise — never a
+      // status code or the API client's diagnostic string.
       hasFailed && sync.lastError
       ? sync.lastError
       : sync.status === 'error' && sync.lastError

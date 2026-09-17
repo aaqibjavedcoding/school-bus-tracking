@@ -106,6 +106,41 @@ describe('classifySyncOutcome', () => {
       }
     }
   });
+
+  /**
+   * `lastError` is rendered by `OfflineSyncBanner`, so it is user-facing copy.
+   * It used to be the API client's diagnostic — or, with no message at all,
+   * the literal `Request failed (HTTP 500)`.
+   */
+  it('never stores a technical diagnostic as the crew-facing error', () => {
+    const permanent = classifySyncOutcome({
+      ok: false,
+      status: 400,
+      message: 'Request failed with status 400',
+    });
+    assert.equal(permanent.action, 'fail');
+    if (permanent.action === 'fail') {
+      assert.doesNotMatch(permanent.error, /request failed|\bhttp\b|\b[1-5]\d{2}\b/i);
+      assert.equal(permanent.error, 'Please check the information and try again.');
+    }
+
+    const transient = classifySyncOutcome({
+      ok: false,
+      status: 503,
+      message: 'Request failed with status 503',
+    });
+    assert.equal(transient.action, 'retry');
+    if (transient.action === 'retry') {
+      assert.equal(transient.error, 'Something went wrong. Please try again later.');
+    }
+
+    const offline = classifySyncOutcome({ ok: false, status: 0, message: null });
+    assert.equal(offline.action, 'retry');
+    if (offline.action === 'retry') {
+      assert.match(offline.error, /internet connection/i);
+      assert.doesNotMatch(offline.error, /\b[1-5]\d{2}\b/);
+    }
+  });
 });
 
 describe('applySyncOutcome', () => {
@@ -265,6 +300,15 @@ describe('persistence compatibility', () => {
     assert.equal(item.eventType, 'drop');
     assert.equal(item.idempotencyKey, 'key');
     assert.equal(normalizeQueueItem({ nope: true }), null);
+  });
+
+  it('drops a diagnostic written by an older build from a stored item', () => {
+    // Such an entry must not resurface in the banner after an app upgrade.
+    const stored = { ...addToQueue([], board()).item, status: 'failed' as const };
+    assert.equal(normalizeQueueItem({ ...stored, lastError: 'Request failed with status 400' })?.lastError, null);
+    const kept = normalizeQueueItem({ ...stored, lastError: 'Invalid transition' });
+    assert.ok(kept);
+    assert.equal(kept.lastError, 'Invalid transition');
   });
 
   it('recovers items interrupted mid-sync back to pending', () => {
