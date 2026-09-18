@@ -103,7 +103,11 @@ import { DocumentRequirementsService } from './modules/documents/document-requir
 import { DocumentsService } from './modules/documents/documents.service';
 import { EmergenciesService } from './modules/emergencies/emergencies.service';
 import { EtaService, type EtaConfig } from './modules/eta/eta.service';
-import { StopArrivalsService } from './modules/eta/stop-arrivals.service';
+import {
+  DEFAULT_ARRIVAL_DETECTION_CONFIG,
+  StopArrivalsService,
+  type ArrivalDetectionConfig,
+} from './modules/eta/stop-arrivals.service';
 import { HealthService } from './modules/health/health.service';
 import {
   LiveTrackingService,
@@ -196,6 +200,43 @@ export class Container {
     fallbackSpeedKmh: this.config().get<number>('eta.fallbackSpeedKmh') ?? 25,
     minSpeedKmh: this.config().get<number>('eta.minSpeedKmh') ?? 5,
     maxSpeedKmh: this.config().get<number>('eta.maxSpeedKmh') ?? 90,
+    staleAfterMs: this.config().get<number>('eta.staleAfterMs') ?? 180_000,
+  }));
+
+  readonly arrivalDetectionConfig = lazy((): ArrivalDetectionConfig => ({
+    maxFixAgeMs:
+      this.config().get<number>('eta.arrival.maxFixAgeMs') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.maxFixAgeMs,
+    futureToleranceMs:
+      this.config().get<number>('eta.arrival.futureToleranceMs') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.futureToleranceMs,
+    maxAccuracyMeters:
+      this.config().get<number>('eta.arrival.maxAccuracyMeters') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.maxAccuracyMeters,
+    allowMissingAccuracy:
+      this.config().get<boolean>('eta.arrival.allowMissingAccuracy') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.allowMissingAccuracy,
+    requiredConsecutiveFixes:
+      this.config().get<number>('eta.arrival.requiredConsecutiveFixes') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.requiredConsecutiveFixes,
+    skipExtraFixes:
+      this.config().get<number>('eta.arrival.skipExtraFixes') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.skipExtraFixes,
+    maxSkipAhead:
+      this.config().get<number>('eta.arrival.maxSkipAhead') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.maxSkipAhead,
+    exitHysteresisMeters:
+      this.config().get<number>('eta.arrival.exitHysteresisMeters') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.exitHysteresisMeters,
+    minDwellMs:
+      this.config().get<number>('eta.arrival.minDwellMs') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.minDwellMs,
+    maxPlausibleSpeedKmh:
+      this.config().get<number>('eta.arrival.maxPlausibleSpeedKmh') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.maxPlausibleSpeedKmh,
+    minJumpDistanceMeters:
+      this.config().get<number>('eta.arrival.minJumpDistanceMeters') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.minJumpDistanceMeters,
   }));
 
   readonly liveTrackingConfig = lazy((): LiveTrackingConfig => ({
@@ -387,7 +428,14 @@ export class Container {
   readonly eta = lazy(() => new EtaService(Stop, TripStopArrival, this.etaConfig()));
 
   readonly stopArrivals = lazy(
-    () => new StopArrivalsService(Stop, TripStopArrival, this.eta(), this.notifications()),
+    () =>
+      new StopArrivalsService(
+        Stop,
+        TripStopArrival,
+        this.eta(),
+        this.notifications(),
+        this.arrivalDetectionConfig(),
+      ),
   );
 
   readonly parentPortal = lazy(
@@ -423,6 +471,7 @@ export class Container {
         Trip,
         this.deviceTokens(),
         this.pushProvider(),
+        Run,
       ),
   );
 

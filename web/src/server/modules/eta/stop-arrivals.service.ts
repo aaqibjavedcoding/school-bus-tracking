@@ -27,27 +27,101 @@ export interface RecordedStopArrival {
 }
 
 /**
- * Task 22 — stop arrival detection over the existing live-tracking pipeline.
+ * Phase 1 — environment-backed tuning of stop-arrival / proximity detection
+ * (see `config/eta.config.ts`). Every default is justified in
+ * `docs/notification-hardening-handoff.md`.
+ */
+export interface ArrivalDetectionConfig {
+  /** Fixes older than this (by original `recorded_at`) never create alerts. */
+  maxFixAgeMs: number;
+  /** Fixes dated further ahead of the server clock are ineligible. */
+  futureToleranceMs: number;
+  /** Fixes with a worse horizontal accuracy are ineligible. */
+  maxAccuracyMeters: number;
+  /** Whether fixes without an accuracy reading stay eligible. */
+  allowMissingAccuracy: boolean;
+  /** In-a-row fixes inside a geofence before the next stop records. */
+  requiredConsecutiveFixes: number;
+  /** Extra consecutive fixes for a stop ahead of the next unarrived stop. */
+  skipExtraFixes: number;
+  /** Tier boundary: stops further beyond the frontier need re-sync evidence. */
+  maxSkipAhead: number;
+  /** Fringe band past the geofence edge preserving partial evidence. */
+  exitHysteresisMeters: number;
+  /** Minimum span between first and confirming inside-fix (0 = disabled). */
+  minDwellMs: number;
+  /** Implied speed above which a fix is an implausible jump. */
+  maxPlausibleSpeedKmh: number;
+  /** Jumps shorter than this never trigger. */
+  minJumpDistanceMeters: number;
+}
+
+/** Production defaults (mirrors `config/eta.config.ts` for tests/embeds). */
+export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
+  maxFixAgeMs: 180_000,
+  futureToleranceMs: 60_000,
+  maxAccuracyMeters: 100,
+  allowMissingAccuracy: true,
+  requiredConsecutiveFixes: 2,
+  skipExtraFixes: 1,
+  maxSkipAhead: 2,
+  exitHysteresisMeters: 20,
+  minDwellMs: 0,
+  maxPlausibleSpeedKmh: 150,
+  minJumpDistanceMeters: 500,
+};
+
+/** Why a fix was rejected as arrival evidence (ingestion is unaffected). */
+export type FixRejectionReason =
+  'stale' | 'future' | 'inaccurate' | 'missing-accuracy' | 'implausible-jump';
+
+/** Last evaluated fix of a trip — the movement/jump reference point. */
+interface LastFixReference {
+  latitude: number;
+  longitude: number;
+  recordedMs: number;
+}
+
+/** Consecutive inside-geofence evidence accumulated for one stop. */
+export interface StopInsideEvidence {
+  count: number;
+  /** `recorded_at` of the first fix of the current inside run. */
+  sinceMs: number;
+}
+
+/**
+ * Task 22 — stop arrival detection over the existing live-tracking pipeline,
+ * hardened by Phase 1 (`docs/notification-hardening-handoff.md`).
  *
  * For every accepted *latest* GPS fix of an active trip (invoked by
  * `LiveTrackingService.recordLocation` after the fix is persisted and
  * broadcast) the service:
  *
- * 1. loads the trip's route stops, pinned to `(school_id, route_id)` — a fix
+ * 1. gates the fix on freshness and quality — historical ingestion is
+ *    untouched (every accepted fix is still persisted and stays in history),
+ *    but only fresh, accurate, plausible fixes are eligible to raise a
+ *    *current* alert. The gate uses the original fix time (`recorded_at`),
+ *    never the server receipt time;
+ * 2. loads the trip's route stops, pinned to `(school_id, route_id)` — a fix
  *    of another trip/school can never be matched against them;
- * 2. computes the Haversine distance from the fix to each stop and keeps the
- *    candidates inside the stop's `geofence_radius_meters`;
- * 3. picks the earliest-in-sequence stop that has **not** recorded an
- *    arrival yet (in-memory per-process set + database unique index), so one
- *    trip-stop produces exactly one arrival event no matter how many fixes
- *    land inside the geofence;
+ * 3. accumulates consecutive inside-geofence evidence per stop (with an exit
+ *    hysteresis fringe so edge jitter does not wipe it) and selects at most
+ *    one candidate under the progression policy — ascending route order with
+ *    escalating evidence for skipped-ahead stops and explicit re-sync past
+ *    the skip window, so one missed stop never blocks later stops;
  * 4. records the arrival row, broadcasts `trip:stop:arrived` to the trip's
  *    Socket.IO room (room membership is itself authorization-gated) and asks
- *    the Task 21 notifications service to notify the parents of children
- *    whose home stop was reached.
+ *    the notifications service to notify the parents of this trip/run's
+ *    riders whose home stop was reached.
  *
- * The whole evaluation is best-effort: any failure is logged and swallowed,
- * and can never reject an otherwise accepted GPS fix.
+ * Detection proves proximity only — the parent-facing copy says "near", not
+ * "arrived/boarded". The whole evaluation is best-effort: any failure is
+ * logged and swallowed, and can never reject an otherwise accepted GPS fix.
+ *
+ * The domain supports one direction only: ascending stop `sequence_number`.
+ * There is no reverse-trip concept, and straight-line GPS cannot reliably
+ * distinguish a stop from a parallel road — the policy therefore confirms
+ * sustained presence, never lane-level truth. No routing service is used.
  */
 export class StopArrivalsService {
   private readonly logger = new Logger(StopArrivalsService.name);
@@ -58,11 +132,18 @@ export class StopArrivalsService {
   /** Per-process stops already recorded for a trip (the DB index is the cross-process backstop). */
   private readonly seenByTrip = new Map<string, Set<string>>();
 
+  /** Last evaluated fix per trip — the implausible-jump reference. */
+  private readonly lastFixByTrip = new Map<string, LastFixReference>();
+
+  /** Consecutive inside-geofence evidence per trip per stop. */
+  private readonly insideByTrip = new Map<string, Map<string, StopInsideEvidence>>();
+
   constructor(
     private readonly stops: typeof Stop,
     private readonly arrivals: typeof TripStopArrival,
     private readonly eta: EtaService,
     private readonly notifications: NotificationsService,
+    private readonly config: ArrivalDetectionConfig = DEFAULT_ARRIVAL_DETECTION_CONFIG,
   ) {}
 
   /** Attach (or replace) the room broadcaster; the gateway does this once. */
@@ -76,12 +157,19 @@ export class StopArrivalsService {
   }
 
   /**
-   * Evaluates one accepted fix of an active trip: geofence detection,
-   * arrival recording, arrival/ETA broadcasts and parent notification.
-   * Best-effort by design — errors are logged, never re-thrown, so the
-   * tracking pipeline stays unaffected.
+   * Evaluates one accepted fix of an active trip: freshness/quality gating,
+   * geofence detection, arrival recording, arrival/ETA broadcasts and parent
+   * notification. Best-effort by design — errors are logged, never re-thrown,
+   * so the tracking pipeline stays unaffected.
+   *
+   * `now` is the server reference clock (the fix receipt time in production);
+   * freshness is always measured from the fix's own `recorded_at` against it.
    */
-  async onAcceptedFix(trip: Trip, fix: TripLocation): Promise<RecordedStopArrival | null> {
+  async onAcceptedFix(
+    trip: Trip,
+    fix: TripLocation,
+    now: Date = new Date(),
+  ): Promise<RecordedStopArrival | null> {
     try {
       // Defence in depth: terminal trips never produce new arrivals, even if
       // a caller bypasses `recordLocation`'s own status gate.
@@ -91,16 +179,24 @@ export class StopArrivalsService {
 
       const routeStops = await this.loadRouteStops(trip);
       const existingArrivals = await this.loadArrivals(trip);
-      const recorded = await this.recordCandidateArrival(trip, fix, routeStops, existingArrivals);
+      const recorded = await this.recordCandidateArrival(
+        trip,
+        fix,
+        routeStops,
+        existingArrivals,
+        now,
+      );
 
       // Recompute and broadcast the approximate ETA after every accepted
       // latest fix (and immediately after an arrival, so the next-stop state
-      // advances in the same broadcast round).
+      // advances in the same broadcast round). `now` lets the ETA withhold
+      // distances derived from stale GPS instead of presenting them as fresh.
       const etaResponse = await this.eta.computeTripEta({
         trip,
         latest: fix,
         stops: routeStops,
         arrivals: recorded ? [...existingArrivals, recorded.row] : existingArrivals,
+        now,
       });
       const etaEvent: TripEtaUpdateEvent = {
         trip_id: trip.id,
@@ -123,6 +219,8 @@ export class StopArrivalsService {
   /** Drops the per-process arrival memory once a trip becomes terminal. */
   resetForTrip(tripId: string): void {
     this.seenByTrip.delete(tripId);
+    this.lastFixByTrip.delete(tripId);
+    this.insideByTrip.delete(tripId);
   }
 
   /**
@@ -143,14 +241,19 @@ export class StopArrivalsService {
 
   /**
    * `GET /trips/:tripId/progress` — crew-facing snapshot: latest arrival,
-   * next stop, all recorded arrivals and the ETA summary.
+   * next stop, all recorded arrivals and the ETA summary. `now` gates ETA
+   * freshness the same way the live pipeline does.
    */
-  async getProgress(trip: Trip, latest: EtaLocationFix | null): Promise<TripProgressResponse> {
+  async getProgress(
+    trip: Trip,
+    latest: EtaLocationFix | null,
+    now: Date = new Date(),
+  ): Promise<TripProgressResponse> {
     const [stops, arrivals] = await Promise.all([
       this.loadRouteStops(trip),
       this.loadArrivals(trip),
     ]);
-    const eta = await this.eta.computeTripEta({ trip, latest, stops, arrivals });
+    const eta = await this.eta.computeTripEta({ trip, latest, stops, arrivals, now });
     return {
       trip_id: trip.id,
       school_id: trip.school_id,
@@ -168,28 +271,82 @@ export class StopArrivalsService {
   // ---------------------------------------------------------------------
 
   /**
-   * Picks the earliest-in-sequence unarrived stop whose geofence contains
-   * the fix and records exactly one arrival row for it. Duplicate protection
-   * comes from the in-memory per-trip set, the existence check and — as the
-   * cross-process backstop — the unique `(school_id, trip_id, stop_id)`
-   * index (a racing insert is caught and treated as "already recorded").
+   * Gates one fix on freshness/quality, accumulates inside-geofence evidence
+   * and records at most one arrival for the progression winner. Duplicate
+   * protection comes from the in-memory per-trip set, the existence check
+   * and — as the cross-process backstop — the unique
+   * `(school_id, trip_id, stop_id)` index (a racing insert is caught and
+   * treated as "already recorded").
    */
   private async recordCandidateArrival(
     trip: Trip,
     fix: TripLocation,
     routeStops: Stop[],
     existingArrivals: TripStopArrival[],
+    now: Date,
   ): Promise<RecordedStopArrival | null> {
-    const arrivedStopIds = new Set(existingArrivals.map((arrival) => arrival.stop_id));
-    const seen = this.seenByTrip.get(trip.id);
-    const candidate = pickStopArrivalCandidate(routeStops, arrivedStopIds, seen, fix);
-    if (!candidate) {
+    const nowMs = now.getTime();
+    const recordedMs = toMs(fix.recorded_at);
+    if (!Number.isFinite(recordedMs)) {
       return null;
     }
 
-    // The candidate has coordinates by construction; the distance is real.
-    const distanceMeters =
-      haversineMeters(fix.latitude, fix.longitude, candidate.latitude, candidate.longitude) ?? 0;
+    const fixPoint = {
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      accuracy: fix.accuracy ?? null,
+      recordedMs,
+    };
+    const lastFix = this.lastFixByTrip.get(trip.id) ?? null;
+    const eligibility = assessFixEligibility(fixPoint, lastFix, nowMs, this.config);
+    if (!eligibility.eligible) {
+      // A jump still advances the reference point: one glitch then costs at
+      // most two fixes, and a genuine relocation re-syncs immediately
+      // instead of poisoning every later comparison. Stale, future-dated and
+      // inaccurate fixes are not trustworthy movement evidence, so they leave
+      // the reference (and all inside-counts) untouched.
+      if (eligibility.reason === 'implausible-jump') {
+        this.lastFixByTrip.set(trip.id, {
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+          recordedMs,
+        });
+        this.logger.debug(`Ignoring implausible GPS jump for trip ${trip.id} (fix ${fix.id}).`);
+      }
+      return null;
+    }
+    this.lastFixByTrip.set(trip.id, {
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      recordedMs,
+    });
+
+    const arrivedStopIds = new Set(existingArrivals.map((arrival) => arrival.stop_id));
+    const seen = this.seenByTrip.get(trip.id);
+    const inside = this.insideForTrip(trip.id);
+    updateInsideEvidence(
+      inside,
+      routeStops,
+      arrivedStopIds,
+      seen,
+      { latitude: fix.latitude, longitude: fix.longitude },
+      recordedMs,
+      this.config.exitHysteresisMeters,
+    );
+
+    const selection = selectProgressionCandidate({
+      stops: routeStops,
+      arrivedStopIds,
+      seenStopIds: seen,
+      inside,
+      fix: { latitude: fix.latitude, longitude: fix.longitude, recordedMs },
+      config: this.config,
+    });
+    if (!selection) {
+      return null;
+    }
+    const candidate = selection.stop;
+    const distanceMeters = selection.distanceMeters;
 
     let row: TripStopArrival;
     try {
@@ -197,7 +354,10 @@ export class StopArrivalsService {
         school_id: trip.school_id,
         trip_id: trip.id,
         stop_id: candidate.id,
-        arrived_at: new Date(),
+        // The bus was there at the fix's original time, not at evaluation
+        // time; clamped to `now` so clock skew can never date an arrival in
+        // the future.
+        arrived_at: new Date(Math.min(recordedMs, nowMs)),
         latitude: fix.latitude,
         longitude: fix.longitude,
         distance_meters: distanceMeters,
@@ -213,6 +373,7 @@ export class StopArrivalsService {
     }
 
     this.markSeen(trip.id, candidate.id);
+    inside.delete(candidate.id);
 
     const event: TripStopArrivedEvent = {
       trip_id: trip.id,
@@ -229,7 +390,7 @@ export class StopArrivalsService {
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
 
-    // Best-effort parent notification (deduplicated inside the Task 21
+    // Best-effort parent notification (deduplicated inside the notifications
     // service on trip + stop + type); never affects the arrival itself.
     await this.notifications.notifyStopArrival({
       school_id: trip.school_id,
@@ -286,6 +447,14 @@ export class StopArrivalsService {
     seen.add(stopId);
     this.seenByTrip.set(tripId, seen);
   }
+  private insideForTrip(tripId: string): Map<string, StopInsideEvidence> {
+    let inside = this.insideByTrip.get(tripId);
+    if (!inside) {
+      inside = new Map<string, StopInsideEvidence>();
+      this.insideByTrip.set(tripId, inside);
+    }
+    return inside;
+  }
   private emitToTrip(tripId: string, event: LiveTrackingEvent, payload: unknown): void {
     // Without an attached broadcaster (unit tests, gateway not yet up) the
     // event is simply dropped — persistence and the REST reads are unaffected.
@@ -304,39 +473,254 @@ export interface GeofenceStop {
   geofence_radius_meters: number;
 }
 
+/** The structural fix surface the eligibility gate needs. */
+export interface EligibilityFix {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  recordedMs: number;
+}
+
 /**
- * The arrival candidate of one fix: the earliest-in-sequence stop of the
- * trip's route that (a) is active and has coordinates and a positive geofence
- * radius, (b) has no recorded arrival yet and (c) contains the fix inside its
- * geofence. Exactly one stop can win per fix, so a single fix can never
- * produce a burst of arrival events.
+ * Phase 1 freshness/quality gate: separates historical ingestion (which
+ * already happened — every accepted fix is persisted and stays in history)
+ * from eligibility for a *live* alert.
+ *
+ * A fix is eligible only when ALL hold:
+ *
+ * - its original `recorded_at` is at most `maxFixAgeMs` old — old, replayed
+ *   and out-of-order fixes (e.g. the newest fix of an offline batch uploaded
+ *   hours later) never raise a current alert;
+ * - it is not dated more than `futureToleranceMs` ahead of the server clock;
+ * - its horizontal accuracy is within `maxAccuracyMeters`, or it carries no
+ *   accuracy and `allowMissingAccuracy` is set;
+ * - it is not an implausible jump from the last evaluated fix (implied speed
+ *   above `maxPlausibleSpeedKmh` over at least `minJumpDistanceMeters`).
+ *
+ * Device heading, speed and receipt time play no role: heading is
+ * meaningless when stationary, and receipt time says nothing about when the
+ * bus was at the reported position.
  */
-export function pickStopArrivalCandidate(
+export function assessFixEligibility(
+  fix: EligibilityFix,
+  lastFix: LastFixReference | null,
+  nowMs: number,
+  config: Pick<
+    ArrivalDetectionConfig,
+    | 'maxFixAgeMs'
+    | 'futureToleranceMs'
+    | 'maxAccuracyMeters'
+    | 'allowMissingAccuracy'
+    | 'maxPlausibleSpeedKmh'
+    | 'minJumpDistanceMeters'
+  >,
+): { eligible: boolean; reason: FixRejectionReason | null } {
+  if (fix.recordedMs > nowMs + config.futureToleranceMs) {
+    return { eligible: false, reason: 'future' };
+  }
+  if (nowMs - fix.recordedMs > config.maxFixAgeMs) {
+    return { eligible: false, reason: 'stale' };
+  }
+  if (fix.accuracy === null || fix.accuracy === undefined) {
+    if (!config.allowMissingAccuracy) {
+      return { eligible: false, reason: 'missing-accuracy' };
+    }
+  } else if (!Number.isFinite(fix.accuracy) || fix.accuracy > config.maxAccuracyMeters) {
+    return { eligible: false, reason: 'inaccurate' };
+  }
+  if (lastFix !== null && isImplausibleJump(fix, lastFix, config)) {
+    return { eligible: false, reason: 'implausible-jump' };
+  }
+  return { eligible: true, reason: null };
+}
+
+/**
+ * True when the fix implies teleportation from the last evaluated fix:
+ * at least `minJumpDistanceMeters` away at an implied speed above
+ * `maxPlausibleSpeedKmh`. Coinciding timestamps with a large displacement
+ * count as a jump (a replay anomaly); small wander at any timestamp never
+ * does, so stationary jitter cannot suppress arrivals.
+ */
+function isImplausibleJump(
+  fix: Pick<EligibilityFix, 'latitude' | 'longitude' | 'recordedMs'>,
+  lastFix: LastFixReference,
+  config: Pick<ArrivalDetectionConfig, 'maxPlausibleSpeedKmh' | 'minJumpDistanceMeters'>,
+): boolean {
+  const distanceMeters = haversineMeters(
+    lastFix.latitude,
+    lastFix.longitude,
+    fix.latitude,
+    fix.longitude,
+  );
+  if (distanceMeters === null || distanceMeters < config.minJumpDistanceMeters) {
+    return false;
+  }
+  const dtSeconds = (fix.recordedMs - lastFix.recordedMs) / 1000;
+  if (dtSeconds <= 0) {
+    return true;
+  }
+  const impliedKmh = (distanceMeters / dtSeconds) * 3.6;
+  return impliedKmh > config.maxPlausibleSpeedKmh;
+}
+
+/**
+ * Advances the consecutive inside-geofence evidence for one evaluated fix.
+ * Stops already arrived (or seen) are skipped and pruned; every other valid
+ * stop moves to `count + 1` when the fix is inside its radius, keeps its
+ * partial count inside the hysteresis fringe, and resets to zero outside it.
+ */
+export function updateInsideEvidence(
+  inside: Map<string, StopInsideEvidence>,
   routeStops: GeofenceStop[],
   arrivedStopIds: ReadonlySet<string>,
   seenStopIds: ReadonlySet<string> | undefined,
   fix: { latitude: number; longitude: number },
-): GeofenceStop | null {
-  const candidates = routeStops
-    .filter((stop) => {
-      if (arrivedStopIds.has(stop.id) || seenStopIds?.has(stop.id)) {
-        return false;
+  recordedMs: number,
+  exitHysteresisMeters: number,
+): void {
+  for (const stop of routeStops) {
+    if (arrivedStopIds.has(stop.id) || seenStopIds?.has(stop.id)) {
+      inside.delete(stop.id);
+      continue;
+    }
+    if (!isValidGeofenceStop(stop)) {
+      inside.delete(stop.id);
+      continue;
+    }
+    const distance = haversineMeters(fix.latitude, fix.longitude, stop.latitude, stop.longitude);
+    if (distance === null) {
+      inside.set(stop.id, { count: 0, sinceMs: recordedMs });
+      continue;
+    }
+    if (distance <= stop.geofence_radius_meters) {
+      const previous = inside.get(stop.id);
+      inside.set(stop.id, {
+        count: (previous?.count ?? 0) + 1,
+        sinceMs: previous && previous.count > 0 ? previous.sinceMs : recordedMs,
+      });
+    } else if (distance <= stop.geofence_radius_meters + exitHysteresisMeters) {
+      // Hysteresis fringe: edge jitter neither confirms nor wipes evidence.
+      if (!inside.has(stop.id)) {
+        inside.set(stop.id, { count: 0, sinceMs: recordedMs });
       }
-      if (
-        stop.is_active === false ||
-        stop.latitude == null ||
-        stop.longitude == null ||
-        !Number.isFinite(stop.geofence_radius_meters) ||
-        stop.geofence_radius_meters <= 0
-      ) {
-        return false;
-      }
-      const distance = haversineMeters(fix.latitude, fix.longitude, stop.latitude, stop.longitude);
-      return distance !== null && distance <= stop.geofence_radius_meters;
-    })
-    .sort((a, b) => a.sequence_number - b.sequence_number);
+    } else {
+      inside.set(stop.id, { count: 0, sinceMs: recordedMs });
+    }
+  }
+}
 
-  return candidates[0] ?? null;
+/** Input of the pure progression-candidate selection. */
+export interface ProgressionCandidateInput {
+  /** Route stops in any order; the selection sorts them. */
+  stops: GeofenceStop[];
+  arrivedStopIds: ReadonlySet<string>;
+  seenStopIds: ReadonlySet<string> | undefined;
+  /** Consecutive inside-geofence evidence accumulated so far. */
+  inside: ReadonlyMap<string, StopInsideEvidence>;
+  fix: { latitude: number; longitude: number; recordedMs: number };
+  config: Pick<
+    ArrivalDetectionConfig,
+    'requiredConsecutiveFixes' | 'skipExtraFixes' | 'maxSkipAhead' | 'minDwellMs'
+  >;
+}
+
+/**
+ * Phase 1 progression policy: the arrival candidate of one fix.
+ *
+ * Only stops AHEAD of the progress frontier (the highest sequence already
+ * recorded) are ever eligible — a skipped stop behind the frontier is never
+ * recorded afterwards (the skip is final; later stops proceed). The required
+ * evidence escalates with distance from the next unarrived stop:
+ *
+ * - the next unarrived stop needs `requiredConsecutiveFixes` fixes;
+ * - stops within `maxSkipAhead` beyond the frontier additionally need
+ *   `skipExtraFixes` (a missed stop or two never blocks the trip, but
+ *   out-of-order claims need stronger evidence);
+ * - stops further ahead need one more fix on top (explicit re-sync after a
+ *   detour, tunnel or mid-route join — extraordinary claims need
+ *   extraordinary evidence).
+ *
+ * Every tier additionally honours the `minDwellMs` span when configured.
+ * Among qualifying stops the ranking is: most consecutive evidence, then
+ * nearest, then earliest in sequence — so overlapping geofences resolve to
+ * the stop with sustained presence, not merely the lowest sequence number.
+ * Exactly one stop can win per fix, so a single fix can never produce a
+ * burst of arrival events.
+ */
+export function selectProgressionCandidate(
+  input: ProgressionCandidateInput,
+): { stop: GeofenceStop; distanceMeters: number } | null {
+  const { arrivedStopIds, seenStopIds, inside, fix, config } = input;
+  const recorded = (stopId: string): boolean =>
+    arrivedStopIds.has(stopId) || (seenStopIds?.has(stopId) ?? false);
+
+  const valid = input.stops
+    .filter((stop) => !recorded(stop.id) && isValidGeofenceStop(stop))
+    .sort((a, b) => a.sequence_number - b.sequence_number);
+  if (valid.length === 0) {
+    return null;
+  }
+
+  // Progress frontier: the highest sequence already recorded (0 before the
+  // first arrival — the trip then anchors wherever confident evidence lands).
+  let frontier = 0;
+  for (const stop of input.stops) {
+    if (recorded(stop.id) && Number.isFinite(stop.sequence_number)) {
+      frontier = Math.max(frontier, stop.sequence_number);
+    }
+  }
+  const nextUnarrived = valid.find((stop) => stop.sequence_number > frontier) ?? null;
+  if (!nextUnarrived) {
+    return null;
+  }
+
+  const ranked: Array<{ stop: GeofenceStop; distanceMeters: number; count: number }> = [];
+  for (const stop of valid) {
+    if (stop.sequence_number <= frontier) {
+      continue; // behind the frontier: the skip is final
+    }
+    const distance = haversineMeters(fix.latitude, fix.longitude, stop.latitude, stop.longitude);
+    if (distance === null || distance > stop.geofence_radius_meters) {
+      continue;
+    }
+    const evidence = inside.get(stop.id);
+    const count = evidence?.count ?? 0;
+    const sinceMs = evidence?.sinceMs ?? fix.recordedMs;
+    let required = config.requiredConsecutiveFixes;
+    if (stop.sequence_number > nextUnarrived.sequence_number) {
+      required += config.skipExtraFixes;
+      if (stop.sequence_number > frontier + config.maxSkipAhead) {
+        required += 1; // re-sync tier
+      }
+    }
+    if (count < required) {
+      continue;
+    }
+    if (config.minDwellMs > 0 && fix.recordedMs - sinceMs < config.minDwellMs) {
+      continue;
+    }
+    ranked.push({ stop, distanceMeters: distance, count });
+  }
+
+  ranked.sort(
+    (a, b) =>
+      b.count - a.count ||
+      a.distanceMeters - b.distanceMeters ||
+      a.stop.sequence_number - b.stop.sequence_number,
+  );
+  const winner = ranked[0];
+  return winner ? { stop: winner.stop, distanceMeters: winner.distanceMeters } : null;
+}
+
+/** A stop can only match when it is active, surveyed and has a real radius. */
+function isValidGeofenceStop(stop: GeofenceStop): boolean {
+  return (
+    stop.is_active !== false &&
+    stop.latitude != null &&
+    stop.longitude != null &&
+    Number.isFinite(stop.geofence_radius_meters) &&
+    stop.geofence_radius_meters > 0
+  );
 }
 
 /** True when the error is a Sequelize unique-constraint violation. */
@@ -351,4 +735,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function toMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }

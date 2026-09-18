@@ -124,7 +124,8 @@ export function notificationTypeLabel(type: NotificationType): string {
     case NotificationType.TRIP_CANCELLED:
       return '⚠️ Trip cancelled';
     case NotificationType.STOP_ARRIVED:
-      return '📍 Bus at stop';
+      // Phase 1: detection proves proximity only — never a confirmed arrival.
+      return '📍 Bus near stop';
     default:
       return type;
   }

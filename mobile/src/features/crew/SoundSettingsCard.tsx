@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Card } from '../../components';
-import { fontScaleCaps, surface, touch } from '../../theme';
+import { fontScaleCaps, surface } from '../../theme';
 import { useTranslation } from '../../lib/i18n-provider';
 import { useSoundSettings } from './FeedbackProvider.tsx';
 import type { SoundSettings } from './crew-feedback.ts';

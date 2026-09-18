@@ -15,7 +15,11 @@ import type { Stop, Trip, TripStopArrival } from '../../database/models';
 import type { StopArrivalNotificationInput } from '../notifications/notifications.service';
 import type { EtaConfig, EtaLocationFix, TripEtaComputeInput } from './eta.service';
 import { EtaService } from './eta.service';
-import { StopArrivalsService } from './stop-arrivals.service';
+import {
+  DEFAULT_ARRIVAL_DETECTION_CONFIG,
+  StopArrivalsService,
+  type ArrivalDetectionConfig,
+} from './stop-arrivals.service';
 import { applyOrder, matchesWhere } from '../live-tracking/live-tracking.test-utils';
 
 export const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -286,6 +290,8 @@ export function makeArrivalsHarness(
     arrivals?: StubArrival[];
     createError?: Error;
     eta?: (input: TripEtaComputeInput) => Promise<TripEtaResponse>;
+    /** Partial override of the production detection defaults. */
+    config?: Partial<ArrivalDetectionConfig>;
   } = {},
 ): ArrivalsHarness {
   const stopsRows = options.stops ?? DEFAULT_STOPS;
@@ -316,6 +322,7 @@ export function makeArrivalsHarness(
     arrivals.repo as unknown as typeof TripStopArrival,
     eta,
     notifications,
+    { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, ...options.config },
   );
   service.attachBroadcaster((room, event, payload) => {
     broadcasts.push({ room, event, payload });

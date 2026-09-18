@@ -14,7 +14,16 @@ import {
   type NotificationRealtimeEvent,
 } from '@school-bus-tracking/shared-types';
 import { TripStatus } from '@school-bus-tracking/shared-types';
-import { Notification, Stop, Student, StudentGuardian, Trip, User } from '../../database/models';
+import {
+  Notification,
+  Run,
+  Stop,
+  Student,
+  StudentGuardian,
+  Trip,
+  User,
+} from '../../database/models';
+import { resolveTripRunId, studentRidesTripRun } from '../live-tracking/run-ridership';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import {
   DEFAULT_NOTIFICATION_LIMIT,
@@ -132,6 +141,8 @@ export class NotificationsService {
     private readonly trips: typeof Trip,
     private readonly deviceTokens: DeviceTokensService,
     private readonly pushProvider: PushNotificationProvider,
+    // Phase 1: run-aware recipient resolution (default-run lookup).
+    private readonly runs: typeof Run,
   ) {}
 
   /** Attach (or replace) the room broadcaster; the gateway does this once. */
@@ -211,9 +222,12 @@ export class NotificationsService {
   }
 
   /**
-   * Notifies the parents of every child whose home stop sits on the trip's
-   * route that the trip changed status. `SCHEDULED` (no event) is ignored.
-   * Best-effort: errors are logged, never re-thrown.
+   * Notifies the parents of every rider of this trip's run whose home stop
+   * sits on the trip's route that the trip changed status. `SCHEDULED` (no
+   * event) is ignored. Best-effort: errors are logged, never re-thrown.
+   *
+   * Phase 1: run-allocated trips notify only their own run's riders'
+   * parents — a second run sharing the route/stops is never notified.
    */
   async notifyTripStatusChange(input: TripStatusNotificationInput): Promise<void> {
     try {
@@ -271,8 +285,14 @@ export class NotificationsService {
   }
 
   /**
-   * Task 22: notifies every actively linked parent whose child's home stop
-   * is the stop the bus just reached, e.g. "Bus arrived at Green Park Stop."
+   * Task 22: notifies every actively linked parent of this trip/run's riders
+   * whose home stop is the stop the bus just neared, e.g.
+   * "Bus is near Green Park Stop."
+   *
+   * Phase 1: recipients are narrowed to the trip's run allocation (shared
+   * stops across runs notify only the current run's riders' parents), and
+   * the copy says "near" — detection proves proximity, never a confirmed
+   * arrival or a child boarding.
    *
    * Called by the stop-arrival pipeline only *after* the arrival row was
    * persisted, and deduplicated on `(school_id, user_id, type, trip_id,
@@ -281,7 +301,11 @@ export class NotificationsService {
    */
   async notifyStopArrival(input: StopArrivalNotificationInput): Promise<void> {
     try {
-      const userIds = await this.resolveGuardianUserIdsForStop(input.school_id, input.stop.id);
+      const userIds = await this.resolveGuardianUserIdsForStop(
+        input.school_id,
+        input.trip_id,
+        input.stop.id,
+      );
       if (userIds.length === 0) {
         return;
       }
@@ -316,7 +340,9 @@ export class NotificationsService {
           stop_id: input.stop.id,
           title,
           message,
-          payload: { stop_id: input.stop.id, stop_name: input.stop.name },
+          // Phase 1: explicit proximity semantics for clients — this event
+          // proves the bus was near the stop, never a boarding/drop-off.
+          payload: { stop_id: input.stop.id, stop_name: input.stop.name, proximity_only: true },
           created_at: input.occurred_at,
         });
       }
@@ -428,22 +454,27 @@ export class NotificationsService {
   }
 
   /**
-   * Every parent account linked to an active student whose home stop sits on
-   * the given trip's route — the same manifest derivation the live-tracking
-   * and attendance features use, so exactly the parents who can observe the
-   * trip are notified about it.
+   * Every parent account linked to an active rider of the trip's run whose
+   * home stop sits on the trip's route — the run-aware manifest derivation,
+   * so exactly the parents who can observe the trip are notified about it.
+   *
+   * Phase 1: without the run narrowing, two runs sharing a route (tiering)
+   * would notify each other's parents for every shared stop. The narrowing
+   * reuses the same allocation rule as parent observation
+   * (`run-ridership.ts`), honouring default-run and legacy `NULL`-run
+   * semantics: on a route without runs every route student still rides.
    */
   private async resolveGuardianUserIdsForTripRoute(
     schoolId: string,
     tripId: string,
   ): Promise<string[]> {
-    const trip = await this.findTrip(schoolId, tripId);
-    if (!trip) {
+    const context = await this.resolveTripRunContext(schoolId, tripId);
+    if (!context) {
       return [];
     }
 
     const stopsOnRoute = await this.stops.findAll({
-      where: { school_id: schoolId, route_id: trip.route_id },
+      where: { school_id: schoolId, route_id: context.trip.route_id },
       attributes: ['id'],
     });
     if (stopsOnRoute.length === 0) {
@@ -456,16 +487,19 @@ export class NotificationsService {
         is_active: true,
         home_stop_id: { [Op.in]: stopsOnRoute.map((stop) => stop.id) },
       },
-      attributes: ['id'],
+      attributes: ['id', 'run_id'],
     });
-    if (studentsOnRoute.length === 0) {
+    const riders = studentsOnRoute.filter((student) =>
+      studentRidesTripRun(student.run_id, context.tripRunId, context.defaultRunId),
+    );
+    if (riders.length === 0) {
       return [];
     }
 
     const links = await this.guardians.findAll({
       where: {
         school_id: schoolId,
-        student_id: { [Op.in]: studentsOnRoute.map((student) => student.id) },
+        student_id: { [Op.in]: riders.map((student) => student.id) },
         is_active: true,
       },
     });
@@ -473,26 +507,76 @@ export class NotificationsService {
   }
 
   /**
-   * Every parent account linked to an active student whose home stop is the
-   * given stop, inside the tenant — exactly the parents the arrival concerns.
+   * Every parent account linked to an active rider of the trip's run whose
+   * home stop is the given stop, inside the tenant — exactly the parents the
+   * proximity event concerns. An unknown trip, or a stop off the trip's
+   * route, resolves to nobody.
    */
-  private async resolveGuardianUserIdsForStop(schoolId: string, stopId: string): Promise<string[]> {
+  private async resolveGuardianUserIdsForStop(
+    schoolId: string,
+    tripId: string,
+    stopId: string,
+  ): Promise<string[]> {
+    const context = await this.resolveTripRunContext(schoolId, tripId);
+    if (!context) {
+      return [];
+    }
+
+    // Defence in depth: the arrival pipeline already matches stops through
+    // the trip's own route, but a stop of another route must never resolve
+    // recipients for this trip even if called directly.
+    const stop = await this.stops.findOne({
+      where: { id: stopId, school_id: schoolId },
+      attributes: ['id', 'route_id'],
+    });
+    if (!stop || stop.route_id !== context.trip.route_id) {
+      return [];
+    }
+
     const studentsAtStop = await this.students.findAll({
       where: { school_id: schoolId, home_stop_id: stopId, is_active: true },
-      attributes: ['id'],
+      attributes: ['id', 'run_id'],
     });
-    if (studentsAtStop.length === 0) {
+    const riders = studentsAtStop.filter((student) =>
+      studentRidesTripRun(student.run_id, context.tripRunId, context.defaultRunId),
+    );
+    if (riders.length === 0) {
       return [];
     }
 
     const links = await this.guardians.findAll({
       where: {
         school_id: schoolId,
-        student_id: { [Op.in]: studentsAtStop.map((student) => student.id) },
+        student_id: { [Op.in]: riders.map((student) => student.id) },
         is_active: true,
       },
     });
     return this.filterParentUserIds(schoolId, [...new Set(links.map((link) => link.user_id))]);
+  }
+
+  /**
+   * Phase 1: the trip inside the caller's tenant plus its resolved run —
+   * explicit `run_id`, else the route's default run (legacy `NULL`-run
+   * trips), else `null` on a route without runs.
+   */
+  private async resolveTripRunContext(
+    schoolId: string,
+    tripId: string,
+  ): Promise<{
+    trip: { id: string; route_id: string; run_id: string | null };
+    tripRunId: string | null;
+    defaultRunId: string | null;
+  } | null> {
+    const trip = await this.findTrip(schoolId, tripId);
+    if (!trip) {
+      return null;
+    }
+    const defaultRun = await this.runs.findOne({
+      where: { school_id: schoolId, route_id: trip.route_id, is_default: true },
+      attributes: ['id'],
+    });
+    const defaultRunId = defaultRun?.id ?? null;
+    return { trip, tripRunId: resolveTripRunId(trip.run_id, defaultRunId), defaultRunId };
   }
 
   /** Narrow the candidate ids to active accounts whose role is PARENT. */
@@ -617,10 +701,10 @@ export class NotificationsService {
   private async findTrip(
     schoolId: string,
     tripId: string,
-  ): Promise<{ id: string; route_id: string } | null> {
+  ): Promise<{ id: string; route_id: string; run_id: string | null } | null> {
     return this.trips.findOne({
       where: { id: tripId, school_id: schoolId },
-      attributes: ['id', 'route_id'],
+      attributes: ['id', 'route_id', 'run_id'],
     });
   }
 
