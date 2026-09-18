@@ -105,7 +105,10 @@ describe('StopArrivalsService geofence evaluation', () => {
     assert.equal(created['longitude'], fix.longitude);
     assert.ok(created['arrived_at'] instanceof Date);
     // Phase 1: the arrival is timestamped at the original fix time.
-    assert.equal((created['arrived_at'] as Date).getTime(), fix.recorded_at.getTime());
+    assert.equal(
+      (created['arrived_at'] as Date).getTime(),
+      new Date(fix.recorded_at as string | number | Date).getTime(),
+    );
     closeTo(created['distance_meters'] as number, 41);
   });
 
