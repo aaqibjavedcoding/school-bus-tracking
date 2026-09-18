@@ -17,7 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
-import { fontScaleCaps, icon as iconSizes, surface, text as textScale, touch } from '../theme';
+import { fontScaleCaps, surface, text as textScale, touch } from '../theme';
 import type { Tone } from '../lib/format';
 
 /**
