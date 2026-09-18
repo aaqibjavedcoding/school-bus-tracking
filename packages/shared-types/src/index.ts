@@ -1200,8 +1200,14 @@ export const NOTIFICATION_READ_FILTER_VALUES: NotificationReadFilter[] =
  * row so expectations stay honest: `sent` means the provider accepted the
  * message — never that the device displayed it (FCM/APNs offer no such
  * confirmation).
+ *
+ * `partial` is the honest terminal state of a *multi-device* push where at
+ * least one device was accepted but the remaining target device(s) never
+ * were (permanently rejected token(s), exhausted retries or a closed event
+ * window). It is never reported as `sent`, and the accepted devices are the
+ * only ones counted in `delivered_tokens`.
  */
-export type ExternalDeliveryStatus = 'pending' | 'sent' | 'failed' | 'not_configured';
+export type ExternalDeliveryStatus = 'pending' | 'sent' | 'partial' | 'failed' | 'not_configured';
 
 /** Parent-facing projection of one stored notification. */
 export interface NotificationResponse {

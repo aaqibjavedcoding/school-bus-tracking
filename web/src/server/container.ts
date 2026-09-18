@@ -465,6 +465,8 @@ export class Container {
         this.eta(),
         this.notifications(),
         this.arrivalDetectionConfig(),
+        // Fix D: arrival + notification fan-out commit in one transaction.
+        this.sequelize,
       ),
   );
 

@@ -1,5 +1,6 @@
 import { Logger } from '../../framework';
-import { UniqueConstraintError } from 'sequelize';
+import { UniqueConstraintError, type Transaction } from 'sequelize';
+import type { Sequelize } from 'sequelize-typescript';
 import {
   LIVE_TRACKING_EVENTS,
   TripProgressResponse,
@@ -144,6 +145,13 @@ export class StopArrivalsService {
     private readonly eta: EtaService,
     private readonly notifications: NotificationsService,
     private readonly config: ArrivalDetectionConfig = DEFAULT_ARRIVAL_DETECTION_CONFIG,
+    /**
+     * Connection used to commit the arrival and its notification fan-out in
+     * one transaction (fix D). Injected by the container; when absent (unit
+     * tests, embedders) the model's own connection is used, and when neither
+     * exists the writes fall back to the legacy sequential path.
+     */
+    private readonly sequelize: Sequelize | null = null,
   ) {}
 
   /** Attach (or replace) the room broadcaster; the gateway does this once. */
@@ -348,19 +356,26 @@ export class StopArrivalsService {
     const candidate = selection.stop;
     const distanceMeters = selection.distanceMeters;
 
+    // Fix D — the arrival row and its parent-notification fan-out commit
+    // together (or not at all). A crash after the arrival was saved used to
+    // lose the alert permanently, because the arrival's own deduplication
+    // (`(school_id, trip_id, stop_id)`) blocked any retry. Writing the
+    // notification rows inside the arrival's transaction removes that window:
+    // either both persist, or the arrival is re-evaluated on the next fix.
+    //
+    // The fan-out only ever *persists* rows — no FCM/APNs call happens on this
+    // path (the outbox worker delivers later, off the GPS request), and the
+    // socket broadcast is deferred to after commit so a rollback cannot
+    // announce an arrival that never happened.
+    const arrivedAt = new Date(Math.min(recordedMs, nowMs));
     let row: TripStopArrival;
     try {
-      row = await this.arrivals.create({
-        school_id: trip.school_id,
-        trip_id: trip.id,
-        stop_id: candidate.id,
-        // The bus was there at the fix's original time, not at evaluation
-        // time; clamped to `now` so clock skew can never date an arrival in
-        // the future.
-        arrived_at: new Date(Math.min(recordedMs, nowMs)),
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        distance_meters: distanceMeters,
+      row = await this.persistArrivalWithNotifications({
+        trip,
+        candidate,
+        fix,
+        arrivedAt,
+        distanceMeters,
       });
     } catch (error) {
       // Another evaluation (or instance) recorded the same visit first — the
@@ -390,14 +405,9 @@ export class StopArrivalsService {
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
 
-    // Best-effort parent notification (deduplicated inside the notifications
-    // service on trip + stop + type); never affects the arrival itself.
-    await this.notifications.notifyStopArrival({
-      school_id: trip.school_id,
-      trip_id: trip.id,
-      stop: { id: candidate.id, name: candidate.name },
-      occurred_at: new Date(row.arrived_at),
-    });
+    // Parent notification rows were already persisted inside the arrival's
+    // transaction (fix D). Nothing to do here — the outbox delivers them, and
+    // the notifications service broadcast the inbox event after commit.
 
     return {
       stop: {
@@ -408,6 +418,73 @@ export class StopArrivalsService {
       row,
       distanceMeters: distanceMeters,
     };
+  }
+
+  /**
+   * Persists the arrival and the parent notification rows in one transaction.
+   *
+   * The insert of the arrival row and every `notifications` row share the
+   * same transaction, so:
+   *
+   * - a committed arrival always has its notification intent (no lost alert);
+   * - a rollback (crash, notification failure, unique-index race) leaves no
+   *   arrival, no inbox row and no outbound delivery work;
+   * - the `(school_id, user_id, dedup_key)` unique index still makes a
+   *   replayed fan-out idempotent — a resumed/re-created attempt cannot
+   *   produce duplicate inbox rows.
+   *
+   * Without a database connection (unit-test/embedding scenario) the two
+   * writes run sequentially, exactly as before this patch.
+   */
+  private async persistArrivalWithNotifications(args: {
+    trip: Trip;
+    candidate: { id: string; name: string };
+    fix: TripLocation;
+    arrivedAt: Date;
+    distanceMeters: number;
+  }): Promise<TripStopArrival> {
+    const { trip, candidate, fix, arrivedAt, distanceMeters } = args;
+    const createArrival = (transaction?: Transaction): Promise<TripStopArrival> =>
+      this.arrivals.create(
+        {
+          school_id: trip.school_id,
+          trip_id: trip.id,
+          stop_id: candidate.id,
+          // The bus was there at the fix's original time, not at evaluation
+          // time; clamped to `now` so clock skew can never date an arrival in
+          // the future.
+          arrived_at: arrivedAt,
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+          distance_meters: distanceMeters,
+        },
+        ...(transaction ? [{ transaction }] : []),
+      );
+
+    const notify = (transaction?: Transaction): Promise<void> =>
+      this.notifications.notifyStopArrival(
+        {
+          school_id: trip.school_id,
+          trip_id: trip.id,
+          stop: { id: candidate.id, name: candidate.name },
+          occurred_at: arrivedAt,
+        },
+        transaction ? { transaction } : {},
+      );
+
+    const sequelize =
+      this.sequelize ?? (this.arrivals as unknown as { sequelize?: Sequelize }).sequelize;
+    if (!sequelize) {
+      const row = await createArrival();
+      await notify();
+      return row;
+    }
+
+    return sequelize.transaction(async (transaction) => {
+      const row = await createArrival(transaction);
+      await notify(transaction);
+      return row;
+    });
   }
 
   /** Ordered stops of the trip's route, tenant-pinned. */

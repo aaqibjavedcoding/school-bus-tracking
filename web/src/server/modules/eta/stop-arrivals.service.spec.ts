@@ -1192,3 +1192,90 @@ describe('selectProgressionCandidate', () => {
     assert.equal(chosen.stop.id, STOP_1);
   });
 });
+
+describe('StopArrivalsService arrival → notification durability (fix D)', () => {
+  it('persists the arrival and the notification fan-out in one transaction', async () => {
+    const clock = clockFrom('2026-09-18T06:00:00.000Z');
+    const harness = makeArrivalsHarness({ withTransaction: true });
+    const trip = asTrip(makeTrip());
+
+    await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    const recorded = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+
+    assert.ok(recorded, 'the arrival is recorded');
+    assert.equal(harness.transaction?.stats.started, 1, 'exactly one transaction');
+    assert.equal(harness.transaction?.stats.committed, 1);
+    assert.equal(harness.transaction?.stats.rolledBack, 0);
+    assert.equal(harness.arrivals.rows.length, 1, 'the arrival row exists');
+    assert.equal(harness.arrivalNotifications.length, 1, 'and its notification intent');
+    assert.ok(
+      harness.notificationCalls[0].transaction,
+      'the fan-out joined the arrival transaction',
+    );
+  });
+
+  it('rolls the arrival back when the notification fan-out fails (no committed arrival without intent)', async () => {
+    const clock = clockFrom('2026-09-18T06:00:00.000Z');
+    const harness = makeArrivalsHarness({
+      withTransaction: true,
+      notificationError: new Error('notification insert failed'),
+    });
+    const trip = asTrip(makeTrip());
+
+    // Fix 1 only accrues evidence; fixes 2 and 3 try to record — and roll back.
+    const first = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    const second = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    const third = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+
+    assert.equal(first, null, 'the fix yields no recorded arrival');
+    assert.equal(second, null);
+    assert.equal(third, null);
+    assert.equal(harness.transaction?.stats.rolledBack, 2, 'every attempt rolled back');
+    assert.equal(harness.arrivals.rows.length, 0, 'no arrival survived the rollback');
+    assert.equal(harness.arrivalNotifications.length, 0);
+    assert.equal(
+      harness.broadcasts.filter((b) => b.event === LIVE_TRACKING_EVENTS.stopArrived).length,
+      0,
+      'a rolled-back arrival is never broadcast',
+    );
+  });
+
+  it('recovers on the next fix once the fan-out works again', async () => {
+    const clock = clockFrom('2026-09-18T06:00:00.000Z');
+    const failing = makeArrivalsHarness({
+      withTransaction: true,
+      notificationError: new Error('temporary failure'),
+    });
+    const trip = asTrip(makeTrip());
+    await evaluate(failing, trip, clock.fix(AT_STOP_1), clock.now());
+    assert.equal(failing.arrivals.rows.length, 0);
+
+    // Same trip/fix sequence, healthy notifications service.
+    const healthy = makeArrivalsHarness({ withTransaction: true });
+    await evaluate(healthy, trip, clock.fix(AT_STOP_1), clock.now());
+    const recovered = await evaluate(healthy, trip, clock.fix(AT_STOP_1), clock.now());
+
+    assert.ok(recovered, 'the arrival is recorded on the retry');
+    assert.equal(healthy.arrivals.rows.length, 1);
+    assert.equal(healthy.arrivalNotifications.length, 1);
+  });
+
+  it('does not mark the stop as seen when the transaction rolled back', async () => {
+    const clock = clockFrom('2026-09-18T06:00:00.000Z');
+    const harness = makeArrivalsHarness({
+      withTransaction: true,
+      notificationError: new Error('boom'),
+    });
+    const trip = asTrip(makeTrip());
+
+    // First fix: fails and rolls back.
+    await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    // Second fix after the failure: the evidence must still be able to record.
+    harness.arrivals.rows.length = 0;
+    const service = harness.service as unknown as { seenByTrip: Map<string, Set<string>> };
+    assert.ok(
+      !service.seenByTrip.get(TRIP_A)?.has(STOP_1),
+      'a rolled-back arrival must not enter the in-memory seen set',
+    );
+  });
+});

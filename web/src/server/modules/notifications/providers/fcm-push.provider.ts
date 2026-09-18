@@ -3,11 +3,12 @@ import { cert, initializeApp } from 'firebase-admin/app';
 import type { App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { Messaging, SendResponse } from 'firebase-admin/messaging';
-import type {
-  DeviceDeliveryOutcome,
-  PushDeliveryResult,
-  PushNotificationPayload,
-  PushNotificationProvider,
+import {
+  emptyDeviceOutcome,
+  type DeviceDeliveryOutcome,
+  type PushDeliveryResult,
+  type PushNotificationPayload,
+  type PushNotificationProvider,
 } from './notification-provider.interface';
 
 /**
@@ -34,6 +35,17 @@ import type {
  * payload for deep-linking. Android targets channel `notifications` (high
  * priority, default sound) — the id the app creates with
  * `setNotificationChannelAsync`.
+ *
+ * ### Deadline propagation
+ *
+ * When the payload carries the notification's absolute deadline
+ * (`expiresAt`), the remaining lifetime is computed **at send time** and
+ * passed as `android.ttl` — the Admin SDK's unit is **milliseconds** (it
+ * converts to FCM's `"<seconds>s"` string itself) and FCM rejects anything
+ * above 4 weeks, so the value is clamped to that documented maximum. A
+ * payload whose deadline already passed is never sent: its tokens are
+ * reported in `deviceOutcome.expired` — FCM cannot retract a notification
+ * that is already displayed, this only avoids delivering a stale queued one.
  */
 export class FcmPushProvider implements PushNotificationProvider {
   readonly name = 'fcm';
@@ -75,12 +87,7 @@ export class FcmPushProvider implements PushNotificationProvider {
       }
     });
 
-    const outcome: DeviceDeliveryOutcome = {
-      delivered: [],
-      retryable: [],
-      invalid: [],
-      notConfigured,
-    };
+    const outcome: DeviceDeliveryOutcome = { ...emptyDeviceOutcome(), notConfigured };
     if (fcmTokens.length === 0) {
       return {
         success: false,
@@ -93,6 +100,21 @@ export class FcmPushProvider implements PushNotificationProvider {
     }
 
     try {
+      // Deadline is re-evaluated here, immediately before the network call:
+      // a retry must keep the *remaining* lifetime, never restart it.
+      const remainingMs = remainingLifetimeMs(payload.expiresAt);
+      if (remainingMs !== null && remainingMs <= 0) {
+        outcome.expired.push(...fcmTokens);
+        return {
+          success: false,
+          provider: this.name,
+          error: 'Notification deadline passed before the FCM send',
+          retryable: false,
+          delivery: { retryable: false, permanent: true },
+          deviceOutcome: outcome,
+        };
+      }
+
       const messaging = this.messaging();
       const response = await messaging.sendEachForMulticast({
         tokens: fcmTokens,
@@ -103,6 +125,12 @@ export class FcmPushProvider implements PushNotificationProvider {
         data: toDataStrings(payload.data),
         android: {
           priority: payload.priority === 'high' ? 'high' : 'normal',
+          // Only bounded when a deadline is known: without one, FCM's own
+          // default TTL applies (an unbounded TTL would keep a proximity
+          // alert deliverable long after the trip ended).
+          ...(remainingMs !== null
+            ? { ttl: Math.min(Math.max(1, Math.floor(remainingMs)), FCM_MAX_TTL_MS) }
+            : {}),
           notification: {
             channelId: FcmPushProvider.channelId,
             sound: 'default',
@@ -170,22 +198,35 @@ export class FcmPushProvider implements PushNotificationProvider {
       };
     } catch (error) {
       // Provider/auth/network errors must never propagate — the caller keeps
-      // the notification flow alive and records the failure.
-      this.logger.warn(
-        `FCM send failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      // the notification flow alive and records the failure. The class matters
+      // though: a credential/payload problem is not a device problem, so the
+      // tokens are never retired and the outbox stops retrying a message FCM
+      // will always refuse.
+      const code = errorCodeOf(error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`FCM send failed (${code ?? 'unknown'}): ${message}`);
+
+      const attemptOutcome: DeviceDeliveryOutcome = {
+        ...emptyDeviceOutcome(),
+        notConfigured,
+      };
+      const failureClass = classifyFcmError(code);
+      attemptOutcome[failureClass].push(...fcmTokens);
+      if (failureClass === 'misconfigured') {
+        attemptOutcome.misconfiguredReason = message;
+      } else if (failureClass === 'permanent') {
+        attemptOutcome.permanentReason = message;
+      }
       return {
         success: false,
         provider: this.name,
-        error: error instanceof Error ? error.message : String(error),
-        retryable: true,
-        delivery: { retryable: true, permanent: false },
-        deviceOutcome: {
-          delivered: [],
-          retryable: [...fcmTokens],
-          invalid: [],
-          notConfigured,
+        error: message,
+        retryable: failureClass === 'retryable',
+        delivery: {
+          retryable: failureClass === 'retryable',
+          permanent: failureClass !== 'retryable',
         },
+        deviceOutcome: attemptOutcome,
       };
     }
   }
@@ -218,6 +259,52 @@ export class FcmPushProvider implements PushNotificationProvider {
     this.messagingInstance = instance;
     return instance;
   }
+}
+
+/** FCM's documented maximum `ttl` (4 weeks) in the SDK's millisecond unit. */
+export const FCM_MAX_TTL_MS = 2_419_200_000;
+
+/** Remaining lifetime in ms, or `null` when no deadline is known. */
+function remainingLifetimeMs(expiresAt: Date | null | undefined): number | null {
+  if (!expiresAt) {
+    return null;
+  }
+  const deadline = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  if (!Number.isFinite(deadline)) {
+    return null;
+  }
+  return deadline - Date.now();
+}
+
+function errorCodeOf(error: unknown): string | null {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : null;
+  }
+  return null;
+}
+
+/** Where an FCM-level (non per-token) error belongs in the outcome buckets. */
+export function classifyFcmError(code: string | null): 'retryable' | 'misconfigured' | 'permanent' {
+  if (!code) {
+    return 'retryable';
+  }
+  if (
+    [
+      'messaging/invalid-payload',
+      'messaging/invalid-argument',
+      'messaging/payload-size-limit-exceeded',
+    ].includes(code)
+  ) {
+    return 'permanent';
+  }
+  if (code.startsWith('app/') || code.startsWith('messaging/authentication')) {
+    // Credential/app configuration problem (e.g. app/invalid-credential,
+    // app/invalid-app-id) — every device fails until it is fixed, so tokens
+    // must survive and the row must not be retried forever.
+    return 'misconfigured';
+  }
+  return 'retryable';
 }
 
 function accumulateOutcome(

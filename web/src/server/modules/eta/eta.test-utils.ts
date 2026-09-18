@@ -274,13 +274,65 @@ export function minimalEtaResponse(
   };
 }
 
+export interface ArrivalNotificationCall {
+  input: StopArrivalNotificationInput;
+  transaction?: unknown;
+}
+
+/**
+ * Minimal fake of the Sequelize connection for the arrival transaction
+ * (fix D): records begin/commit/rollback and restores the in-memory arrival
+ * store on rollback, exactly like PostgreSQL discards the uncommitted rows.
+ */
+export function makeFakeSequelizeTransaction(arrivals: ReturnType<typeof makeArrivalsRepo>) {
+  const stats = { started: 0, committed: 0, rolledBack: 0 };
+  const transactions: Array<{ id: string; afterCommit: Array<() => void> }> = [];
+  const sequelize = {
+    async transaction<T>(callback: (transaction: unknown) => Promise<T>): Promise<T> {
+      stats.started += 1;
+      const snapshotRows = [...arrivals.rows];
+      const snapshotCreated = arrivals.created.length;
+      const record = { id: `tx-${stats.started}`, afterCommit: [] as Array<() => void> };
+      transactions.push(record);
+      const transaction = {
+        id: record.id,
+        afterCommit: (callback: () => void) => {
+          record.afterCommit.push(callback);
+        },
+      };
+      try {
+        const value = await callback(transaction);
+        stats.committed += 1;
+        // Commit: the queued after-commit work runs only now.
+        for (const callback of record.afterCommit) {
+          callback();
+        }
+        return value;
+      } catch (error) {
+        // Rollback: uncommitted rows and queued side-effects disappear.
+        arrivals.rows.length = 0;
+        arrivals.rows.push(...snapshotRows);
+        arrivals.created.length = snapshotCreated;
+        record.afterCommit = [];
+        stats.rolledBack += 1;
+        throw error;
+      }
+    },
+  };
+  return { sequelize, stats, transactions };
+}
+
 export interface ArrivalsHarness {
   service: StopArrivalsService;
   stopsRows: StubStop[];
   arrivals: ReturnType<typeof makeArrivalsRepo>;
   arrivalNotifications: StopArrivalNotificationInput[];
+  /** Every notification-service call, including the transaction it joined. */
+  notificationCalls: ArrivalNotificationCall[];
   etaCalls: TripEtaComputeInput[];
   broadcasts: Array<{ room: string; event: string; payload: unknown }>;
+  /** Present when the harness runs the transactional path. */
+  transaction?: ReturnType<typeof makeFakeSequelizeTransaction>;
 }
 
 /** Builds a real `StopArrivalsService` with in-memory repos and captured doubles. */
@@ -292,12 +344,20 @@ export function makeArrivalsHarness(
     eta?: (input: TripEtaComputeInput) => Promise<TripEtaResponse>;
     /** Partial override of the production detection defaults. */
     config?: Partial<ArrivalDetectionConfig>;
+    /**
+     * When set, the notifications fan-out throws this error (fault injection:
+     * a crash or DB failure while the arrival transaction is open).
+     */
+    notificationError?: Error;
+    /** Run the service with a fake connection so it opens a real transaction. */
+    withTransaction?: boolean;
   } = {},
 ): ArrivalsHarness {
   const stopsRows = options.stops ?? DEFAULT_STOPS;
   const stopsStore = makeStopsRepo(stopsRows);
   const arrivals = makeArrivalsRepo(options.arrivals ?? [], { createError: options.createError });
   const arrivalNotifications: StopArrivalNotificationInput[] = [];
+  const notificationCalls: ArrivalNotificationCall[] = [];
   const etaCalls: TripEtaComputeInput[] = [];
   const broadcasts: ArrivalsHarness['broadcasts'] = [];
 
@@ -312,10 +372,19 @@ export function makeArrivalsHarness(
   } as unknown as EtaService;
 
   const notifications = {
-    notifyStopArrival: async (input: StopArrivalNotificationInput): Promise<void> => {
+    notifyStopArrival: async (
+      input: StopArrivalNotificationInput,
+      callOptions: { transaction?: unknown } = {},
+    ): Promise<void> => {
+      notificationCalls.push({ input, transaction: callOptions.transaction });
+      if (options.notificationError) {
+        throw options.notificationError;
+      }
       arrivalNotifications.push(input);
     },
   } as never;
+
+  const transaction = options.withTransaction ? makeFakeSequelizeTransaction(arrivals) : undefined;
 
   const service = new StopArrivalsService(
     stopsStore.repo as unknown as typeof Stop,
@@ -323,12 +392,22 @@ export function makeArrivalsHarness(
     eta,
     notifications,
     { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, ...options.config },
+    (transaction?.sequelize ?? null) as never,
   );
   service.attachBroadcaster((room, event, payload) => {
     broadcasts.push({ room, event, payload });
   });
 
-  return { service, stopsRows, arrivals, arrivalNotifications, etaCalls, broadcasts };
+  return {
+    service,
+    stopsRows,
+    arrivals,
+    arrivalNotifications,
+    notificationCalls,
+    etaCalls,
+    broadcasts,
+    transaction,
+  };
 }
 
 /** A stub trip row cast to the ORM type the services accept. */

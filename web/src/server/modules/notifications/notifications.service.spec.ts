@@ -1091,7 +1091,7 @@ describe('NotificationsService dedup-key idempotency (Phase 2)', () => {
     assert.ok(forParentA[0].dedup_key, 'row carries its stable dedup key');
   });
 
-  it('backfills null dedup keys gracefully in the stub repository shape', async () => {
+  it('keys a stop-arrival row with the full 64-char event digest (no truncation)', async () => {
     const { service, rows } = makeService();
     await service.notifyStopArrival({
       school_id: SCHOOL_A,
@@ -1101,8 +1101,27 @@ describe('NotificationsService dedup-key idempotency (Phase 2)', () => {
     });
     assert.ok(rows.length >= 1);
     for (const row of rows) {
-      assert.ok(row.dedup_key && row.dedup_key.startsWith('STOP_ARRIVED:'));
+      assert.ok(row.dedup_key && /^[0-9a-f]{64}$/.test(row.dedup_key), 'sha-256 digest');
     }
+  });
+
+  it('anchors the delivery deadline to the event clock, not the row creation time', async () => {
+    const { service, rows } = makeService();
+    const eventAt = new Date(Date.now() - 9 * 60 * 1000); // 9 minutes ago
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: eventAt,
+    });
+
+    const row = rows.find((candidate) => candidate.user_id === PARENT_A);
+    assert.ok(row?.push_expires_at);
+    assert.equal(row.push_expires_at.getTime(), eventAt.getTime() + 10 * 60 * 1000);
+    assert.ok(
+      row.push_expires_at.getTime() < Date.now() + 2 * 60 * 1000,
+      'a delayed alert keeps the remaining window instead of a fresh 10 minutes',
+    );
   });
 });
 
@@ -1466,5 +1485,59 @@ describe('NotificationsService run-aware recipients (Phase 1)', () => {
     });
 
     assert.equal(rows.length, 0);
+  });
+});
+
+describe('NotificationsService transactional arrival fan-out (fix D)', () => {
+  const arrivalInput = {
+    school_id: SCHOOL_A,
+    trip_id: TRIP_A,
+    stop: { id: STOP_1, name: 'Green Park Stop' },
+    occurred_at: new Date(),
+  };
+
+  function fakeTransaction() {
+    const afterCommit: Array<() => void> = [];
+    return {
+      transaction: {
+        afterCommit: (callback: () => void) => {
+          afterCommit.push(callback);
+        },
+      } as never,
+      runAfterCommit: () => afterCommit.forEach((callback) => callback()),
+    };
+  }
+
+  it('writes the rows inside the supplied transaction and defers broadcast to afterCommit', async () => {
+    const { service, rows, broadcast } = makeService();
+    const { transaction, runAfterCommit } = fakeTransaction();
+
+    await service.notifyStopArrival(arrivalInput, { transaction });
+
+    assert.ok(rows.length >= 1, 'rows are written in the transaction');
+    assert.equal(broadcast.calls.length, 0, 'nothing is broadcast before the commit');
+    runAfterCommit();
+    assert.equal(broadcast.calls.length, rows.length, 'one socket event per committed row');
+  });
+
+  it('propagates a fan-out failure so the caller transaction rolls back', async () => {
+    const { service, rows } = makeService({ createError: new Error('insert failed') });
+    const { transaction, runAfterCommit } = fakeTransaction();
+
+    await assert.rejects(
+      () => service.notifyStopArrival(arrivalInput, { transaction }),
+      /insert failed/,
+    );
+    runAfterCommit();
+    assert.equal(rows.length, 0, 'no notification row survives the failure');
+  });
+
+  it('stays best-effort without a transaction (attendance / trip-status callers)', async () => {
+    const { service, rows, broadcast } = makeService();
+
+    await service.notifyStopArrival(arrivalInput);
+
+    assert.ok(rows.length >= 1);
+    assert.equal(broadcast.calls.length, rows.length, 'broadcast happens inline');
   });
 });

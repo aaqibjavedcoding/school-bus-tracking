@@ -31,7 +31,7 @@ export interface NotificationAttributes extends BaseModelAttributes {
   push_status: ExternalDeliveryStatus;
   email_status: ExternalDeliveryStatus;
   sms_status: ExternalDeliveryStatus;
-  /** How many push attempts have failed so far. */
+  /** How many push delivery attempts this row has made (0 = never attempted). */
   delivery_retry_count: number;
   last_delivery_attempt_at: Date | null;
   delivery_failure_reason: string | null;
@@ -41,8 +41,17 @@ export interface NotificationAttributes extends BaseModelAttributes {
   delivery_failure_kind: 'transient' | 'permanent' | null;
   /** Server deadline after which the outbox stops trying (event expiry). */
   push_expires_at: Date | null;
-  /** ISO string of every device the provider accepted the push for. */
+  /**
+   * Device tokens the provider *accepted* the push for, accumulated across
+   * every attempt of the row (accepted ≠ displayed on the phone).
+   */
   delivered_tokens: string[] | null;
+  /**
+   * Device tokens still owed a provider-accepted delivery (the per-device
+   * retry state). `null` before the first attempt — the worker then targets
+   * every currently active device of the recipient.
+   */
+  delivery_pending_tokens: string[] | null;
   /** Human-readable reason when delivery was abandoned (expired/permanent). */
   delivery_abandoned_reason: string | null;
   /** Stable natural key of the event (null for legacy rows). */
@@ -67,6 +76,7 @@ export type NotificationCreationAttributes = Optional<
   | 'delivery_failure_kind'
   | 'push_expires_at'
   | 'delivered_tokens'
+  | 'delivery_pending_tokens'
   | 'delivery_abandoned_reason'
   | 'next_attempt_at'
   | 'dedup_key'
@@ -207,6 +217,9 @@ export class Notification extends BaseModel<
 
   @Column({ type: DataType.ARRAY(DataType.STRING(1024)), allowNull: true })
   declare delivered_tokens: string[] | null;
+
+  @Column({ type: DataType.ARRAY(DataType.STRING(1024)), allowNull: true })
+  declare delivery_pending_tokens: string[] | null;
 
   @Column({ type: DataType.STRING(200), allowNull: true })
   declare delivery_abandoned_reason: string | null;

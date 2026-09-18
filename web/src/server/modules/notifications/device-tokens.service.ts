@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, type Transaction } from 'sequelize';
 import type {
   DeviceTokenRegisterRequest,
   DeviceTokenResponse,
@@ -111,10 +111,19 @@ export class DeviceTokensService {
   }
 
   /**
-   * Deactivates tokens FCM reported as unregistered / invalid so they can
+   * Deactivates tokens FCM/APNs reported as unregistered / invalid so they can
    * never be targeted again. No-op when the list is empty.
+   *
+   * `options.transaction` lets the outbox retire a token in the *same*
+   * transaction as the delivery outcome it belongs to, so a rolled-back
+   * attempt cannot silently deactivate a device.
    */
-  async deactivateTokens(schoolId: string, userId: string, tokens: string[]): Promise<void> {
+  async deactivateTokens(
+    schoolId: string,
+    userId: string,
+    tokens: string[],
+    options: { transaction?: Transaction } = {},
+  ): Promise<void> {
     if (tokens.length === 0) {
       return;
     }
@@ -127,6 +136,7 @@ export class DeviceTokensService {
           token: { [Op.in]: tokens },
           is_active: true,
         },
+        ...(options.transaction ? { transaction: options.transaction } : {}),
       },
     );
   }

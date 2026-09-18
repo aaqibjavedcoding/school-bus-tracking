@@ -4,7 +4,7 @@ import type {
   PushDeliveryResult,
   PushNotificationPayload,
 } from './notification-provider.interface';
-import { PushDeliveryRouter } from './push-delivery-router';
+import { PushDeliveryRouter, emptyDeviceOutcome } from './push-delivery-router';
 
 class RecordingProvider {
   readonly name: string;
@@ -28,10 +28,8 @@ class RecordingProvider {
       messageId: `${this.name}-ok`,
       retryable: false,
       deviceOutcome: {
+        ...emptyDeviceOutcome(),
         delivered: [...payload.deviceTokens],
-        retryable: [],
-        invalid: [],
-        notConfigured: [],
       },
     };
   }
@@ -123,10 +121,9 @@ describe('PushDeliveryRouter platform partitioning', () => {
       retryable: false,
       invalidTokens: [p.deviceTokens[1]],
       deviceOutcome: {
+        ...emptyDeviceOutcome(),
         delivered: [p.deviceTokens[0]],
-        retryable: [],
         invalid: [p.deviceTokens[1]],
-        notConfigured: [],
       },
     }));
     const apns = new RecordingProvider('apns');

@@ -6,6 +6,7 @@ import {
   decideDelivery,
   deliveryDedupKey,
   deliveryExpiry,
+  type DeliveryAttempt,
 } from './delivery-policy';
 import { emptyDeviceOutcome } from '../providers';
 
@@ -15,6 +16,19 @@ const POLICY = {
   expiryMs: 600_000,
   batchSize: 50,
 };
+
+function attempt(overrides: Partial<DeliveryAttempt> = {}): DeliveryAttempt {
+  return {
+    attemptNumber: 1,
+    attempted: [],
+    outcome: emptyDeviceOutcome(),
+    alreadyAccepted: [],
+    dropped: [],
+    hasActiveDevices: true,
+    deadlinePassed: false,
+    ...overrides,
+  };
+}
 
 describe('delivery-policy: backoffDelayMs', () => {
   it('doubles per attempt from the base, starting at attempt 1', () => {
@@ -37,98 +51,306 @@ describe('delivery-policy: backoffDelayMs', () => {
 });
 
 describe('delivery-policy: deliveryExpiry', () => {
-  it('adds the configured expiry window to the creation clock', () => {
-    const createdAt = Date.UTC(2026, 8, 1, 6, 31, 0);
-    const expiry = deliveryExpiry(createdAt, POLICY);
-    assert.equal(expiry.getTime(), createdAt + 600_000);
+  it('runs the window from the *event* clock, not the row creation time', () => {
+    const eventAt = Date.UTC(2026, 8, 1, 6, 31, 0);
+    const expiry = deliveryExpiry(eventAt, POLICY);
+    assert.equal(expiry.getTime(), eventAt + 600_000);
+  });
+
+  it('does not refresh an old event created late (already past its window)', () => {
+    const eventAt = Date.now() - 30 * 60 * 1000;
+    const expiry = deliveryExpiry(eventAt, POLICY);
+    assert.ok(expiry.getTime() < Date.now(), 'an obsolete event must expire immediately');
   });
 });
 
 describe('delivery-policy: deliveryDedupKey', () => {
-  it('joins type/trip/student/stop into a stable 64-char-max key', () => {
+  it('is a stable 64-char digest of the full event identity', () => {
     const key = deliveryDedupKey({
       type: 'STUDENT_BOARDED',
       tripId: 'trip-1',
       studentId: 'student-1',
       stopId: 'stop-1',
     });
-    assert.equal(key, 'STUDENT_BOARDED:trip-1:student-1:stop-1');
+    assert.equal(key.length, 64);
+    assert.match(key, /^[0-9a-f]{64}$/);
+    assert.equal(
+      key,
+      deliveryDedupKey({
+        type: 'STUDENT_BOARDED',
+        tripId: 'trip-1',
+        studentId: 'student-1',
+        stopId: 'stop-1',
+      }),
+      'same event → same key',
+    );
+  });
 
-    const huge = deliveryDedupKey({
-      type: 'STUDENT_BOARDED',
-      tripId: 'x'.repeat(80),
-      studentId: 'y'.repeat(80),
-      stopId: 'z'.repeat(80),
+  it('keeps identifiers that differ only after the old 64-char truncation distinct', () => {
+    const sharedPrefix = 'x'.repeat(80);
+    const keyA = deliveryDedupKey({
+      type: 'STOP_ARRIVED',
+      tripId: sharedPrefix,
+      studentId: null,
+      stopId: `${sharedPrefix}-stop-a`,
     });
-    assert.equal(huge.length, 64);
+    const keyB = deliveryDedupKey({
+      type: 'STOP_ARRIVED',
+      tripId: sharedPrefix,
+      studentId: null,
+      stopId: `${sharedPrefix}-stop-b`,
+    });
+    assert.notEqual(keyA, keyB, 'a truncated composite key would have collided here');
+  });
+
+  it('distinguishes every component (type/trip/student/stop)', () => {
+    const base = { type: 'STOP_ARRIVED', tripId: 't', studentId: 's', stopId: 'p' };
+    const keys = new Set([
+      deliveryDedupKey(base),
+      deliveryDedupKey({ ...base, type: 'STUDENT_BOARDED' }),
+      deliveryDedupKey({ ...base, tripId: 't2' }),
+      deliveryDedupKey({ ...base, studentId: 's2' }),
+      deliveryDedupKey({ ...base, stopId: 'p2' }),
+      deliveryDedupKey({ ...base, studentId: null }),
+    ]);
+    assert.equal(keys.size, 6);
   });
 });
 
-describe('delivery-policy: decideDelivery', () => {
-  it('marks sent when at least one device was accepted (partial success is sent)', () => {
+describe('delivery-policy: decideDelivery — complete vs partial success', () => {
+  it('is complete only when every targeted device was accepted', () => {
     const decision = decideDelivery(
-      { ...emptyDeviceOutcome(), delivered: ['tok-a'] },
-      true,
+      attempt({
+        attempted: ['tok-a', 'tok-b'],
+        outcome: { ...emptyDeviceOutcome(), delivered: ['tok-a', 'tok-b'] },
+      }),
       POLICY,
-      1,
     );
-    assert.deepEqual(decision, {
-      status: 'sent',
-      reason: null,
-      kind: null,
-      abandon: false,
-      deliveredTokens: ['tok-a'],
-    });
+    assert.equal(decision.status, 'sent');
+    assert.equal(decision.complete, true);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a', 'tok-b']);
+    assert.deepEqual(decision.pendingTokens, []);
+    assert.equal(decision.abandon, false);
   });
 
-  it('never claims sent from an empty outcome', () => {
-    const decision = decideDelivery(emptyDeviceOutcome(), true, POLICY, 1);
-    assert.equal(decision.status, 'failed');
-  });
-
-  it('retries a no-device row as transient until max attempts, then permanent+abandon', () => {
-    const before = decideDelivery(emptyDeviceOutcome(), false, POLICY, 3);
-    assert.equal(before.status, 'failed');
-    assert.equal(before.kind, 'transient');
-    assert.equal(before.abandon, false);
-
-    const after = decideDelivery(emptyDeviceOutcome(), false, POLICY, POLICY.maxAttempts);
-    assert.equal(after.kind, 'permanent');
-    assert.equal(after.abandon, true);
-  });
-
-  it('retries retryable devices until max attempts', () => {
-    const retryable = { ...emptyDeviceOutcome(), retryable: ['tok-a'] };
-    const early = decideDelivery(retryable, true, POLICY, 2);
-    assert.equal(early.kind, 'transient');
-    assert.equal(early.abandon, false);
-
-    const gaveUp = decideDelivery(retryable, true, POLICY, POLICY.maxAttempts);
-    assert.equal(gaveUp.kind, 'permanent');
-    assert.equal(gaveUp.abandon, true);
-  });
-
-  it('abandons as not_configured when every device lacks a provider (and none are invalid)', () => {
+  it('keeps retrying the failed device while one device was already accepted', () => {
     const decision = decideDelivery(
-      { ...emptyDeviceOutcome(), notConfigured: ['ios-tok'] },
-      true,
+      attempt({
+        attemptNumber: 1,
+        attempted: ['tok-a', 'tok-b'],
+        outcome: { ...emptyDeviceOutcome(), delivered: ['tok-a'], retryable: ['tok-b'] },
+      }),
       POLICY,
-      1,
+    );
+    assert.equal(decision.status, 'failed', 'the row is not finished yet');
+    assert.equal(decision.kind, 'transient');
+    assert.equal(decision.abandon, false);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a'], 'accepted device is persisted');
+    assert.deepEqual(decision.pendingTokens, ['tok-b'], 'only the failed device is retried');
+    assert.equal(decision.complete, false);
+  });
+
+  it('accumulates an accepted device across attempts instead of re-sending it', () => {
+    const decision = decideDelivery(
+      attempt({
+        attemptNumber: 2,
+        attempted: ['tok-b'],
+        alreadyAccepted: ['tok-a'],
+        outcome: { ...emptyDeviceOutcome(), delivered: ['tok-b'] },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'sent');
+    assert.deepEqual(decision.acceptedTokens, ['tok-a', 'tok-b']);
+    assert.deepEqual(decision.pendingTokens, []);
+  });
+
+  it('reports partial — never sent — when retries run out with a device undelivered', () => {
+    const decision = decideDelivery(
+      attempt({
+        attemptNumber: POLICY.maxAttempts,
+        attempted: ['tok-b'],
+        alreadyAccepted: ['tok-a'],
+        outcome: { ...emptyDeviceOutcome(), retryable: ['tok-b'] },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'partial');
+    assert.equal(decision.kind, 'permanent');
+    assert.equal(decision.abandon, true);
+    assert.equal(decision.complete, false);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a']);
+    assert.deepEqual(decision.pendingTokens, ['tok-b'], 'the undelivered device is recorded');
+    assert.match(String(decision.reason), /Maximum delivery attempts/);
+  });
+
+  it('reports partial when the event window closes with a device undelivered', () => {
+    const decision = decideDelivery(
+      attempt({
+        attemptNumber: 2,
+        attempted: ['tok-b'],
+        alreadyAccepted: ['tok-a'],
+        outcome: { ...emptyDeviceOutcome(), retryable: ['tok-b'] },
+        deadlinePassed: true,
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'partial');
+    assert.equal(decision.abandon, true);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a']);
+  });
+
+  it('reports partial when one device is permanently rejected while another was accepted', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: ['tok-a', 'tok-stale'],
+        outcome: {
+          ...emptyDeviceOutcome(),
+          delivered: ['tok-a'],
+          invalid: ['tok-stale'],
+        },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'partial');
+    assert.equal(decision.complete, false);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a']);
+    assert.deepEqual(decision.pendingTokens, []);
+    assert.match(String(decision.reason), /invalid token/);
+  });
+});
+
+describe('delivery-policy: decideDelivery — failure classification', () => {
+  it('retries a device that failed transiently while another token was invalid (invalid never blocks)', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: ['tok-stale', 'tok-b'],
+        outcome: {
+          ...emptyDeviceOutcome(),
+          invalid: ['tok-stale'],
+          retryable: ['tok-b'],
+        },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'failed');
+    assert.equal(decision.kind, 'transient');
+    assert.equal(decision.abandon, false);
+    assert.deepEqual(decision.pendingTokens, ['tok-b']);
+    assert.deepEqual(decision.acceptedTokens, []);
+  });
+
+  it('abandons permanently when every token is invalid', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: ['tok-a', 'tok-b'],
+        outcome: { ...emptyDeviceOutcome(), invalid: ['tok-a', 'tok-b'] },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'failed');
+    assert.equal(decision.kind, 'permanent');
+    assert.equal(decision.abandon, true);
+  });
+
+  it('abandons as not_configured when every device lacks a provider', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: ['ios-tok'],
+        outcome: { ...emptyDeviceOutcome(), notConfigured: ['ios-tok'] },
+      }),
+      POLICY,
     );
     assert.equal(decision.status, 'not_configured');
     assert.equal(decision.kind, 'permanent');
     assert.equal(decision.abandon, true);
   });
 
-  it('abandons permanently when every device token is invalid', () => {
+  it('treats a provider misconfiguration as terminal without retiring the token', () => {
     const decision = decideDelivery(
-      { ...emptyDeviceOutcome(), invalid: ['tok-a', 'tok-b'] },
-      true,
+      attempt({
+        attemptNumber: 2,
+        attempted: ['ios-tok'],
+        outcome: {
+          ...emptyDeviceOutcome(),
+          misconfigured: ['ios-tok'],
+          misconfiguredReason: 'InvalidProviderToken',
+        },
+      }),
       POLICY,
-      1,
+    );
+    assert.equal(decision.status, 'not_configured');
+    assert.equal(decision.abandon, true);
+    assert.deepEqual(decision.acceptedTokens, []);
+    assert.deepEqual(decision.pendingTokens, ['ios-tok'], 'kept for audit, never deactivated');
+    assert.match(String(decision.reason), /InvalidProviderToken/);
+  });
+
+  it('treats a permanently rejected message as terminal without touching the token', () => {
+    const decision = decideDelivery(
+      attempt({
+        attemptNumber: 2,
+        attempted: ['android-tok'],
+        outcome: {
+          ...emptyDeviceOutcome(),
+          permanent: ['android-tok'],
+          permanentReason: 'PayloadTooLarge',
+        },
+      }),
+      POLICY,
     );
     assert.equal(decision.status, 'failed');
     assert.equal(decision.kind, 'permanent');
     assert.equal(decision.abandon, true);
+    assert.match(String(decision.reason), /PayloadTooLarge/);
+  });
+
+  it('treats a deadline-skipped device as terminal', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: ['tok-a'],
+        outcome: { ...emptyDeviceOutcome(), expired: ['tok-a'] },
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'failed');
+    assert.equal(decision.abandon, true);
+  });
+
+  it('retries a row whose recipient has no device yet, then abandons at the limit', () => {
+    const noDevice = decideDelivery(attempt({ attempted: [], hasActiveDevices: false }), POLICY);
+    assert.equal(noDevice.status, 'failed');
+    assert.equal(noDevice.kind, 'transient');
+    assert.equal(noDevice.abandon, false);
+
+    const gaveUp = decideDelivery(
+      attempt({ attemptNumber: POLICY.maxAttempts, attempted: [], hasActiveDevices: false }),
+      POLICY,
+    );
+    assert.equal(gaveUp.kind, 'permanent');
+    assert.equal(gaveUp.abandon, true);
+  });
+
+  it('never claims success when a provider forgets to account for an attempted token', () => {
+    const decision = decideDelivery(attempt({ attempted: ['tok-a'] }), POLICY);
+    assert.equal(decision.status, 'failed');
+    assert.equal(decision.kind, 'transient');
+    assert.deepEqual(decision.pendingTokens, ['tok-a']);
+  });
+
+  it('reports partial when an accepted row loses its remaining device to rotation', () => {
+    const decision = decideDelivery(
+      attempt({
+        attempted: [],
+        alreadyAccepted: ['tok-a'],
+        dropped: ['tok-rotated'],
+        hasActiveDevices: true,
+      }),
+      POLICY,
+    );
+    assert.equal(decision.status, 'partial');
+    assert.equal(decision.abandon, true);
+    assert.deepEqual(decision.acceptedTokens, ['tok-a']);
+    assert.match(String(decision.reason), /no longer registered/);
   });
 });
