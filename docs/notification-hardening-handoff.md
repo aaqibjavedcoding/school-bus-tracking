@@ -140,11 +140,113 @@ only.
 - `STOP_ARRIVED` type name retained (proximity copy only); clients should
   key off `payload.proximity_only` if they branch on semantics.
 
-## What remains for Phase 2
+## Phase 2 — durable push delivery (implemented)
 
-Push-provider changes (FCM/APNs hardening, token lifecycle edge cases),
-iOS-specific fixes, delivery workers/retries, and any ETA smoothing or
-parallel-road disambiguation beyond straight-line GPS. Suggested follow-ups
-from this phase: admin UI surfacing of the new tunables, per-school arrival
-config overrides, and metrics for rejection reasons (`stale`/`future`/
-`inaccurate`/`implausible-jump` counts).
+Phase 2 (this PR) replaces the old "wire-once FCM call inside the request
+path" with a **DB-backed outbox over the existing `notifications` table**,
+plus the **platform-correct push rails** (Android FCM + iOS direct APNs).
+No queue service, no new billable Firebase products, no paid provider.
+
+### Outbox delivery (`web/src/server/modules/notifications/outbox/`)
+
+- Creation persists the row **and** its delivery work atomically:
+  `push_status = 'pending'`, `next_attempt_at` (due), `push_expires_at`
+  (event window) and a stable `dedup_key`. A crash after event persistence
+  recovers on restart because the work is a column state, not an in-flight
+  call. The attendance/trip/arrival paths never block on per-parent push.
+- `DeliveryWorker` sweeps due rows (default every 4s), claims them **per
+  school** under `pg_try_advisory_xact_lock` (same class-of-lock trick as the
+  retention worker) so N API instances never double-deliver; the lock is
+  transaction-scoped and auto-releases on commit/rollback, so a crashed
+  worker's rows become claimable again immediately.
+- Transient failures retry with **bounded exponential backoff**
+  (`2s · 2^attempt`, capped 90s, max 8 attempts). Permanent failures
+  (every token rejected) and expired rows are abandoned with a reason.
+- Event expiry: `push_expires_at` (default 10 min) plus a live check — a
+  `STOP_ARRIVED` proximity alert is abandoned once its trip is no longer
+  tracking, never delivered after the trip ends.
+- Per-device outcomes: `delivered_tokens` stores the provider-_accepted_
+  devices (partial success is `sent`); `delivery.delivered_tokens` in the
+  response is the accepted count, never a claim of on-device display.
+- Invalid/unregistered tokens (FCM `UNREGISTERED` /
+  `messaging/registration-token-not-registered`; APNs `410`/`400`) are
+  retired immediately via `deactivateTokens`.
+- NoOp provider rows become `push_status = 'not_configured'` immediately —
+  local dev/CI never pretend success.
+
+### Platform-correct push rails (`providers/`)
+
+- `PushDeliveryRouter` partitions targets by `platform`: **Android → FCM**,
+  **iOS → direct APNs**, no metadata → FCM (legacy fallback). A raw APNs
+  token is therefore **never sent as an FCM registration token** — the exact
+  bug found in Phase 1 (`getDevicePushTokenAsync()` returns an APNs token on
+  iOS).
+- `FcmPushProvider` (free) — Android-only `sendEachForMulticast` on channel
+  `notifications`, notification + string-only `data`, high/normal priority.
+- `ApnsDirectProvider` (free, no vendor) — one HTTP/2 request per token to
+  `api.push.apple.com` (sandbox outside production), ES256 provider JWT from
+  an `.p8` key (`node:crypto`), 410/400→invalid, 403/429/5xx→retryable.
+- iOS tokens with no APNs credentials are reported `not_configured` —
+  permanent for this deployment, never "sent".
+
+### Env / config
+
+- FCM: `FIREBASE_SERVICE_ACCOUNT_JSON` (+ optional `FIREBASE_PROJECT_ID`).
+- APNs: `APNS_KEY_PEM`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`,
+  `APNS_PRODUCTION`.
+- Outbox: `NOTIFICATION_OUTBOX_ENABLED`, `NOTIFICATION_OUTBOX_INTERVAL_MS`
+  (4000), `NOTIFICATION_OUTBOX_INITIAL_DELAY_MS` (3000),
+  `NOTIFICATION_OUTBOX_BATCH_SIZE` (50), `NOTIFICATION_DELIVERY_MAX_ATTEMPTS`
+  (8), `NOTIFICATION_DELIVERY_BASE_BACKOFF_MS` (2000),
+  `NOTIFICATION_DELIVERY_EXPIRY_MS` (10 min).
+
+### Tests (Phase 2, all green)
+
+- `outbox/delivery-policy.spec.ts` — backoff bounds, expiry, dedup key
+  length, `decideDelivery` partial-success / not-configured / permanent.
+- `outbox/delivery-worker.spec.ts` — claim/send/sent, advisory-lock skip,
+  expiry abandon, trip-ended abandon, transient backoff, invalid-token
+  retirement, partial success, throwing provider degrades to retryable.
+- `outbox/delivery.scheduler.spec.ts` — start/restart cadence, duplicate
+  registration, in-flight tick skip, throw-resilience, env disable, no-DB
+  refusal.
+- `providers/push-delivery-router.spec.ts` — android→FCM/ios→APNs/legacy→FCM
+  partitioning, ios without APNs → `not_configured`, throwing rail → retryable.
+- `providers/apns-direct.provider.spec.ts` — alert headers, 410/400 invalid,
+  403/429/5xx retryable, mixed batch, Android-token refusal.
+- `providers/fcm-push.provider.spec.ts` — updated to Phase 2 semantics
+  (all-invalid is permanent), plus the propagated SDK error message.
+- `providers/push-provider.factory.spec.ts` — NoOp default, router on
+  FCM/APNs config, partial-APNs falls back to NoOp honestly.
+- `notifications.service.spec.ts` — rewritten push-delivery block for outbox
+  semantics (creation enqueues, never sends inline; NoOp → `not_configured`;
+  `delivery` projection) + dedup-key idempotency backstop.
+- Full `web` server suite **1819/1819**, `test:web` **236/236**,
+  `typecheck:server` and `build:server` clean, root `lint` clean.
+
+### Smoke
+
+- `smoke-notifications` 18/18 (was 15/18 at HEAD — stubbed the new
+  `runs`/`deviceTokens.findActiveTokenTargets`/`deliveryPolicy` surface).
+- `smoke-eta-arrivals` 15/16; the one remaining failure is pre-existing at
+  HEAD (a `Run` model initialization issue inside the smoke's token-flow
+  replica), independent of this phase. The two stale "Bus arrived at …" copy
+  assertions were updated to the committed Phase 1 "Bus is near …" copy.
+
+### Remaining prerequisites (honestly reported)
+
+- Android FCM requires a `firebase-admin` service-account JSON. FCM delivery
+  is free; no billing-enabled account is needed for it.
+- iOS delivers via direct APNs (free) but requires real Apple credentials:
+  an APNs auth key (`.p8`) + Key ID + Team ID + the app's bundle id — issued
+  by any (free or paid) Apple developer account. Building/signing for a real
+  device additionally requires Apple code signing (never bypassed here), and
+  the APNs auth key must correspond to the bundle id used to sign the app.
+- Expo Go cannot receive remote push (SDK 53 removed the native modules);
+  a development build is required.
+
+## Suggested follow-ups (not in scope)
+
+Admin UI surfacing of the tunables, per-school arrival config overrides,
+metrics/alerts for delivery abandonment reasons, and any ETA smoothing or
+parallel-road disambiguation beyond straight-line GPS.

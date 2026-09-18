@@ -1195,6 +1195,14 @@ export enum NotificationReadFilter {
 export const NOTIFICATION_READ_FILTER_VALUES: NotificationReadFilter[] =
   Object.values(NotificationReadFilter);
 
+/**
+ * Delivery state of one external push channel, surfaced on the notification
+ * row so expectations stay honest: `sent` means the provider accepted the
+ * message — never that the device displayed it (FCM/APNs offer no such
+ * confirmation).
+ */
+export type ExternalDeliveryStatus = 'pending' | 'sent' | 'failed' | 'not_configured';
+
 /** Parent-facing projection of one stored notification. */
 export interface NotificationResponse {
   id: string;
@@ -1215,6 +1223,12 @@ export interface NotificationResponse {
   is_read: boolean;
   created_at: string;
   read_at: string | null;
+  /**
+   * External push delivery state (Phase 2). `sent` means the push provider
+   * *accepted* the message, never that the device displayed it. Omitted for
+   * rows created before the delivery pipeline existed.
+   */
+  delivery?: Record<string, unknown> | null;
 }
 
 /** Query string of `GET /api/v1/parent/notifications`. */

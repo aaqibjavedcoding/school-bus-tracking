@@ -4,26 +4,36 @@ import type { App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { Messaging, SendResponse } from 'firebase-admin/messaging';
 import type {
-  PushNotificationProvider,
-  PushNotificationPayload,
+  DeviceDeliveryOutcome,
   PushDeliveryResult,
+  PushNotificationPayload,
+  PushNotificationProvider,
 } from './notification-provider.interface';
 
 /**
- * Firebase Cloud Messaging push provider (free).
+ * Firebase Cloud Messaging push provider (free) — Android rail only.
  *
  * Selected automatically by {@link createPushProvider} when
  * `FIREBASE_SERVICE_ACCOUNT_JSON` is set; otherwise the `NoOpPushProvider`
  * stays the default so local dev and CI pass without credentials.
  *
+ * ### Phase 2 — iOS is not FCM
+ *
+ * Expo's `getDevicePushTokenAsync()` returns an **FCM registration token on
+ * Android** and a **raw APNs device token on iOS**; `firebase-admin` can only
+ * send to FCM registration tokens. This provider therefore accepts **Android
+ * targets only** (and, for a token without platform metadata, the legacy
+ * "assume FCM" fallback): any target explicitly declared `platform === 'ios'`
+ * is reported via `deviceOutcome.notConfigured` so the row is never retried
+ * against the wrong rail. iOS delivery happens in `ApnsDirectProvider`, and
+ * the composite `PushDeliveryRouter` splits the two by platform.
+ *
  * Delivery uses `sendEachForMulticast` (FCM HTTP v1) with a **notification
  * message** (`notification.title` / `notification.body`) so the OS renders it
  * in the system tray even when the app is killed, plus a string-only `data`
- * payload (school/user/trip/type/id) for deep-linking when the app is opened.
- *
- * The Firebase app is initialised lazily on the first send — a bootstrap
- * never fails because of push configuration, and the JSON credential is only
- * parsed here (never logged, never echoed).
+ * payload for deep-linking. Android targets channel `notifications` (high
+ * priority, default sound) — the id the app creates with
+ * `setNotificationChannelAsync`.
  */
 export class FcmPushProvider implements PushNotificationProvider {
   readonly name = 'fcm';
@@ -48,13 +58,44 @@ export class FcmPushProvider implements PushNotificationProvider {
         provider: this.name,
         error: 'No device tokens',
         retryable: false,
+        delivery: { retryable: false, permanent: true },
+      };
+    }
+
+    // Split by platform. iOS targets never reach FCM.
+    const fcmTokens: string[] = [];
+    const notConfigured: string[] = [];
+    payload.deviceTokens.forEach((token, index) => {
+      const platform = payload.tokenPlatforms?.[index] ?? null;
+      if (platform === 'ios') {
+        notConfigured.push(token);
+      } else {
+        // Android, or legacy "no metadata" → FCM registration token.
+        fcmTokens.push(token);
+      }
+    });
+
+    const outcome: DeviceDeliveryOutcome = {
+      delivered: [],
+      retryable: [],
+      invalid: [],
+      notConfigured,
+    };
+    if (fcmTokens.length === 0) {
+      return {
+        success: false,
+        provider: this.name,
+        error: `No Android FCM tokens to send (${notConfigured.length} iOS APNs token(s) must go through direct APNs)`,
+        retryable: false,
+        delivery: { retryable: false, permanent: true },
+        deviceOutcome: outcome,
       };
     }
 
     try {
       const messaging = this.messaging();
       const response = await messaging.sendEachForMulticast({
-        tokens: payload.deviceTokens,
+        tokens: fcmTokens,
         notification: {
           title: payload.title,
           body: payload.body,
@@ -82,47 +123,50 @@ export class FcmPushProvider implements PushNotificationProvider {
         },
       });
 
-      const invalidTokens: string[] = [];
-      let succeeded = 0;
-      let firstError: string | null = null;
+      const skuErrors: string[] = [];
+      accumulateOutcome(response.responses, fcmTokens, outcome, skuErrors);
 
-      response.responses.forEach((result: SendResponse, index: number) => {
-        if (result.success) {
-          succeeded += 1;
-          return;
-        }
-        const token = payload.deviceTokens[index];
-        const error = result.error as
-          { code?: string; errorInfo?: { code?: string; message?: string } } | undefined;
-        if (token && isInvalidTokenError(error)) {
-          invalidTokens.push(token);
-        }
-        if (!firstError) {
-          firstError = errorMessage(error);
-        }
-      });
+      const hasDelivery = outcome.delivered.length > 0;
+      const noRetryable = outcome.retryable.length === 0;
+      const permanent =
+        !hasDelivery && noRetryable && outcome.invalid.length > 0
+          ? true
+          : // all-invalid crashed batch
+            !hasDelivery && noRetryable;
 
-      // A multicast with at least one success is a successful delivery; the
-      // per-token invalidation detail is still carried so the caller can
-      // deactivate the stale rows. When every token failed — including the
-      // all-invalid case — the delivery is a failure (the caller still
-      // receives `invalidTokens` and will deactivate them).
-      const common: Omit<PushDeliveryResult, 'success'> = {
+      const common = {
         provider: this.name,
         messageId: `fcm-${Date.now()}`,
-        retryable: false,
-        ...(invalidTokens.length > 0 ? { invalidTokens } : {}),
+        ...(outcome.invalid.length > 0 ? { invalidTokens: outcome.invalid } : {}),
+        deviceOutcome: outcome,
       };
 
-      if (succeeded > 0) {
-        return { ...common, success: true };
+      if (hasDelivery) {
+        // A multicast with at least one success is a successful delivery; the
+        // per-device detail is still carried for partial-success accounting.
+        return { ...common, success: true, retryable: false };
+      }
+
+      if (noRetryable) {
+        // Every Android token failed permanently (unregistered/invalid).
+        return {
+          ...common,
+          success: false,
+          error: firstErrorOf(outcome) ?? 'FCM delivery failed',
+          retryable: false,
+          delivery: { retryable: false, permanent: true },
+        };
       }
 
       return {
         ...common,
         success: false,
-        error: firstError ?? 'FCM delivery failed',
+        error:
+          firstErrorOf(outcome) ??
+          skuErrors[0] ??
+          'FCM delivery failed for every target (transient)',
         retryable: true,
+        delivery: { retryable: true, permanent },
       };
     } catch (error) {
       // Provider/auth/network errors must never propagate — the caller keeps
@@ -135,6 +179,13 @@ export class FcmPushProvider implements PushNotificationProvider {
         provider: this.name,
         error: error instanceof Error ? error.message : String(error),
         retryable: true,
+        delivery: { retryable: true, permanent: false },
+        deviceOutcome: {
+          delivered: [],
+          retryable: [...fcmTokens],
+          invalid: [],
+          notConfigured,
+        },
       };
     }
   }
@@ -169,6 +220,37 @@ export class FcmPushProvider implements PushNotificationProvider {
   }
 }
 
+function accumulateOutcome(
+  responses: SendResponse[],
+  tokens: string[],
+  outcome: DeviceDeliveryOutcome,
+  skuErrors: string[],
+): void {
+  responses.forEach((result, index) => {
+    if (result.success) {
+      outcome.delivered.push(tokens[index]);
+      return;
+    }
+    const error = result.error as
+      { code?: string; errorInfo?: { code?: string; message?: string } } | undefined;
+    if (error?.errorInfo?.message) {
+      skuErrors.push(error.errorInfo.message);
+    }
+    if (tokens[index] && isInvalidTokenError(error)) {
+      outcome.invalid.push(tokens[index]);
+    } else if (tokens[index]) {
+      outcome.retryable.push(tokens[index]);
+    }
+  });
+}
+
+function firstErrorOf(outcome: DeviceDeliveryOutcome): string | null {
+  if (outcome.invalid.length > 0) {
+    return 'All device tokens were rejected as unregistered/invalid';
+  }
+  return null;
+}
+
 /**
  * FCM messages carry `UNREGISTERED` / `INVALID_REGISTRATION` for tokens the
  * provider no longer recognises. Newer Admin SDKs report them under
@@ -188,14 +270,6 @@ export function isInvalidTokenError(
       'messaging/registration-token-not-registered',
       'messaging/invalid-registration-token',
     ].includes(code),
-  );
-}
-
-function errorMessage(
-  error: { message?: string; errorInfo?: { message?: string; code?: string } } | undefined,
-): string {
-  return (
-    error?.errorInfo?.message ?? error?.message ?? error?.errorInfo?.code ?? 'Unknown FCM error'
   );
 }
 

@@ -10,4 +10,5 @@ export type { RateLimitPolicyConfig } from './rate-limit.config';
 export { default as subscriptionConfig } from './subscription.config';
 export { default as retentionConfig } from './retention.config';
 export { default as notificationsConfig } from './notifications.config';
+export { default as notificationDeliveryConfig } from './notification-delivery.config';
 export { default as websocketConfig } from './websocket.config';

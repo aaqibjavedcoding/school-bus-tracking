@@ -71,6 +71,9 @@ async function main() {
   const { startRetentionScheduler, stopRegisteredRetentionScheduler } = require(
     path.join(serverDist, 'workers/retention.scheduler'),
   );
+  const { startDeliveryScheduler, stopRegisteredDeliveryScheduler } = require(
+    path.join(serverDist, 'modules/notifications/outbox'),
+  );
 
   const logger = new Logger('Bootstrap');
   const container = getContainer();
@@ -220,6 +223,15 @@ async function main() {
     new RetentionWorker(configService, sequelize),
   );
 
+  // --- Phase 2: durable notification delivery outbox ----------------------
+  // Claims pending/failed push notifications off the request path, retries
+  // transient failures with bounded backoff, retires invalid tokens and
+  // honours event expiry. Shares the retention worker's model: in-process
+  // scheduler + per-school PostgreSQL advisory lock so multiple instances
+  // never double-deliver. Stubbed bootstraps (`sequelize === null`) never
+  // schedule it, and the NoOp provider marks rows `not_configured` up front.
+  startDeliveryScheduler({ configService, sequelize }, container.deliveryWorker());
+
   server.listen(port, hostname, () => {
     logger.log(`Application is running on: http://${hostname}:${port}`);
     logger.log(`API available at: http://${hostname}:${port}/${apiPrefix}`);
@@ -251,6 +263,13 @@ async function main() {
       await stopRegisteredRetentionScheduler();
     } catch (error) {
       logger.error(`Retention scheduler stop failed: ${error?.message ?? String(error)}`);
+    }
+    try {
+      await stopRegisteredDeliveryScheduler();
+    } catch (error) {
+      logger.error(
+        `Notification delivery scheduler stop failed: ${error?.message ?? String(error)}`,
+      );
     }
     try {
       const { getRegisteredWebSocketSessionRevalidation } = require(

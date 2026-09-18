@@ -106,7 +106,7 @@ describe('FcmPushProvider.send', () => {
     assert.deepEqual(result.invalidTokens, ['tok-b']);
   });
 
-  it('returns a retryable failure with invalidTokens when every token is unregistered', async () => {
+  it('returns a permanent failure with invalidTokens when every token is unregistered', async () => {
     const { provider: push } = provider([
       { success: false, error: { code: 'UNREGISTERED' } },
       { success: false, error: { errorInfo: { code: 'messaging/invalid-registration-token' } } },
@@ -115,7 +115,9 @@ describe('FcmPushProvider.send', () => {
     const result = await push.send(payload);
 
     assert.equal(result.success, false);
-    assert.equal(result.retryable, true);
+    // All-invalid is permanent (invalid tokens are retired, never retried).
+    assert.equal(result.retryable, false);
+    assert.equal(result.delivery?.permanent, true);
     assert.deepEqual(result.invalidTokens?.sort(), ['tok-a', 'tok-b']);
     assert.ok(result.error);
   });

@@ -94,6 +94,23 @@ export class DeviceTokensService {
   }
 
   /**
+   * Active push tokens with their platform — the Phase 2 delivery path needs
+   * the platform to route each device to FCM (Android) or direct APNs (iOS).
+   * Newest first, same ordering contract as {@link findActiveTokenStrings}.
+   */
+  async findActiveTokenTargets(
+    schoolId: string,
+    userId: string,
+  ): Promise<Array<{ token: string; platform: 'android' | 'ios' }>> {
+    const rows = await this.deviceTokens.findAll({
+      where: { school_id: schoolId, user_id: userId, is_active: true },
+      attributes: ['token', 'platform'],
+      order: [['last_seen_at', 'DESC']],
+    });
+    return rows.map((row) => ({ token: row.token, platform: row.platform }));
+  }
+
+  /**
    * Deactivates tokens FCM reported as unregistered / invalid so they can
    * never be targeted again. No-op when the list is empty.
    */
