@@ -17,7 +17,6 @@ export {
   deliveryDedupKey,
   DELIVERY_ABANDON_REASONS,
   DELIVERY_MAX_BACKOFF_MS,
-  OUTBOX_CLAIM_LEASE_MS,
   type DeliveryPolicyConfig,
   type DeliveryOutcomeDecision,
 } from './delivery-policy';

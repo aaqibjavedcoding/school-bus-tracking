@@ -16,9 +16,6 @@ export interface DeliveryPolicyConfig {
 /** Ceiling of the exponential backoff (per attempt). */
 export const DELIVERY_MAX_BACKOFF_MS = 90_000;
 
-/** How long a claimed row stays invisible to other workers (crash safety). */
-export const OUTBOX_CLAIM_LEASE_MS = 30_000;
-
 /**
  * Next retry delay for the given attempt number (1-based): bounded exponential
  * backoff (`base * 2^(attempt-1)`, capped at {@link DELIVERY_MAX_BACKOFF_MS}).

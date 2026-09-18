@@ -156,8 +156,9 @@ No queue service, no new billable Firebase products, no paid provider.
   call. The attendance/trip/arrival paths never block on per-parent push.
 - `DeliveryWorker` sweeps due rows (default every 4s), claims them **per
   school** under `pg_try_advisory_xact_lock` (same class-of-lock trick as the
-  retention worker) so N API instances never double-deliver; a claim lease +
-  transaction scope make a crashed worker's rows reclaimable.
+  retention worker) so N API instances never double-deliver; the lock is
+  transaction-scoped and auto-releases on commit/rollback, so a crashed
+  worker's rows become claimable again immediately.
 - Transient failures retry with **bounded exponential backoff**
   (`2s · 2^attempt`, capped 90s, max 8 attempts). Permanent failures
   (every token rejected) and expired rows are abandoned with a reason.
