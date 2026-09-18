@@ -356,7 +356,15 @@ async function main(): Promise<void> {
     // provider, so the smoke flow stays deterministic without Firebase env.
     deviceTokens: {
       findActiveTokenStrings: async () => [],
+      findActiveTokenTargets: async () => [],
       deactivateTokens: async () => undefined,
+    },
+    runs: tableRepo([]),
+    deliveryPolicy: {
+      maxAttempts: 8,
+      baseBackoffMs: 2000,
+      expiryMs: 10 * 60 * 1000,
+      batchSize: 50,
     },
     pushProvider: new NoOpPushProvider(),
   });

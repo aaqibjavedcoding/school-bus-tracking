@@ -35,6 +35,7 @@ import {
   etaConfig,
   jwtConfig,
   liveTrackingConfig,
+  notificationDeliveryConfig,
   notificationsConfig,
   rateLimitConfig,
   retentionConfig,
@@ -116,6 +117,8 @@ import {
 import { DeviceTokensService } from './modules/notifications/device-tokens.service';
 import { NotificationsService } from './modules/notifications/notifications.service';
 import { createPushProvider } from './modules/notifications/providers';
+import { DeliveryWorker } from './modules/notifications/outbox';
+import type { DeliveryPolicyConfig } from './modules/notifications/outbox';
 import type { PushNotificationProvider } from './modules/notifications/providers';
 import { ParentPortalService } from './modules/parent-portal/parent-portal.service';
 import { ParentGuardiansService } from './modules/parents/parent-guardians.service';
@@ -177,6 +180,7 @@ export class Container {
         subscriptionConfig,
         retentionConfig,
         notificationsConfig,
+        notificationDeliveryConfig,
         websocketConfig,
       ] as never),
   );
@@ -258,7 +262,33 @@ export class Container {
         'notifications.firebaseServiceAccountJson',
       ),
       projectId: this.config().get<string | null>('notifications.firebaseProjectId'),
+      apnsKeyPem: this.config().get<string | null>('notifications.apnsKeyPem'),
+      apnsKeyId: this.config().get<string | null>('notifications.apnsKeyId'),
+      apnsTeamId: this.config().get<string | null>('notifications.apnsTeamId'),
+      apnsTopic: this.config().get<string | null>('notifications.apnsTopic'),
+      apnsProduction: this.config().get<boolean>('notifications.apnsProduction'),
     }),
+  );
+
+  /** Phase 2 durable-delivery policy (expiry / backoff / max attempts). */
+  readonly deliveryPolicy = lazy((): DeliveryPolicyConfig => ({
+    maxAttempts: this.config().get<number>('notificationDelivery.maxAttempts') ?? 8,
+    baseBackoffMs: this.config().get<number>('notificationDelivery.baseBackoffMs') ?? 2000,
+    expiryMs: this.config().get<number>('notificationDelivery.expiryMs') ?? 10 * 60 * 1000,
+    batchSize: this.config().get<number>('notificationDelivery.batchSize') ?? 50,
+  }));
+
+  /** Phase 2 outbox worker — claims and delivers pending pushes. */
+  readonly deliveryWorker = lazy(
+    () =>
+      new DeliveryWorker(
+        Notification,
+        Trip,
+        this.deviceTokens(),
+        this.pushProvider(),
+        this.sequelize,
+        this.deliveryPolicy(),
+      ),
   );
 
   // ---------------------------------------------------------------- common
@@ -472,6 +502,7 @@ export class Container {
         this.deviceTokens(),
         this.pushProvider(),
         Run,
+        this.deliveryPolicy(),
       ),
   );
 

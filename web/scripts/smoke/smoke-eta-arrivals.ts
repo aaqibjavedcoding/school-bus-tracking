@@ -32,9 +32,15 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { createSmokeApp } from './support/smoke-app';
-import { assertStubsCoverDependencies, attachSequelize, matchesWhere, stubTable } from './support/smoke-stubs';
+import {
+  assertStubsCoverDependencies,
+  attachSequelize,
+  matchesWhere,
+  stubTable,
+} from './support/smoke-stubs';
 import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
 import { NotificationsService } from '../../src/server/modules/notifications/notifications.service';
+import { NoOpPushProvider } from '../../src/server/modules/notifications/providers';
 import { EtaService } from '../../src/server/modules/eta/eta.service';
 import { StopArrivalsService } from '../../src/server/modules/eta/stop-arrivals.service';
 import { LiveTrackingService } from '../../src/server/modules/live-tracking/live-tracking.service';
@@ -328,6 +334,19 @@ async function main(): Promise<void> {
       students: studentsTable,
       stops: stopsTable,
       trips: tripsTable,
+      runs: runsTable,
+      deviceTokens: {
+        findActiveTokenStrings: async () => [],
+        findActiveTokenTargets: async () => [],
+        deactivateTokens: async () => undefined,
+      },
+      pushProvider: new NoOpPushProvider(),
+      deliveryPolicy: {
+        maxAttempts: 8,
+        baseBackoffMs: 2000,
+        expiryMs: 10 * 60 * 1000,
+        batchSize: 50,
+      },
     },
     'NotificationsService',
   );
@@ -517,7 +536,7 @@ async function main(): Promise<void> {
     if (stopArrivals.length !== 2)
       throw new Error(`expected 2 notifications, got ${stopArrivals.length}`);
     for (const row of stopArrivals) {
-      if (row.message !== 'Bus arrived at Green Park Stop.') throw new Error('wrong message');
+      if (row.message !== 'Bus is near Green Park Stop.') throw new Error('wrong message');
       if (row.stop_id !== STOP_1 || row.trip_id !== TRIP_A) throw new Error('wrong scope');
     }
     const userIds = stopArrivals.map((row) => row.user_id).sort();
@@ -563,7 +582,7 @@ async function main(): Promise<void> {
     const data = (res.json as { data: { items: Row[] } }).data;
     const arrival = data.items.find((item) => item.type === NotificationType.STOP_ARRIVED);
     if (!arrival) throw new Error('arrival notification missing');
-    if (arrival.message !== 'Bus arrived at Green Park Stop.') throw new Error('wrong message');
+    if (arrival.message !== 'Bus is near Green Park Stop.') throw new Error('wrong message');
   });
 
   await check('notification: a parent of another school sees nothing', async () => {

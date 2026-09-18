@@ -1,5 +1,5 @@
 import { Logger, NotFoundException } from '../../framework';
-import { Op, type WhereOptions } from 'sequelize';
+import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
 import {
   NotificationReadAllResponse,
   NotificationReadFilter,
@@ -10,6 +10,7 @@ import {
   ParentNotificationListResponse,
   UserRole,
   notificationRoomName,
+  type ExternalDeliveryStatus,
   type NotificationEvent,
   type NotificationRealtimeEvent,
 } from '@school-bus-tracking/shared-types';
@@ -30,10 +31,8 @@ import {
   MAX_NOTIFICATION_LIMIT,
   NOOP_PUSH_PROVIDER_NAME,
   NOTIFICATION_NOT_FOUND_MESSAGE,
-  PUSH_NO_DEVICE_REASON,
-  PUSH_STATUS_FAILED,
+  PUSH_NOT_CONFIGURED_REASON,
   PUSH_STATUS_NOT_CONFIGURED,
-  PUSH_STATUS_SENT,
   STOP_ARRIVED_MESSAGE,
   STOP_ARRIVED_TITLE,
   STUDENT_BOARDED_MESSAGE,
@@ -45,6 +44,7 @@ import {
 } from './notifications.constants';
 import type { PushNotificationProvider } from './providers';
 import { DeviceTokensService } from './device-tokens.service';
+import { deliveryDedupKey, deliveryExpiry, type DeliveryPolicyConfig } from './outbox';
 
 /** Which attendance action a student notification announces. */
 export type StudentAttendanceAction = 'boarded' | 'dropped';
@@ -77,8 +77,8 @@ export interface StopArrivalNotificationInput {
 }
 
 /**
- * Input of a role push (no inbox row): who, what, and the string-only FCM
- * `data` the app uses to deep-link (`trip_id`, `emergency_id`, ...).
+ * Input of a role push (no inbox row): who, what, and the string-only `data`
+ * the app uses to deep-link (`trip_id`, `emergency_id`, ...).
  */
 export interface RolePushInput {
   school_id: string;
@@ -113,9 +113,18 @@ const NOTIFIABLE_TRIP_STATUSES: Partial<Record<TripStatus, NotificationType>> = 
  * Creation always happens **after** the underlying operation has succeeded —
  * the attendance and trip services call into this service only once their own
  * transaction has committed, so a failed boarding or an invalid trip
- * transition can never produce a notification. Delivery failures are logged
- * and swallowed: a notification outage must never break attendance or the
- * trip lifecycle.
+ * transition can never produce a notification.
+ *
+ * ### Phase 2 — durable delivery
+ *
+ * Persisting the row and the required delivery work is a single atomic step:
+ * the row carries `push_status = 'pending'`, `next_attempt_at`, the stable
+ * `dedup_key` and the event-specific `push_expires_at`. The outbox worker
+ * (`modules/notifications/outbox`) claims due rows later, so a crash between
+ * "event persisted" and "push sent" recovers after restart and the GPS /
+ * attendance / trip flows never block on sequential per-parent push calls.
+ * The worker also retries transient failures (bounded exponential backoff),
+ * retires invalid tokens, honours expiry and tracks per-device outcomes.
  *
  * Recipients are resolved server-side from the tenant-pinned
  * `StudentGuardian` join (active links only, parent accounts only) — the same
@@ -143,6 +152,8 @@ export class NotificationsService {
     private readonly pushProvider: PushNotificationProvider,
     // Phase 1: run-aware recipient resolution (default-run lookup).
     private readonly runs: typeof Run,
+    // Phase 2: delivery policy (event expiry window etc.).
+    private readonly deliveryPolicy: DeliveryPolicyConfig,
   ) {}
 
   /** Attach (or replace) the room broadcaster; the gateway does this once. */
@@ -185,22 +196,7 @@ export class NotificationsService {
       );
 
       for (const userId of userIds) {
-        // A retried (or concurrent duplicate) attendance action must not
-        // create a second notification for the same event.
-        const existing = await this.notifications.findOne({
-          where: {
-            school_id: input.school_id,
-            user_id: userId,
-            type,
-            trip_id: input.trip_id,
-            student_id: input.student.id,
-          },
-        });
-        if (existing) {
-          continue;
-        }
-
-        await this.createAndBroadcast({
+        await this.createNotificationRow({
           school_id: input.school_id,
           user_id: userId,
           type,
@@ -209,7 +205,6 @@ export class NotificationsService {
           title,
           message,
           payload: { student_name: studentName, action: input.action },
-          created_at: input.occurred_at,
         });
       }
     } catch (error) {
@@ -249,21 +244,7 @@ export class NotificationsService {
       }
 
       for (const userId of userIds) {
-        // Retried transitions (or the admin endpoint racing the cancel
-        // endpoint) must not double-notify the same parent.
-        const existing = await this.notifications.findOne({
-          where: {
-            school_id: input.school_id,
-            user_id: userId,
-            type,
-            trip_id: input.trip_id,
-          },
-        });
-        if (existing) {
-          continue;
-        }
-
-        await this.createAndBroadcast({
+        await this.createNotificationRow({
           school_id: input.school_id,
           user_id: userId,
           type,
@@ -272,7 +253,6 @@ export class NotificationsService {
           title,
           message,
           payload,
-          created_at: new Date(),
         });
       }
     } catch (error) {
@@ -295,9 +275,7 @@ export class NotificationsService {
    * arrival or a child boarding.
    *
    * Called by the stop-arrival pipeline only *after* the arrival row was
-   * persisted, and deduplicated on `(school_id, user_id, type, trip_id,
-   * stop_id)` — a replayed or racing arrival can never notify a parent
-   * twice. Best-effort: errors are logged, never re-thrown.
+   * persisted. Best-effort: errors are logged, never re-thrown.
    */
   async notifyStopArrival(input: StopArrivalNotificationInput): Promise<void> {
     try {
@@ -314,24 +292,7 @@ export class NotificationsService {
       const message = STOP_ARRIVED_MESSAGE(input.stop.name);
 
       for (const userId of userIds) {
-        // Duplicate protection for the same (trip, stop, type) — the arrival
-        // row's unique index guarantees one arrival per trip-stop, and this
-        // check makes the notification exactly-once as well (e.g. after a
-        // crash between insert and notify).
-        const existing = await this.notifications.findOne({
-          where: {
-            school_id: input.school_id,
-            user_id: userId,
-            type: NotificationType.STOP_ARRIVED,
-            trip_id: input.trip_id,
-            stop_id: input.stop.id,
-          },
-        });
-        if (existing) {
-          continue;
-        }
-
-        await this.createAndBroadcast({
+        await this.createNotificationRow({
           school_id: input.school_id,
           user_id: userId,
           type: NotificationType.STOP_ARRIVED,
@@ -343,7 +304,6 @@ export class NotificationsService {
           // Phase 1: explicit proximity semantics for clients — this event
           // proves the bus was near the stop, never a boarding/drop-off.
           payload: { stop_id: input.stop.id, stop_name: input.stop.name, proximity_only: true },
-          created_at: input.occurred_at,
         });
       }
     } catch (error) {
@@ -614,6 +574,10 @@ export class NotificationsService {
    * tenant-pinned rows and re-filtered here to active accounts of the
    * same `school_id` — a cross-tenant id can never receive a push.
    * Best-effort: never throws, and a NoOp provider is a silent no-op.
+   *
+   * Phase 2: target tokens carry their platform so the router sends Android
+   * through FCM and iOS through direct APNs — never a raw APNs token as an
+   * FCM registration token.
    */
   async pushToUsers(input: RolePushInput): Promise<void> {
     try {
@@ -643,8 +607,8 @@ export class NotificationsService {
         if (user.is_active === false) {
           continue;
         }
-        const tokens = await this.deviceTokens.findActiveTokenStrings(input.school_id, user.id);
-        if (tokens.length === 0) {
+        const targets = await this.deviceTokens.findActiveTokenTargets(input.school_id, user.id);
+        if (targets.length === 0) {
           continue;
         }
         const result = await this.pushProvider.send({
@@ -652,7 +616,8 @@ export class NotificationsService {
           title: input.title,
           body: input.message,
           data: { ...data, user_id: user.id },
-          deviceTokens: tokens,
+          deviceTokens: targets.map((target) => target.token),
+          tokenPlatforms: targets.map((target) => target.platform),
           priority: 'high',
         });
         if (result.invalidTokens && result.invalidTokens.length > 0) {
@@ -708,8 +673,17 @@ export class NotificationsService {
     });
   }
 
-  /** Persists one notification and pushes it to the parent's socket room. */
-  private async createAndBroadcast(values: {
+  /**
+   * Persists one notification and pushes it to the parent's socket room, then
+   * enqueues durable OS-level push delivery (Phase 2 — no provider call here,
+   * so GPS / attendance / trip flows never block on per-parent push).
+   *
+   * Idempotency is enforced at the database: the row carries a stable
+   * `dedup_key` (unique per school+user) and creation races collapse to a
+   * no-op via the unique index, exactly like the arrival pipeline's
+   * `(school, trip, stop)` backstop.
+   */
+  private async createNotificationRow(values: {
     school_id: string;
     user_id: string;
     type: NotificationType;
@@ -719,21 +693,58 @@ export class NotificationsService {
     title: string;
     message: string;
     payload: Record<string, unknown>;
-    created_at: Date;
   }): Promise<void> {
-    const created = await this.notifications.create({
-      school_id: values.school_id,
-      user_id: values.user_id,
+    const now = new Date();
+    const dedupKey = deliveryDedupKey({
       type: values.type,
-      trip_id: values.trip_id,
-      student_id: values.student_id,
-      stop_id: values.stop_id ?? null,
-      title: values.title,
-      message: values.message,
-      payload: values.payload,
-      is_read: false,
-      read_at: null,
+      tripId: values.trip_id,
+      studentId: values.student_id,
+      stopId: values.stop_id ?? null,
     });
+
+    // Fast-path duplicate guard (same event, same recipient) before insert.
+    const existing = await this.notifications.findOne({
+      where: {
+        school_id: values.school_id,
+        user_id: values.user_id,
+        dedup_key: dedupKey,
+      },
+    });
+    if (existing) {
+      return;
+    }
+
+    let created: Notification;
+    try {
+      created = await this.notifications.create({
+        school_id: values.school_id,
+        user_id: values.user_id,
+        type: values.type,
+        trip_id: values.trip_id,
+        student_id: values.student_id,
+        stop_id: values.stop_id ?? null,
+        title: values.title,
+        message: values.message,
+        payload: values.payload,
+        is_read: false,
+        read_at: null,
+        // Phase 2 durable delivery metadata.
+        dedup_key: dedupKey,
+        push_status: 'pending',
+        push_expires_at: deliveryExpiry(now.getTime(), this.deliveryPolicy),
+        next_attempt_at: new Date(now.getTime() + 1),
+        delivered_tokens: null,
+        delivery_failure_kind: null,
+        delivery_abandoned_reason: null,
+      });
+    } catch (error) {
+      // Concurrent duplicate: the unique index on (school, user, dedup_key)
+      // turned the race into a no-op — never a second notification.
+      if (error instanceof UniqueConstraintError) {
+        return;
+      }
+      throw error;
+    }
 
     const payload: NotificationRealtimeEvent = {
       notification_id: created.id,
@@ -748,107 +759,40 @@ export class NotificationsService {
 
     this.broadcaster?.(notificationRoomName(values.user_id), NOTIFICATION_EVENTS.new, payload);
 
-    // External OS-level push (FCM) happens after the row and the in-app
-    // broadcast are in place; it is strictly best-effort (see deliverPush).
-    await this.deliverPush(created);
+    // Durable enqueue (never a provider call on this path).
+    await this.enqueuePushDelivery(created);
   }
 
   /**
-   * Sends the created notification as an OS-level push to the recipient's
-   * active devices and records the outcome on the row.
+   * Marks the freshly created row for the outbox worker.
    *
-   * Never throws: a push outage (provider down, no tokens, database hiccup)
-   * must never break attendance, trip lifecycle or the in-app Socket.IO
-   * broadcast. Outcomes:
-   *
-   * - `NoOpPushProvider` active → `push_status = 'not_configured'` (local
-   *   dev/CI without Firebase env).
-   * - No active device tokens → `push_status = 'failed'`, retry count +1.
-   * - FCM success → `push_status = 'sent'`, retry count reset.
-   * - FCM failure → `push_status = 'failed'`, retry count +1, reason stored.
-   * - FCM `UNREGISTERED` / `INVALID_REGISTRATION` → the offending token rows
-   *   are deactivated so they are never targeted again.
+   * - NoOp provider (local dev / CI) → `push_status = 'not_configured'`
+   *   immediately and honestly: development mode never pretends delivery
+   *   succeeded.
+   * - Real provider → row stays `pending` with `next_attempt_at = now`; the
+   *   worker claims and delivers it off the request path.
    */
-  private async deliverPush(notificationRow: Notification): Promise<void> {
+  private async enqueuePushDelivery(notificationRow: Notification): Promise<void> {
     try {
-      const attemptedAt = new Date();
-
       if (this.pushProvider.name === NOOP_PUSH_PROVIDER_NAME) {
         await notificationRow.update({
           push_status: PUSH_STATUS_NOT_CONFIGURED,
-          last_delivery_attempt_at: attemptedAt,
-          delivery_failure_reason: null,
+          last_delivery_attempt_at: new Date(),
+          delivery_failure_reason: PUSH_NOT_CONFIGURED_REASON,
+          next_attempt_at: null,
         });
         return;
       }
-
-      const tokens = await this.deviceTokens.findActiveTokenStrings(
-        notificationRow.school_id,
-        notificationRow.user_id,
-      );
-      if (tokens.length === 0) {
-        await notificationRow.update({
-          push_status: PUSH_STATUS_FAILED,
-          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
-          last_delivery_attempt_at: attemptedAt,
-          delivery_failure_reason: PUSH_NO_DEVICE_REASON,
-        });
-        return;
-      }
-
-      const result = await this.pushProvider.send({
-        recipientId: notificationRow.user_id,
-        title: notificationRow.title,
-        body: notificationRow.message,
-        data: pushDataPayload(notificationRow),
-        deviceTokens: tokens,
-        priority: 'high',
+      await notificationRow.update({
+        push_status: 'pending',
+        next_attempt_at: new Date(),
       });
-
-      if (result.success) {
-        await notificationRow.update({
-          push_status: PUSH_STATUS_SENT,
-          delivery_retry_count: 0,
-          last_delivery_attempt_at: attemptedAt,
-          delivery_failure_reason: null,
-        });
-      } else {
-        await notificationRow.update({
-          push_status: PUSH_STATUS_FAILED,
-          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
-          last_delivery_attempt_at: attemptedAt,
-          delivery_failure_reason: result.error ?? 'Push delivery failed',
-        });
-      }
-
-      if (result.invalidTokens && result.invalidTokens.length > 0) {
-        // Deactivation is best-effort too: the rows will simply retry once
-        // more if this write fails, and FCM will reject them again.
-        await this.deviceTokens.deactivateTokens(
-          notificationRow.school_id,
-          notificationRow.user_id,
-          result.invalidTokens,
-        );
-      }
     } catch (error) {
-      // Log the reason (never the payload; tokens/credentials stay out of
-      // logs) but keep the notification flow alive.
       this.logger.error(
-        `Failed to deliver push for notification ${notificationRow.id}: ${
+        `Failed to enqueue push for notification ${notificationRow.id}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      try {
-        await notificationRow.update({
-          push_status: PUSH_STATUS_FAILED,
-          delivery_retry_count: (notificationRow.delivery_retry_count ?? 0) + 1,
-          last_delivery_attempt_at: new Date(),
-          delivery_failure_reason: error instanceof Error ? error.message : String(error),
-        });
-      } catch {
-        // The row itself may be un-updatable in a read-only stub; the push
-        // already failed and the next event will try again.
-      }
     }
   }
 
@@ -868,8 +812,27 @@ export class NotificationsService {
       is_read: row.is_read,
       created_at: toIsoString(row.created_at),
       read_at: row.read_at ? toIsoString(row.read_at) : null,
+      delivery: deliveryProjection(row),
     };
   }
+}
+
+/** The external push state surfaced on a notification (honest semantics). */
+function deliveryProjection(row: Notification): Record<string, unknown> {
+  const status: ExternalDeliveryStatus = row.push_status;
+  return {
+    status,
+    retry_count: row.delivery_retry_count ?? 0,
+    last_attempt_at: row.last_delivery_attempt_at
+      ? toIsoString(row.last_delivery_attempt_at)
+      : null,
+    failure_reason: row.delivery_failure_reason ?? null,
+    failure_kind: row.delivery_failure_kind ?? null,
+    abandoned_reason: row.delivery_abandoned_reason ?? null,
+    // Accepted-by-provider devices only — never a claim of on-device display.
+    delivered_tokens: (row.delivered_tokens ?? []).length,
+    expires_at: row.push_expires_at ? toIsoString(row.push_expires_at) : null,
+  };
 }
 
 /** Strict `(school_id, user_id)` ownership scope, plus the id when given. */
@@ -907,28 +870,4 @@ function fullName(firstName: string, lastName: string): string {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-/**
- * FCM `data` payload for deep-linking (all string values — FCM requirement):
- * the recipient's tenant/user, the event's trip/student/stop when present,
- * the notification type and the row id for the future deep-link target.
- */
-function pushDataPayload(row: Notification): Record<string, string> {
-  const data: Record<string, string> = {
-    school_id: row.school_id,
-    user_id: row.user_id,
-    type: row.type,
-    id: row.id,
-  };
-  for (const [key, value] of [
-    ['trip_id', row.trip_id],
-    ['student_id', row.student_id],
-    ['stop_id', row.stop_id],
-  ] as const) {
-    if (value) {
-      data[key] = value;
-    }
-  }
-  return data;
 }

@@ -1,6 +1,6 @@
 import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
-import { Optional } from 'sequelize';
-import { NotificationType } from '@school-bus-tracking/shared-types';
+import { Op, Optional } from 'sequelize';
+import { NotificationType, type ExternalDeliveryStatus } from '@school-bus-tracking/shared-types';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { School } from './school.model';
 import { Stop } from './stop.model';
@@ -8,13 +8,7 @@ import { Student } from './student.model';
 import { Trip } from './trip.model';
 import { User } from './user.model';
 
-/**
- * Delivery state of one external channel on a notification row.
- *
- * The API writes `push_status`; email/SMS columns exist for the same
- * migration and stay `not_configured` until those providers are wired.
- */
-export type ExternalDeliveryStatus = 'pending' | 'sent' | 'failed' | 'not_configured';
+export type { ExternalDeliveryStatus } from '@school-bus-tracking/shared-types';
 
 export interface NotificationAttributes extends BaseModelAttributes {
   school_id: string;
@@ -41,6 +35,18 @@ export interface NotificationAttributes extends BaseModelAttributes {
   delivery_retry_count: number;
   last_delivery_attempt_at: Date | null;
   delivery_failure_reason: string | null;
+  /** Next time the outbox may attempt this row again (Phase 2). */
+  next_attempt_at: Date | null;
+  /** Last delivery failure, classified retryable vs permanent (Phase 2). */
+  delivery_failure_kind: 'transient' | 'permanent' | null;
+  /** Server deadline after which the outbox stops trying (event expiry). */
+  push_expires_at: Date | null;
+  /** ISO string of every device the provider accepted the push for. */
+  delivered_tokens: string[] | null;
+  /** Human-readable reason when delivery was abandoned (expired/permanent). */
+  delivery_abandoned_reason: string | null;
+  /** Stable natural key of the event (null for legacy rows). */
+  dedup_key: string | null;
 }
 
 export type NotificationCreationAttributes = Optional<
@@ -58,6 +64,12 @@ export type NotificationCreationAttributes = Optional<
   | 'delivery_retry_count'
   | 'last_delivery_attempt_at'
   | 'delivery_failure_reason'
+  | 'delivery_failure_kind'
+  | 'push_expires_at'
+  | 'delivered_tokens'
+  | 'delivery_abandoned_reason'
+  | 'next_attempt_at'
+  | 'dedup_key'
 >;
 
 /**
@@ -97,6 +109,28 @@ export type NotificationCreationAttributes = Optional<
     { name: 'idx_notifications_school_student', fields: ['school_id', 'student_id'] },
     // Stop-scoped notifications (Task 22 arrivals) and their composite FK.
     { name: 'idx_notifications_school_stop', fields: ['school_id', 'stop_id'] },
+    // Outbox hot path: the next due push-safe rows of a school (advisory
+    // lock pinned to the school so worker instances cannot trample).
+    // `email_status='not_configured'` is the sentinel for @school-keyed locks.
+    {
+      name: 'idx_notifications_outbox_school',
+      fields: ['school_id', 'email_status', 'push_status', 'next_attempt_at'],
+    },
+    {
+      name: 'idx_notifications_outbox_due',
+      fields: ['push_status', 'next_attempt_at'],
+    },
+    // Phase 2 idempotency backstop: one notification per (school, user,
+    // type) event key — a retried creation can never produce two rows.
+    {
+      name: 'uq_notifications_dedup',
+      unique: true,
+      fields: ['school_id', 'user_id', 'dedup_key'],
+      // `deleted_at IS NULL` keeps soft-deleted rows from blocking a
+      // legitimate re-creation; `dedup_key` is null on legacy rows. This
+      // must match the migration's partial-unique predicate exactly.
+      where: { deleted_at: null, dedup_key: { [Op.ne]: null } },
+    },
   ],
 })
 export class Notification extends BaseModel<
@@ -161,6 +195,24 @@ export class Notification extends BaseModel<
 
   @Column({ type: DataType.STRING(500), allowNull: true })
   declare delivery_failure_reason: string | null;
+
+  @Column({ type: DataType.STRING(20), allowNull: true })
+  declare delivery_failure_kind: 'transient' | 'permanent' | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare next_attempt_at: Date | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare push_expires_at: Date | null;
+
+  @Column({ type: DataType.ARRAY(DataType.STRING(1024)), allowNull: true })
+  declare delivered_tokens: string[] | null;
+
+  @Column({ type: DataType.STRING(200), allowNull: true })
+  declare delivery_abandoned_reason: string | null;
+
+  @Column({ type: DataType.STRING(64), allowNull: true })
+  declare dedup_key: string | null;
 
   @BelongsTo(() => School, { foreignKey: 'school_id', as: 'school' })
   declare school?: School;

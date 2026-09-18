@@ -120,7 +120,9 @@ export function buildDeviceTokenRequest(
 /**
  * Extracts the token string out of the expo-notifications `DevicePushToken`
  * shape (`{ type, data }`), where `data` is the FCM registration token
- * (Android) or APNs token (iOS) our firebase-admin backend can send to.
+ * (Android) or the **raw APNs device token** (iOS). The backend routes each
+ * platform to the correct rail — FCM for Android, direct APNs for iOS — so an
+ * APNs token is never handed to firebase-admin as an FCM registration token.
  */
 export function devicePushTokenValue(token: { data?: unknown } | null | undefined): string | null {
   const value = token?.data;

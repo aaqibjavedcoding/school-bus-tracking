@@ -26,8 +26,20 @@ import type {
   PushNotificationPayload,
   PushNotificationProvider,
 } from './providers';
-import { NOTIFICATION_NOT_FOUND_MESSAGE, PUSH_NO_DEVICE_REASON } from './notifications.constants';
+import {
+  NOTIFICATION_NOT_FOUND_MESSAGE,
+  PUSH_NOT_CONFIGURED_REASON,
+} from './notifications.constants';
 import { DeviceTokensService } from './device-tokens.service';
+import type { DeliveryPolicyConfig } from './outbox';
+
+/** Delivery policy used across the service specs (worker tests own the math). */
+const DELIVERY_POLICY: DeliveryPolicyConfig = {
+  maxAttempts: 5,
+  baseBackoffMs: 10,
+  expiryMs: 10 * 60 * 1000,
+  batchSize: 50,
+};
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -80,6 +92,12 @@ interface StubNotification {
   delivery_retry_count: number;
   last_delivery_attempt_at: Date | null;
   delivery_failure_reason: string | null;
+  delivery_failure_kind: 'transient' | 'permanent' | null;
+  push_expires_at: Date | null;
+  delivered_tokens: string[] | null;
+  delivery_abandoned_reason: string | null;
+  next_attempt_at: Date | null;
+  dedup_key: string | null;
   created_at: Date;
   updated_at: Date;
   update: (values: Record<string, unknown>) => Promise<StubNotification>;
@@ -158,6 +176,12 @@ function makeNotificationRow(overrides: Partial<StubNotification> = {}): StubNot
     delivery_retry_count: 0,
     last_delivery_attempt_at: null,
     delivery_failure_reason: null,
+    delivery_failure_kind: null,
+    push_expires_at: null,
+    delivered_tokens: null,
+    delivery_abandoned_reason: null,
+    next_attempt_at: null,
+    dedup_key: null,
     created_at: new Date('2026-09-01T06:31:00.000Z'),
     updated_at: new Date('2026-09-01T06:31:00.000Z'),
     update: async (values) => {
@@ -309,6 +333,7 @@ interface DeviceTokenStubRow {
   school_id: string;
   user_id: string;
   token: string;
+  platform?: 'android' | 'ios';
 }
 
 function makeService(
@@ -382,6 +407,10 @@ function makeService(
         payload: payload.payload as Record<string, unknown> | null,
         is_read: false,
         read_at: null,
+        push_status: (payload.push_status as string) ?? 'pending',
+        dedup_key: (payload.dedup_key as string | null) ?? null,
+        push_expires_at: (payload.push_expires_at as Date | null) ?? null,
+        next_attempt_at: (payload.next_attempt_at as Date | null) ?? null,
         created_at: new Date(),
       });
       rows.push(row);
@@ -451,6 +480,10 @@ function makeService(
       activeTokens
         .filter((row) => row.school_id === schoolId && row.user_id === userId)
         .map((row) => row.token),
+    findActiveTokenTargets: async (schoolId: string, userId: string) =>
+      activeTokens
+        .filter((row) => row.school_id === schoolId && row.user_id === userId)
+        .map((row) => ({ token: row.token, platform: row.platform ?? null })),
     deactivateTokens: async (
       _schoolId: string,
       _userId: string,
@@ -472,6 +505,7 @@ function makeService(
     deviceTokensService,
     pushProvider,
     runRepo,
+    DELIVERY_POLICY,
   );
   service.attachBroadcaster((room, event, payload) => {
     broadcast.calls.push({ room, event, payload });
@@ -982,7 +1016,25 @@ describe('NotificationsService push delivery', () => {
     occurred_at: new Date('2026-09-01T06:31:00.000Z'),
   };
 
-  it('records not_configured when the NoOp provider is active', async () => {
+  it('enqueues the row (pending + due) and never calls the provider inline', async () => {
+    const push = new FakePushProvider('fcm');
+    const { service, rows } = makeService({
+      pushProvider: push,
+      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
+    });
+
+    await service.notifyStudentAttendance(attendanceInput);
+
+    // Phase 2: durable delivery. No provider call on the request path.
+    assert.equal(push.calls.length, 0, 'the outbox worker, not this path, delivers');
+    const row = rows[0]!;
+    assert.equal(row.push_status, 'pending');
+    assert.ok(row.next_attempt_at !== null, 'row is claimed by the worker');
+    assert.ok(row.push_expires_at !== null, 'event expiry is set at creation');
+    assert.ok(typeof row.dedup_key === 'string' && row.dedup_key.length > 0);
+  });
+
+  it('records not_configured when the NoOp provider is active (never pretends success)', async () => {
     const { service, rows, push } = makeService({
       activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
     });
@@ -993,122 +1045,64 @@ describe('NotificationsService push delivery', () => {
     const row = rows[0]!;
     assert.equal(row.push_status, 'not_configured');
     assert.equal(row.delivery_retry_count, 0);
-    assert.ok(row.last_delivery_attempt_at !== null);
-    assert.equal(row.delivery_failure_reason, null);
+    assert.equal(row.delivery_failure_reason, PUSH_NOT_CONFIGURED_REASON);
+    assert.equal(row.next_attempt_at, null, 'a not_configured row is never delivered');
   });
 
-  it('sends an FCM notification message to every active token and records sent', async () => {
-    const push = new FakePushProvider('fcm');
-    const {
-      service,
-      rows,
-      push: used,
-    } = makeService({
-      pushProvider: push,
-      activeTokens: [
-        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-a' },
-        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-b' },
-        { school_id: SCHOOL_A, user_id: PARENT_B, token: 'tok-other' },
+  it('exposes honest delivery state on the parent read projection', async () => {
+    const { service } = makeService({
+      initialRows: [
+        makeNotificationRow({
+          id: NOTIFICATION_A,
+          push_status: 'sent',
+          delivered_tokens: ['tok-a', 'tok-b'],
+          delivery_retry_count: 0,
+          delivery_failure_reason: null,
+        }),
       ],
     });
 
+    const result = await service.listForParent(PARENT_ACTOR, {});
+    const delivery = result.items[0].delivery as Record<string, unknown>;
+    assert.equal(delivery.status, 'sent');
+    assert.equal(delivery.retry_count, 0);
+    assert.equal(delivery.failure_reason, null);
+    assert.equal(delivery.delivered_tokens, 2, 'accepted devices, never claimed display');
+  });
+});
+
+describe('NotificationsService dedup-key idempotency (Phase 2)', () => {
+  const attendanceInput = {
+    school_id: SCHOOL_A,
+    trip_id: TRIP_A,
+    student: { id: STUDENT_A, first_name: 'Aarav', last_name: 'Sharma' },
+    action: 'boarded' as const,
+    occurred_at: new Date(),
+  };
+
+  it('keys the row by (school, user, type, trip, student, stop) so retries collapse', async () => {
+    const { service, rows } = makeService();
+
+    await service.notifyStudentAttendance(attendanceInput);
     await service.notifyStudentAttendance(attendanceInput);
 
-    assert.equal(used, push);
-    const sent = push.calls.find((call) => call.deviceTokens.includes('tok-a'))!;
-    assert.deepEqual(sent.deviceTokens, ['tok-a', 'tok-b']);
-    assert.equal(sent.title, 'Aarav boarded');
-    assert.equal(sent.body, 'Aarav Sharma boarded the school bus.');
-    assert.equal(sent.recipientId, PARENT_A);
-    assert.equal(sent.priority, 'high');
-    // data payload: deep-link keys, all strings.
-    const data = sent.data as Record<string, string>;
-    assert.equal(data.school_id, SCHOOL_A);
-    assert.equal(data.user_id, PARENT_A);
-    assert.equal(data.type, NotificationType.STUDENT_BOARDED);
-    assert.equal(data.trip_id, TRIP_A);
-    assert.equal(data.student_id, STUDENT_A);
-    assert.ok(typeof data.id === 'string' && data.id.length > 0);
-
-    const row = rows.find((r) => r.user_id === PARENT_A)!;
-    assert.equal(row.push_status, 'sent');
-    assert.equal(row.delivery_retry_count, 0);
-    assert.ok(row.last_delivery_attempt_at !== null);
-    assert.equal(row.delivery_failure_reason, null);
+    const forParentA = rows.filter((row) => row.user_id === PARENT_A);
+    assert.equal(forParentA.length, 1);
+    assert.ok(forParentA[0].dedup_key, 'row carries its stable dedup key');
   });
 
-  it('records a failed push with the retry count and reason', async () => {
-    const push = new FakePushProvider('fcm');
-    push.sendResult = {
-      success: false,
-      provider: 'fcm',
-      error: 'messaging/third-party-auth-error',
-      retryable: true,
-    };
-    const { service, rows } = makeService({
-      pushProvider: push,
-      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
+  it('backfills null dedup keys gracefully in the stub repository shape', async () => {
+    const { service, rows } = makeService();
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: new Date(),
     });
-
-    await service.notifyStudentAttendance(attendanceInput);
-
-    const row = rows.find((r) => r.user_id === PARENT_A)!;
-    assert.equal(row.push_status, 'failed');
-    assert.equal(row.delivery_retry_count, 1);
-    assert.equal(row.delivery_failure_reason, 'messaging/third-party-auth-error');
-  });
-
-  it('records failed + no-device when the recipient has no active token', async () => {
-    const push = new FakePushProvider('fcm');
-    const { service, rows } = makeService({ pushProvider: push });
-
-    await service.notifyStudentAttendance(attendanceInput);
-
-    const row = rows.find((r) => r.user_id === PARENT_A)!;
-    assert.equal(row.push_status, 'failed');
-    assert.equal(row.delivery_retry_count, 1);
-    assert.equal(row.delivery_failure_reason, PUSH_NO_DEVICE_REASON);
-    assert.equal(push.calls.length, 0);
-  });
-
-  it('deactivates tokens FCM reported as unregistered/invalid', async () => {
-    const push = new FakePushProvider('fcm');
-    push.sendResult = {
-      success: true,
-      provider: 'fcm',
-      retryable: false,
-      invalidTokens: ['tok-stale'],
-    };
-    const { service, rows, deactivatedTokens } = makeService({
-      pushProvider: push,
-      activeTokens: [
-        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-live' },
-        { school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-stale' },
-      ],
-    });
-
-    await service.notifyStudentAttendance(attendanceInput);
-
-    assert.deepEqual(deactivatedTokens, ['tok-stale']);
-    // The live token still delivered → the notification is sent.
-    const row = rows.find((r) => r.user_id === PARENT_A)!;
-    assert.equal(row.push_status, 'sent');
-  });
-
-  it('swallows provider failures so the notification flow never breaks', async () => {
-    const push = new FakePushProvider('fcm');
-    push.throwOnSend = true;
-    const { service, rows } = makeService({
-      pushProvider: push,
-      activeTokens: [{ school_id: SCHOOL_A, user_id: PARENT_A, token: 'tok-1' }],
-    });
-
-    await assert.doesNotReject(service.notifyStudentAttendance(attendanceInput));
-
-    const row = rows.find((r) => r.user_id === PARENT_A)!;
-    assert.equal(row.push_status, 'failed');
-    assert.equal(row.delivery_retry_count, 1);
-    assert.equal(row.delivery_failure_reason, 'provider unavailable');
+    assert.ok(rows.length >= 1);
+    for (const row of rows) {
+      assert.ok(row.dedup_key && row.dedup_key.startsWith('STOP_ARRIVED:'));
+    }
   });
 });
 
