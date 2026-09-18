@@ -1,7 +1,21 @@
-export { EtaService } from './eta.service';
+export { EtaService, isFreshFix } from './eta.service';
 export type { EtaConfig, EtaLocationFix, TripEtaComputeInput } from './eta.service';
-export { StopArrivalsService } from './stop-arrivals.service';
-export type { EtaRoomBroadcaster, RecordedStopArrival } from './stop-arrivals.service';
+export {
+  DEFAULT_ARRIVAL_DETECTION_CONFIG,
+  StopArrivalsService,
+  assessFixEligibility,
+  selectProgressionCandidate,
+  updateInsideEvidence,
+} from './stop-arrivals.service';
+export type {
+  ArrivalDetectionConfig,
+  EtaRoomBroadcaster,
+  FixRejectionReason,
+  GeofenceStop,
+  ProgressionCandidateInput,
+  RecordedStopArrival,
+  StopInsideEvidence,
+} from './stop-arrivals.service';
 export {
   ETA_ARRIVALS_REPOSITORY,
   ETA_CONFIG,

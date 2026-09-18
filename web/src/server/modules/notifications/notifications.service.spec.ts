@@ -10,7 +10,15 @@ import {
   UserRole,
   notificationRoomName,
 } from '@school-bus-tracking/shared-types';
-import { Notification, Stop, Student, StudentGuardian, Trip, User } from '../../database/models';
+import {
+  Notification,
+  Run,
+  Stop,
+  Student,
+  StudentGuardian,
+  Trip,
+  User,
+} from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { NotificationsService } from './notifications.service';
 import type {
@@ -97,6 +105,7 @@ interface StubStudent {
   school_id: string;
   home_stop_id: string | null;
   is_active: boolean;
+  run_id?: string | null;
 }
 
 interface StubStop {
@@ -109,6 +118,14 @@ interface StubTrip {
   id: string;
   school_id: string;
   route_id: string;
+  run_id?: string | null;
+}
+
+interface StubRun {
+  id: string;
+  school_id: string;
+  route_id: string;
+  is_default: boolean;
 }
 
 /** Matches plain equality plus the `Op.in` operator. */
@@ -300,14 +317,21 @@ function makeService(
     initialRows?: StubNotification[];
     activeTokens?: DeviceTokenStubRow[];
     pushProvider?: FakePushProvider;
+    users?: StubUser[];
+    guardians?: StubGuardian[];
+    students?: StubStudent[];
+    stops?: StubStop[];
+    trips?: StubTrip[];
+    runs?: StubRun[];
   } = {},
 ) {
   const rows = [...(options.initialRows ?? [])];
-  const users = defaultUsers();
-  const guardians = defaultGuardians();
-  const students = defaultStudents();
-  const stops = defaultStops();
-  const trips = defaultTrips();
+  const users = options.users ?? defaultUsers();
+  const guardians = options.guardians ?? defaultGuardians();
+  const students = options.students ?? defaultStudents();
+  const stops = options.stops ?? defaultStops();
+  const trips = options.trips ?? defaultTrips();
+  const runs = options.runs ?? [];
   const activeTokens = [...(options.activeTokens ?? [])];
   const deactivatedTokens: string[] = [];
 
@@ -403,6 +427,10 @@ function makeService(
       stops.filter((stop) =>
         matchesWhere(stop as unknown as Record<string, unknown>, query.where),
       ) as unknown as Stop[],
+    findOne: async (query: { where: Record<PropertyKey, unknown> }) =>
+      (stops.find((stop) =>
+        matchesWhere(stop as unknown as Record<string, unknown>, query.where),
+      ) ?? null) as unknown as Stop,
   } as unknown as typeof Stop;
 
   const tripRepo = {
@@ -411,6 +439,12 @@ function makeService(
         matchesWhere(trip as unknown as Record<string, unknown>, query.where),
       ) ?? null) as unknown as Trip,
   } as unknown as typeof Trip;
+
+  const runRepo = {
+    findOne: async (query: { where: Record<PropertyKey, unknown> }) =>
+      (runs.find((run) => matchesWhere(run as unknown as Record<string, unknown>, query.where)) ??
+        null) as unknown as Run,
+  } as unknown as typeof Run;
 
   const deviceTokensService = {
     findActiveTokenStrings: async (schoolId: string, userId: string) =>
@@ -437,6 +471,7 @@ function makeService(
     tripRepo,
     deviceTokensService,
     pushProvider,
+    runRepo,
   );
   service.attachBroadcaster((room, event, payload) => {
     broadcast.calls.push({ room, event, payload });
@@ -875,12 +910,16 @@ describe('NotificationsService stop arrivals (Task 22)', () => {
     assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B].sort());
     for (const row of rows) {
       assert.equal(row.type, NotificationType.STOP_ARRIVED);
-      assert.equal(row.title, 'Bus arrived');
-      assert.equal(row.message, 'Bus arrived at Green Park Stop.');
+      assert.equal(row.title, 'Bus is near your stop');
+      assert.equal(row.message, 'Bus is near Green Park Stop.');
       assert.equal(row.trip_id, TRIP_A);
       assert.equal(row.stop_id, STOP_1);
       assert.equal(row.student_id, null);
-      assert.deepEqual(row.payload, { stop_id: STOP_1, stop_name: 'Green Park Stop' });
+      assert.deepEqual(row.payload, {
+        stop_id: STOP_1,
+        stop_name: 'Green Park Stop',
+        proximity_only: true,
+      });
     }
     assert.deepEqual(
       broadcast.calls.map((call) => call.room).sort(),
@@ -1191,5 +1230,247 @@ describe('NotificationsService.pushToUsers (role push, Phase 4)', () => {
       message: 'm',
     });
     assert.deepEqual(harness.deactivatedTokens, ['drv-stale']);
+  });
+});
+
+describe('NotificationsService run-aware recipients (Phase 1)', () => {
+  const RUN_DEFAULT = '88888888-8888-4888-8888-888888880001';
+  const RUN_B = '88888888-8888-4888-8888-888888880002';
+  const STUDENT_C = '33333333-3333-4333-8333-333333330005';
+  const STUDENT_D = '33333333-3333-4333-8333-333333330006';
+  const PARENT_C = '44444444-4444-4444-8444-444444440005';
+  const TRIP_RUN_B = '55555555-5555-4555-8555-555555550003';
+  const TRIP_LEGACY = '55555555-5555-4555-8555-555555550004';
+  const STOP_ARRIVAL_AT = new Date('2026-09-01T06:40:00.000Z');
+
+  // Two runs share ROUTE_A (tiering) and STOP_1: STUDENT_A rides the default
+  // run, STUDENT_C rides run B, STUDENT_D is unallocated (legacy).
+  function tieredFixtures() {
+    return {
+      users: [
+        ...defaultUsers(),
+        { id: PARENT_C, school_id: SCHOOL_A, role: UserRole.PARENT, is_active: true },
+      ],
+      guardians: [
+        ...defaultGuardians(),
+        {
+          id: '77777777-7777-4777-8777-777777770008',
+          school_id: SCHOOL_A,
+          student_id: STUDENT_C,
+          user_id: PARENT_C,
+          is_active: true,
+        },
+        {
+          id: '77777777-7777-4777-8777-777777770009',
+          school_id: SCHOOL_A,
+          student_id: STUDENT_D,
+          user_id: PARENT_A,
+          is_active: true,
+        },
+      ],
+      students: [
+        {
+          id: STUDENT_A,
+          school_id: SCHOOL_A,
+          home_stop_id: STOP_1,
+          is_active: true,
+          run_id: RUN_DEFAULT,
+        },
+        {
+          id: STUDENT_C,
+          school_id: SCHOOL_A,
+          home_stop_id: STOP_1,
+          is_active: true,
+          run_id: RUN_B,
+        },
+        { id: STUDENT_D, school_id: SCHOOL_A, home_stop_id: STOP_1, is_active: true, run_id: null },
+        {
+          id: STUDENT_INACTIVE,
+          school_id: SCHOOL_A,
+          home_stop_id: STOP_1,
+          is_active: false,
+          run_id: RUN_B,
+        },
+      ],
+      trips: [
+        { id: TRIP_A, school_id: SCHOOL_A, route_id: ROUTE_A, run_id: RUN_DEFAULT },
+        { id: TRIP_RUN_B, school_id: SCHOOL_A, route_id: ROUTE_A, run_id: RUN_B },
+        { id: TRIP_LEGACY, school_id: SCHOOL_A, route_id: ROUTE_A, run_id: null },
+      ],
+      runs: [
+        { id: RUN_DEFAULT, school_id: SCHOOL_A, route_id: ROUTE_A, is_default: true },
+        { id: RUN_B, school_id: SCHOOL_A, route_id: ROUTE_A, is_default: false },
+      ],
+    };
+  }
+
+  it('notifies only the current run riders at a stop shared across runs', async () => {
+    const { service, rows } = makeService(tieredFixtures());
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_RUN_B,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    // STUDENT_C rides run B; the default-run riders sharing STOP_1 hear nothing.
+    assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_C]);
+  });
+
+  it('notifies default riders for a legacy NULL-run trip (and not other runs)', async () => {
+    const { service, rows } = makeService(tieredFixtures());
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_LEGACY,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    // STUDENT_A (default run) + STUDENT_D (unallocated → default run) via
+    // PARENT_A/PARENT_B; run B's parent is excluded.
+    assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B].sort());
+  });
+
+  it('narrows trip-status alerts to the trip run riders', async () => {
+    const onRunB = makeService(tieredFixtures());
+    await onRunB.service.notifyTripStatusChange({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_RUN_B,
+      status: TripStatus.BOARDING,
+    });
+    assert.deepEqual(onRunB.rows.map((row) => row.user_id).sort(), [PARENT_C]);
+
+    const legacy = makeService(tieredFixtures());
+    await legacy.service.notifyTripStatusChange({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_LEGACY,
+      status: TripStatus.BOARDING,
+    });
+    assert.deepEqual(legacy.rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B].sort());
+  });
+
+  it('keeps the legacy route view on routes without runs', async () => {
+    const { service, rows } = makeService({
+      ...tieredFixtures(),
+      runs: [],
+      trips: [{ id: TRIP_A, school_id: SCHOOL_A, route_id: ROUTE_A, run_id: null }],
+    });
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_A,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    // No runs on the route: every active student at the stop rides.
+    assert.deepEqual(rows.map((row) => row.user_id).sort(), [PARENT_A, PARENT_B, PARENT_C].sort());
+  });
+
+  it('deduplicates siblings and duplicate guardian links to one notification', async () => {
+    const fixtures = tieredFixtures();
+    const { service, rows } = makeService({
+      ...fixtures,
+      guardians: [
+        ...fixtures.guardians,
+        // PARENT_C linked to STUDENT_C twice (duplicate active links).
+        {
+          id: '77777777-7777-4777-8777-777777770010',
+          school_id: SCHOOL_A,
+          student_id: STUDENT_C,
+          user_id: PARENT_C,
+          is_active: true,
+        },
+      ],
+    });
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_RUN_B,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    const forParentC = rows.filter((row) => row.user_id === PARENT_C);
+    assert.equal(forParentC.length, 1);
+  });
+
+  it('notifies a parent of two riding siblings exactly once', async () => {
+    const STUDENT_SIBLING = '33333333-3333-4333-8333-333333330007';
+    const fixtures = tieredFixtures();
+    const { service, rows } = makeService({
+      ...fixtures,
+      students: [
+        ...fixtures.students,
+        {
+          id: STUDENT_SIBLING,
+          school_id: SCHOOL_A,
+          home_stop_id: STOP_1,
+          is_active: true,
+          run_id: RUN_B,
+        },
+      ],
+      guardians: [
+        ...fixtures.guardians,
+        {
+          id: '77777777-7777-4777-8777-777777770011',
+          school_id: SCHOOL_A,
+          student_id: STUDENT_SIBLING,
+          user_id: PARENT_C,
+          is_active: true,
+        },
+      ],
+    });
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_RUN_B,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.user_id),
+      [PARENT_C],
+    );
+  });
+
+  it('creates nothing for an unknown trip or an off-route stop', async () => {
+    const { service, rows } = makeService(tieredFixtures());
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: '55555555-5555-4555-8555-555555559999',
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+    await service.notifyStopArrival({
+      school_id: SCHOOL_A,
+      trip_id: TRIP_RUN_B,
+      stop: { id: STOP_OTHER_ROUTE, name: 'Birch Rd' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+
+    assert.equal(rows.length, 0);
+  });
+
+  it('never resolves recipients across tenants', async () => {
+    const { service, rows } = makeService(tieredFixtures());
+
+    await service.notifyStopArrival({
+      school_id: SCHOOL_B,
+      trip_id: TRIP_RUN_B,
+      stop: { id: STOP_1, name: 'Green Park Stop' },
+      occurred_at: STOP_ARRIVAL_AT,
+    });
+    await service.notifyTripStatusChange({
+      school_id: SCHOOL_B,
+      trip_id: TRIP_RUN_B,
+      status: TripStatus.BOARDING,
+    });
+
+    assert.equal(rows.length, 0);
   });
 });

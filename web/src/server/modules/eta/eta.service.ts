@@ -20,6 +20,13 @@ export interface EtaConfig {
   minSpeedKmh: number;
   /** Upper clamp of the effective speed (km/h). */
   maxSpeedKmh: number;
+  /**
+   * Phase 1: age (ms, by fix `recorded_at`) after which the latest fix is
+   * last-known rather than live. Optional — when absent (or when the caller
+   * passes no `now`), the legacy behaviour applies and every fix counts as
+   * live. All production callers pass both.
+   */
+  staleAfterMs?: number;
 }
 
 /**
@@ -50,6 +57,16 @@ export interface TripEtaComputeInput {
   stops?: Stop[];
   /** Existing arrival rows of the trip (preloaded by the arrival pipeline). */
   arrivals?: TripStopArrival[];
+  /**
+   * Phase 1: reference clock for freshness. When provided (together with
+   * `EtaConfig.staleAfterMs`), a latest fix older than the threshold — or
+   * dated in the future — is surfaced as last-known position only:
+   * `eta_available` is false and no distance/ETA/speed is derived from it,
+   * so stale GPS can never appear as a fresh ETA. Arrival-derived progress
+   * (`current_stop` / `next_stop` / `arrived` flags) is unaffected — arrivals
+   * are recorded events, not position-derived claims.
+   */
+  now?: Date;
 }
 
 /**
@@ -81,6 +98,12 @@ export class EtaService {
     const stops = input.stops ?? (await this.loadRouteStops(trip));
     const arrivals = input.arrivals ?? (await this.loadArrivals(trip));
 
+    // Phase 1: stale (or future-dated) GPS is last-known, not live. The
+    // position itself is still returned with its timestamps; only the
+    // derived distance/ETA/speed is withheld.
+    const liveFix = latest !== null && isFreshFix(latest, input.now, this.config.staleAfterMs);
+    const fixForEta = liveFix && latest !== null ? latest : null;
+
     const arrivalStopIds = new Set(arrivals.map((arrival) => arrival.stop_id));
 
     // Current stop: the highest-sequence stop that already recorded an
@@ -95,17 +118,17 @@ export class EtaService {
       }
     }
 
-    const speed = latest !== null ? effectiveSpeedKmh(latest.speed, this.config) : null;
+    const speed = fixForEta !== null ? effectiveSpeedKmh(fixForEta.speed, this.config) : null;
     const speedSource: TripEtaResponse['speed_source'] =
-      latest === null ? null : sanitizeSpeedKmh(latest.speed) !== null ? 'gps' : 'fallback';
+      fixForEta === null ? null : sanitizeSpeedKmh(fixForEta.speed) !== null ? 'gps' : 'fallback';
 
     // Straight-line polyline distances from the bus through the unarrived
     // stops (in route order); arrived stops carry no distance/ETA.
     const unarrivedStops = stops.filter((stop) => !arrivalStopIds.has(stop.id));
     const distances =
-      latest !== null
+      fixForEta !== null
         ? cumulativeStopDistancesMeters(
-            { latitude: latest.latitude, longitude: latest.longitude },
+            { latitude: fixForEta.latitude, longitude: fixForEta.longitude },
             unarrivedStops,
           )
         : unarrivedStops.map(() => null);
@@ -146,7 +169,7 @@ export class EtaService {
         : null,
       next_stop: nextStopId ? (items.find((item) => item.stop_id === nextStopId) ?? null) : null,
       items,
-      eta_available: latest !== null,
+      eta_available: fixForEta !== null,
     };
   }
 
@@ -174,6 +197,32 @@ export class EtaService {
 /** Meters are surfaced as whole metres; null stays null (never invented). */
 function roundMeters(distance: number | null): number | null {
   return distance === null ? null : Math.round(distance);
+}
+
+/**
+ * Phase 1 freshness: a fix is live only when its original `recorded_at` is
+ * within `staleAfterMs` of `now` and not in the future. Without a reference
+ * clock (or without the configured threshold) every fix counts as live —
+ * the legacy behaviour kept for backward compatibility.
+ */
+export function isFreshFix(
+  latest: EtaLocationFix,
+  now: Date | undefined,
+  staleAfterMs: number | undefined,
+): boolean {
+  if (now === undefined || staleAfterMs === undefined) {
+    return true;
+  }
+  const recordedMs = toMs(latest.recorded_at);
+  if (!Number.isFinite(recordedMs)) {
+    return false;
+  }
+  const ageMs = now.getTime() - recordedMs;
+  return ageMs >= 0 && ageMs <= staleAfterMs;
+}
+
+function toMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
 /** Explicit projection — ORM internals never leak into a response. */

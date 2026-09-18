@@ -195,3 +195,92 @@ describe('EtaService.computeTripEta', () => {
     assert.equal(eta.next_stop?.eta_minutes, 1);
   });
 });
+
+describe('EtaService.computeTripEta Phase 1 staleness', () => {
+  const NOW = new Date('2026-09-01T06:41:30.000Z');
+  const config = { ...DEFAULT_ETA_CONFIG, staleAfterMs: 180_000 };
+
+  it('withholds distances and ETAs for stale GPS but keeps last-known position', async () => {
+    const service = makeEtaService(DEFAULT_STOPS, [], config);
+    const trip = makeTrip({ id: TRIP_A, status: TripStatus.IN_PROGRESS });
+    const stale = makeFix({
+      latitude: 40.7003,
+      longitude: -73.9997,
+      recorded_at: new Date(NOW.getTime() - 3_600_000),
+      received_at: NOW,
+    });
+
+    const eta = await service.computeTripEta({ trip, latest: stale, now: NOW });
+
+    assert.equal(eta.eta_available, false);
+    assert.equal(eta.speed_kmh, null);
+    assert.equal(eta.speed_source, null);
+    for (const item of eta.items) {
+      assert.equal(item.distance_meters, null);
+      assert.equal(item.eta_minutes, null);
+    }
+    // The last-known position itself is still surfaced with its timestamps.
+    assert.ok(eta.latest);
+    assert.equal(eta.latest.id, stale.id);
+    // Arrival-derived progress is unaffected by position staleness.
+    assert.equal(eta.next_stop?.stop_id, STOP_1);
+  });
+
+  it('keeps arrival-derived current/next stops when the fix is stale', async () => {
+    const service = makeEtaService(DEFAULT_STOPS, [makeArrival({ stop_id: STOP_1 })], config);
+    const trip = makeTrip({ id: TRIP_A, status: TripStatus.IN_PROGRESS });
+    const stale = makeFix({ recorded_at: new Date(NOW.getTime() - 3_600_000), received_at: NOW });
+
+    const eta = await service.computeTripEta({ trip, latest: stale, now: NOW });
+
+    assert.equal(eta.eta_available, false);
+    assert.equal(eta.current_stop?.stop_id, STOP_1);
+    assert.equal(eta.next_stop?.stop_id, STOP_2);
+  });
+
+  it('treats future-dated fixes as not live', async () => {
+    const service = makeEtaService(DEFAULT_STOPS, [], config);
+    const trip = makeTrip();
+
+    const eta = await service.computeTripEta({
+      trip,
+      latest: makeFix({ recorded_at: new Date(NOW.getTime() + 60_000), received_at: NOW }),
+      now: NOW,
+    });
+
+    assert.equal(eta.eta_available, false);
+    assert.equal(eta.speed_kmh, null);
+  });
+
+  it('serves a fresh ETA for fixes inside the staleness window', async () => {
+    const service = makeEtaService(DEFAULT_STOPS, [], config);
+    const trip = makeTrip({ id: TRIP_A, status: TripStatus.IN_PROGRESS });
+
+    const eta = await service.computeTripEta({
+      trip,
+      latest: makeFix({
+        latitude: 40.7003,
+        longitude: -73.9997,
+        recorded_at: new Date(NOW.getTime() - 10_000),
+        received_at: NOW,
+      }),
+      now: NOW,
+    });
+
+    assert.equal(eta.eta_available, true);
+    assert.equal(eta.next_stop?.stop_id, STOP_1);
+    assert.ok((eta.next_stop?.distance_meters ?? 0) > 0);
+  });
+
+  it('keeps the legacy behaviour when no reference clock is passed', async () => {
+    const service = makeEtaService(DEFAULT_STOPS, [], config);
+    const trip = makeTrip();
+
+    const eta = await service.computeTripEta({
+      trip,
+      latest: makeFix({ recorded_at: new Date(NOW.getTime() - 3_600_000), received_at: NOW }),
+    });
+
+    assert.equal(eta.eta_available, true);
+  });
+});

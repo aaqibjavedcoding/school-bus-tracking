@@ -66,9 +66,16 @@ export const TRIP_STATUS_TITLES: Record<string, string> = {
   TRIP_CANCELLED: 'Trip cancelled',
 };
 
-/** Title/message copy of the Task 22 stop-arrival notification. */
-export const STOP_ARRIVED_TITLE = 'Bus arrived';
-export const STOP_ARRIVED_MESSAGE = (stopName: string): string => `Bus arrived at ${stopName}.`;
+/**
+ * Title/message copy of the Task 22 stop-arrival notification.
+ *
+ * Phase 1: detection proves proximity only (a fresh GPS fix inside the
+ * stop's geofence) — never a confirmed arrival, let alone a child boarding.
+ * The copy therefore says "near". The `STOP_ARRIVED` notification type name
+ * is retained unchanged for database-enum and API compatibility.
+ */
+export const STOP_ARRIVED_TITLE = 'Bus is near your stop';
+export const STOP_ARRIVED_MESSAGE = (stopName: string): string => `Bus is near ${stopName}.`;
 
 export const TRIP_STATUS_MESSAGES: Record<string, string> = {
   TRIP_BOARDING: "Your child's bus is now boarding.",

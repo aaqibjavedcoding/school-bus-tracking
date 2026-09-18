@@ -257,7 +257,8 @@ export class ParentPortalService {
         }
         // Task 22: the same approximate ETA the trip ETA endpoint serves —
         // computed here over the child's own (tenant-resolved) trip.
-        eta = await this.eta.computeTripEta({ trip: tripRow, latest: location });
+        // Phase 1: `now` withholds stale-GPS distances/ETAs.
+        eta = await this.eta.computeTripEta({ trip: tripRow, latest: location, now: new Date() });
       }
     }
 

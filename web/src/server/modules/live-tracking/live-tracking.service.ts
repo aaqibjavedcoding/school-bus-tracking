@@ -35,6 +35,7 @@ import type { TenantRequestUser as RequestUser } from '../../common/guards';
 import type { IdempotencyService } from '../../common/idempotency/idempotency.service';
 import { IDEMPOTENCY_ENDPOINTS } from '../../common/idempotency/idempotency.constants';
 import { StopArrivalsService } from '../eta/stop-arrivals.service';
+import { resolveTripRunId, studentRidesTripRun } from './run-ridership';
 import {
   DEFAULT_HISTORY_LIMIT,
   LIVE_TRACKING_NO_LOCATION_MESSAGE,
@@ -333,24 +334,15 @@ export class LiveTrackingService {
     // route's default run — and a child without a `run_id` rides that default
     // run — so every pre-refactor parent keeps seeing exactly what they saw
     // before, and nothing that a *different* run's riders should see.
+    // Phase 1: the allocation rule lives in `run-ridership.ts`, shared with
+    // notification recipient resolution so the two can never drift apart.
     const defaultRun = await this.runs.findOne({
       where: { school_id: trip.school_id, route_id: trip.route_id, is_default: true },
       attributes: ['id'],
     });
-    // The run a trip executes: explicit when dispatched from a run, otherwise
-    // the route default (a pre-refactor dispatch), otherwise `null` when the
-    // route has no runs at all.
-    const tripRunId = trip.run_id ?? defaultRun?.id ?? null;
-    return riders.some((student) => {
-      if (tripRunId === null) {
-        return true; // route without any runs: nothing to narrow on
-      }
-      if (student.run_id) {
-        return student.run_id === tripRunId;
-      }
-      // Unallocated child → rides the default run.
-      return tripRunId === defaultRun?.id;
-    });
+    const defaultRunId = defaultRun?.id ?? null;
+    const tripRunId = resolveTripRunId(trip.run_id, defaultRunId);
+    return riders.some((student) => studentRidesTripRun(student.run_id, tripRunId, defaultRunId));
   }
 
   /**
@@ -673,7 +665,9 @@ export class LiveTrackingService {
 
     // Task 22: geofence evaluation for stop arrivals. Best-effort by design
     // — it can never reject or delay an already-accepted GPS fix.
-    await this.evaluateStopArrivals(trip, location);
+    // Phase 1: the receipt clock is passed so freshness is measured from the
+    // fix's original `recorded_at` against server time.
+    await this.evaluateStopArrivals(trip, location, now);
 
     return {
       ack,
@@ -920,9 +914,9 @@ export class LiveTrackingService {
    * service itself also swallows its own errors) and can never reject the
    * already-persisted fix.
    */
-  private async evaluateStopArrivals(trip: Trip, location: TripLocation): Promise<void> {
+  private async evaluateStopArrivals(trip: Trip, location: TripLocation, now: Date): Promise<void> {
     try {
-      await this.arrivals.onAcceptedFix(trip, location);
+      await this.arrivals.onAcceptedFix(trip, location, now);
     } catch (error) {
       this.logger.error(
         `Stop arrival evaluation failed for trip ${trip.id}: ${

@@ -40,7 +40,8 @@ export const getTripsByTripIdEta: EndpointDefinition = {
     const latest = await container()
       .liveTracking()
       .getLatestLocationResponse(trip.school_id, trip.id);
-    return container().eta().computeTripEta({ trip, latest });
+    // Phase 1: `now` lets the ETA withhold stale-GPS distances/ETAs.
+    return container().eta().computeTripEta({ trip, latest, now: new Date() });
   },
 };
 
@@ -67,6 +68,6 @@ export const getTripsByTripIdProgress: EndpointDefinition = {
     const latest = await container()
       .liveTracking()
       .getLatestLocationResponse(trip.school_id, trip.id);
-    return container().stopArrivals().getProgress(trip, latest);
+    return container().stopArrivals().getProgress(trip, latest, new Date());
   },
 };
