@@ -40,8 +40,8 @@ const row = (id: string, isRead: boolean): NotificationResponse => ({
 const push = (id: string): NotificationRealtimeEvent => ({
   notification_id: id,
   type: NotificationType.STOP_ARRIVED,
-  title: 'Bus at stop',
-  message: 'The bus reached Main St',
+  title: 'Bus is near your stop',
+  message: 'Bus is near Main St.',
   student_id: null,
   trip_id: null,
   stop_id: null,
@@ -126,7 +126,7 @@ describe('applyNotificationRead / applyAllNotificationsRead', () => {
 describe('notificationTypeLabel', () => {
   it('labels every notification kind', () => {
     assert.equal(notificationTypeLabel(NotificationType.STUDENT_BOARDED), '🚌 Boarded');
-    assert.equal(notificationTypeLabel(NotificationType.STOP_ARRIVED), '📍 Bus at stop');
+    assert.equal(notificationTypeLabel(NotificationType.STOP_ARRIVED), '📍 Bus near stop');
     assert.equal(notificationTypeLabel(NotificationType.TRIP_CANCELLED), '⚠️ Trip cancelled');
   });
 });
