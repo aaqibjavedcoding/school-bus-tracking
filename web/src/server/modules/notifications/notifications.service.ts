@@ -1,5 +1,5 @@
 import { Logger, NotFoundException } from '../../framework';
-import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
+import { Op, UniqueConstraintError, type Transaction, type WhereOptions } from 'sequelize';
 import {
   NotificationReadAllResponse,
   NotificationReadFilter,
@@ -119,12 +119,23 @@ const NOTIFIABLE_TRIP_STATUSES: Partial<Record<TripStatus, NotificationType>> = 
  *
  * Persisting the row and the required delivery work is a single atomic step:
  * the row carries `push_status = 'pending'`, `next_attempt_at`, the stable
- * `dedup_key` and the event-specific `push_expires_at`. The outbox worker
- * (`modules/notifications/outbox`) claims due rows later, so a crash between
- * "event persisted" and "push sent" recovers after restart and the GPS /
- * attendance / trip flows never block on sequential per-parent push calls.
- * The worker also retries transient failures (bounded exponential backoff),
- * retires invalid tokens, honours expiry and tracks per-device outcomes.
+ * `dedup_key` and the event-specific `push_expires_at` (anchored to the
+ * *event* clock, so a delayed batch inherits the remaining window). The outbox
+ * worker (`modules/notifications/outbox`) claims due rows later, so a crash
+ * between "event persisted" and "push sent" recovers after restart and the
+ * GPS / attendance / trip flows never block on sequential per-parent push
+ * calls. The worker also retries transient failures per device (bounded
+ * exponential backoff), retires invalid tokens, honours expiry and keeps an
+ * accumulated, per-device outcome (`sent` vs `partial`).
+ *
+ * ### Atomicity scope (corrective patch)
+ *
+ * The **stop-arrival** path is transactionally atomic: `notifyStopArrival`
+ * accepts the arrival's transaction and writes the fan-out rows inside it, so
+ * a committed arrival always carries its notification intent and a rolled-back
+ * arrival never produces rows, socket events or deliveries. Other business
+ * event paths (attendance, trip status, role pushes) still create rows after
+ * their own operation succeeded and are *not* claimed to be atomic here.
  *
  * Recipients are resolved server-side from the tenant-pinned
  * `StudentGuardian` join (active links only, parent accounts only) — the same
@@ -205,6 +216,9 @@ export class NotificationsService {
           title,
           message,
           payload: { student_name: studentName, action: input.action },
+          // Deadline anchored to the attendance event itself: a delayed
+          // batch never gets a fresh alert window.
+          occurred_at: input.occurred_at,
         });
       }
     } catch (error) {
@@ -275,9 +289,22 @@ export class NotificationsService {
    * arrival or a child boarding.
    *
    * Called by the stop-arrival pipeline only *after* the arrival row was
-   * persisted. Best-effort: errors are logged, never re-thrown.
+   * persisted.
+   *
+   * `options.transaction` is the arrival's own transaction: the notification
+   * rows are then written in that same transaction, so a committed arrival
+   * can never exist without its notification intent and a rolled-back
+   * arrival produces no notification at all. In that mode errors **propagate**
+   * (the caller must roll back), while broadcasts / outbox enqueues are
+   * deferred to `afterCommit` so nothing leaks out of a rolled-back
+   * transaction. Without a transaction the call stays best-effort: errors are
+   * logged, never re-thrown.
    */
-  async notifyStopArrival(input: StopArrivalNotificationInput): Promise<void> {
+  async notifyStopArrival(
+    input: StopArrivalNotificationInput,
+    options: { transaction?: Transaction } = {},
+  ): Promise<void> {
+    const transaction = options.transaction;
     try {
       const userIds = await this.resolveGuardianUserIdsForStop(
         input.school_id,
@@ -292,21 +319,32 @@ export class NotificationsService {
       const message = STOP_ARRIVED_MESSAGE(input.stop.name);
 
       for (const userId of userIds) {
-        await this.createNotificationRow({
-          school_id: input.school_id,
-          user_id: userId,
-          type: NotificationType.STOP_ARRIVED,
-          trip_id: input.trip_id,
-          student_id: null,
-          stop_id: input.stop.id,
-          title,
-          message,
-          // Phase 1: explicit proximity semantics for clients — this event
-          // proves the bus was near the stop, never a boarding/drop-off.
-          payload: { stop_id: input.stop.id, stop_name: input.stop.name, proximity_only: true },
-        });
+        await this.createNotificationRow(
+          {
+            school_id: input.school_id,
+            user_id: userId,
+            type: NotificationType.STOP_ARRIVED,
+            trip_id: input.trip_id,
+            student_id: null,
+            stop_id: input.stop.id,
+            title,
+            message,
+            // Phase 1: explicit proximity semantics for clients — this event
+            // proves the bus was near the stop, never a boarding/drop-off.
+            payload: { stop_id: input.stop.id, stop_name: input.stop.name, proximity_only: true },
+            // The deadline runs from the *event* (when the bus neared the
+            // stop), not from when this row happened to be created.
+            occurred_at: input.occurred_at,
+          },
+          { transaction },
+        );
       }
     } catch (error) {
+      if (transaction) {
+        // The caller owns the transaction: it must fail so the arrival and
+        // its notification intent commit (or roll back) together.
+        throw error;
+      }
       this.logger.error(
         `Failed to create stop-arrival notification for trip ${input.trip_id}, stop ${
           input.stop.id
@@ -683,18 +721,30 @@ export class NotificationsService {
    * no-op via the unique index, exactly like the arrival pipeline's
    * `(school, trip, stop)` backstop.
    */
-  private async createNotificationRow(values: {
-    school_id: string;
-    user_id: string;
-    type: NotificationType;
-    trip_id: string | null;
-    student_id: string | null;
-    stop_id?: string | null;
-    title: string;
-    message: string;
-    payload: Record<string, unknown>;
-  }): Promise<void> {
+  private async createNotificationRow(
+    values: {
+      school_id: string;
+      user_id: string;
+      type: NotificationType;
+      trip_id: string | null;
+      student_id: string | null;
+      stop_id?: string | null;
+      title: string;
+      message: string;
+      payload: Record<string, unknown>;
+      /**
+       * Server time of the underlying event. The delivery deadline is measured
+       * from here — a notification row created late for an old event (delayed
+       * batch, retried arrival) inherits the remaining window instead of a
+       * fresh one. Defaults to "now" for callers without an event clock.
+       */
+      occurred_at?: Date | null;
+    },
+    options: { transaction?: Transaction } = {},
+  ): Promise<void> {
     const now = new Date();
+    const transaction = options.transaction;
+    const eventAtMs = (values.occurred_at ?? now).getTime();
     const dedupKey = deliveryDedupKey({
       type: values.type,
       tripId: values.trip_id,
@@ -709,6 +759,7 @@ export class NotificationsService {
         user_id: values.user_id,
         dedup_key: dedupKey,
       },
+      ...(transaction ? { transaction } : {}),
     });
     if (existing) {
       return;
@@ -716,31 +767,38 @@ export class NotificationsService {
 
     let created: Notification;
     try {
-      created = await this.notifications.create({
-        school_id: values.school_id,
-        user_id: values.user_id,
-        type: values.type,
-        trip_id: values.trip_id,
-        student_id: values.student_id,
-        stop_id: values.stop_id ?? null,
-        title: values.title,
-        message: values.message,
-        payload: values.payload,
-        is_read: false,
-        read_at: null,
-        // Phase 2 durable delivery metadata.
-        dedup_key: dedupKey,
-        push_status: 'pending',
-        push_expires_at: deliveryExpiry(now.getTime(), this.deliveryPolicy),
-        next_attempt_at: new Date(now.getTime() + 1),
-        delivered_tokens: null,
-        delivery_failure_kind: null,
-        delivery_abandoned_reason: null,
-      });
+      created = await this.notifications.create(
+        {
+          school_id: values.school_id,
+          user_id: values.user_id,
+          type: values.type,
+          trip_id: values.trip_id,
+          student_id: values.student_id,
+          stop_id: values.stop_id ?? null,
+          title: values.title,
+          message: values.message,
+          payload: values.payload,
+          is_read: false,
+          read_at: null,
+          // Phase 2 durable delivery metadata.
+          dedup_key: dedupKey,
+          push_status: 'pending',
+          push_expires_at: deliveryExpiry(eventAtMs, this.deliveryPolicy),
+          next_attempt_at: new Date(now.getTime() + 1),
+          delivered_tokens: null,
+          delivery_pending_tokens: null,
+          delivery_failure_kind: null,
+          delivery_abandoned_reason: null,
+        },
+        ...(transaction ? [{ transaction }] : []),
+      );
     } catch (error) {
       // Concurrent duplicate: the unique index on (school, user, dedup_key)
-      // turned the race into a no-op — never a second notification.
-      if (error instanceof UniqueConstraintError) {
+      // turned the race into a no-op — never a second notification. Inside a
+      // transaction the error must propagate: PostgreSQL aborts the whole
+      // transaction, so swallowing it would leave the caller with a dead
+      // connection and a half-written arrival.
+      if (error instanceof UniqueConstraintError && !transaction) {
         return;
       }
       throw error;
@@ -756,6 +814,25 @@ export class NotificationsService {
       stop_id: created.stop_id ?? null,
       created_at: toIsoString(created.created_at),
     };
+
+    if (transaction) {
+      // Nothing may leave the transaction before it commits: the socket event
+      // and the outbox enqueue are registered as after-commit callbacks, so a
+      // rollback emits no notification and never broadcasts one.
+      transaction.afterCommit(() => {
+        this.broadcaster?.(notificationRoomName(values.user_id), NOTIFICATION_EVENTS.new, payload);
+      });
+      transaction.afterCommit(() => {
+        void this.enqueuePushDelivery(created).catch((error: unknown) => {
+          this.logger.error(
+            `Failed to enqueue push for notification ${created.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        });
+      });
+      return;
+    }
 
     this.broadcaster?.(notificationRoomName(values.user_id), NOTIFICATION_EVENTS.new, payload);
 
@@ -831,6 +908,12 @@ function deliveryProjection(row: Notification): Record<string, unknown> {
     abandoned_reason: row.delivery_abandoned_reason ?? null,
     // Accepted-by-provider devices only — never a claim of on-device display.
     delivered_tokens: (row.delivered_tokens ?? []).length,
+    // Devices still owed a delivery (0 on `sent`; non-zero explains a
+    // `partial`/`failed` row).
+    pending_tokens: (row.delivery_pending_tokens ?? []).length,
+    // Only a row whose every targeted device was accepted is complete; a
+    // partially delivered row is never presented as fully delivered.
+    complete: status === 'sent',
     expires_at: row.push_expires_at ? toIsoString(row.push_expires_at) : null,
   };
 }

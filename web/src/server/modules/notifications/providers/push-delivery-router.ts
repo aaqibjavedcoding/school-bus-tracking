@@ -1,15 +1,13 @@
 import type { DevicePlatform } from '@school-bus-tracking/shared-types';
-import type {
-  DeviceDeliveryOutcome,
-  PushNotificationPayload,
-  PushNotificationProvider,
-  PushDeliveryResult,
+import {
+  emptyDeviceOutcome,
+  type DeviceDeliveryOutcome,
+  type PushNotificationPayload,
+  type PushNotificationProvider,
+  type PushDeliveryResult,
 } from './notification-provider.interface';
 
-/** An empty per-device outcome. */
-export function emptyDeviceOutcome(): DeviceDeliveryOutcome {
-  return { delivered: [], retryable: [], invalid: [], notConfigured: [] };
-}
+export { emptyDeviceOutcome };
 
 /**
  * Composite push provider (Phase 2): routes each device token to the rail its
@@ -147,12 +145,20 @@ function allRetryable(tokens: string[]): DeviceDeliveryOutcome {
 
 function outcomeFromResult(result: PushDeliveryResult, tokens: string[]): DeviceDeliveryOutcome {
   const invalid = new Set(result.invalidTokens ?? []);
-  return {
-    delivered: result.success ? tokens.filter((token) => !invalid.has(token)) : [],
-    retryable: result.retryable ? tokens.filter((token) => !invalid.has(token)) : [],
-    invalid: [...invalid],
-    notConfigured: [],
-  };
+  const outcome = emptyDeviceOutcome();
+  outcome.invalid.push(...invalid);
+  const rest = tokens.filter((token) => !invalid.has(token));
+  if (result.success) {
+    outcome.delivered.push(...rest);
+  } else if (result.retryable) {
+    outcome.retryable.push(...rest);
+  } else {
+    // No per-device detail and not retryable: the rail refused the message
+    // permanently (config/message class). Tokens stay untouched.
+    outcome.misconfigured.push(...rest);
+    outcome.misconfiguredReason = result.error ?? null;
+  }
+  return outcome;
 }
 
 export function mergeOutcomes(outcomes: DeviceDeliveryOutcome[]): DeviceDeliveryOutcome {
@@ -162,6 +168,11 @@ export function mergeOutcomes(outcomes: DeviceDeliveryOutcome[]): DeviceDelivery
     merged.retryable.push(...outcome.retryable);
     merged.invalid.push(...outcome.invalid);
     merged.notConfigured.push(...outcome.notConfigured);
+    merged.misconfigured.push(...(outcome.misconfigured ?? []));
+    merged.permanent.push(...(outcome.permanent ?? []));
+    merged.expired.push(...(outcome.expired ?? []));
+    merged.misconfiguredReason = merged.misconfiguredReason ?? outcome.misconfiguredReason ?? null;
+    merged.permanentReason = merged.permanentReason ?? outcome.permanentReason ?? null;
   }
   return merged;
 }
