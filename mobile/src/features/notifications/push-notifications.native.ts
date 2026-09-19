@@ -5,6 +5,11 @@ import type { AuthenticatedUser } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api.ts';
 import { readPushData, resolvePushRoute, shouldPresentForeground } from './push-routing.ts';
 import {
+  claimNotificationPresentation,
+  setPresentationAccount,
+} from './presentation-dedup.ts';
+import { classifyPushFailure } from './push-config.ts';
+import {
   buildDeviceTokenRequest,
   devicePushTokenValue,
   isNotificationPermissionGranted,
@@ -89,7 +94,14 @@ function loadNotifications(): NotificationsModule | null {
     notifications.setNotificationHandler({
       handleNotification: async (notification) => {
         const data = readPushData(notification.request.content.data);
-        const show = shouldPresentForeground(data, activeUser);
+        // Two independent rails can carry the same logical notification: the
+        // `/notifications` socket (in-app banner) and this push. `data.id` is
+        // the same `notifications` row id as the socket event's
+        // `notification_id`, so one claim per id presents it exactly once.
+        // A payload without an id cannot be de-duplicated and is always shown —
+        // dropping a real notification would be worse than a duplicate.
+        const claimed = claimNotificationPresentation(data.id, { channel: 'push' });
+        const show = shouldPresentForeground(data, activeUser) && claimed;
         return {
           shouldPlaySound: show,
           shouldSetBadge: false,
@@ -163,6 +175,10 @@ export function flushPendingRoute(): void {
  */
 export async function setupPushNotifications(user: AuthenticatedUser): Promise<void> {
   activeUser = { id: user.id, school_id: user.school_id ?? null, role: user.role };
+  // Presentation de-duplication follows the account: switching users clears
+  // every remembered id so the new account's notifications are never
+  // suppressed by the previous one's.
+  setPresentationAccount({ userId: user.id, schoolId: user.school_id ?? null });
   // No tenant, no push: the platform SUPER_ADMIN has no device registration.
   if (!user.school_id) {
     return;
@@ -254,8 +270,11 @@ export async function setupPushNotifications(user: AuthenticatedUser): Promise<v
     await registerDeviceToken(value, platform, user.id);
   } catch (error) {
     // Expo Go / no Firebase config / permission denied: the app keeps working
-    // without OS push; setup is retried on the next login/app start.
-    console.warn('Push notification setup skipped:', errorMessage(error));
+    // without OS push; setup is retried on the next login/app start. The cause
+    // is classified so "this build has no google-services.json wired" (a native
+    // rebuild fixes it) is never reported as a transient delivery failure.
+    const failure = classifyPushFailure(error);
+    console.warn(`Push notification setup skipped (${failure}):`, errorMessage(error));
   }
 }
 
@@ -274,6 +293,7 @@ let lastHandledColdStart = 0;
 export async function unregisterPushDevice(): Promise<void> {
   const token = currentDeviceToken;
   activeUser = null;
+  setPresentationAccount(null);
   pendingRoute = null;
   registeredFor = null;
   if (!token) {

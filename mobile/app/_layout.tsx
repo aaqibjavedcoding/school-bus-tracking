@@ -28,7 +28,13 @@ import { t } from '../src/lib/i18n';
 function RoleProviders({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
   if (status === 'authenticated' && user?.role === UserRole.PARENT) {
-    return <NotificationsProvider>{children}</NotificationsProvider>;
+    // The account scopes notification presentation de-duplication (socket vs
+    // push): a remount for a different user starts with an empty claim store.
+    return (
+      <NotificationsProvider account={{ userId: user.id, schoolId: user.school_id ?? null }}>
+        {children}
+      </NotificationsProvider>
+    );
   }
   return <>{children}</>;
 }
