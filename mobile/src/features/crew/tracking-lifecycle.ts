@@ -129,9 +129,7 @@ type TrackingTimeouts = { -readonly [K in keyof typeof DEFAULT_TIMEOUTS]: number
 const timeouts: TrackingTimeouts = { ...DEFAULT_TIMEOUTS };
 
 /** Test seam: shrinks the bounded waits. Production never calls this. */
-export function __setTrackingTimeoutsForTests(
-  overrides: Partial<TrackingTimeouts> | null,
-): void {
+export function __setTrackingTimeoutsForTests(overrides: Partial<TrackingTimeouts> | null): void {
   Object.assign(timeouts, DEFAULT_TIMEOUTS, overrides ?? {});
 }
 
@@ -163,12 +161,22 @@ export interface CrewLocationStats {
   lastReason: string | null;
   /** Server receipt time of the newest acknowledged fix. */
   lastAckAt: string | null;
-  /** Device time of the newest fix this phone produced (local only). */
+  /**
+   * Device time of the newest fix this phone produced (local only).
+   *
+   * `heading` and `speed` are the same normalised readings that went into the
+   * payload (speed in km/h; an unavailable heading already omitted at the
+   * source). They exist so the Driver Trip map can point its marker along the
+   * direction of travel without a second GPS watcher — see
+   * `features/crew/crew-map-presentation.ts`. Nothing about delivery reads them.
+   */
   lastFix: {
     latitude: number;
     longitude: number;
     accuracy: number | null;
     recorded_at: string;
+    heading: number | null;
+    speed: number | null;
   } | null;
 }
 
@@ -487,8 +495,12 @@ function attachSocketListeners(): void {
       void stopCrewTracking('revoked', { clearMessage: false });
       return;
     }
-    patch({ connection: state.foregroundActive || state.backgroundActive ? 'reconnecting' : 'idle' });
-    scheduleRecovery(kind === 'auth-expired' ? 'auth-expired' : `disconnect:${reason ?? 'unknown'}`);
+    patch({
+      connection: state.foregroundActive || state.backgroundActive ? 'reconnecting' : 'idle',
+    });
+    scheduleRecovery(
+      kind === 'auth-expired' ? 'auth-expired' : `disconnect:${reason ?? 'unknown'}`,
+    );
   });
 
   socket.on('connect_error', (...args: unknown[]) => {
@@ -727,12 +739,7 @@ async function withBound<T>(promise: Promise<T>, timeoutMs: number): Promise<T |
 
 // ── Fix delivery ───────────────────────────────────────────────────────────
 
-export type PushFixResult =
-  | 'emitted'
-  | 'no-trip'
-  | 'invalid'
-  | 'not-connected'
-  | 'superseded';
+export type PushFixResult = 'emitted' | 'no-trip' | 'invalid' | 'not-connected' | 'superseded';
 
 /**
  * Handles one native device fix (foreground watch or background task).
@@ -765,6 +772,10 @@ export function deliverCrewDeviceFix(fix: DeviceLocationFix): PushFixResult {
       longitude: payload.longitude,
       accuracy: payload.accuracy ?? null,
       recorded_at: payload.recorded_at,
+      // `payload.heading` is absent when the device had no course (the source
+      // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
+      heading: payload.heading ?? null,
+      speed: payload.speed ?? null,
     },
   });
 
@@ -1357,6 +1368,10 @@ export async function runHeadlessCrewLocationTask(
       longitude: payload.longitude,
       accuracy: payload.accuracy ?? null,
       recorded_at: payload.recorded_at,
+      // `payload.heading` is absent when the device had no course (the source
+      // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
+      heading: payload.heading ?? null,
+      speed: payload.speed ?? null,
     },
   });
 
@@ -1369,7 +1384,7 @@ export async function runHeadlessCrewLocationTask(
     result.delivered += 1;
     return result;
   }
-  result.reason = outcome === 'no-ack' ? 'ack-timeout' : state.stats.lastReason ?? 'rejected';
+  result.reason = outcome === 'no-ack' ? 'ack-timeout' : (state.stats.lastReason ?? 'rejected');
   result.dropped += 1;
   if (outcome === 'no-ack') {
     result.pending = true;

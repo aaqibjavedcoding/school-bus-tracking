@@ -161,6 +161,8 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'map.status.lastKnown': 'badge',
   'map.status.noLocation': 'badge',
   'map.status.approximate': 'badge',
+  // Driver Trip map: the always-on "this is your device's position" chip.
+  'driverMap.source': 'badge',
 
   // `KeyValue` label — a full-width row above its value.
   'trip.detail.route': 'label',

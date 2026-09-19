@@ -2166,11 +2166,16 @@ export const liveTrackingRoomName = (tripId: string): string => `trip:${tripId}`
  * Why these live here rather than in each client: the parent/admin map, the web
  * console and the crew status all have to agree on what "live" means, and a
  * per-client copy is how an app ends up showing "Live" on one screen and
- * "Last known" on another for the same bus. They mirror the crew controller's
+ * "Last known" on another for the same bus. The crew controller's
  * `SERVER_ACK_LIVE_WINDOW_MS` / `SERVER_ACK_STALE_WINDOW_MS`
- * (`mobile/src/features/crew/tracking-status.ts`), and
- * `mobile/src/features/map/tracking-presentation.spec.ts` asserts the two
- * cannot drift apart.
+ * (`mobile/src/features/crew/tracking-status.ts`) are **aliases of these two
+ * constants**, not copies of them, so there is one definition of the duration
+ * and no drift to detect.
+ *
+ * Note what is deliberately **not** aliased: the crew controller's
+ * `LOCAL_FIX_FRESH_WINDOW_MS` (is this phone's GPS working?) is its own number
+ * even though it is currently equal. Different question, different constant;
+ * a shared value must not silently couple the two behaviours.
  *
  * Both are deliberately generous relative to the real cadence (device watch
  * 4 s, server throttle floor 2.5 s): 30 s tolerates a run of lost fixes without

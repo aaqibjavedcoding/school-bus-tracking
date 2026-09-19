@@ -3,7 +3,7 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { BusMarkerGraphic } from './BusMarkerGraphic';
 import { useBusMarkerMotion, type RenderedMarker } from './useBusMarkerMotion';
-import type { LiveFix } from '../tracking/useLiveTripTracking';
+import type { BusMotionFix } from './bus-motion.ts';
 
 /**
  * The bus marker — a leaf component, and the **only** thing that re-renders per
@@ -31,7 +31,14 @@ import type { LiveFix } from '../tracking/useLiveTripTracking';
  * marker off it.
  */
 export interface BusMarkerProps {
-  fix: LiveFix | null;
+  /**
+   * The newest raw fix, whatever delivered it: the observer socket, or the
+   * device's own GPS watcher on the Driver Trip screen. Only the position,
+   * heading, speed and timestamp are read here; no prop of this component
+   * describes *where the fix came from*, which is deliberately the caller's
+   * job (see `crew-map-presentation.ts`).
+   */
+  fix: BusMotionFix | null;
   tripId: string | null;
   reducedMotion: boolean;
   animate: boolean;

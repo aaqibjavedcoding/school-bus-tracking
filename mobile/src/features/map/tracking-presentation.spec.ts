@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
+import { GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS } from '@school-bus-tracking/shared-types';
 import {
   ACCURACY_APPROXIMATE_METERS,
   ACCURACY_CIRCLE_MAX_METERS,
@@ -9,7 +11,6 @@ import {
   deriveTrackingPresentation,
   gpsFreshness,
 } from './tracking-presentation.ts';
-import { SERVER_ACK_LIVE_WINDOW_MS, SERVER_ACK_STALE_WINDOW_MS } from '../crew/tracking-status.ts';
 import { gpsSignalTier } from '../../lib/geo.ts';
 
 /**
@@ -21,9 +22,31 @@ import { gpsSignalTier } from '../../lib/geo.ts';
  */
 
 describe('single definition of "live"', () => {
-  it('the map uses the app-wide GPS windows, not its own', () => {
-    assert.equal(LIVE_WINDOW_MS, SERVER_ACK_LIVE_WINDOW_MS);
-    assert.equal(STALE_WINDOW_MS, SERVER_ACK_STALE_WINDOW_MS);
+  it('the map reads the app-wide GPS windows from the shared package', () => {
+    // The observer windows are *aliases* of the shared constants, not copies of
+    // the crew controller's: one definition, imported. This used to be a
+    // spec-pinned equality against `SERVER_ACK_LIVE_WINDOW_MS` /
+    // `SERVER_ACK_STALE_WINDOW_MS`, which left the two free to drift and only
+    // detected it after the fact.
+    assert.equal(LIVE_WINDOW_MS, GPS_LIVE_WINDOW_MS);
+    assert.equal(STALE_WINDOW_MS, GPS_STALE_WINDOW_MS);
+  });
+
+  it('does not derive its freshness from the crew controller', () => {
+    // Observer freshness (a *delivered* fix), server-acknowledgement freshness
+    // (does the school have it) and local-fix freshness (does this phone have
+    // GPS) are three separate questions that happen to share durations. Wiring
+    // one to another would collapse them, so the observer module must not
+    // import the crew status module at all.
+    const source = readFileSync(
+      `${process.cwd()}/src/features/map/tracking-presentation.ts`,
+      'utf8',
+    );
+    assert.match(
+      source,
+      /import \{ GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS \} from '@school-bus-tracking\/shared-types';/,
+    );
+    assert.doesNotMatch(source, /from '\.\.\/crew\//, 'the observer must not reuse a crew window');
   });
 
   it('agrees with the crew signal tier on where "weak" accuracy starts', () => {

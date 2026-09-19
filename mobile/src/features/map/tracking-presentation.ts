@@ -25,11 +25,12 @@ import { GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS } from '@school-bus-tracking/sh
  * The windows come from `@school-bus-tracking/shared-types`
  * (`GPS_LIVE_WINDOW_MS` = 30 s, `GPS_STALE_WINDOW_MS` = 120 s), which both this
  * app and the web console import, so there is exactly one definition of "live"
- * in the product. `tracking-presentation.spec.ts` additionally asserts they
- * equal the crew controller's `SERVER_ACK_LIVE_WINDOW_MS` /
- * `SERVER_ACK_STALE_WINDOW_MS`, so the observer and the driver can never
- * disagree about the same bus. The 50 m accuracy line matches `gpsSignalTier`
- * in `src/lib/geo.ts`, which already calls that "weak".
+ * in the product. The crew controller imports the *same* constants, so the
+ * observer and the driver can never disagree about the same bus — and neither is
+ * wired to the other's module: delivery freshness, local-fix freshness and
+ * observer freshness stay three separate concepts (see `tracking-status.ts`).
+ * The 50 m accuracy line matches `gpsSignalTier` in `src/lib/geo.ts`, which
+ * already calls that "weak".
  */
 
 /** Age at which a delivered fix stops being "live" and becomes "stale". */

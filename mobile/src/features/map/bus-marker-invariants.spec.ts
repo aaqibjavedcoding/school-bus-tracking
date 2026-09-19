@@ -68,19 +68,48 @@ describe('native bus map invariants', () => {
     assert.match(map, /initialRegion=\{initialRegion \?\? undefined\}/);
   });
 
+  /**
+   * The camera *wiring* moved into `follow-camera-controller.ts` (pure) and
+   * `useFollowCamera.ts` (the React binding) in Session 2, so both native maps —
+   * the observer map here and the Driver Trip map — run one implementation.
+   * These guards follow the code to its new home; what they protect is
+   * unchanged, and `follow-camera-controller.spec.ts` now asserts the same
+   * behaviours against a fake camera as well.
+   */
   test('moves the camera without changing zoom', () => {
-    assert.match(map, /map\.animateCamera\(\s*\{ center:/, 'follow pans by centre only');
-    assert.doesNotMatch(
-      map.slice(map.indexOf('const panTo'), map.indexOf('const maybeFollowPan')),
-      /zoom:/,
-      'a follow pan must never touch zoom',
+    const controller = read('src/features/map/follow-camera-controller.ts');
+    const pan = controller.slice(
+      controller.indexOf('function panTo'),
+      controller.indexOf('function maybeFollowPan'),
     );
+    assert.match(pan, /deps\.port\.animateCamera\(/, 'follow pans go through the camera port');
+    assert.doesNotMatch(pan, /zoom:/, 'a follow pan must never touch zoom');
+    // A zoom may only be *added* when one was asked for explicitly.
+    const hook = read('src/features/map/useFollowCamera.ts');
+    assert.match(hook, /if \(options\.zoom !== undefined\) camera\.zoom = options\.zoom;/);
   });
 
   test('detects user gestures through gesture attribution, pan drag and zoom delta', () => {
     assert.match(map, /onPanDrag=\{onUserGesture\}/, 'Apple Maps has no isGesture');
-    assert.match(map, /details\.isGesture === true/, 'Google Maps attribution');
-    assert.match(map, /isZoomGesture\(expectedDeltaRef\.current, region\.latitudeDelta\)/);
+    const controller = read('src/features/map/follow-camera-controller.ts');
+    assert.match(controller, /details\.isGesture === true/, 'Google Maps attribution');
+    assert.match(
+      controller,
+      /isZoomGesture\(expectedDelta, region\.latitudeDelta\)/,
+      'the provider-independent zoom fallback',
+    );
+  });
+
+  test('both native maps share one camera implementation', () => {
+    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
+      const source = read(file);
+      assert.match(source, /useFollowCamera\(/, `${file} must not roll its own camera`);
+      assert.doesNotMatch(
+        source,
+        /reduceFollowCamera/,
+        `${file} must not drive the camera reducer directly`,
+      );
+    }
   });
 
   test('keeps map controls clear of provider attribution', () => {

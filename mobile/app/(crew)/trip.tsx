@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { UserRole, type StopResponse } from '@school-bus-tracking/shared-types';
@@ -13,6 +13,11 @@ import {
   useCrewLocationSharing,
   useCrewToday,
 } from '../../src/features/crew';
+// Imported by path, not through the barre: this component needs
+// `react-native-maps`, and the crew barrel is also pulled in by headless
+// code paths that must never touch a native map module.
+import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
+import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
@@ -64,6 +69,31 @@ export default function CrewTripScreen() {
   );
   const live = useLiveTripTracking(trip?.id ?? null);
   const isDriver = user?.role === UserRole.DRIVER;
+
+  /**
+   * The Driver Trip map's honesty rules, derived — not decided here.
+   *
+   * The marker is drawn from `sharing.stats.lastFix`: the newest fix **this
+   * device** produced. Nothing about delivery is inferred from the map's own
+   * state; `deriveDriverMapPresentation` copies `schoolSeesLive` from the crew
+   * status, so the GPS strip above the map stays the single authority for
+   * "the school can see the bus".
+   */
+  const driverMapPresentation = useMemo(
+    () =>
+      deriveDriverMapPresentation({
+        status: sharing.status,
+        localFixAgeMs: sharing.statusDetail.localFixAgeMs,
+        accuracyMeters: sharing.stats.lastFix?.accuracy ?? null,
+        connection: sharing.connection,
+      }),
+    [
+      sharing.status,
+      sharing.statusDetail.localFixAgeMs,
+      sharing.stats.lastFix?.accuracy,
+      sharing.connection,
+    ],
+  );
 
   // The ordered stops of the trip's route, used by the driver's navigation
   // hand-off. Loading them on this screen keeps the "Navigate" card honest:
@@ -164,6 +194,23 @@ export default function CrewTripScreen() {
        */}
       {isDriver ? (
         <GpsShareStrip sharing={sharing} onOpenHelp={() => router.push('/help')} />
+      ) : null}
+
+      {/**
+       * Driver-only, and deliberately below the GPS strip: the strip says whether
+       * the school can see the bus, the map says where this device is on the
+       * route. Neither answers the other's question, and the map is
+       * supplementary — the next-stop card and its external Navigate hand-off
+       * remain the driving workflow.
+       */}
+      {isDriver ? (
+        <DriverTripMap
+          stops={stopsLoad.data ?? []}
+          localFix={sharing.stats.lastFix}
+          presentation={driverMapPresentation}
+          tripId={trip.id}
+          height={200}
+        />
       ) : null}
 
       {isDriver ? (

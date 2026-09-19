@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { FRAME_MIN_INTERVAL_MS, createBusMotion, type BusMotion } from './bus-motion.ts';
-import type { LiveFix } from '../tracking/useLiveTripTracking';
+import {
+  FRAME_MIN_INTERVAL_MS,
+  createBusMotion,
+  type BusMotion,
+  type BusMotionFix,
+} from './bus-motion.ts';
 
 /**
  * Drives the marker's rendered position from the raw GPS stream.
@@ -35,8 +39,15 @@ export interface RenderedMarker {
 }
 
 export interface UseBusMarkerMotionInput {
-  /** The newest raw fix, exactly as the tracking hook delivered it. */
-  fix: LiveFix | null;
+  /**
+   * The newest raw fix, exactly as its source delivered it.
+   *
+   * Typed as the motion state machine's own input rather than as the observer
+   * hook's `LiveFix`: the observer's fix carries a server `received_at`, and a
+   * *device-local* fix (the Driver Trip map's own GPS) has no such field and
+   * must not pretend to have one. `LiveFix` satisfies this type structurally.
+   */
+  fix: BusMotionFix | null;
   /** Changing trip must drop every position from the previous bus. */
   tripId: string | null;
   /** OS reduce-motion preference: positions snap instead of travelling. */
