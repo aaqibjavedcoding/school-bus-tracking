@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type {
   StopResponse,
   TripEtaResponse,
@@ -17,6 +17,7 @@ import {
   tripStatusLabel,
 } from '../../lib/format';
 import { MapView } from '../map/MapView';
+import { deriveTrackingPresentation } from '../map/tracking-presentation';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { useLiveTripTracking, type ConnectionState, type LiveFix } from './useLiveTripTracking';
 
@@ -97,6 +98,49 @@ const EtaPanel: React.FC<{
 
 EtaPanel.displayName = 'EtaPanel';
 
+/**
+ * GPS freshness, kept separate from the socket chip above it.
+ *
+ * The chip says whether the *socket* is up; this says whether the *position* is
+ * current. A connected socket proves nothing about a crew phone in a basement,
+ * so a four-minute-old fix reads "Live" on the chip and "Last known" here — and
+ * the speed is withheld rather than presented as current, because describing a
+ * stale reading in the present tense would claim something that has passed.
+ */
+const GpsStatusLine: React.FC<{ fix: LiveFix; socketOffline: boolean }> = React.memo(
+  ({ fix, socketOffline }) => {
+    // Re-evaluated on an interval so freshness ages without new data arriving:
+    // a fix that goes quiet must stop reading as live on its own.
+    const [, setTick] = useState(0);
+    useEffect(() => {
+      const id = setInterval(() => setTick((value) => value + 1), 5_000);
+      return () => clearInterval(id);
+    }, []);
+
+    const presentation = deriveTrackingPresentation({
+      fixAgeMs: Date.now() - new Date(fix.received_at).getTime(),
+      accuracyMeters: fix.accuracy,
+      socketOffline,
+    });
+
+    if (presentation.state === 'live') {
+      return (
+        <p className="muted">
+          Live position · updated {formatRelative(fix.received_at)} · {formatSpeedKmh(fix.speed)}
+        </p>
+      );
+    }
+    return (
+      <p className="muted">
+        Last known position · {formatRelative(fix.received_at)}
+        {presentation.approximate ? ' · position approximate' : ''}
+      </p>
+    );
+  },
+);
+
+GpsStatusLine.displayName = 'GpsStatusLine';
+
 export const TripTrackerView: React.FC<{
   tripId: string | null;
   connection: ConnectionState;
@@ -139,7 +183,13 @@ export const TripTrackerView: React.FC<{
 
   return (
     <div style={{ position: 'relative' }}>
-      <MapView key={tripId} fix={fix} stops={stops} highlightStopId={highlightStopId} />
+      <MapView
+        key={tripId}
+        fix={fix}
+        stops={stops}
+        highlightStopId={highlightStopId}
+        connection={connection}
+      />
       <div className="map-overlay">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -159,9 +209,10 @@ export const TripTrackerView: React.FC<{
           {noLocationYet && !fix ? (
             <p className="muted">No GPS yet. Waiting for the crew device to share a location.</p>
           ) : null}
-          {fix ? (
-            <p className="muted">
-              {formatRelative(fix.received_at)} · {formatSpeedKmh(fix.speed)}
+          {fix ? <GpsStatusLine fix={fix} socketOffline={connection === 'offline'} /> : null}
+          {stops && stops.length > 1 ? (
+            <p className="muted" style={{ marginTop: '0.35rem' }}>
+              Straight lines between stops — not the driven route.
             </p>
           ) : null}
         </div>

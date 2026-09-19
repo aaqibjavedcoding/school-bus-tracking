@@ -154,7 +154,13 @@ export default function AdminTripDetailScreen() {
       <TripStatusActions trip={trip} allowCancel onApplied={() => void reload()} />
 
       <SectionTitle>Live tracking</SectionTitle>
-      <BusMap stops={data.stops} fix={live.fix} height={240} />
+      <BusMap
+        stops={data.stops}
+        fix={live.fix}
+        height={240}
+        tripId={tripId}
+        connection={live.connection}
+      />
       <View style={styles.etaWrap}>
         <EtaSummaryCard eta={live.eta} fix={live.fix} />
       </View>

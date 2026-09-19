@@ -240,8 +240,7 @@ export const mr: Dictionary = {
   'gps.message.servicesOff': 'बसची स्थिती पाठवण्यासाठी लोकेशन सेवा चालू करा.',
   'gps.message.permissionRequired': 'शाळेशी GPS शेअर करण्यासाठी लोकेशन परवानगी आवश्यक आहे.',
   'gps.message.startFailed': 'GPS शेअरिंग सुरू होऊ शकले नाही.',
-  'gps.message.backgroundDenied':
-    'स्क्रीन बंद असतानाही पाठवण्यासाठी “Always” लोकेशन परवानगी द्या.',
+  'gps.message.backgroundDenied': 'स्क्रीन बंद असतानाही पाठवण्यासाठी “Always” लोकेशन परवानगी द्या.',
   'gps.message.backgroundUnavailable': 'या डिव्हाइसवर बॅकग्राउंड लोकेशन उपलब्ध नाही.',
   'gps.message.backgroundNeedsTrip': 'बॅकग्राउंड शेअरिंगसाठी सुरू असलेली ट्रिप आवश्यक आहे.',
   'gps.message.backgroundFailed': 'बॅकग्राउंड शेअरिंग चालू होऊ शकले नाही.',
@@ -386,6 +385,22 @@ export const mr: Dictionary = {
   'eta.unavailable': 'उपलब्ध नाही',
   'eta.arrived': 'पहोचले',
   'eta.waitingForGps': 'GPS साठी वाट पाहत',
+
+  // ── Live tracking map (parent + admin) ─────────────────────────────────
+  'map.followBus': 'बस फॉलो करा',
+  'map.followingA11y': 'बस फॉलो केली जात आहे',
+  'map.exploringA11y': 'नकाशा पाहत आहात — फॉलो थांबले आहे',
+  'map.status.live': 'लाइव्ह स्थिती',
+  'map.status.lastKnown': 'शेवटची ज्ञात',
+  'map.status.noLocation': 'स्थिती नाही',
+  'map.status.approximate': 'अंदाजे',
+  'map.updatedAt': 'अपडेट {time}',
+  'map.staleNote': '{time} पासून नवीन स्थिती नाही।',
+  'map.offlineNote': 'ऑफलाइन — शेवटची ज्ञात स्थिती दाखवत आहे।',
+  'map.routeNotice': 'थांब्यांमधील सरळ रेषा — प्रत्यक्ष मार्ग नाही।',
+  'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
+  'map.busA11y': 'शाळेची बस',
+  'map.stopA11y': 'थांबा {number}',
 
   // ── Shared chrome ──────────────────────────────────────────────────────
   'common.retry': 'पुन्हा करा',

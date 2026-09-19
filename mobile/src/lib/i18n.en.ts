@@ -404,6 +404,35 @@ export const en = {
   'eta.arrived': 'Arrived',
   'eta.waitingForGps': 'Waiting for GPS',
 
+  // ── Live tracking map (parent + admin) ─────────────────────────────────
+  /**
+   * Map chrome for the shared tracking map (`src/features/map/BusMap.tsx`).
+   *
+   * The status words are deliberately *not* the socket chip's words:
+   * `connection.*` describes the socket, these describe the GPS. A connected
+   * socket with a four-minute-old fix reads "Live" on the connection chip and
+   * "Last known" here, which is the honest pair.
+   */
+  'map.followBus': 'Follow bus',
+  'map.followingA11y': 'Following the bus',
+  'map.exploringA11y': 'Map exploration — follow paused',
+  'map.status.live': 'Live position',
+  'map.status.lastKnown': 'Last known',
+  'map.status.noLocation': 'No position',
+  'map.status.approximate': 'Approximate',
+  'map.updatedAt': 'Updated {time}',
+  'map.staleNote': 'No new position since {time}.',
+  'map.offlineNote': 'Offline — showing the last known position.',
+  /**
+   * The stop connectors are straight lines between stop coordinates. They are
+   * not a road-calculated route and not the path the bus actually drove, and
+   * the map says so rather than letting the eye assume a routing engine.
+   */
+  'map.routeNotice': 'Straight lines between stops — not the driven route.',
+  'map.noCoordinates': 'This route has no mapped stops yet.',
+  'map.busA11y': 'School bus',
+  'map.stopA11y': 'Stop {number}',
+
   // ── Shared chrome ──────────────────────────────────────────────────────
   'common.retry': 'Retry',
   'common.error': 'Something went wrong',

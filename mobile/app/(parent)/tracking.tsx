@@ -151,7 +151,13 @@ export default function ParentTrackingScreen() {
             ) : null}
           </Card>
 
-          <BusMap stops={stops} fix={fix} height={280} busTitle="School bus" />
+          <BusMap
+            stops={stops}
+            fix={fix}
+            height={280}
+            tripId={tripId}
+            connection={live.connection}
+          />
 
           {fix ? null : (
             <Text style={styles.waiting}>

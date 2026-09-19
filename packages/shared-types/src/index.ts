@@ -2159,6 +2159,29 @@ export type LiveTrackingEvent = (typeof LIVE_TRACKING_EVENTS)[keyof typeof LIVE_
  */
 export const liveTrackingRoomName = (tripId: string): string => `trip:${tripId}`;
 
+/**
+ * Observer-side GPS freshness windows — the app's **one** definition of when a
+ * delivered position may be called live.
+ *
+ * Why these live here rather than in each client: the parent/admin map, the web
+ * console and the crew status all have to agree on what "live" means, and a
+ * per-client copy is how an app ends up showing "Live" on one screen and
+ * "Last known" on another for the same bus. They mirror the crew controller's
+ * `SERVER_ACK_LIVE_WINDOW_MS` / `SERVER_ACK_STALE_WINDOW_MS`
+ * (`mobile/src/features/crew/tracking-status.ts`), and
+ * `mobile/src/features/map/tracking-presentation.spec.ts` asserts the two
+ * cannot drift apart.
+ *
+ * Both are deliberately generous relative to the real cadence (device watch
+ * 4 s, server throttle floor 2.5 s): 30 s tolerates a run of lost fixes without
+ * declaring the bus stale, and 120 s is the point at which "last known" needs a
+ * timestamp rather than a reassuring dot.
+ */
+export const GPS_LIVE_WINDOW_MS = 30_000;
+
+/** Age at which a delivered fix is no longer stale but genuinely outdated. */
+export const GPS_STALE_WINDOW_MS = 120_000;
+
 /** Body of the `tracking:join` event. */
 export interface TrackingJoinPayload {
   trip_id: string;
