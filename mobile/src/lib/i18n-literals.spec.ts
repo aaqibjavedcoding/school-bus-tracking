@@ -160,6 +160,17 @@ const ALLOWED_LITERALS = new Set([
   'Rejected',
   'Dropped (offline)',
   'Invalid fix',
+  // ── The four recovery counters (mobile-reliability patch) — same family ──
+  // They sit in the same Help-screen stats grid, are read aloud to the same
+  // English-speaking support engineer, and are pinned verbatim by
+  // `help-routing.spec.ts`: "Retried" (a held fix re-sent after a reconnect),
+  // "Expired" (discarded for exceeding the age limit), "Superseded" (replaced
+  // by a newer fix or belonging to another trip) and "No session" (dropped
+  // because no session could be recovered for that execution).
+  'Retried',
+  'Expired',
+  'Superseded',
+  'No session',
   // Symbols, codes and data placeholders.
   '—',
   '·',

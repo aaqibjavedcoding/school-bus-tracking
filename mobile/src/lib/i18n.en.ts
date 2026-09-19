@@ -219,6 +219,40 @@ export const en = {
   'gps.accuracy': '±{meters} m',
   'gps.noFix': 'No fix from this device yet.',
   'gps.serverReason': 'Server said: {reason}',
+  // ── GPS delivery status (mobile-reliability patch) ─────────────────────
+  // Derived from the SERVER acknowledgement, never from a local fix: `live`
+  // means the school can see the bus, `localOnly` means the phone has GPS but
+  // nothing was delivered yet.
+  'gps.status.live': 'School sees the bus · {time}',
+  'gps.status.localOnly': 'GPS fix not delivered yet · {time}',
+  'gps.status.connecting': 'Connecting to the school…',
+  'gps.status.reconnecting': 'Reconnecting to the school…',
+  'gps.status.stale': 'Last delivered {time}',
+  'gps.status.waitingForFix': 'Waiting for the first GPS fix…',
+  'gps.status.permissionBlocked': 'Location permission needed',
+  'gps.status.servicesOff': 'Location services are off',
+  'gps.status.revoked': 'Access revoked — tracking stopped',
+  'gps.status.stopped': 'Not sharing',
+  'gps.deliveryBadge': 'Delivery',
+  'gps.accuracyReduced': 'Approx. GPS',
+  'gps.servicesOff': 'Location off',
+  'gps.recoveryAttempts': 'Retry {count}',
+  'gps.serverAck': 'Server accepted {time}',
+  'gps.serverNoAck': 'Server has not accepted a fix yet',
+  // Action messages set by the shared tracking lifecycle.
+  'gps.message.servicesOff': 'Turn on location services to share the bus position.',
+  'gps.message.permissionRequired': 'Location permission is required to share GPS with the school.',
+  'gps.message.startFailed': 'Could not start GPS sharing.',
+  'gps.message.backgroundDenied':
+    'Allow “Always” location access to keep sharing with the screen off.',
+  'gps.message.backgroundUnavailable': 'Background location is not available on this device.',
+  'gps.message.backgroundNeedsTrip': 'Background sharing needs an active trip.',
+  'gps.message.backgroundFailed': 'Could not enable background sharing.',
+  'gps.message.revoked': 'Access to live tracking was revoked — sharing has stopped.',
+  // Android foreground-service notification. Honest wording: the service shares
+  // this device's GPS while the trip is active; it cannot promise delivery.
+  'gps.service.title': 'School Bus GPS sharing',
+  'gps.service.body': 'Sharing this phone’s GPS with the school while the trip is active.',
   /**
    * The four support counters ("Sent", "Rejected", "Dropped (offline)",
    * "Invalid fix") are deliberately **not** here: `help-routing.spec.ts` pins
@@ -404,6 +438,27 @@ export const en = {
   'gps.recovery.continue': 'Continue without GPS',
   'gps.recovery.lastUpdate': 'Last GPS update: {time}',
 
+  'gps.recovery.noServerUpdate': 'The server has not accepted a location yet.',
+  'gps.recovery.accuracy.title': 'Precise Location Needed',
+  'gps.recovery.accuracy.body':
+    'This app only has approximate location. Turn on “Precise location” in settings so a bus stop can be confirmed correctly.',
+  'gps.recovery.backgroundUnavailable.title': 'Background GPS Unavailable',
+  'gps.recovery.backgroundUnavailable.body':
+    'This device does not offer background location access. Sharing continues while the app is open on screen.',
+  // ── Battery / background restrictions (guidance, never a detected state) ──
+  'gps.battery.android.title': 'Battery restrictions can stop GPS',
+  'gps.battery.android.body':
+    'Android may stop location sharing to save battery. Open Battery settings and set this app to “Unrestricted”, and turn off Battery saver while driving.',
+  'gps.battery.ios.title': 'Battery restrictions can stop GPS',
+  'gps.battery.ios.body':
+    'Low Power Mode and Background App Refresh can delay location updates. Check Settings → Battery and Settings → General → Background App Refresh for this app.',
+  'gps.battery.other.title': 'Battery restrictions can stop GPS',
+  'gps.battery.other.body':
+    'Power-saving modes on this device may delay or stop location sharing while the screen is off.',
+  'gps.battery.openBatterySettings': 'Open battery settings',
+  'gps.battery.openAppSettings': 'Open app settings',
+  'gps.battery.honesty':
+    'This app cannot read your battery settings and will not override them. If the phone stops the app, sharing stops until it is opened again.',
   // ── Driver navigation hand-off ─────────────────────────────────────────
   'navigate.card.title': 'Navigate',
   'navigate.card.description': "Opens the next stop in your phone's map app.",
