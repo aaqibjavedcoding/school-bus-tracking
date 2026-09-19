@@ -154,6 +154,14 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'gps.stopSharing': 'buttonFull',
   'sos.holdLabel': 'buttonFull',
 
+  // Live-tracking map chips: small pills floating over the map, `flexWrap`
+  // row, so the same 16-char badge budget applies as to the GPS chips above.
+  'map.followBus': 'badge',
+  'map.status.live': 'badge',
+  'map.status.lastKnown': 'badge',
+  'map.status.noLocation': 'badge',
+  'map.status.approximate': 'badge',
+
   // `KeyValue` label — a full-width row above its value.
   'trip.detail.route': 'label',
   'trip.detail.scheduled': 'label',

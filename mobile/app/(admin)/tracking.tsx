@@ -117,7 +117,13 @@ export default function AdminTrackingScreen() {
         <ConnectionIndicator connection={live.connection} />
       </View>
 
-      <BusMap stops={stopsLoad.data ?? []} fix={live.fix} height={280} />
+      <BusMap
+        stops={stopsLoad.data ?? []}
+        fix={live.fix}
+        height={280}
+        tripId={activeId || null}
+        connection={live.connection}
+      />
 
       <View style={styles.etaWrap}>
         <EtaSummaryCard eta={live.eta} fix={live.fix} />
