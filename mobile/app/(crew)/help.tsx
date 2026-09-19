@@ -3,7 +3,12 @@ import { StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { UserRole } from '@school-bus-tracking/shared-types';
 import { useAuth } from '../../src/features/auth';
-import { GpsSharePanel, useCrewLocationSharing, useCrewToday } from '../../src/features/crew';
+import {
+  GpsBatteryGuidance,
+  GpsSharePanel,
+  useCrewLocationSharing,
+  useCrewToday,
+} from '../../src/features/crew';
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { SoundSettingsCard } from '../../src/features/crew/SoundSettingsCard';
@@ -28,7 +33,13 @@ export default function CrewHelpScreen() {
   const t = useTranslation();
   const { data, loading } = useCrewToday();
   const trip = data?.trip ?? null;
-  const sharing = useCrewLocationSharing(trip);
+  // Same shared lifecycle as the trip screen: navigating here neither starts a
+  // second watcher nor stops the run (see `tracking-lifecycle.ts`).
+  const sharing = useCrewLocationSharing(
+    trip,
+    user ? { userId: user.id, schoolId: user.school_id ?? null } : null,
+    { settled: Boolean(data) },
+  );
   const sos = useCrewSos(trip?.id ?? null);
   const isDriver = user?.role === UserRole.DRIVER;
 
@@ -87,9 +98,16 @@ export default function CrewHelpScreen() {
            * (the trip screen's Retry button).
            */}
           <GpsPermissionRecovery
-            lastSuccessfulUpdate={sharing.stats.lastFix?.recorded_at ?? null}
+            sharing={sharing}
+            lastSuccessfulUpdate={sharing.stats.lastAckAt}
             onPermissionGranted={() => undefined}
           />
+          {/**
+           * Battery / background-restriction guidance. Honest by construction:
+           * no supported API reports the restriction state, so it never claims
+           * to have detected one — it points at the OS setting instead.
+           */}
+          <GpsBatteryGuidance sharing={sharing} />
         </>
       ) : isDriver ? (
         <Card legible title={t('gps.panelTitle')}>

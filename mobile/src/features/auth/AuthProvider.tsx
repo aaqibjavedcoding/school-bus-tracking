@@ -5,7 +5,7 @@ import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { disconnectNotificationsSocket } from '../../services/notifications-socket';
 import { disconnectEmergenciesSocket } from '../../services/emergencies-socket';
-import { stopCrewLocationTask } from '../crew/location-task';
+import { endCrewTrackingSession } from '../crew/tracking-lifecycle';
 import { setupPushNotifications, unregisterPushDevice } from '../notifications';
 
 /**
@@ -46,7 +46,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // must never outlive the account that opened them. A socket left open
     // reconnects with an empty handshake token and is refused by the gateway
     // ("Rejected unauthenticated \u2026 socket") for as long as the app runs.
-    void stopCrewLocationTask();
+    // Cancels recovery, drops the held fix, stops the watcher and the OS
+    // background task, and forgets the persisted context — so a late async
+    // completion can never restart tracking or resume the next account's trip.
+    void endCrewTrackingSession();
     disconnectLiveTrackingSocket();
     disconnectNotificationsSocket();
     disconnectEmergenciesSocket();

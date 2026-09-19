@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../components';
-import { formatRelative } from '../../lib/format';
 import { crewCopy } from './crew-copy';
 import { feedback } from './crew-feedback.ts';
 import type { CrewLocationSharing } from './useCrewLocationSharing';
@@ -21,9 +20,24 @@ export const GpsShareStrip: React.FC<{
   sharing: CrewLocationSharing;
   onOpenHelp: () => void;
 }> = ({ sharing, onOpenHelp }) => {
-  const lastUpdate = sharing.stats.lastFix
-    ? crewCopy.gps.lastUpdate(formatRelative(sharing.stats.lastFix.recorded_at))
-    : crewCopy.gps.neverUpdated;
+  /**
+   * Two lines, two different truths — and never the same one twice:
+   *
+   * - the **device** line ("Sharing ✅/❌") says whether this phone is producing
+   *   fixes at all;
+   * - the **delivery** line comes from the shared lifecycle's derived status,
+   *   which is only `live` when the *server acknowledged* a fix inside the live
+   *   window. A local fix the server never accepted reads as "GPS fix, not
+   *   delivered yet", never as "the school can see the bus".
+   *
+   * The line ages on its own (the hook ticks every 5 s), so "updated just now"
+   * becomes "stale" even when no new fix arrives.
+   */
+  const deviceLine =
+    sharing.sharing || sharing.backgroundActive
+      ? crewCopy.gps.sharingOn
+      : crewCopy.gps.sharingOff;
+  const deliveryLine = sharing.statusLine || crewCopy.gps.neverUpdated;
 
   /**
    * Phase 3b: report the *actual* sharing state changing, not the button
@@ -50,12 +64,8 @@ export const GpsShareStrip: React.FC<{
     <View style={styles.card}>
       <View style={styles.mainRow}>
         <View style={styles.statusBlock}>
-          <Text style={styles.stateLine}>
-            {sharing.sharing || sharing.backgroundActive
-              ? crewCopy.gps.sharingOn
-              : crewCopy.gps.sharingOff}
-          </Text>
-          <Text style={styles.updateLine}>{lastUpdate}</Text>
+          <Text style={styles.stateLine}>{deviceLine}</Text>
+          <Text style={styles.updateLine}>{deliveryLine}</Text>
         </View>
         {sharing.sharing || sharing.backgroundActive ? (
           <Button
@@ -73,7 +83,7 @@ export const GpsShareStrip: React.FC<{
             icon="refresh"
             tone="success"
             size="md"
-            onPress={() => void sharing.startSharing()}
+            onPress={() => void sharing.retry()}
             busy={sharing.busy}
             disabled={sharing.busy}
           />

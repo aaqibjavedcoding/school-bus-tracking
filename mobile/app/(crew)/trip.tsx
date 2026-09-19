@@ -51,7 +51,17 @@ export default function CrewTripScreen() {
   const t = useTranslation();
   const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
   const trip = data?.trip ?? null;
-  const sharing = useCrewLocationSharing(trip);
+  /**
+   * The tracking lifecycle is shared with the Help screen, so it is scoped to
+   * the signed-in crew member: the persisted context is only ever resumed for
+   * this user/school. `settled` stops a still-loading screen from reading "no
+   * trip today" and tearing down a run that is in fact live.
+   */
+  const sharing = useCrewLocationSharing(
+    trip,
+    user ? { userId: user.id, schoolId: user.school_id ?? null } : null,
+    { settled: Boolean(data) },
+  );
   const live = useLiveTripTracking(trip?.id ?? null);
   const isDriver = user?.role === UserRole.DRIVER;
 
