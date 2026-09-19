@@ -115,8 +115,33 @@ Apple Maps, where neither prop works. Therefore:
   inner `.bus-marker-rotor` element.
 
 The graphic is drawn with views/SVG rather than shipped as an image so there is
-**one** design, no asset pipeline, no network request, no CSP change and no new
-dependency (`react-native-svg` is deliberately not added).
+**one** design, no asset pipeline, no network request and no new dependency
+(`react-native-svg` is deliberately not added).
+
+### Content-Security-Policy
+
+No change to `web/security-headers.js` was required, and this was verified rather
+than assumed. `buildContentSecurityPolicy()` emits
+`style-src 'self' 'unsafe-inline'` and
+`img-src 'self' data: blob: https://tile.openstreetmap.org`, which covers the
+marker three ways over:
+
+- The SVG is **markup inside the `divIcon` container**, not an `<img src>` or an
+  external file, so `img-src` does not govern it at all.
+- It contains no `<script>`, no `on*` handler, no `url(...)`, no `<image href>`,
+  no `foreignObject` and no `xlink:href` — nothing `script-src` would block.
+- Rotation is applied through the CSSOM (`rotor.style.transform = ...`), which
+  CSP does not intercept. Inline `style` attributes are blocked by a strict
+  `style-src`, so keep using the CSSOM here rather than `setAttribute('style', …)`.
+  (`'unsafe-inline'` is present anyway, but the CSSOM route stays correct if that
+  is ever tightened.)
+
+**Watch this if the tile host ever changes.** `OSM_URL` is pinned to
+`https://tile.openstreetmap.org/{z}/{x}/{y}.png` with **no `{s}` subdomain
+placeholder** specifically so `img-src` can name one exact origin. Reintroducing
+`{s}.tile.openstreetmap.org` for load spreading silently produces blank tiles
+behind a CSP violation, because the subdomains are not in the allow-list. The two
+must be changed together.
 
 Stops keep the platform's default teardrop pin in slate, so a stop and the bus
 are different species at a glance and in a screenshot.
