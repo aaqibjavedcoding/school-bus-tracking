@@ -1,3 +1,4 @@
+import { GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS } from '@school-bus-tracking/shared-types';
 import type { PermissionState } from './gps-permission-state.ts';
 
 /**
@@ -58,16 +59,37 @@ export type CrewTrackingStatus =
   | 'stale';
 
 /**
- * A server ack newer than this counts as live. The watch interval is 4 s and
- * the server throttle floor is 2.5 s, so 30 s tolerates a few lost fixes
- * without claiming liveness that has already ended.
+ * Delivery freshness — **when a server acknowledgement counts as current**.
+ *
+ * The value comes from `@school-bus-tracking/shared-types`, the product's single
+ * definition of GPS freshness, so the driver's screen and the parent's map can
+ * never disagree about whether the same bus is live. The named re-export is
+ * deliberate: `SERVER_ACK_LIVE_WINDOW_MS` is an *acknowledgement* window that
+ * happens to share a duration with the observer window and with
+ * `LOCAL_FIX_FRESH_WINDOW_MS` — three different questions, three different
+ * concepts, one agreed number.
+ *
+ * It used to be a literal here pinned to the observer value by
+ * `map/tracking-presentation.spec.ts`; that made the two able to drift apart and
+ * be caught only by a test. Importing the shared constant removes the drift
+ * instead of detecting it, without moving any threshold.
  */
-export const SERVER_ACK_LIVE_WINDOW_MS = 30_000;
+export const SERVER_ACK_LIVE_WINDOW_MS = GPS_LIVE_WINDOW_MS;
 
 /** Beyond the live window but inside this, an acknowledged update is "stale". */
-export const SERVER_ACK_STALE_WINDOW_MS = 120_000;
+export const SERVER_ACK_STALE_WINDOW_MS = GPS_STALE_WINDOW_MS;
 
-/** A local fix newer than this is "the device has GPS right now". */
+/**
+ * **Local** fix freshness: a fix *this device produced* counts as "the device
+ * has GPS right now".
+ *
+ * Deliberately its own constant rather than another alias of the shared window.
+ * It answers a different question — "is this phone's GPS working", not "can
+ * anyone else see it" — and it is the only evidence that may produce
+ * `local-only`. Sharing a duration with the delivery window is a coincidence of
+ * the same 4 s watch cadence, not a coupling; changing one must not silently
+ * change the other, which is exactly what a shared constant would do.
+ */
 export const LOCAL_FIX_FRESH_WINDOW_MS = 30_000;
 
 export interface CrewTrackingStatusInput {
@@ -114,9 +136,7 @@ function ageMs(iso: string | null, now: number): number | null {
 }
 
 /** Derives the driver-facing tracking status from facts, never from hope. */
-export function deriveCrewTrackingStatus(
-  input: CrewTrackingStatusInput,
-): CrewTrackingStatusResult {
+export function deriveCrewTrackingStatus(input: CrewTrackingStatusInput): CrewTrackingStatusResult {
   const liveWindowMs = input.liveWindowMs ?? SERVER_ACK_LIVE_WINDOW_MS;
   const staleWindowMs = input.staleWindowMs ?? SERVER_ACK_STALE_WINDOW_MS;
   const localFreshWindowMs = input.localFreshWindowMs ?? LOCAL_FIX_FRESH_WINDOW_MS;

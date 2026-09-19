@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS } from '@school-bus-tracking/shared-types';
 import {
   LOCAL_FIX_FRESH_WINDOW_MS,
   SERVER_ACK_LIVE_WINDOW_MS,
@@ -72,7 +74,10 @@ describe('deriveCrewTrackingStatus', () => {
   });
 
   it('reports connecting and reconnecting instead of pretending to be live', () => {
-    assert.equal(deriveCrewTrackingStatus(input({ connection: 'connecting' })).status, 'connecting');
+    assert.equal(
+      deriveCrewTrackingStatus(input({ connection: 'connecting' })).status,
+      'connecting',
+    );
     const reconnecting = deriveCrewTrackingStatus(
       input({ connection: 'reconnecting', lastLocalFixAt: iso(1_000) }),
     );
@@ -152,6 +157,107 @@ describe('deriveCrewTrackingStatus', () => {
     assert.equal(result.serverAckAgeMs, null);
     assert.equal(result.localFixAgeMs, null);
     assert.equal(result.status, 'waiting-for-fix');
+  });
+});
+
+/**
+ * Three freshness questions, three concepts — even where the durations are the
+ * same number.
+ *
+ * | concept                        | constant(s)                                          | question it answers                       |
+ * | ------------------------------ | ---------------------------------------------------- | ----------------------------------------- |
+ * | delivery (server acknowledgement) | `SERVER_ACK_LIVE_WINDOW_MS` / `SERVER_ACK_STALE_WINDOW_MS` | can the school see a current position?    |
+ * | local fix                      | `LOCAL_FIX_FRESH_WINDOW_MS`                          | is this phone's GPS producing fixes?      |
+ * | observer (delivered to a screen) | `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` (shared) | how old is the position on my map?        |
+ *
+ * The delivery windows are now *imports* of the shared constants rather than
+ * literals a spec pinned to the observer's — one definition, no drift. The
+ * local-fix window keeps its own value on purpose: sharing a duration with the
+ * delivery window is a consequence of the 4 s watch cadence, not a coupling, and
+ * the tests below prove the two windows are consulted independently.
+ */
+describe('freshness concepts stay separate', () => {
+  it('sources the delivery windows from the shared GPS constants', () => {
+    assert.equal(SERVER_ACK_LIVE_WINDOW_MS, GPS_LIVE_WINDOW_MS);
+    assert.equal(SERVER_ACK_STALE_WINDOW_MS, GPS_STALE_WINDOW_MS);
+  });
+
+  it('stays distinct at the source: one import, two literals, no collapsed aliases', () => {
+    // A behaviour-only test cannot see this: aliasing
+    // `LOCAL_FIX_FRESH_WINDOW_MS` to `GPS_LIVE_WINDOW_MS` would produce the same
+    // number and the same verdicts today, and would silently couple "this phone
+    // has GPS" to "the observer's map calls it live" forever. The three
+    // concepts have to stay separate *in the code* for requirement 6 to mean
+    // anything, so the wiring is asserted structurally.
+    const source = readFileSync(`${process.cwd()}/src/features/crew/tracking-status.ts`, 'utf8');
+    assert.match(
+      source,
+      /import \{ GPS_LIVE_WINDOW_MS, GPS_STALE_WINDOW_MS \} from '@school-bus-tracking\/shared-types';/,
+      'the delivery windows must come from the shared package',
+    );
+    assert.match(source, /export const SERVER_ACK_LIVE_WINDOW_MS = GPS_LIVE_WINDOW_MS;/);
+    assert.match(source, /export const SERVER_ACK_STALE_WINDOW_MS = GPS_STALE_WINDOW_MS;/);
+    // The local-fix window keeps its own literal: same duration, own concept.
+    assert.match(
+      source,
+      /export const LOCAL_FIX_FRESH_WINDOW_MS = 30_000;/,
+      'the local-fix window must not be aliased to a shared or delivery constant',
+    );
+  });
+
+  it('keeps the values that were shipped before the constants moved', () => {
+    // Pinned deliberately: changing what "live" means is a product decision that
+    // must update this test, the docs and both clients together. Nothing about
+    // the consolidation was allowed to move a threshold.
+    assert.equal(LOCAL_FIX_FRESH_WINDOW_MS, 30_000);
+    assert.equal(SERVER_ACK_LIVE_WINDOW_MS, 30_000);
+    assert.equal(SERVER_ACK_STALE_WINDOW_MS, 120_000);
+  });
+
+  it('decides the local-fix verdict on the local-fix window alone', () => {
+    // A 5 s-old local fix and no acknowledgement anywhere: the phone has GPS,
+    // the school has nothing. Widening *only* the local window keeps that
+    // reading; narrowing it below the fix age moves to `waiting-for-fix`. In
+    // neither case does the delivery verdict move — it is still not live.
+    const widened = deriveCrewTrackingStatus(
+      input({ lastLocalFixAt: iso(5_000), localFreshWindowMs: 10 * 60_000 }),
+    );
+    assert.equal(widened.status, 'local-only');
+    assert.equal(widened.schoolSeesLive, false);
+
+    const narrowed = deriveCrewTrackingStatus(
+      input({ lastLocalFixAt: iso(5_000), localFreshWindowMs: 1 }),
+    );
+    assert.equal(narrowed.status, 'waiting-for-fix');
+    assert.equal(narrowed.schoolSeesLive, false);
+  });
+
+  it('decides the delivery verdict on the delivery window alone', () => {
+    // The identical 5 s-old fix now *has* been acknowledged, and the delivery
+    // window is what decides: 30 s → live; 1 ms → not live, and specifically
+    // not `local-only` either, because a stale acknowledgement is a delivery
+    // fact that the local-fix window is never allowed to overwrite.
+    const live = deriveCrewTrackingStatus(
+      input({ lastLocalFixAt: iso(5_000), lastServerAckAt: iso(5_000) }),
+    );
+    assert.equal(live.status, 'live');
+    assert.equal(live.schoolSeesLive, true);
+
+    const notLive = deriveCrewTrackingStatus(
+      input({ lastLocalFixAt: iso(5_000), lastServerAckAt: iso(5_000), liveWindowMs: 1 }),
+    );
+    assert.equal(notLive.status, 'stale', 'the ack window, not the fix window, decides');
+    assert.equal(notLive.schoolSeesLive, false);
+  });
+
+  it('never lets the observer window stand in for a local fix', () => {
+    // 60 s of silence on both clocks: past the local window (so not
+    // `local-only`) and past the live window (so not `live`) — while still
+    // inside the *stale* window, which is an observation deadline, not a claim
+    // that the school can see the bus.
+    const result = deriveCrewTrackingStatus(input({ lastServerAckAt: iso(60_000) }));
+    assert.equal(result.status, 'stale');
+    assert.equal(result.schoolSeesLive, false);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   fixAgeMs,
   gpsSignalTier,
   haversineMeters,
+  normalizeDeviceHeading,
 } from './geo.ts';
 
 /**
@@ -66,13 +67,68 @@ describe('buildLocationPayload', () => {
     assert.equal(payload!.recorded_at, '2026-08-29T08:30:00.000Z');
   });
 
-  it('normalizes a negative heading into 0..360', () => {
+  /**
+   * `expo-location` reports `-1` when the device has no course. Normalising
+   * that into `[0, 360)` produced `359` — a stationary phone claiming due
+   * north. These are the regression tests for that bug.
+   */
+  it('omits the unavailable heading sentinel instead of uploading 359', () => {
     const payload = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
       ...fix,
-      coords: { ...fix.coords, heading: -10 },
+      coords: { ...fix.coords, heading: -1 },
     });
     assert.ok(payload);
-    assert.ok(Math.abs(payload!.heading! - 350) < 1e-9);
+    assert.equal('heading' in payload!, false, 'heading: -1 must not become 359');
+    assert.equal(payload!.heading, undefined);
+  });
+
+  it('omits every negative heading, not just exactly -1', () => {
+    for (const heading of [-0.5, -90, -180, -359.9]) {
+      const payload = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+        ...fix,
+        coords: { ...fix.coords, heading },
+      });
+      assert.ok(payload);
+      assert.equal('heading' in payload!, false, `heading ${heading} must be omitted`);
+    }
+  });
+
+  it('omits a non-finite heading rather than clamping it', () => {
+    for (const heading of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const payload = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+        ...fix,
+        coords: { ...fix.coords, heading },
+      });
+      assert.ok(payload);
+      assert.equal('heading' in payload!, false, `heading ${heading} must be omitted`);
+    }
+  });
+
+  it('preserves a valid due-north heading of 0', () => {
+    // 0 is a real direction (north), distinct from "no course". Only the
+    // unavailable sentinels are dropped.
+    const payload = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+      ...fix,
+      coords: { ...fix.coords, heading: 0 },
+    });
+    assert.ok(payload);
+    assert.equal(payload!.heading, 0);
+  });
+
+  it('keeps a valid heading and still wraps one above 360', () => {
+    const kept = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+      ...fix,
+      coords: { ...fix.coords, heading: 359.5 },
+    });
+    assert.ok(kept);
+    assert.ok(Math.abs(kept!.heading! - 359.5) < 1e-9);
+
+    const wrapped = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+      ...fix,
+      coords: { ...fix.coords, heading: 450 },
+    });
+    assert.ok(wrapped);
+    assert.ok(Math.abs(wrapped!.heading! - 90) < 1e-9);
   });
 
   it('omits readings the device could not provide instead of zero-filling', () => {
@@ -100,6 +156,29 @@ describe('buildLocationPayload', () => {
       timestamp: Number.NaN,
     });
     assert.equal(payload, null);
+  });
+});
+
+describe('normalizeDeviceHeading', () => {
+  it('treats every negative value as "no course"', () => {
+    assert.equal(normalizeDeviceHeading(-1), null);
+    assert.equal(normalizeDeviceHeading(-0.0001), null);
+    assert.equal(normalizeDeviceHeading(-360), null);
+  });
+
+  it('treats missing and non-finite values as "no course"', () => {
+    assert.equal(normalizeDeviceHeading(null), null);
+    assert.equal(normalizeDeviceHeading(undefined), null);
+    assert.equal(normalizeDeviceHeading(Number.NaN), null);
+    assert.equal(normalizeDeviceHeading(Number.POSITIVE_INFINITY), null);
+  });
+
+  it('keeps real directions, including due north and the 360 wrap', () => {
+    assert.equal(normalizeDeviceHeading(0), 0);
+    assert.equal(normalizeDeviceHeading(90), 90);
+    assert.equal(normalizeDeviceHeading(359.9), 359.9);
+    assert.equal(normalizeDeviceHeading(360), 0);
+    assert.equal(normalizeDeviceHeading(450), 90);
   });
 });
 

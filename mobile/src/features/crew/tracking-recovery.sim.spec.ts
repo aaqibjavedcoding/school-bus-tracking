@@ -52,8 +52,18 @@ mock.module('expo-constants', {
 });
 
 // ── expo-location double ────────────────────────────────────────────────────
-const grantedPermission = { granted: true, canAskAgain: true, status: 'granted', android: { accuracy: 'fine' } };
-const deniedPermission = { granted: false, canAskAgain: false, status: 'denied', android: { accuracy: 'fine' } };
+const grantedPermission = {
+  granted: true,
+  canAskAgain: true,
+  status: 'granted',
+  android: { accuracy: 'fine' },
+};
+const deniedPermission = {
+  granted: false,
+  canAskAgain: false,
+  status: 'denied',
+  android: { accuracy: 'fine' },
+};
 
 const location = {
   servicesEnabled: true,
@@ -109,7 +119,8 @@ const socket = {
   connected: false,
   /** 'ok' connects on demand, 'down' never does (bounded wait → timeout). */
   connectMode: 'ok' as 'ok' | 'down',
-  ackMode: 'accept' as 'accept' | 'accept-stale' | 'reject-unauthenticated' | 'reject-unauthorized' | 'none',
+  ackMode: 'accept' as
+    'accept' | 'accept-stale' | 'reject-unauthenticated' | 'reject-unauthorized' | 'none',
   connects: 0,
   emitted: [] as EmittedEvent[],
   joins: [] as string[],
@@ -151,11 +162,15 @@ const socket = {
       return;
     }
     if (socket.ackMode === 'accept-stale') {
-      ack({ status: 'accepted', trip_id: tripId, stale: true, received_at: new Date().toISOString() });
+      ack({
+        status: 'accepted',
+        trip_id: tripId,
+        stale: true,
+        received_at: new Date().toISOString(),
+      });
       return;
     }
-    const reason =
-      socket.ackMode === 'reject-unauthenticated' ? 'unauthenticated' : 'unauthorized';
+    const reason = socket.ackMode === 'reject-unauthenticated' ? 'unauthenticated' : 'unauthorized';
     ack({ status: 'rejected', trip_id: tripId, reason });
   },
   fire(event: string, ...args: unknown[]) {
@@ -254,7 +269,9 @@ mock.module(moduleUrl('src/services/api.ts'), {
 // the simulation provides the same global before the lifecycle is loaded.
 (globalThis as { __DEV__?: boolean }).__DEV__ = true;
 
-const session = (await import(moduleUrl('src/services/session.ts'))) as typeof import('../../services/session.ts');
+const session = (await import(
+  moduleUrl('src/services/session.ts')
+)) as typeof import('../../services/session.ts');
 const recovery = (await import(
   moduleUrl('src/services/session-recovery.ts')
 )) as typeof import('../../services/session-recovery.ts');
@@ -267,6 +284,9 @@ const contextModule = (await import(
 const statusModule = (await import(
   moduleUrl('src/features/crew/tracking-status.ts')
 )) as typeof import('./tracking-status.ts');
+const mapModule = (await import(
+  moduleUrl('src/features/crew/crew-map-presentation.ts')
+)) as typeof import('./crew-map-presentation.ts');
 
 // Shrink every bounded wait so a scenario is milliseconds, not seconds.
 lifecycle.__setTrackingTimeoutsForTests({ connect: 40, ack: 40, eligibility: 40, session: 60 });
@@ -280,12 +300,21 @@ const tick = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function fix(offsetMs = 0, overrides: Record<string, unknown> = {}) {
   return {
-    coords: { latitude: 21.1458, longitude: 79.0882, accuracy: 8, speed: 8, heading: 90, ...overrides },
+    coords: {
+      latitude: 21.1458,
+      longitude: 79.0882,
+      accuracy: 8,
+      speed: 8,
+      heading: 90,
+      ...overrides,
+    },
     timestamp: Date.now() - offsetMs,
   };
 }
 
-function persistContext(overrides: { userId?: string; schoolId?: string | null; tripId?: string } = {}) {
+function persistContext(
+  overrides: { userId?: string; schoolId?: string | null; tripId?: string } = {},
+) {
   storage.set(
     contextModule.CREW_TRACKING_CONTEXT_KEY,
     contextModule.serializeCrewTrackingContext(
@@ -378,7 +407,11 @@ test('3. no recoverable session → nothing is sent and the drop is counted', as
   assert.equal(result.delivered, 0);
   assert.equal(result.dropped, 1);
   assert.match(result.reason ?? '', /^session:/);
-  assert.equal(socket.locationUpdates().length, 0, 'no GPS is emitted on an unauthenticated socket');
+  assert.equal(
+    socket.locationUpdates().length,
+    0,
+    'no GPS is emitted on an unauthenticated socket',
+  );
   assert.equal(socket.connects, 0, 'and no handshake the gateway would refuse is attempted');
   assert.equal(lifecycle.getCrewLocationStats().unauthenticatedCount, 1);
 });
@@ -845,4 +878,72 @@ test('26. a disconnected fix does not schedule rapid retries on top of each othe
     socket.connects - connectsBefore <= 1,
     'three undeliverable fixes never start three retry loops',
   );
+});
+
+test('27. the Driver Trip map draws the local fix and never claims delivery itself', async () => {
+  await lifecycle.startCrewTracking({ tripId: TRIP, ...DRIVER });
+  session.setAccessToken('jwt-live');
+  // Connected, but the server never acknowledges: GPS works, delivery does not.
+  socket.connected = true;
+  socket.ackMode = 'none';
+  lifecycle.deliverCrewDeviceFix(fix(0, { heading: 90, speed: 9 }));
+  await tick(60);
+  socket.ackMode = 'accept';
+
+  const state = lifecycle.getCrewTrackingState();
+  const localFix = state.stats.lastFix;
+  assert.ok(localFix, 'the device fix is available to draw');
+  assert.equal(typeof localFix.latitude, 'number');
+  assert.equal(typeof localFix.longitude, 'number');
+  assert.equal(localFix.heading, 90, 'the device course is carried through for the marker');
+  assert.equal(localFix.speed, 9 * 3.6, 'speed is the payload’s km/h, not the device m/s');
+
+  const status = lifecycle.getCrewTrackingStatus();
+  const presentation = mapModule.deriveDriverMapPresentation({
+    status: status.status,
+    localFixAgeMs: status.localFixAgeMs,
+    accuracyMeters: localFix.accuracy,
+    connection: state.connection,
+  });
+
+  // The marker is this device's own position...
+  assert.equal(presentation.source, 'device');
+  assert.equal(presentation.state, 'live', 'the device has a current fix');
+
+  // ...and the map still cannot say the school sees it, because the server
+  // never acknowledged anything.
+  assert.equal(status.schoolSeesLive, false);
+  assert.equal(presentation.schoolSeesLive, false);
+  // Which denial depends on how the lifecycle observed the socket (`offline`
+  // when it never saw a connect, `notDelivered` when it did) — but it is always
+  // a denial. What must never happen is a delivery claim.
+  assert.ok(
+    presentation.deliveryKey === 'driverMap.note.notDelivered' ||
+      presentation.deliveryKey === 'driverMap.note.offline',
+    `an unacknowledged fix must not be presented as delivered (got ${presentation.deliveryKey})`,
+  );
+  assert.equal(
+    presentation.positionKey,
+    'gps.lastUpdate',
+    'and it must still say how current the position it draws is',
+  );
+});
+
+test('28. an unavailable heading never reaches the uploaded payload or the marker', async () => {
+  await lifecycle.startCrewTracking({ tripId: TRIP, ...DRIVER });
+  session.setAccessToken('jwt-live');
+  socket.connected = true;
+  socket.ackMode = 'accept';
+
+  // expo-location's "no course" sentinel, straight from the device.
+  lifecycle.deliverCrewDeviceFix(fix(0, { heading: -1 }));
+  await tick(20);
+
+  const uploaded = socket.locationUpdates().at(-1)?.payload;
+  assert.ok(uploaded, 'the fix was delivered');
+  assert.equal('heading' in uploaded, false, 'heading: -1 must not become 359 on the wire');
+
+  const localFix = lifecycle.getCrewTrackingState().stats.lastFix;
+  assert.ok(localFix);
+  assert.equal(localFix.heading, null, 'nor may it become a direction the device never had');
 });

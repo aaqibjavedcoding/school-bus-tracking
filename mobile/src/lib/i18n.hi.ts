@@ -397,6 +397,16 @@ export const hi: Dictionary = {
   'map.busA11y': 'स्कूल बस',
   'map.stopA11y': 'स्टॉप {number}',
 
+  /**
+   * ड्राइवर ट्रिप मैप: मार्कर इसी डिवाइस का GPS है। डिलीवरी की बात केवल तब कही
+   * जाती है जब वह न हुई हो — "स्कूल आपको देख रहा है" केवल `gps.status.live` कहता है।
+   */
+  'driverMap.source': 'आपका डिवाइस',
+  'driverMap.note.schoolStale': 'स्कूल के पास इससे पुरानी स्थिति है।',
+  'driverMap.note.notDelivered': 'स्कूल को अभी नहीं भेजा गया।',
+  'driverMap.note.offline': 'ऑफ़लाइन — स्कूल को यह स्थिति अभी नहीं दिख रही।',
+  'driverMap.note.notSharing': 'शेयरिंग बंद है — यह स्थिति नहीं भेजी जा रही।',
+
   // ── Shared chrome ──────────────────────────────────────────────────────
   'common.retry': 'फिर कोशिश करें',
   'common.error': 'कुछ गड़बड़ हो गई',

@@ -433,6 +433,23 @@ export const en = {
   'map.busA11y': 'School bus',
   'map.stopA11y': 'Stop {number}',
 
+  /**
+   * Driver Trip map (Session 2) — see `src/features/crew/crew-map-presentation.ts`.
+   *
+   * The source line is always on screen: the marker is this device's own GPS,
+   * and saying so is what stops "so the school can see me?" being answered by a
+   * map by implication. The two notes that follow are the only places this
+   * screen may talk about delivery, and they only ever appear when it has *not*
+   * happened. Nothing here may be reworded into "the school sees you" — that
+   * sentence belongs to `gps.status.live`, which is derived from a server
+   * acknowledgement and nothing else.
+   */
+  'driverMap.source': 'Your device',
+  'driverMap.note.schoolStale': 'The school has an older position than this.',
+  'driverMap.note.notDelivered': 'Not delivered to the school yet.',
+  'driverMap.note.offline': 'Offline — the school cannot see this position yet.',
+  'driverMap.note.notSharing': 'Sharing is off — this position is not being sent.',
+
   // ── Shared chrome ──────────────────────────────────────────────────────
   'common.retry': 'Retry',
   'common.error': 'Something went wrong',

@@ -7,8 +7,12 @@ interpolation between GPS fixes, the heading, the camera, and what the map is
 allowed to claim about a position.
 
 Scope: the **observer** side — `mobile/` parent and admin tracking screens and
-the `web/` live-tracking console. The crew **Driver Trip** screen is unchanged
-in this pass and is Session 2 work (see the end of this document).
+the `web/` live-tracking console — plus, since Session 2, the crew **Driver Trip**
+screen (`mobile/app/(crew)/trip.tsx`). The driver's map reuses the same marker,
+motion machine and follow-camera policy, with **crew** freshness semantics and a
+device-local position instead of the observer's delivered one — see
+[The Driver Trip map](#the-driver-trip-map), which also states what it is not
+allowed to claim.
 
 Nothing here changes how GPS is sampled, validated, delivered, stored or
 authorised. `docs/mobile-tracking-reliability.md`, `docs/notifications.md`,
@@ -44,7 +48,11 @@ One **pure state machine** decides what to draw; each platform only renders it.
 | `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus, drawn with React Native views.                                                                                                                                                                |
 | `mobile/src/features/map/BusMarker.tsx`                                                               | The leaf marker component: the only thing that re-renders per frame.                                                                                                                                            |
 | `mobile/src/features/map/useBusMarkerMotion.ts`                                                       | Frame loop, lifecycle, reduced motion, cleanup.                                                                                                                                                                 |
-| `mobile/src/features/map/BusMap.tsx`                                                                  | Native map: camera policy, status panel, follow control, stop pins, accuracy circle.                                                                                                                            |
+| `mobile/src/features/map/follow-camera-controller.ts`                                                 | The camera's imperative half: fit once per trip, centre-only follow pans, throttle, gesture attribution, resume. Pure, over a two-method port.                                                                  |
+| `mobile/src/features/map/useFollowCamera.ts`                                                          | The React binding for that policy — **one** camera implementation, used by the observer map _and_ the driver map.                                                                                               |
+| `mobile/src/features/map/BusMap.tsx`                                                                  | Native observer map: status panel, follow control, stop pins, accuracy circle.                                                                                                                                  |
+| `mobile/src/features/crew/crew-map-presentation.ts`                                                   | What the driver's map may say about a device-local position, under crew freshness windows. Pure.                                                                                                                |
+| `mobile/src/features/crew/DriverTripMap.tsx`<br>`…/DriverTripMap.web.tsx`                             | The Driver Trip card: stops, this device's own position, one honest status line. The `.web` file is the dependency-free `react-native-web` fallback.                                                            |
 | `web/src/features/map/bus-marker-icon.ts`                                                             | The top-view bus as inline SVG, plus the `divIcon` geometry as plain data. Runtime-free, so its geometry is directly testable (`leaflet` dereferences `window` at module scope).                                |
 | `web/src/features/map/MapViewInner.tsx`                                                               | Web map: same policy over Leaflet.                                                                                                                                                                              |
 | `mobile/src/hooks/useReducedMotion.ts`<br>`web/src/features/map/usePrefersReducedMotion.ts`           | OS reduce-motion preference, live.                                                                                                                                                                              |
@@ -65,7 +73,14 @@ to `MapViewInner.tsx`.
 
 The **one genuinely shared** piece is the definition of "live":
 `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` live in
-`@school-bus-tracking/shared-types`, imported by both clients.
+`@school-bus-tracking/shared-types`, imported by both clients _and_ by the crew
+controller (`SERVER_ACK_LIVE_WINDOW_MS` / `SERVER_ACK_STALE_WINDOW_MS` are
+aliases of the same two constants, not copies). Sessions 1 and 2 kept those in
+sync with a spec that compared the two modules; Session 2 removed the drift
+instead of detecting it. What is deliberately **not** aliased is
+`LOCAL_FIX_FRESH_WINDOW_MS` — same duration today, different question, and
+collapsing it would make a change to the observer window silently change what
+"my GPS is working" means on the driver's screen.
 
 ### Consumers touched
 
@@ -198,33 +213,54 @@ sub-pixel at tracking-card zoom.
 - **Camera** — moved imperatively from the frame callback on both platforms, so
   following the bus re-renders nothing.
 
+### Native marker updates we did not adopt
+
+Session 2 was asked to evaluate the two native shortcuts for marker updates.
+Both exist in the pinned `react-native-maps` 1.27.2 and **neither is used**. The
+reasons below were read from the installed source, and one of them corrects a
+claim this document made earlier.
+
+| API                                                  | where it actually works                                                                                                                                                                                                                                                                                                                                                                                              | why it is not used                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Marker#animateMarkerToCoordinate(coordinate, ms)`   | **Not "Google-only"** — that was a Paper-architecture statement. Under Fabric (the only architecture in SDK 57) the command is implemented for **Android** (`rnmaps/fabric/MarkerManager.java:246`) and for **iOS Apple Maps** (`ios/AirMaps/RNMapsMarkerView.mm:67`). On **iOS + Google Maps** `MapMarker.tsx:484` forces the legacy path, which has no such method anywhere in `ios/`, so the call is a **no-op**. | It hands the tween to the provider, which bypasses every rule this document pins: the jitter gate, the cadence-derived duration, the gap/jump snap, reduced motion, and "never animate a non-live position". It also cannot rotate the marker independently of the camera, and on one of the four platform/provider combinations it silently does nothing.                                       |
+| `setNativeProps`                                     | Still exposed by RN 0.86.3 (`ReactNativeElement#setNativeProps`; `FabricUIManager` lists it as supported), but the type's own doc comment points at the New Architecture direct-manipulation caveats, and props written this way "will not participate in future diff process".                                                                                                                                      | It is a direct-manipulation escape hatch, not the way this library updates a marker: `react-native-maps` writes coordinates through native **commands** (`MapMarker.tsx` has `setCoordinates`/`animateToCoordinates` commands for exactly that reason). The JS `Marker` is a wrapper over a codegen'd host component, so "send `coordinate` straight to native" is not a supported surface here. |
+| `Marker#setCoordinates(coordinate)` (Fabric command) | Yes, on both platforms: `MapMarker.tsx:423` → `rnmaps/fabric/MarkerManager.java:251` (Android) and `RNMapsMarkerView.mm:91` (iOS). Not deprecated.                                                                                                                                                                                                                                                                   | This is the one genuine option, held in reserve. It is imperative and bypasses the state machine: the marker would move without the motion machine that owns the rendered position, which is two answers to "where is the bus" — the exact class of bug this document exists to prevent.                                                                                                         |
+
+**What would change the answer:** a profile showing dropped frames _inside the
+map_ on the low-end Android the checklist targets — evidence that the ~20 fps
+leaf re-render is a real cost. At `FRAME_MIN_INTERVAL_MS = 50` for a single
+`<Marker>` that has not been observed, and it cannot be observed on this
+machine (see "What was verified automatically"). Adopting any of these would
+have to keep reduced motion, the freshness halt, the heading rules and the
+per-trip reset intact — it is not a drop-in swap.
+
 ## Thresholds and why
 
 All centralised in `MOTION_THRESHOLDS` and pinned by tests in both workspaces.
 
-| Constant                                             | Value                | Rationale                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `headingMinSpeedKmh`                                 | 3                    | Below walking-pace-plus, a GPS course is Doppler noise inside the accuracy circle. Also neutralises a real data quirk: `expo-location` reports `heading: -1` when unavailable, and `buildLocationPayload` normalises that finite `-1` into `359`, so a _stationary_ bus can arrive with a heading that really means "unknown". The speed gate makes that harmless. |
-| `headingMinDisplacementM`                            | 12                   | Below this, `atan2` over two points inside one accuracy circle can swing 180° between fixes — a parked bus visibly spinning.                                                                                                                                                                                                                                       |
-| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 2 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped. The floor lets a good fix move the bus; the **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                     |
-| `animationCadenceFactor`                             | 0.8                  | Tween = 0.8 × observed cadence, leaving ~20 % headroom so a slightly late fix does not arrive mid-tween. The old hardcoded 900 ms against a 2.5–4 s cadence is what made the web bus lurch and then sit.                                                                                                                                                           |
-| `animationMinMs` / `animationMaxMs`                  | 500 / 3000           | Floor: below a couple of frames a tween just flickers. Ceiling: bounds how far the marker can lag behind the newest real fix.                                                                                                                                                                                                                                      |
-| `gapSnapMs`                                          | 45 000               | >10× the nominal cadence (device watch 4 s, server throttle floor 2.5 s), so a genuine cadence can never trip it.                                                                                                                                                                                                                                                  |
-| `maxPlausibleSpeedMps`                               | 33                   | ≈120 km/h. A school bus does not exceed it, so a larger implied jump means the _fix_ moved (tunnel exit, urban-canyon multipath, coarse network fix), not the bus.                                                                                                                                                                                                 |
-| `cadenceMinMs` / `cadenceMaxMs` / `cadenceSmoothing` | 1 000 / 30 000 / 0.4 | EWMA over accepted-fix intervals, bounded so one anomalous gap cannot distort the tween length.                                                                                                                                                                                                                                                                    |
-| `FRAME_MIN_INTERVAL_MS`                              | 50                   | ~20 fps; see above.                                                                                                                                                                                                                                                                                                                                                |
-| `FOLLOW_CAMERA_THROTTLE_MS`                          | 500                  | Decoupled from both the fix cadence and the frame rate: per-frame camera steps vibrate against the marker's own tween, per-fix steps lurch.                                                                                                                                                                                                                        |
-| `FOLLOW_CAMERA_MIN_SHIFT_METERS`                     | 5                    | Below the size of a stop, so an idling bus does not vibrate the camera.                                                                                                                                                                                                                                                                                            |
-| `ZOOM_GESTURE_TOLERANCE`                             | 0.02                 | Above platform region-report noise, below one zoom step.                                                                                                                                                                                                                                                                                                           |
+| Constant                                             | Value                | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `headingMinSpeedKmh`                                 | 3                    | Below walking-pace-plus, a GPS course is Doppler noise inside the accuracy circle. It also covers the one unavailable-heading case that cannot be fixed at the source: Android's `Location.getBearing()` returns `0.0` when the fix has no bearing, and expo-location does not export `hasBearing()`, so that `0` is indistinguishable in JS from a true north course. Session 2 removed the _other_ case — iOS's `-1` is now omitted instead of uploaded as `359` (see limitations). |
+| `headingMinDisplacementM`                            | 12                   | Below this, `atan2` over two points inside one accuracy circle can swing 180° between fixes — a parked bus visibly spinning.                                                                                                                                                                                                                                                                                                                                                          |
+| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 2 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped. The floor lets a good fix move the bus; the **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                        |
+| `animationCadenceFactor`                             | 0.8                  | Tween = 0.8 × observed cadence, leaving ~20 % headroom so a slightly late fix does not arrive mid-tween. The old hardcoded 900 ms against a 2.5–4 s cadence is what made the web bus lurch and then sit.                                                                                                                                                                                                                                                                              |
+| `animationMinMs` / `animationMaxMs`                  | 500 / 3000           | Floor: below a couple of frames a tween just flickers. Ceiling: bounds how far the marker can lag behind the newest real fix.                                                                                                                                                                                                                                                                                                                                                         |
+| `gapSnapMs`                                          | 45 000               | >10× the nominal cadence (device watch 4 s, server throttle floor 2.5 s), so a genuine cadence can never trip it.                                                                                                                                                                                                                                                                                                                                                                     |
+| `maxPlausibleSpeedMps`                               | 33                   | ≈120 km/h. A school bus does not exceed it, so a larger implied jump means the _fix_ moved (tunnel exit, urban-canyon multipath, coarse network fix), not the bus.                                                                                                                                                                                                                                                                                                                    |
+| `cadenceMinMs` / `cadenceMaxMs` / `cadenceSmoothing` | 1 000 / 30 000 / 0.4 | EWMA over accepted-fix intervals, bounded so one anomalous gap cannot distort the tween length.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `FRAME_MIN_INTERVAL_MS`                              | 50                   | ~20 fps; see above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `FOLLOW_CAMERA_THROTTLE_MS`                          | 500                  | Decoupled from both the fix cadence and the frame rate: per-frame camera steps vibrate against the marker's own tween, per-fix steps lurch.                                                                                                                                                                                                                                                                                                                                           |
+| `FOLLOW_CAMERA_MIN_SHIFT_METERS`                     | 5                    | Below the size of a stop, so an idling bus does not vibrate the camera.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ZOOM_GESTURE_TOLERANCE`                             | 0.02                 | Above platform region-report noise, below one zoom step.                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Freshness (`tracking-presentation.ts`):
 
-| Constant                      | Value   | Source                                                                                                                                                          |
-| ----------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LIVE_WINDOW_MS`              | 30 000  | `GPS_LIVE_WINDOW_MS` from `shared-types`; mirrors the crew controller's `SERVER_ACK_LIVE_WINDOW_MS`. `tracking-presentation.spec.ts` asserts they cannot drift. |
-| `STALE_WINDOW_MS`             | 120 000 | `GPS_STALE_WINDOW_MS`; mirrors `SERVER_ACK_STALE_WINDOW_MS`.                                                                                                    |
-| `ACCURACY_APPROXIMATE_METERS` | 50      | The same line `gpsSignalTier` in `mobile/src/lib/geo.ts` already calls "weak".                                                                                  |
-| `ACCURACY_CIRCLE_MAX_METERS`  | 500     | A 5 km circle on a 280 dp map is a solid orange screen, not information; past this the uncertainty is stated in words instead.                                  |
+| Constant                      | Value   | Source                                                                                                                                                 |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `LIVE_WINDOW_MS`              | 30 000  | `GPS_LIVE_WINDOW_MS` from `shared-types`; the crew controller's `SERVER_ACK_LIVE_WINDOW_MS` is an alias of the same constant, so the two cannot drift. |
+| `STALE_WINDOW_MS`             | 120 000 | `GPS_STALE_WINDOW_MS`; `SERVER_ACK_STALE_WINDOW_MS` aliases it.                                                                                        |
+| `ACCURACY_APPROXIMATE_METERS` | 50      | The same line `gpsSignalTier` in `mobile/src/lib/geo.ts` already calls "weak".                                                                         |
+| `ACCURACY_CIRCLE_MAX_METERS`  | 500     | A 5 km circle on a 280 dp map is a solid orange screen, not information; past this the uncertainty is stated in words instead.                         |
 
 ## Follow camera
 
@@ -293,6 +329,103 @@ Freshness ages without new data via a 5 s tick (`useNow` on native, an interval
 on web) — otherwise "Live position" would stay on screen forever over a position
 that went quiet.
 
+## The Driver Trip map
+
+`mobile/app/(crew)/trip.tsx` renders one supplementary card above the existing
+next-stop card: the trip's stops and **this device's own position**. It is not
+turn-by-turn navigation, nothing about a trip depends on it, and it never needs
+interaction while the vehicle is moving. The next-stop card and its external
+**Navigate** hand-off, attendance, trip-status and SOS controls are unchanged.
+
+### The marker's data source, stated once
+
+| candidate source                               | what it would prove                | used    |
+| ---------------------------------------------- | ---------------------------------- | ------- |
+| **local device fix** — `sharing.stats.lastFix` | this phone has a position          | **yes** |
+| server-acknowledged position                   | the school received a position     | no      |
+| the observer socket (`useLiveTripTracking`)    | what other screens are being shown | no      |
+
+The driver's question on this screen is "where am I on my run". The newest,
+most accurate answer available on the device — and the only one that still works
+with no network — is the fix the phone itself just produced. The server's copy is
+at least one throttled round trip older (2.5–4 s), and the crew lifecycle does
+not retain the acknowledged coordinates at all, so drawing it would show the
+driver where the server _thinks_ they are.
+
+Neither source is allowed to stand for the other:
+
+- the local fix is **not** evidence of delivery. `deriveDriverMapPresentation`
+  **copies** `schoolSeesLive` from `tracking-status.ts` instead of deriving its
+  own, so the GPS strip above the map stays the single authority for "the school
+  can see the bus", and no string on the card is worded as "the school sees you";
+- the panel has **two lines, and the split is the point.** The _position_ line
+  always answers "how current is what you are looking at" (`Updated {time}`, or
+  the same `gps.noFix` the strip shows). The _delivery_ line exists only to deny
+  a possible misreading, and it is absent exactly when the school can see the
+  drawn position. Collapsing the two — the obvious first design — is how "not
+  delivered yet" ends up hiding whether the phone's GPS is alive at all, which
+  is the moment that number matters most;
+- when the position has not been delivered the delivery line says so in words
+  (`driverMap.note.notDelivered`), says the link is down when that is the reason
+  (`driverMap.note.offline`), says sharing is off when _that_ is the reason (a
+  frozen marker must say why it is frozen: `driverMap.note.notSharing`), and says
+  the school's copy is **older** — not missing — when the last acknowledgement is
+  merely stale (`driverMap.note.schoolStale`). A two-minute-old acknowledgement
+  is not the same fact as no acknowledgement, so it does not get the same
+  sentence;
+- the source is labelled at all times (`driverMap.source`, "Your device"), so the
+  chip can never be mistaken for the server's copy of the position.
+
+### Crew semantics, not observer semantics
+
+| question                                       | constant                                                                  | module                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| is this device producing fixes right now?      | `LOCAL_FIX_FRESH_WINDOW_MS` (30 s)                                        | `crew/tracking-status.ts`                                   |
+| has the server acknowledged anything?          | `SERVER_ACK_LIVE_WINDOW_MS` (30 s) / `SERVER_ACK_STALE_WINDOW_MS` (120 s) | `crew/tracking-status.ts` (aliases of the shared constants) |
+| how old is a position _someone else_ is shown? | `LIVE_WINDOW_MS` / `STALE_WINDOW_MS`                                      | `map/tracking-presentation.ts`                              |
+
+Three different questions that currently share two durations, kept as three
+separate constants on purpose. `LOCAL_FIX_FRESH_WINDOW_MS` is deliberately _not_
+an alias of the shared window: a change to how long a delivered position stays
+live for a parent must not silently change what "this phone's GPS is working"
+means for a driver.
+
+Travel animation follows the same rule as the observer map, with the crew's
+definition of current: the marker glides only while a fix inside
+`LOCAL_FIX_FRESH_WINDOW_MS` exists **and** tracking is still running. `stopped`,
+`services-off`, `permission-blocked` and `revoked` freeze it, because nothing is
+being produced any more, and a frozen marker is never left unlabelled. When the
+local fix is only old — not stopped — the note falls back to the same
+`gps.lastUpdate` ("Updated {time}") line the strip uses, so one number never has
+two spellings on one screen.
+
+### What it reuses, and what it does not add
+
+- **Camera** — `useFollowCamera`, the same binding the observer map uses, over
+  the same pure `follow-camera.ts` policy: fit once per trip over stops _and_ the
+  bus, centre-only pan while following, any user gesture suspends following until
+  **Follow bus** is pressed, and returning to the foreground reconciles with the
+  current position instead of replaying missed movement.
+- **Marker** — the same `BusMarker` / `BusMarkerGraphic` / `useBusMarkerMotion`
+  leaf, so there is one bus shape, one heading rule and one frame cap in the app.
+  `BusMarker` now takes the motion machine's own `BusMotionFix` rather than the
+  observer's `LiveFix`: the observer fix carries a server `received_at`, and a
+  device-local fix has no such field and must not pretend to have one.
+- **No new plumbing** — no GPS watcher, no socket subscription, no storage. The
+  position is `useCrewLocationSharing().stats.lastFix`, published by the existing
+  crew lifecycle, which now also keeps the `heading`/`speed` of the payload it
+  just built so the marker can point along the direction of travel without a
+  second watch. The stops come from the `listRouteStops` call the next-stop card
+  already made.
+- **No native rebuild** — `react-native-maps` was already a dependency.
+- `DriverTripMap` is imported **by path**, never through the crew barrel, so the
+  headless entry points (`location-task.ts`) cannot pull `react-native-maps` into
+  the background-task graph; `DriverTripMap.web.tsx` is the dependency-free
+  `react-native-web` fallback, mirroring `BusMap.web.tsx`.
+
+Interpolated coordinates are presentation only here too: the tween is never
+written into history, ETA, attendance or notifications.
+
 ## Reduced motion
 
 `AccessibilityInfo.isReduceMotionEnabled()` + `reduceMotionChanged` on native and
@@ -343,11 +476,20 @@ app-wide floor.
    usable course falls back to a bearing between fixes, which is unavailable
    while stopped; the marker then holds its last heading rather than inventing
    one.
-5. **`heading: -1` → `359`.** `buildLocationPayload` normalises any finite
-   heading, and `expo-location` uses `-1` for "unavailable", so a stationary
-   device can upload `heading: 359`. This pass does not change crew upload
-   behaviour; the presentation layer's speed gate makes it invisible. Worth
-   fixing at the source in Session 2.
+5. **Unavailable headings are omitted, not normalised** (fixed in Session 2).
+   `buildLocationPayload` used to wrap _every_ finite heading into `[0, 360)`,
+   and `expo-location` reads iOS's `CLLocation.course`, which is `-1` when the
+   course is invalid — so a stationary device could upload `heading: 359`, a
+   confident claim of due north. Headings that are negative, non-finite or
+   absent are now **omitted** from the payload, and a real `0°` (due north) is
+   preserved. The regression tests cover the sentinel, other negatives, `NaN`,
+   `Infinity`, `0`, and the `450 → 90` wrap.
+   **Known residual, Android only:** `Location.getBearing()` returns `0.0` for a
+   fix with no bearing and expo-location does not export `hasBearing()`, so that
+   value is indistinguishable in JS from true north. It is kept rather than
+   guessed at (suppressing `0` would delete real headings), and the marker's
+   ≥3 km/h speed gate is what keeps it out of the presentation. Stated here
+   rather than papered over.
 6. **Freshness uses `received_at` (server clock) against the device clock.**
    Significant client/server clock skew would shift the live/last-known boundary
    by that skew. The crew status module has the same property.
@@ -355,18 +497,43 @@ app-wide floor.
    Google-only), so the iOS marker view is re-rendered on rotation. At ~20 fps
    for one small view this is cheap, but it is a real per-frame cost on the
    oldest iPhones.
-8. **OpenStreetMap tiles are free but not unlimited.** The web map uses
-   `https://tile.openstreetmap.org` under OSM's tile-usage policy. Production
-   console traffic is expected to move to a self-hosted or contracted tile
-   provider; this change does not alter the tile source or its attribution.
+8. **OpenStreetMap tiles are free but not unlimited — decision deferred, with
+   the blocker written down.** The web map uses `https://tile.openstreetmap.org`
+   under OSM's tile-usage policy, which is intended for low-volume use: it does
+   not permit unrestricted production traffic. Nothing in this repository
+   measures or bounds the console's tile requests, and there is no paid tile
+   account anywhere in the product — so **no provider was changed** (a new
+   provider means an account, a key and a CSP change, all of which need approval
+   outside this change). Options for a separate, explicitly approved change:
+   self-host tiles (no per-request cost, new infrastructure to run); a
+   contracted provider with a free tier (account + key + one `img-src` entry —
+   `CSP_EXTRA_IMG_SRC` in `web/security-headers.js` exists for exactly this);
+   or stay on OSM and keep the traffic bound, since the console is one screen
+   and browsers cache tiles. Attribution is untouched until one of those is
+   approved, and no billing is enabled anywhere.
 9. **No paid routing, Directions, Roads, traffic, map-matching or tracking API
    was added**, and no new map provider. Attribution is preserved on both
    platforms.
 
 ## Manual verification checklist
 
-Nothing below has been run on a physical device in this pass — see "What was
-verified automatically".
+**Device acceptance is pending.** The automated checks pass (see "What was
+verified automatically"), but the checks below need hardware, and none of them
+has been run in this pass.
+
+What was available in the environment this change was prepared in: Node 22 and
+npm, and nothing else that can render or run the app. There is **no** Android
+SDK, no `adb`, no emulator, no Xcode or simulator, no browser engine and no
+Playwright — and the sandbox's network reaches the npm registry but not
+`tile.openstreetmap.org`, so even a headless browser could not have drawn the
+web tiles. Nothing here is being reported from a device, an emulator or a
+browser, and **an `expo export` bundle is not a device test**: it exercises the
+bundler, not background location, Apple Maps, the Google Maps renderer, a
+low-end GPU or an OS permission dialog.
+
+Run it on: a low-end Android on Google Maps, an iPhone on Apple Maps (the
+provider default), and a browser on the web console. Record what you actually
+see; if a step cannot be reproduced, say so rather than ticking it.
 
 **Straight road**
 
@@ -431,6 +598,63 @@ verified automatically".
 - [ ] Status wording agrees; ETA and stop lists are unchanged.
 - [ ] Hindi and Marathi labels fit their chips without clipping.
 
+**Driver Trip screen (new in Session 2)**
+
+- [ ] The map card sits above the next-stop card, and neither pushes the other
+      off screen on a small phone.
+- [ ] The chip reads "Your device" — the driver can tell whose position it is.
+- [ ] With the socket connected and acknowledging, the note is the same
+      "Updated {time}" line the GPS strip shows.
+- [ ] Turn mobile data off mid-trip: the strip says the link is down, the card
+      says the school cannot see the position, and the marker keeps moving —
+      the device still knows where it is, and that difference is intended.
+- [ ] Stop sharing: the marker freezes and the note says sharing is off.
+- [ ] Pan the map: **Follow bus** appears; tapping it recentres without changing
+      the zoom the driver chose.
+- [ ] Drive a straight road, then a turn: the nose follows the direction of
+      travel, and there is no spinning while waiting at a stop.
+- [ ] The card is readable at a glance while parked; nothing on it requires
+      interaction while moving.
+- [ ] Hindi and Marathi: the chip and the note fit the panel without clipping.
+
+## What was verified automatically
+
+Run on the branch this change was prepared on, with no device attached:
+
+| command                                                | result                                                                                                                                                                                                  |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build:packages`                               | pass                                                                                                                                                                                                    |
+| `npm run typecheck`                                    | pass — all packages, `web`, `mobile`                                                                                                                                                                    |
+| `npm run lint`                                         | pass (`eslint . --max-warnings 0`)                                                                                                                                                                      |
+| `npm test`                                             | pass — 1 871 server tests, 338 web tests, 829 mobile tests                                                                                                                                              |
+| `npx next build`                                       | pass **after** `npm run build:server`; the raw command fails on a checkout without `web/dist`, because every App Router handler `require()`s the compiled server tree (see `web/server-build-check.js`) |
+| `npx expo export --platform android`                   | pass — bundle only, no device                                                                                                                                                                           |
+| `npm run test:sim` (`mobile/`)                         | pass — offline, push, feedback and tracking simulations, including the two new driver-map cases in `tracking-recovery.sim.spec.ts`                                                                      |
+| `node scripts/mutation-check-live-tracking-guards.mjs` | 8/8 structural guards caught the mutation they exist to catch, and each mutated file was restored and re-verified green                                                                                 |
+
+New behavioural coverage added by this change:
+
+- `mobile/src/features/crew/crew-map-presentation.spec.ts` (14) — the driver
+  map's honesty contract: the source is always the device, `schoolSeesLive` is
+  copied and never invented, the position age survives every degraded case,
+  animation stops when the fix is old or sharing is off, a stale acknowledgement
+  is worded as "older" rather than "never delivered", and every line resolves
+  through the real translations.
+- `mobile/src/features/crew/tracking-recovery.sim.spec.ts` (28, +2) — drives the
+  real crew lifecycle against a fake socket: with GPS working and the server
+  never acknowledging, the map still draws the device's fix while
+  `schoolSeesLive` stays false and the note never says "delivered"; and a `-1`
+  heading never reaches the wire or the marker.
+- `mobile/src/features/map/follow-camera-controller.spec.ts` (13) — the camera
+  policy both maps now share: fit once per trip, centre-only pans with no `zoom`
+  key on the call, throttling and the 5 m shift guard, gesture attribution and
+  the zoom-tolerance fallback, resume, and the trip-change reset.
+- `mobile/src/lib/geo.spec.ts` (18) — heading omission, and that `0°` survives.
+- `mobile/src/features/crew/tracking-status.spec.ts` (22) — the three freshness
+  concepts stay separate, and the delivery windows are the shared constants.
+- `mobile/src/features/map/bus-marker-invariants.spec.ts` (17) — both native maps
+  call the shared camera hook and neither rolls its own.
+
 ## Native rebuild requirements
 
 **None for iOS/Android app binaries in the usual sense** — no new native
@@ -439,7 +663,9 @@ drawn with views, and `react-native-maps` 1.27.2 was already installed.
 
 What _is_ required:
 
-- A new JS bundle (Expo Go / dev-client reload is enough).
+- A new JS bundle (Expo Go / dev-client reload is enough) — the Driver Trip map
+  included: it introduces no new native module, no permission and no config
+  entry, so it ships in the same bundle as everything else.
 - `npm run build:packages` before typechecking, because
   `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` were added to
   `@school-bus-tracking/shared-types`.
@@ -447,25 +673,36 @@ What _is_ required:
   wiring described in `docs/mobile-expo-sdk.md` — but that is pre-existing and
   unrelated to this change.
 
-## Session 2 — remaining work
+## Session 2 — status of the follow-ups
 
-1. **Driver Trip screen** (`mobile/app/(crew)/trip.tsx`): reuse `bus-motion.ts`,
-   `follow-camera.ts`, `tracking-presentation.ts` and `BusMarkerGraphic` for a
-   driver-facing map, with the crew freshness semantics from
-   `tracking-status.ts` rather than the observer ones.
-2. **Fix `heading: -1` at the source** in `buildLocationPayload`, so "no course"
-   is omitted rather than uploaded as 359.
-3. **Consolidate the freshness windows**: have
-   `mobile/src/features/crew/tracking-status.ts` import
-   `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` directly instead of being
-   pinned to them by a spec.
-4. **Consider a shared client package** for `bus-motion` / `follow-camera` if a
-   third consumer appears, replacing the mirrored copies.
-5. **Device-focused UX validation**: run the checklist above on a physical
-   low-end Android, an iPhone (Apple Maps) and a browser, and record what was
-   actually observed.
-6. **Evaluate `setNativeProps` / `animateMarkerToCoordinate`** for native marker
-   updates. Both exist in 1.27.2, but `setNativeProps` is deprecated under
-   Fabric and `animateMarkerToCoordinate` is Google-only, so neither was relied
-   on here.
-7. **Tile provider decision** for the web console before real traffic.
+Recorded here rather than deleted, because each line is either a decision that
+still binds or a task someone still has to do.
+
+1. **Driver Trip screen** — **done**. One supplementary card
+   (`mobile/src/features/crew/DriverTripMap.tsx`) reusing the marker, motion
+   machine and shared `useFollowCamera` binding, with crew freshness semantics
+   and a device-local marker. See [The Driver Trip map](#the-driver-trip-map).
+2. **`heading: -1` at the source** — **done**. Omitted, `0°` preserved,
+   regression-tested; the Android `0.0` residual is documented under Known
+   limitations and remains the speed gate's job.
+3. **Consolidate the freshness windows** — **done, without merging concepts**.
+   `tracking-status.ts` aliases the shared constants; the spec no longer pins one
+   module to the other's literals because there is only one definition to drift
+   from. `LOCAL_FIX_FRESH_WINDOW_MS` stays its own number on purpose.
+4. **Shared client package for `bus-motion` / `follow-camera`** — **not done,
+   still not needed**. The driver map became a third _consumer_ without becoming
+   a third _copy_, because the camera policy was extracted into
+   `follow-camera-controller.ts` + `useFollowCamera.ts` inside `mobile/`. The
+   `mobile/` ↔ `web/` mirror is unchanged; if the web driver view is ever built,
+   that is the point to revisit a package.
+5. **Device-focused UX validation** — **pending, and honestly so**. See the
+   checklist above: it has not been run, this environment has no device,
+   emulator or browser, and no result is being reported as if it had been.
+6. **`setNativeProps` / `animateMarkerToCoordinate`** — **evaluated and not
+   adopted**, with the platform matrix corrected in
+   [Native marker updates we did not adopt](#native-marker-updates-we-did-not-adopt).
+   `setCoordinates` (the one cross-platform imperative command) is held in
+   reserve pending measured evidence.
+7. **Tile provider decision** — **deferred with the blocker written down**. No
+   provider change, no billing, no attribution change; see Known limitations #8
+   for the three options that need separate approval.

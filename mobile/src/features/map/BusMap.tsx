@@ -1,17 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AppState,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type AppStateStatus,
-} from 'react-native';
+import React, { useMemo } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Circle, Marker, Polyline, type LatLng, type Region } from 'react-native-maps';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
-import { fixAgeMs, haversineMeters } from '../../lib/geo';
+import { fixAgeMs } from '../../lib/geo';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
@@ -21,15 +13,7 @@ import { BusMarker } from './BusMarker';
 import type { RenderedMarker } from './useBusMarkerMotion';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
-import {
-  FOLLOW_CAMERA_MIN_SHIFT_METERS,
-  FOLLOW_CAMERA_THROTTLE_MS,
-  INITIAL_FOLLOW_CAMERA,
-  isZoomGesture,
-  reduceFollowCamera,
-  type FollowCameraEvent,
-  type FollowCameraState,
-} from './follow-camera';
+import { useFollowCamera } from './useFollowCamera';
 
 /**
  * Native live-tracking map (parent tracking, admin trip detail, admin tracking).
@@ -92,11 +76,6 @@ const SINGLE_POINT_ZOOM = 15;
  */
 const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
-
-function nowMs(): number {
-  const perf = (globalThis as { performance?: { now?: () => number } }).performance;
-  return typeof perf?.now === 'function' ? perf.now() : Date.now();
-}
 
 /**
  * Only ever used for `initialRegion`, so the map opens somewhere sensible before
@@ -349,182 +328,28 @@ export const BusMap: React.FC<BusMapProps> = ({
       : `${t('map.status.lastKnown')} · ${formatTime(fix.recorded_at)}`;
 
   // ── Follow camera ──────────────────────────────────────────────────────
-  const mapRef = useRef<MapView>(null);
-  const followRef = useRef<FollowCameraState>(INITIAL_FOLLOW_CAMERA);
-  const [exploring, setExploring] = useState(false);
-  const renderedRef = useRef<RenderedMarker | null>(null);
-  const lastCenterRef = useRef<LatLng | null>(null);
-  const lastCameraAtRef = useRef(0);
-  /** `null` means "we changed the zoom ourselves; do not judge the next delta". */
-  const expectedDeltaRef = useRef<number | null>(null);
-  const mapReadyRef = useRef(false);
-  const pendingFitRef = useRef(false);
-  const fixRef = useRef<LiveFix | null>(fix);
-  fixRef.current = fix;
-
-  const panTo = useCallback((target: LatLng, duration: number) => {
-    const map = mapRef.current;
-    if (!map) return;
-    lastCenterRef.current = { latitude: target.latitude, longitude: target.longitude };
-    lastCameraAtRef.current = nowMs();
-    // Centre only. Zoom is deliberately absent so a GPS update can never change
-    // how far the user has zoomed — both providers merge a partial camera with
-    // the current one (`MKMapCameraWithDefaults:existingCamera:` on iOS,
-    // `CameraPosition.Builder(map.getCameraPosition())` on Android).
-    map.animateCamera(
-      { center: { latitude: target.latitude, longitude: target.longitude } },
-      { duration },
-    );
-  }, []);
-
-  /**
-   * The one follow-pan path, used by both the animation loop and explicit
-   * intents. `force` skips the throttle (the user asked) but never the
-   * minimum-shift guard, so an idling bus cannot vibrate the camera.
-   */
-  const maybeFollowPan = useCallback(
-    (duration: number, force: boolean) => {
-      const map = mapRef.current;
-      const target = renderedRef.current;
-      if (!map || !target) return;
-      if (!force && nowMs() - lastCameraAtRef.current < FOLLOW_CAMERA_THROTTLE_MS) return;
-      const previous = lastCenterRef.current;
-      if (previous && haversineMeters(previous, target) < FOLLOW_CAMERA_MIN_SHIFT_METERS) return;
-      // Slightly longer than the throttle so consecutive pans overlap instead of
-      // stepping — that overlap is what a smooth trailing camera is.
-      panTo(target, duration);
-    },
-    [panTo],
-  );
-
-  const fitToData = useCallback(
-    (animated: boolean) => {
-      const map = mapRef.current;
-      if (!map || !mapReadyRef.current) {
-        // The map is not ready yet; `handleMapReady` will run this fit.
-        pendingFitRef.current = true;
-        return;
-      }
-      const points: LatLng[] = [...routeCoordinates];
-      const current = fixRef.current;
-      if (current) points.push({ latitude: current.latitude, longitude: current.longitude });
-      if (points.length === 0) return;
-
-      // We are about to change the zoom ourselves, so the next region report
-      // must not be mistaken for a user pinch.
-      expectedDeltaRef.current = null;
-      lastCenterRef.current = null;
-      if (points.length === 1) {
-        map.animateCamera(
-          { center: points[0], zoom: SINGLE_POINT_ZOOM },
-          { duration: animated ? 500 : 1 },
-        );
-        return;
-      }
-      map.fitToCoordinates(points, { edgePadding: FIT_EDGE_PADDING, animated });
-    },
-    [routeCoordinates],
-  );
-
-  const dispatch = useCallback(
-    (event: FollowCameraEvent) => {
-      const previous = followRef.current;
-      const next = reduceFollowCamera(previous, event);
-      followRef.current = next;
-      if (next.mode !== previous.mode) setExploring(next.mode === 'exploring');
-      if (next.intent === 'fit') fitToData(false);
-      else if (next.intent === 'pan') maybeFollowPan(FOLLOW_CAMERA_THROTTLE_MS, true);
-    },
-    [fitToData, maybeFollowPan],
-  );
-
-  const onUserGesture = useCallback(() => dispatch({ type: 'user-gesture' }), [dispatch]);
-
-  const handleRegionChange = useCallback(
-    (_region: Region, details: { isGesture?: boolean }) => {
-      // Android (Google Maps) and iOS-with-Google report gesture attribution
-      // here. Reacting to the first event rather than the last means the camera
-      // stops fighting the user mid-drag instead of after the drag ends.
-      if (details.isGesture === true) onUserGesture();
-    },
-    [onUserGesture],
-  );
-
-  const handleRegionChangeComplete = useCallback(
-    (region: Region, details: { isGesture?: boolean }) => {
-      // Apple Maps does not emit `isGesture` at all, so a zoom delta we did not
-      // cause is the provider-independent second signal. Follow mode only ever
-      // pans, so any zoom change is a user's.
-      if (
-        details.isGesture === true ||
-        isZoomGesture(expectedDeltaRef.current, region.latitudeDelta)
-      ) {
-        onUserGesture();
-      }
-      expectedDeltaRef.current = region.latitudeDelta;
-      // Track where the camera actually ended up, including after a user
-      // gesture — otherwise "recenter" could think it is already there.
-      lastCenterRef.current = { latitude: region.latitude, longitude: region.longitude };
-    },
-    [onUserGesture],
-  );
-
-  const handleMapReady = useCallback(() => {
-    mapReadyRef.current = true;
-    if (pendingFitRef.current) {
-      pendingFitRef.current = false;
-      fitToData(false);
-    }
-  }, [fitToData]);
-
-  /**
-   * Per-frame camera follow, called imperatively from the marker's animation
-   * loop. No React state is touched, so following the bus re-renders nothing —
-   * which is what keeps it smooth on a low-end phone.
-   */
-  const handleFrame = useCallback(
-    (rendered: RenderedMarker) => {
-      renderedRef.current = rendered;
-      if (followRef.current.mode !== 'following') return;
-      maybeFollowPan(FOLLOW_CAMERA_THROTTLE_MS + 50, false);
-    },
-    [maybeFollowPan],
-  );
-
-  const handleRecenter = useCallback(() => dispatch({ type: 'recenter' }), [dispatch]);
-
-  // A new trip: drop the camera state and the previous bus's rendered position.
-  // `mapReadyRef` is *not* reset — the native map is not remounted, so
-  // `onMapReady` would never fire again and the new route would never be framed.
-  useEffect(() => {
-    renderedRef.current = null;
-    lastCenterRef.current = null;
-    expectedDeltaRef.current = null;
-    pendingFitRef.current = !mapReadyRef.current;
-    dispatch({ type: 'trip-changed' });
-  }, [tripId]);
-
-  // Fit once per trip, on the first moment there is something to frame. The
-  // reducer makes this idempotent: later calls return `intent: 'none'`, so a GPS
-  // update can never force-fit the route back into view.
-  useEffect(() => {
-    if (routeCoordinates.length > 0 || fix) dispatch({ type: 'data-available' });
-  }, [routeCoordinates, fix, dispatch]);
-
-  useEffect(() => {
-    if (fix) dispatch({ type: 'fix-arrived' });
-  }, [fix, dispatch]);
-
-  // Foreground resume: reconcile with the position that is current now, never
-  // replaying the movement that happened while the app was away. The marker's
-  // own AppState listener runs first (child effects register earlier), so
-  // `renderedRef` already holds the reconciled position by the time this pans.
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (status: AppStateStatus) => {
-      if (status === 'active') dispatch({ type: 'resumed' });
-    });
-    return () => subscription.remove();
-  }, [dispatch]);
+  //
+  // One implementation, shared with the Driver Trip map: the policy lives in
+  // `follow-camera.ts` (pure reducer) and `follow-camera-controller.ts` (pure
+  // over a camera port), and `useFollowCamera` is the React binding. Following
+  // the bus still re-renders nothing — `onFrame` is called from the marker's
+  // animation loop and moves the camera imperatively through the map ref.
+  const {
+    mapRef,
+    exploring,
+    onFrame: handleFrame,
+    onUserGesture,
+    onRegionChange: handleRegionChange,
+    onRegionChangeComplete: handleRegionChangeComplete,
+    onMapReady: handleMapReady,
+    recenter: handleRecenter,
+  } = useFollowCamera({
+    routeCoordinates,
+    fix,
+    tripId,
+    singlePointZoom: SINGLE_POINT_ZOOM,
+    edgePadding: FIT_EDGE_PADDING,
+  });
 
   const initialRegion = useMemo(() => {
     const points: LatLng[] = [...routeCoordinates];
