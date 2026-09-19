@@ -127,6 +127,12 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'gps.location': 'badge',
   'gps.badgeSharing': 'badge',
   'gps.badgeOff': 'badge',
+  // Delivery-truth badges added by the mobile-reliability patch (same chip row,
+  // same wrap-sensitive width).
+  'gps.deliveryBadge': 'badge',
+  'gps.accuracyReduced': 'badge',
+  'gps.servicesOff': 'badge',
+  'gps.recoveryAttempts': 'badge',
 
   // Two `flex:1` buttons sharing a row.
   'trip.link.manifestDriver': 'buttonRow',

@@ -7,6 +7,10 @@ import { apiClient } from '../../services/api';
 import { getNotificationsSocket } from '../../services/notifications-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import {
+  claimNotificationPresentation,
+  setPresentationAccount,
+} from '../notifications/presentation-dedup';
+import {
   applyAllNotificationsRead,
   applyNotificationEvent,
   applyNotificationRead,
@@ -42,7 +46,20 @@ interface NotificationsContextValue {
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 
-export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export interface NotificationsProviderProps {
+  children: React.ReactNode;
+  /**
+   * The signed-in parent. Presentation de-duplication is scoped to this
+   * account/tenant and cleared whenever it changes, so one account's ids can
+   * never suppress another's notifications.
+   */
+  account: { userId: string; schoolId: string | null };
+}
+
+export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({
+  children,
+  account,
+}) => {
   const [state, setState] = useState<NotificationsState>(initialNotificationsState);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,6 +92,11 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     void runLoad('loading');
   }, [runLoad]);
 
+  // Bind (and re-bind) the presentation de-dup store to this account.
+  useEffect(() => {
+    setPresentationAccount({ userId: account.userId, schoolId: account.schoolId ?? null });
+  }, [account.userId, account.schoolId]);
+
   useEffect(() => {
     const socket = getNotificationsSocket();
 
@@ -83,8 +105,15 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!event || typeof event.notification_id !== 'string') {
         return;
       }
+      // The inbox and the unread badge are always updated — de-duplication is
+      // about *presentation*, never about persistence.
       setState((current) => applyNotificationEvent(current, event));
-      setLatestEvent(event);
+      // The same logical notification can also arrive as an FCM/APNs push whose
+      // foreground handler shows its own banner and plays its own sound. One
+      // claim per notification id, across both rails, first arrival wins.
+      if (claimNotificationPresentation(event.notification_id, { channel: 'socket' })) {
+        setLatestEvent(event);
+      }
     };
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);

@@ -33,7 +33,18 @@ test('GpsSharePanel is rendered on the Help/Support screen (moved, not deleted)'
   const help = read(HELP_SCREEN);
   assert.ok(help.includes('GpsSharePanel'), 'help.tsx must render the full GpsSharePanel');
   const panel = read(GPS_PANEL);
-  for (const counter of ['Sent', 'Rejected', 'Dropped (offline)', 'Invalid fix']) {
+  for (const counter of [
+    'Sent',
+    'Rejected',
+    'Dropped (offline)',
+    'Invalid fix',
+    // Recovery counters added by the mobile-reliability patch: they belong on
+    // the same support surface, for the same reason.
+    'Retried',
+    'Expired',
+    'Superseded',
+    'No session',
+  ]) {
     assert.ok(
       panel.includes(`"${counter}"`),
       `the support counter “${counter}” must stay on the Help surface`,

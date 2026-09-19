@@ -1,45 +1,98 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import * as Location from 'expo-location';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
-import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
-import { getApiErrorMessage } from '../../lib/errors.ts';
-import { connectAuthenticatedSocket } from '../../services/socket-auth';
+import { t } from '../../lib/i18n.ts';
+import { formatRelative } from '../../lib/format.ts';
 import {
-  CREW_LOCATION_TASK,
-  getCrewLocationStats,
-  pushCrewDeviceFix,
-  setActiveCrewTrip,
-  stopCrewLocationTask,
-  subscribeCrewLocationStats,
-  type CrewLocationStats,
-} from './location-task';
+  getCrewTrackingState,
+  requestCrewTrackingRecovery,
+  setBackgroundTrackingEnabled,
+  startCrewTracking,
+  stopCrewTracking,
+  subscribeCrewTracking,
+  hydrateCrewTracking,
+  type CrewTrackingState,
+} from './tracking-lifecycle.ts';
+import type { CrewLocationStats } from './tracking-lifecycle.ts';
+import type { CrewTrackingStatusResult } from './tracking-status.ts';
+import {
+  crewTrackingStatusCopy,
+  crewTrackingStatusTone,
+  deriveCrewTrackingStatus,
+} from './tracking-status.ts';
+import type { GpsIssue, LocationAccuracyAuthorization, PermissionState } from './gps-permission-state.ts';
+import { evaluateGpsPermissions } from './gps-permission-state.ts';
 
 /**
- * Crew GPS sharing (DRIVER + CONDUCTOR).
+ * Crew GPS sharing (DRIVER + CONDUCTOR) — the React binding over the **one**
+ * tracking lifecycle (`tracking-lifecycle.ts`).
  *
- * Wraps native location handling around the existing live-tracking socket:
- * a foreground `watchPositionAsync` while the app is open, and — after an
- * explicit opt-in with the OS background permission — an expo-location
- * background task (`startLocationUpdatesAsync`) that keeps delivering real
- * device fixes while the screen is off. Every fix flows through
- * `pushCrewDeviceFix`, which only ever forwards what the device reported.
+ * Before this patch each screen that called this hook owned its own watcher,
+ * its own start/stop state and its own idea of "sharing": the Trip screen and
+ * the Help screen could each start a `watchPositionAsync`, and a screen that
+ * lost its trip could stop a stream the other one still showed as running.
+ *
+ * The hook now owns no location state of its own. It subscribes to the shared
+ * lifecycle, forwards user actions to it, and derives the honest status line:
+ *
+ * - `sharing` — a foreground watch is running on this device;
+ * - `backgroundActive` — the OS background task is started;
+ * - `statusDetail.schoolSeesLive` — **the server acknowledged a fix inside the
+ *   live window**. This, and only this, may be described as "the school can see
+ *   the bus";
+ * - `statusDetail.status` — `live` / `local-only` / `reconnecting` / `stale` /
+ *   `permission-blocked` / `services-off` / `waiting-for-fix` / `revoked` /
+ *   `stopped`.
+ *
+ * Mounting and unmounting screens never start or stop tracking: only an
+ * explicit user action, a trip closing, or a logout does.
  */
 
-export type PermissionState = 'granted' | 'denied' | 'undetermined' | 'unavailable';
+export type { PermissionState, GpsIssue, LocationAccuracyAuthorization };
+export type { CrewLocationStats };
+
+/** The signed-in identity the lifecycle scopes the persisted context to. */
+export interface CrewTrackingIdentity {
+  userId: string;
+  schoolId: string | null;
+}
 
 export interface CrewLocationSharing {
   foregroundPermission: PermissionState;
   backgroundPermission: PermissionState;
+  /** A foreground watch is running. */
   sharing: boolean;
+  /** The OS background-location task is started. */
   backgroundActive: boolean;
+  /** The crew member explicitly consented to background tracking. */
+  backgroundConsent: boolean;
   stats: CrewLocationStats;
   busy: boolean;
   message: string | null;
   canShare: boolean;
+  /** The honest, derived status (server acknowledgement vs local fix). */
+  statusDetail: CrewTrackingStatusResult;
+  /** Convenience: `statusDetail.status`. */
+  status: CrewTrackingStatusResult['status'];
+  /** Localised status line for the compact strip. */
+  statusLine: string;
+  /** Badge tone that matches the status word (colour is never the only cue). */
+  statusTone: ReturnType<typeof crewTrackingStatusTone>;
+  /** The permission issue blocking tracking, or `none`. */
+  issue: GpsIssue;
+  /** OS-reported accuracy authorization (`reduced` cannot confirm a geofence). */
+  accuracy: LocationAccuracyAuthorization;
+  /** OS location switch state (`null` when the platform would not answer). */
+  servicesEnabled: boolean | null;
+  /** Diagnostics: why tracking last stopped (`null` while running). */
+  lastStopReason: string | null;
+  connection: CrewTrackingState['connection'];
+  recovery: CrewTrackingState['recovery'];
   startSharing: () => Promise<void>;
   stopSharing: () => Promise<void>;
   enableBackground: () => Promise<void>;
   disableBackground: () => Promise<void>;
+  /** Forces one bounded recovery pass (retry button). */
+  retry: () => Promise<void>;
 }
 
 /** Trips that accept GPS fixes (mirrors the server's tracking-active rule). */
@@ -47,208 +100,181 @@ export function isTripShareable(trip: TripResponse | null | undefined): boolean 
   return trip?.status === TripStatus.BOARDING || trip?.status === TripStatus.IN_PROGRESS;
 }
 
-const WATCH_INTERVAL_MS = 4000; // server throttle floor is 2500 ms
-const WATCH_DISTANCE_METERS = 10;
+/** How often the status line re-evaluates so freshness ages without new data. */
+const STATUS_TICK_MS = 5_000;
 
-export function useCrewLocationSharing(trip: TripResponse | null): CrewLocationSharing {
-  const [foregroundPermission, setForegroundPermission] = useState<PermissionState>('undetermined');
-  const [backgroundPermission, setBackgroundPermission] = useState<PermissionState>('undetermined');
-  const [sharing, setSharing] = useState(false);
-  const [backgroundActive, setBackgroundActive] = useState(false);
-  const [stats, setStats] = useState<CrewLocationStats>(getCrewLocationStats());
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const watchRef = useRef<Location.LocationSubscription | null>(null);
+export function useCrewLocationSharing(
+  trip: TripResponse | null,
+  identity: CrewTrackingIdentity | null,
+  options: { settled?: boolean } = {},
+): CrewLocationSharing {
+  const [snapshot, setSnapshot] = useState<CrewTrackingState>(getCrewTrackingState());
+  const [tick, setTick] = useState<number>(() => Date.now());
   const tripRef = useRef<TripResponse | null>(trip);
   tripRef.current = trip;
+  const identityRef = useRef<CrewTrackingIdentity | null>(identity);
+  identityRef.current = identity;
+  const settled = options.settled !== false;
 
-  // Counters/last-fix live in the channel module so the background task can
-  // update them while no screen is mounted.
-  useEffect(() => subscribeCrewLocationStats(() => setStats(getCrewLocationStats())), []);
+  // One subscription for every mounted screen: the lifecycle is the owner.
+  useEffect(() => subscribeCrewTracking(() => setSnapshot(getCrewTrackingState())), []);
 
+  // Reflect the real runtime state (permissions, whether the OS task is
+  // running, an owned persisted context) once the identity is known.
   useEffect(() => {
-    void (async () => {
-      const foreground = await Location.getForegroundPermissionsAsync();
-      setForegroundPermission(
-        foreground.granted ? 'granted' : foreground.canAskAgain ? 'undetermined' : 'denied',
-      );
-      const background = await Location.getBackgroundPermissionsAsync().catch(() => null);
-      if (!background) {
-        setBackgroundPermission('unavailable');
-      } else {
-        setBackgroundPermission(
-          background.granted ? 'granted' : background.canAskAgain ? 'undetermined' : 'denied',
-        );
-      }
-      try {
-        setBackgroundActive(await Location.hasStartedLocationUpdatesAsync(CREW_LOCATION_TASK));
-      } catch {
-        setBackgroundActive(false);
-      }
-    })();
-  }, []);
-
-  const clearWatch = useCallback(async () => {
-    const watch = watchRef.current;
-    watchRef.current = null;
-    if (watch) {
-      await watch.remove();
+    if (!identity) {
+      return;
     }
-  }, []);
+    void hydrateCrewTracking(identity);
+  }, [identity?.userId, identity?.schoolId]);
 
-  const stopEverything = useCallback(
-    async (note: string | null) => {
-      await clearWatch();
-      await stopCrewLocationTask();
-      setSharing(false);
-      setBackgroundActive(false);
-      if (note !== undefined) {
-        setMessage(note);
-      }
-    },
-    [clearWatch],
-  );
-
-  // The trip closing (completed/cancelled) or the screen losing its trip ends
-  // sharing — the server would reject every fix anyway.
+  // Age the indicators even when nothing new arrives: a status that says
+  // "updated just now" must become "stale" on its own.
+  const active = snapshot.foregroundActive || snapshot.backgroundActive;
   useEffect(() => {
-    if (trip && isTripShareable(trip)) {
+    if (!active) {
       return undefined;
     }
-    if (sharing || backgroundActive) {
-      void stopEverything(trip ? 'Trip closed — GPS sharing stopped.' : null);
+    const timer = setInterval(() => setTick(Date.now()), STATUS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [active]);
+
+  // A trip that closed (completed/cancelled) or a settled load with no trip
+  // ends tracking — but an unsettled load (a screen still fetching) must not.
+  useEffect(() => {
+    if (!settled || !active) {
+      return;
     }
-    return undefined;
-  }, [trip?.id, trip?.status]);
+    if (trip && isTripShareable(trip)) {
+      return;
+    }
+    void stopCrewTracking('trip-closed');
+  }, [settled, active, trip?.id, trip?.status]);
+
+  const statusDetail = useMemo(
+    () =>
+      deriveCrewTrackingStatus({
+        foregroundActive: snapshot.foregroundActive,
+        backgroundActive: snapshot.backgroundActive,
+        foregroundPermission: snapshot.foregroundPermission,
+        servicesEnabled: snapshot.servicesEnabled,
+        connection: snapshot.connection,
+        lastLocalFixAt: snapshot.stats.lastFix?.recorded_at ?? null,
+        lastServerAckAt: snapshot.stats.lastAckAt,
+        now: tick,
+      }),
+    // `tick` is what makes freshness age without new data.
+    [snapshot, tick],
+  );
+
+  const issue = useMemo(
+    () =>
+      evaluateGpsPermissions({
+        servicesEnabled: snapshot.servicesEnabled,
+        foreground: permissionSnapshot(snapshot.foregroundPermission),
+        background: permissionSnapshot(snapshot.backgroundPermission),
+        backgroundRequired: snapshot.backgroundConsent,
+      }).issue,
+    [
+      snapshot.servicesEnabled,
+      snapshot.foregroundPermission,
+      snapshot.backgroundPermission,
+      snapshot.backgroundConsent,
+    ],
+  );
+
+  const copy = crewTrackingStatusCopy({
+    status: statusDetail.status,
+    serverAckAgeMs: statusDetail.serverAckAgeMs,
+    localFixAgeMs: statusDetail.localFixAgeMs,
+    // Ages are measured against the same `tick` the status was derived from, so
+    // the line keeps ageing between fixes instead of freezing at the last one.
+    formatAge: (ageMs) =>
+      ageMs === null ? '' : formatRelative(new Date(tick - ageMs).toISOString(), tick),
+  });
 
   const startSharing = useCallback(async () => {
     const currentTrip = tripRef.current;
     if (!currentTrip || !isTripShareable(currentTrip)) {
-      setMessage('Start boarding or the trip first — GPS is only accepted then.');
       return;
     }
-    setBusy(true);
-    setMessage(null);
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      setForegroundPermission(
-        permission.granted ? 'granted' : permission.canAskAgain ? 'undetermined' : 'denied',
-      );
-      if (!permission.granted) {
-        setMessage('Location permission is required to share GPS with the school.');
-        return;
-      }
-
-      await setActiveCrewTrip(currentTrip.id);
-      const socket = getLiveTrackingSocket();
-      connectAuthenticatedSocket(socket);
-
-      await clearWatch();
-      watchRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: WATCH_INTERVAL_MS,
-          distanceInterval: WATCH_DISTANCE_METERS,
-        },
-        (fix) => {
-          pushCrewDeviceFix(fix);
-        },
-      );
-      setSharing(true);
-    } catch (error) {
-      // A native/expo-location failure keeps its own message; an API
-      // failure is mapped to user copy instead of a status code.
-      setMessage(getApiErrorMessage(error, 'Could not start GPS sharing.'));
-    } finally {
-      setBusy(false);
+    const who = identityRef.current;
+    if (!who) {
+      return;
     }
-  }, [clearWatch]);
+    await startCrewTracking({
+      tripId: currentTrip.id,
+      userId: who.userId,
+      schoolId: who.schoolId,
+    });
+  }, []);
 
   const stopSharing = useCallback(async () => {
-    setBusy(true);
-    try {
-      await stopEverything(null);
-    } finally {
-      setBusy(false);
-    }
-  }, [stopEverything]);
+    await stopCrewTracking('user');
+  }, []);
 
   const enableBackground = useCallback(async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const permission = await Location.requestBackgroundPermissionsAsync().catch(() => null);
-      if (!permission) {
-        setBackgroundPermission('unavailable');
-        setMessage('Background location is not available on this device.');
-        return;
-      }
-      setBackgroundPermission(
-        permission.granted ? 'granted' : permission.canAskAgain ? 'undetermined' : 'denied',
-      );
-      if (!permission.granted) {
-        setMessage('Allow "Always" location access to keep sharing with the screen off.');
-        return;
-      }
-
-      const currentTrip = tripRef.current;
-      if (!currentTrip || !isTripShareable(currentTrip)) {
-        setMessage('Background sharing needs an active trip.');
-        return;
-      }
-      if (stats.activeTripId === null) {
-        await setActiveCrewTrip(currentTrip.id);
-      }
-
-      await Location.startLocationUpdatesAsync(CREW_LOCATION_TASK, {
-        accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: WATCH_INTERVAL_MS,
-        distanceInterval: WATCH_DISTANCE_METERS,
-        deferredUpdatesInterval: 15_000,
-        deferredUpdatesDistance: 25,
-        // Keep the OS from suspending updates when the bus waits at a stop.
-        pausesUpdatesAutomatically: false,
-        showsBackgroundLocationIndicator: true,
-        foregroundService: {
-          notificationTitle: 'School Bus GPS sharing',
-          notificationBody: 'The school can see the live bus position for this trip.',
-          notificationColor: '#f59e0b',
-          killServiceOnDestroy: true,
-        },
-      });
-      setBackgroundActive(true);
-    } catch (error) {
-      setMessage(getApiErrorMessage(error, 'Could not enable background sharing.'));
-    } finally {
-      setBusy(false);
-    }
-  }, [stats.activeTripId]);
+    await setBackgroundTrackingEnabled(true);
+  }, []);
 
   const disableBackground = useCallback(async () => {
-    setBusy(true);
-    try {
-      await Location.stopLocationUpdatesAsync(CREW_LOCATION_TASK).catch(() => undefined);
-      setBackgroundActive(false);
-      if (!sharing) {
-        await setActiveCrewTrip(null);
-      }
-    } finally {
-      setBusy(false);
+    await setBackgroundTrackingEnabled(false);
+  }, []);
+
+  const retry = useCallback(async () => {
+    const currentTrip = tripRef.current;
+    const who = identityRef.current;
+    // Nothing running yet: Retry means "start sharing" for this trip.
+    const running = getCrewTrackingState();
+    if ((!running.foregroundActive && !running.backgroundActive) && currentTrip && who) {
+      await startCrewTracking({
+        tripId: currentTrip.id,
+        userId: who.userId,
+        schoolId: who.schoolId,
+      });
+      return;
     }
-  }, [sharing]);
+    await requestCrewTrackingRecovery();
+  }, []);
 
   return {
-    foregroundPermission,
-    backgroundPermission,
-    sharing,
-    backgroundActive,
-    stats,
-    busy,
-    message,
+    foregroundPermission: snapshot.foregroundPermission,
+    backgroundPermission: snapshot.backgroundPermission,
+    sharing: snapshot.foregroundActive,
+    backgroundActive: snapshot.backgroundActive,
+    backgroundConsent: snapshot.backgroundConsent,
+    stats: snapshot.stats,
+    busy: snapshot.busy,
+    message: snapshot.message,
     canShare: isTripShareable(trip),
+    statusDetail,
+    status: statusDetail.status,
+    statusLine: t(copy.key, copy.params as never),
+    statusTone: crewTrackingStatusTone(statusDetail.status),
+    issue,
+    accuracy: snapshot.accuracy,
+    servicesEnabled: snapshot.servicesEnabled,
+    lastStopReason: snapshot.lastStopReason,
+    connection: snapshot.connection,
+    recovery: snapshot.recovery,
     startSharing,
     stopSharing,
     enableBackground,
     disableBackground,
+    retry,
   };
 }
+
+/**
+ * Maps the lifecycle's coarse permission state back onto the snapshot shape the
+ * pure evaluator reads (`unavailable` stays `null`, never "granted").
+ */
+function permissionSnapshot(
+  mapped: PermissionState,
+): { granted: boolean; canAskAgain: boolean } | null {
+  if (mapped === 'unavailable') {
+    return null;
+  }
+  return { granted: mapped === 'granted', canAskAgain: mapped !== 'denied' };
+}
+

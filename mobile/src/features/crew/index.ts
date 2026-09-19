@@ -23,13 +23,55 @@ export type { ManifestStopGroup } from './crew-trip';
 export { useCrewToday } from './useCrewToday';
 export type { CrewTodayData } from './useCrewToday';
 export { useCrewLocationSharing, isTripShareable } from './useCrewLocationSharing';
-export type { CrewLocationSharing, PermissionState } from './useCrewLocationSharing';
+export type {
+  CrewLocationSharing,
+  CrewTrackingIdentity,
+  PermissionState,
+} from './useCrewLocationSharing';
+/**
+ * Mobile-reliability patch: the tracking lifecycle is one module-level owner
+ * (watcher, background task, session/socket recovery, honest status) shared by
+ * every crew screen and by the headless OS task.
+ */
+export {
+  CREW_LOCATION_TASK,
+  endCrewTrackingSession,
+  getCrewLocationStats,
+  getCrewTrackingState,
+  getCrewTrackingStatus,
+  hydrateCrewTracking,
+  isTripStatusShareable,
+  refreshCrewPermissions,
+  requestCrewTrackingRecovery,
+  setBackgroundTrackingEnabled,
+  startCrewTracking,
+  stopCrewTracking,
+  subscribeCrewTracking,
+} from './tracking-lifecycle';
+export type {
+  CrewLocationStats,
+  CrewTrackingRecoveryState,
+  CrewTrackingState,
+  HeadlessRunResult,
+} from './tracking-lifecycle';
+export {
+  deriveCrewTrackingStatus,
+  crewTrackingStatusCopy,
+  crewTrackingStatusTone,
+  freshnessBucket,
+} from './tracking-status';
+export type { CrewTrackingStatus, CrewTrackingStatusResult } from './tracking-status';
+export { evaluateGpsPermissions, evaluatePermissionRequest } from './gps-permission-state';
+export type { GpsIssue, LocationAccuracyAuthorization } from './gps-permission-state';
+export { batteryGuidanceFor, shouldShowBatteryGuidance } from './battery-guidance';
+export type { BatteryGuidance } from './battery-guidance';
 export { transitionActionMeta, attendanceActionMeta } from './crew-action-meta';
 export type { CrewActionMeta, CrewActionTone, CrewActionIcon } from './crew-action-meta';
 export { TripStatusActions } from './TripStatusActions';
 export { ManifestList } from './ManifestList';
 export { StatusCard } from './StatusCard';
 export { GpsShareStrip } from './GpsShareStrip';
+export { GpsBatteryGuidance } from './GpsBatteryGuidance';
 export { GpsSharePanel } from './GpsSharePanel';
 export { HoldToConfirmButton } from './HoldToConfirmButton';
 export { SosPanel, SosQuickPanel, SosStatusLine, useCrewSos } from './SosPanel';

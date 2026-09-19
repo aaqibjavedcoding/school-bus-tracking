@@ -213,6 +213,33 @@ export const hi: Dictionary = {
   'gps.accuracy': '±{meters} मीटर',
   'gps.noFix': 'इस डिवाइस से अभी कोई फ़िक्स नहीं आया।',
   'gps.serverReason': 'सर्वर ने कहा: {reason}',
+  'gps.status.live': 'स्कूल बस देख सकता है · {time}',
+  'gps.status.localOnly': 'GPS मिला, अभी नहीं भेजा गया · {time}',
+  'gps.status.connecting': 'स्कूल से जुड़ रहा है…',
+  'gps.status.reconnecting': 'फिर जुड़ रहा है…',
+  'gps.status.stale': 'आख़िरी बार {time} भेजा गया',
+  'gps.status.waitingForFix': 'पहले GPS का इंतज़ार…',
+  'gps.status.permissionBlocked': 'लोकेशन अनुमति चाहिए',
+  'gps.status.servicesOff': 'लोकेशन सेवा बंद है',
+  'gps.status.revoked': 'पहुंच रद्द — ट्रैकिंग बंद',
+  'gps.status.stopped': 'शेयर नहीं हो रहा',
+  'gps.deliveryBadge': 'डिलीवरी',
+  'gps.accuracyReduced': 'लगभग GPS',
+  'gps.servicesOff': 'लोकेशन बंद',
+  'gps.recoveryAttempts': 'पुनः {count}',
+  'gps.serverAck': 'सर्वर ने {time} स्वीकारा',
+  'gps.serverNoAck': 'सर्वर ने अभी कोई लोकेशन स्वीकार नहीं की',
+  'gps.message.servicesOff': 'बस की स्थिति भेजने के लिए लोकेशन सेवा चालू करें।',
+  'gps.message.permissionRequired': 'स्कूल के साथ GPS साझा करने के लिए लोकेशन अनुमति ज़रूरी है।',
+  'gps.message.startFailed': 'GPS शेयरिंग शुरू नहीं हो सकी।',
+  'gps.message.backgroundDenied':
+    'स्क्रीन बंद रहते भी भेजने के लिए “Always” लोकेशन अनुमति दें।',
+  'gps.message.backgroundUnavailable': 'इस डिवाइस पर बैकग्राउंड लोकेशन उपलब्ध नहीं है।',
+  'gps.message.backgroundNeedsTrip': 'बैकग्राउंड शेयरिंग के लिए चल रही ट्रिप चाहिए।',
+  'gps.message.backgroundFailed': 'बैकग्राउंड शेयरिंग चालू नहीं हो सकी।',
+  'gps.message.revoked': 'लाइव ट्रैकिंग की पहुंच रद्द हो गई — शेयरिंग बंद कर दी गई है।',
+  'gps.service.title': 'स्कूल बस GPS शेयरिंग',
+  'gps.service.body': 'ट्रिप चलते हुए यह फ़ोन अपनी GPS स्कूल को भेज रहा है।',
   'gps.noTripBody': 'आज कोई ट्रिप नहीं — ट्रिप चलने पर GPS काउंटर यहाँ दिखेंगे।',
   'gps.driverOnlyTitle': 'GPS शेयरिंग',
   'gps.driverOnlyBody':
@@ -388,6 +415,26 @@ export const hi: Dictionary = {
   'gps.recovery.continue': 'बिना GPS जारी रखें',
   'gps.recovery.lastUpdate': 'आख़िरी GPS अपडेट: {time}',
 
+  'gps.recovery.noServerUpdate': 'सर्वर ने अभी तक कोई लोकेशन स्वीकार नहीं की है।',
+  'gps.recovery.accuracy.title': 'सटीक लोकेशन चाहिए',
+  'gps.recovery.accuracy.body':
+    'इस ऐप के पास केवल अनुमानित लोकेशन है। सेटिंग में “Precise location” चालू करें ताकि बस स्टॉप सही पहचाना जा सके।',
+  'gps.recovery.backgroundUnavailable.title': 'बैकग्राउंड GPS उपलब्ध नहीं',
+  'gps.recovery.backgroundUnavailable.body':
+    'यह डिवाइस बैकग्राउंड लोकेशन नहीं देता। ऐप स्क्रीन पर खुला रहे तब तक शेयरिंग चलती रहेगी।',
+  'gps.battery.android.title': 'बैटरी पाबंदी GPS रोक सकती है',
+  'gps.battery.android.body':
+    'बैटरी बचाने के लिए Android लोकेशन शेयरिंग रोक सकता है। Battery सेटिंग खोलकर इस ऐप को “Unrestricted” करें और ड्राइविंग के दौरान Battery saver बंद रखें।',
+  'gps.battery.ios.title': 'बैटरी पाबंदी GPS रोक सकती है',
+  'gps.battery.ios.body':
+    'Low Power Mode और Background App Refresh लोकेशन अपडेट देर से ला सकते हैं। Settings → Battery और Settings → General → Background App Refresh में इस ऐप की जांच करें।',
+  'gps.battery.other.title': 'बैटरी पाबंदी GPS रोक सकती है',
+  'gps.battery.other.body':
+    'इस डिवाइस के पावर-सेविंग मोड स्क्रीन बंद होने पर लोकेशन शेयरिंग रोक या देर करा सकते हैं।',
+  'gps.battery.openBatterySettings': 'बैटरी सेटिंग खोलें',
+  'gps.battery.openAppSettings': 'ऐप सेटिंग खोलें',
+  'gps.battery.honesty':
+    'यह ऐप आपकी बैटरी सेटिंग पढ़ नहीं सकता और उन्हें बदलता भी नहीं। फ़ोन ने ऐप रोका, तो दोबारा खोलने तक शेयरिंग बंद रहती है।',
   // ── Driver navigation hand-off ─────────────────────────────────────────
   'navigate.card.title': 'रास्ता',
   'navigate.card.description': 'अगला स्टॉप आपके फ़ोन के मैप ऐप में खुलेगा।',

@@ -44,6 +44,16 @@ export const GpsSharePanel: React.FC<{
         />
       </View>
 
+      {/**
+       * The delivery truth, separate from the device truth above: this line is
+       * derived from the **server acknowledgement**, so it can never read as
+       * "the school sees the bus" on the strength of a local fix alone.
+       */}
+      <View style={styles.deliveryRow}>
+        <Badge size="lg" tone={sharing.statusTone} label={t('gps.deliveryBadge')} />
+        <Text style={styles.mutedSmall}>{sharing.statusLine || t('gps.noFix')}</Text>
+      </View>
+
       {!sharing.canShare ? (
         <Text style={styles.muted}>
           {/* The raw status word is server data — shown as the enum reads. */}
@@ -115,6 +125,24 @@ export const GpsSharePanel: React.FC<{
           tone={sharing.foregroundPermission === 'granted' ? 'success' : 'warning'}
           label={t('gps.location', { state: sharing.foregroundPermission })}
         />
+        {/**
+         * Approximate location is its own fact: a coarse fix cannot confirm a
+         * 100 m geofence, so it is reported instead of being folded into
+         * "granted". `unknown` (the platform did not say) is not shown at all.
+         */}
+        {sharing.accuracy === 'reduced' ? (
+          <Badge size="lg" tone="warning" label={t('gps.accuracyReduced')} />
+        ) : null}
+        {sharing.servicesEnabled === false ? (
+          <Badge size="lg" tone="danger" label={t('gps.servicesOff')} />
+        ) : null}
+        {sharing.recovery.attempts > 0 ? (
+          <Badge
+            size="lg"
+            tone={sharing.recovery.exhausted ? 'danger' : 'warning'}
+            label={t('gps.recoveryAttempts', { count: sharing.recovery.attempts })}
+          />
+        ) : null}
       </View>
 
       <View style={styles.statsGrid}>
@@ -122,6 +150,18 @@ export const GpsSharePanel: React.FC<{
         <Stat label="Rejected" value={String(stats.rejectedCount)} />
         <Stat label="Dropped (offline)" value={String(stats.disconnectedCount)} />
         <Stat label="Invalid fix" value={String(stats.invalidCount)} />
+      </View>
+      {/**
+       * Recovery counters (this patch): how many held fixes were re-sent after a
+       * reconnect, how many were discarded for exceeding the age limit, and how
+       * many were superseded by a newer fix. Support reads these to tell "the
+       * phone had no network" from "the phone never got a fix".
+       */}
+      <View style={styles.statsGrid}>
+        <Stat label="Retried" value={String(stats.retriedCount)} />
+        <Stat label="Expired" value={String(stats.expiredCount)} />
+        <Stat label="Superseded" value={String(stats.supersededCount)} />
+        <Stat label="No session" value={String(stats.unauthenticatedCount)} />
       </View>
 
       <Text style={styles.mutedSmall}>
@@ -132,6 +172,10 @@ export const GpsSharePanel: React.FC<{
                 : ''
             }`
           : t('gps.noFix')}
+        {/* A local fix is not a delivered fix: the ack line says which it was. */}
+        {stats.lastAckAt
+          ? ` · ${t('gps.serverAck', { time: formatRelative(stats.lastAckAt) })}`
+          : ` · ${t('gps.serverNoAck')}`}
         {/* `lastReason` is the server's own English sentence — passed through. */}
         {stats.lastReason ? ` · ${t('gps.serverReason', { reason: stats.lastReason })}` : ''}
       </Text>
@@ -200,6 +244,12 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.base,
     fontWeight: '600',
     color: colors.neutral[800],
+  },
+  deliveryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   chipRow: {
     flexDirection: 'row',
