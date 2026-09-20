@@ -6,8 +6,10 @@ import { useTranslation } from '../../lib/i18n-provider';
 
 /**
  * The labelled replacement for the native map surface on runtimes where the
- * map provider cannot exist — today: the Expo Go app on Android, where Google
- * Maps stopped shipping in SDK 53 and `react-native-maps` draws a blank box.
+ * map engine cannot exist — the Expo Go app, on every platform. The map is
+ * MapLibre (`@maplibre/maplibre-react-native`), a custom native module the
+ * Expo Go shell does not carry, so there is nothing to render and no key or
+ * setting that would change that.
  *
  * It says **what is missing and why** instead of showing an empty map, and it
  * deliberately does not claim anything about the trip: the route, the stops

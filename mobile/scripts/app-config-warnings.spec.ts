@@ -7,28 +7,35 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Build-time warnings for the two facts `app.config.js` injects (the Android
- * Maps key and `google-services.json`).
+ * Build-time behaviour of `app.config.js`: the missing-`google-services.json`
+ * warning, and the MapLibre config plugin.
  *
- * The rule under test: a missing fact is only news where a **native Android
- * project is actually being generated** (`expo prebuild` / `expo run:android`
- * without an iOS target, or an Android EAS build). `expo start --go`,
- * `expo export` and iOS runs must stay silent — in the Expo Go case the app
- * already says the honest thing at runtime (the "needs a development build"
- * map panel, `src/features/map/map-surface-mode.ts`), so a build-time warning
- * would only scare.
+ * The rule under test: a missing google-services.json is only news where a
+ * **native Android project is actually being generated** (`expo prebuild` /
+ * `expo run:android` without an iOS target, or an Android EAS build).
+ * `expo start --go`, `expo export` and iOS runs must stay silent — in the
+ * Expo Go case the app already says the honest thing at runtime (the
+ * "needs a development build" map panel,
+ * `src/features/map/map-surface-mode.ts`; the runtime diagnostics), so a
+ * build-time warning would only scare.
+ *
+ * (There is deliberately no Maps-key warning any more: the map is MapLibre
+ * over OpenFreeMap and needs no key at all — see `map-style.ts` and
+ * `docs/live-tracking-map.md` → "Map provider policy".)
  *
  * Expo evaluates the config file more than once per command (and tooling
  * reloads clear the require cache between evaluations), so the driver below
- * re-requires `app.config.js` nine times with a cache clear in between and
- * the assertions require *exactly one* warning per missing fact — the proof
- * that `warnOnce` survives the cache clears via its environment marker.
+ * re-requires `app.config.js` nine times with a cache clear in between and the
+ * assertions require *exactly one* warning per missing fact — the proof that
+ * `warnOnce` survives the cache clears via its environment marker. They also
+ * require the MapLibre plugin to be present **exactly once** across those
+ * evaluations, so a future edit cannot silently double-add it.
  */
 
 const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const MAPS_MARK = 'EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is not set';
 const FIREBASE_MARK = 'mobile/google-services.json is missing';
+const MAPLIBRE_PLUGIN = '@maplibre/maplibre-react-native';
 
 /** Evaluates app.config.js N times (cache-cleared) in a fresh process. */
 const DRIVER = `
@@ -38,19 +45,21 @@ const baseConfig = {
   name: 'School Bus Tracking',
   slug: 'school-bus-tracking',
   android: { package: 'com.schoolbustracking.app' },
+  plugins: ['expo-router'],
 };
 let result;
 for (let i = 0; i < 9; i += 1) {
   delete require.cache[require.resolve(configPath)];
   result = require(configPath)({ config: JSON.parse(JSON.stringify(baseConfig)) });
 }
-process.stdout.write('CONFIG_JSON:' + JSON.stringify(result.android ?? null) + '\\n');
+process.stdout.write('CONFIG_JSON:' + JSON.stringify({ android: result.android ?? null, plugins: result.plugins ?? null }) + '\\n');
 `;
 
 interface EvalResult {
   stdout: string;
   stderr: string;
   android: Record<string, unknown> | null;
+  plugins: string[];
 }
 
 function count(haystack: string, needle: string): number {
@@ -81,7 +90,6 @@ function evaluate(
     const env: Record<string, string | undefined> = {
       ...process.env,
       NODE_ENV: 'test',
-      EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: undefined,
       ANDROID_GOOGLE_SERVICES_FILE: undefined,
       EAS_BUILD: undefined,
       EAS_BUILD_PLATFORM: undefined,
@@ -101,56 +109,63 @@ function evaluate(
     const stderr = run.stderr ?? '';
     assert.equal(run.status, 0, `the config driver failed: ${stderr}`);
     const line = stdout.split('\n').find((l) => l.startsWith('CONFIG_JSON:'));
-    assert.ok(line, 'the driver must print the resulting android config');
-    return {
-      stdout,
-      stderr,
-      android: JSON.parse(line.slice('CONFIG_JSON:'.length)) as Record<string, unknown> | null,
+    assert.ok(line, 'the driver must print the resulting config');
+    const parsed = JSON.parse(line.slice('CONFIG_JSON:'.length)) as {
+      android: Record<string, unknown> | null;
+      plugins: string[];
     };
+    return { stdout, stderr, android: parsed.android, plugins: parsed.plugins };
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 
-describe('native Android builds see the missing-fact warnings, exactly once', () => {
-  it('prebuild warns once per missing fact across nine cache-cleared evaluations', () => {
+describe('the MapLibre config plugin is wired (the map engine is part of the build)', () => {
+  it('is added to the plugins array, exactly once, across nine cache-cleared evaluations', () => {
+    for (const argv of [['start', '--go'], ['prebuild'], ['export', '--platform', 'android']]) {
+      const result = evaluate(argv);
+      assert.equal(
+        result.plugins.filter((p) => p === MAPLIBRE_PLUGIN).length,
+        1,
+        `the plugin must be present exactly once for ${JSON.stringify(argv)}`,
+      );
+      // Pre-existing plugins survive the merge.
+      assert.ok(result.plugins.includes('expo-router'), 'existing plugins are preserved');
+    }
+  });
+});
+
+describe('native Android builds see the missing google-services.json warning, exactly once', () => {
+  it('prebuild warns once across nine cache-cleared evaluations', () => {
     const result = evaluate(['prebuild']);
     assert.equal(
-      count(result.stderr, MAPS_MARK),
+      count(result.stderr, FIREBASE_MARK),
       1,
-      'the maps warning must fire exactly once, not once per config evaluation',
+      'the warning must fire exactly once, not once per config evaluation',
     );
-    assert.equal(count(result.stderr, FIREBASE_MARK), 1);
-    // The honest wording: the key is required for native builds and Expo Go
-    // does not need it (it cannot show Google Maps at all since SDK 53).
-    assert.match(result.stderr, /required for every native Android build/);
-    assert.match(result.stderr, /Expo SDK 53/);
   });
 
   it('run:android is a native Android build', () => {
     const result = evaluate(['run:android']);
-    assert.equal(count(result.stderr, MAPS_MARK), 1);
     assert.equal(count(result.stderr, FIREBASE_MARK), 1);
   });
 
   it('an Android EAS build warns; an unspecified-platform EAS build warns too', () => {
     const android = evaluate([], { EAS_BUILD: 'true', EAS_BUILD_PLATFORM: 'android' });
-    assert.equal(count(android.stderr, MAPS_MARK), 1);
+    assert.equal(count(android.stderr, FIREBASE_MARK), 1);
     const unspecified = evaluate([], { EAS_BUILD: 'true' });
-    assert.equal(count(unspecified.stderr, MAPS_MARK), 1);
+    assert.equal(count(unspecified.stderr, FIREBASE_MARK), 1);
   });
 });
 
 describe('everything that does not generate the Android project stays silent', () => {
   it('expo start --go (Expo Go) prints no warnings', () => {
     const result = evaluate(['start', '--go']);
-    assert.equal(count(result.stderr, MAPS_MARK), 0);
     assert.equal(count(result.stderr, FIREBASE_MARK), 0);
   });
 
   it('expo export (a JS bundle, no native project) prints no warnings', () => {
     const result = evaluate(['export', '--platform', 'android']);
-    assert.equal(count(result.stderr, MAPS_MARK), 0);
     assert.equal(count(result.stderr, FIREBASE_MARK), 0);
   });
 
@@ -161,53 +176,22 @@ describe('everything that does not generate the Android project stays silent', (
       ['prebuild', '--platform=ios'],
     ]) {
       const result = evaluate(argv);
-      assert.equal(count(result.stderr, MAPS_MARK), 0, JSON.stringify(argv));
       assert.equal(count(result.stderr, FIREBASE_MARK), 0, JSON.stringify(argv));
     }
   });
 
   it('an iOS EAS build prints no warnings', () => {
     const result = evaluate([], { EAS_BUILD: 'true', EAS_BUILD_PLATFORM: 'ios' });
-    assert.equal(count(result.stderr, MAPS_MARK), 0);
     assert.equal(count(result.stderr, FIREBASE_MARK), 0);
   });
 
   it('command tokens are matched exactly, never as substrings', () => {
     const result = evaluate(['something-prebuild-looking']);
-    assert.equal(count(result.stderr, MAPS_MARK), 0);
     assert.equal(count(result.stderr, FIREBASE_MARK), 0);
   });
 });
 
-describe('the injected facts still work (the gate only silences, never unwires)', () => {
-  it('a set maps key is injected into the android config and never printed', () => {
-    const key = 'test-only-do-not-log-123';
-    const result = evaluate(['prebuild'], { EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: key });
-    const android = result.android as {
-      config?: { googleMaps?: { apiKey?: string } };
-    };
-    assert.equal(
-      android.config?.googleMaps?.apiKey,
-      key,
-      'the key must still be wired into android.config.googleMaps.apiKey',
-    );
-    // The value is of course in the *returned config* (that is the point of
-    // the injection, and the CONFIG_JSON line is the driver printing it back).
-    // What is forbidden is the key in any log/warning output — and in stdout
-    // anywhere other than the driver's own config echo.
-    assert.ok(
-      result.stdout
-        .split('\n')
-        .filter((l) => l.includes(key))
-        .every((l) => l.startsWith('CONFIG_JSON:')),
-      'the key may only appear in the driver’s config echo, never in any log line',
-    );
-    assert.ok(!result.stderr.includes(key), 'the key must never be logged');
-    assert.equal(count(result.stderr, MAPS_MARK), 0);
-    // The other missing fact is still reported — the warnings are independent.
-    assert.equal(count(result.stderr, FIREBASE_MARK), 1);
-  });
-
+describe('the injected fact still works (the gate only silences, never unwires)', () => {
   it('a present google-services.json is wired and not warned about', () => {
     const result = evaluate(
       ['prebuild'],
@@ -216,7 +200,6 @@ describe('the injected facts still work (the gate only silences, never unwires)'
     );
     assert.equal(result.android?.googleServicesFile, './google-services.json');
     assert.equal(count(result.stderr, FIREBASE_MARK), 0);
-    assert.equal(count(result.stderr, MAPS_MARK), 1, 'the maps gap is still reported');
   });
 
   it('a ANDROID_GOOGLE_SERVICES_FILE override pointing at a missing file is reported', () => {
@@ -225,6 +208,5 @@ describe('the injected facts still work (the gate only silences, never unwires)'
       result.stderr,
       /ANDROID_GOOGLE_SERVICES_FILE points at a file that does not exist/,
     );
-    assert.equal(count(result.stderr, MAPS_MARK), 1);
   });
 });

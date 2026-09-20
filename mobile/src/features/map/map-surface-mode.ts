@@ -3,21 +3,19 @@ import type { RuntimeEnvironment } from '../../lib/runtime-environment.ts';
 /**
  * What the native map surface area of a tracking screen should render.
  *
- * From Expo SDK 53 on, **Google Maps is not in the Expo Go app on Android**
- * (Expo SDK 52 changelog, "Deprecations": "Google Maps will no longer be
- * supported in Expo Go for Android in SDK 53 … You can use Google Maps in
- * development builds."). On such a runtime `react-native-maps` renders a blank
- * grey box — historically the whole reason drivers thought the map was "broken"
- * while every other part of the trip worked.
+ * The map engine is MapLibre (`@maplibre/maplibre-react-native`) — a custom
+ * native module, not part of the Expo SDK. Inside the **Expo Go app** (every
+ * platform) there is therefore no engine to render tiles with: the old
+ * provider at least ran on iOS, but MapLibre runs nowhere in the Go shell.
  *
- * Instead the surface shows a labelled panel that names the cause. The
- * decision is a pure function of the runtime facts (D1) and the data the map
- * would draw, so it is pinned by `map-surface-mode.spec.ts` under plain
- * `node --test` — no React, no native modules.
+ * Instead of a blank box the surface shows a labelled panel that names the
+ * cause. The decision is a pure function of the runtime facts (D1) and the
+ * data the map would draw, so it is pinned by `map-surface-mode.spec.ts`
+ * under plain `node --test` — no React, no native modules.
  */
 export type MapSurfaceMode =
   | /** The native map can render tiles here. */
-    'map' /** The map provider cannot exist in this runtime (Expo Go on Android). */
+    'map' /** The map engine cannot exist in this runtime (Expo Go, any platform). */
   | 'needs-dev-build' /** No stops and no fix to draw — the existing "no coordinates" state. */
   | 'no-coordinates';
 
@@ -38,7 +36,7 @@ export function mapSurfaceMode(
   hasCoordinates: boolean,
   hasFix: boolean,
 ): MapSurfaceMode {
-  if (!runtime.googleMapsAvailable) {
+  if (!runtime.nativeMapAvailable) {
     return 'needs-dev-build';
   }
   if (!hasCoordinates && !hasFix) {

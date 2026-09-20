@@ -71,12 +71,19 @@ describe('android.googleServicesFile wiring', () => {
     );
   });
 
-  it('keeps the Google Maps key wiring intact (no new paid dependency)', () => {
-    const source = read('app.config.js');
-    assert.match(source, /EXPO_PUBLIC_GOOGLE_MAPS_API_KEY/);
-    assert.match(source, /googleMaps/);
+  it('stays on the open-source map stack (no key, no billing — the product rule)', () => {
     const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> };
-    assert.ok(pkg.dependencies['react-native-maps'], 'maps stay on the existing library');
+    assert.ok(
+      pkg.dependencies['@maplibre/maplibre-react-native'],
+      'the map must run on @maplibre/maplibre-react-native (open source, no key)',
+    );
+    assert.ok(!pkg.dependencies['react-native-maps'], 'react-native-maps must stay removed');
+    const config = read('app.config.js');
+    assert.match(
+      config,
+      /@maplibre\/maplibre-react-native/,
+      'the config plugin must be wired in app.config.js (the native build needs the MapLibre SDK)',
+    );
     assert.ok(
       !Object.keys(pkg.dependencies).some((name) => /firebase|fcm/i.test(name)),
       'the mobile app must not bundle a Firebase client SDK or the backend service account',
@@ -115,7 +122,11 @@ describe('verify-firebase-config.mjs', () => {
 
     if (report.facts.googleServicesPresent) {
       assert.equal(report.facts.googleServicesParses, true);
-      assert.equal(report.facts.packageMatches, true, 'Firebase package must match android.package');
+      assert.equal(
+        report.facts.packageMatches,
+        true,
+        'Firebase package must match android.package',
+      );
       assert.ok(report.facts.firebasePackages.includes(appJson.expo.android.package));
       assert.equal(report.status, 'configured');
       assert.equal(exitCode, 0);
@@ -175,10 +186,7 @@ describe('verify-firebase-config.mjs', () => {
       assert.equal(report.fatal, true);
       assert.equal(exitCode, 1);
       assert.equal(report.facts.packageMatches, false);
-      assert.ok(
-        !stdout.includes('api_key'),
-        'the report must not echo Firebase file contents',
-      );
+      assert.ok(!stdout.includes('api_key'), 'the report must not echo Firebase file contents');
       assert.ok(appJson.expo.android.package.length > 0);
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
@@ -227,8 +235,16 @@ describe('native manifest prerequisites for the foreground service', () => {
     }
     const plugins = JSON.stringify(appJson.expo.plugins);
     assert.match(plugins, /expo-location/, 'the location config plugin must stay wired');
-    assert.match(plugins, /isAndroidBackgroundLocationEnabled/, 'background location stays enabled');
-    assert.match(plugins, /expo-notifications/, 'the notifications plugin supplies POST_NOTIFICATIONS');
+    assert.match(
+      plugins,
+      /isAndroidBackgroundLocationEnabled/,
+      'background location stays enabled',
+    );
+    assert.match(
+      plugins,
+      /expo-notifications/,
+      'the notifications plugin supplies POST_NOTIFICATIONS',
+    );
   });
 
   it('pins the Expo SDK line the native configuration was written against', () => {

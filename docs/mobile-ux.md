@@ -682,9 +682,10 @@ the app):
 - **Can this runtime run the background location task?** — No in the Expo Go
   app (the OS background task + Android foreground service do not run there);
   yes in a development build.
-- **Can this runtime show Google Maps on Android?** — No in Expo Go since SDK
-  53 (Apple Maps only, and only on iOS); yes in a development build with the
-  Maps key.
+- **Is the map engine present?** (`nativeMapAvailable`) — No in the Expo Go app
+  **on any platform** (the MapLibre engine is a custom native module the Expo
+  Go shell does not carry); yes in a development build. There is no key to
+  configure — the tiles are OpenFreeMap's public OpenStreetMap instance.
 
 The detection is honest about its own limits: an unknown/missing SDK version
 yields an "unknown" runtime, not a guess, and every consumer treats "unknown"
@@ -695,11 +696,13 @@ as "say we don't know", never as "all good".
 `src/features/map/map-surface-mode.ts` decides, per map surface, between
 rendering the map and showing a labelled **"the map needs a development
 build"** panel. The panel is a first-class screen state (not an error): it
-names the runtime, explains the SDK 53 Expo Go limitation, and points at the
-fix (install a development build with the Maps key). `BusMap.tsx` and
+names the runtime, explains that Expo Go cannot load the map engine, and
+points at the fix (install a development build — no key or account is
+involved; the map is MapLibre over OpenFreeMap's public OpenStreetMap tiles,
+see `docs/live-tracking-map.md` → "Map provider policy"). `BusMap.tsx` and
 `DriverTripMap.tsx` both route through it, so the parent Track screen and the
-driver Trip screen say the same true thing. A development build with the key
-renders Google Maps exactly as before — the panel is Expo Go only.
+driver Trip screen say the same true thing. A development build renders the
+map on every platform — the panel is Expo Go only.
 
 ### GPS start failures are visible, and the tap fixes them
 

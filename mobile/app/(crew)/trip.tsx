@@ -14,9 +14,9 @@ import {
   useCrewLocationSharing,
   useCrewToday,
 } from '../../src/features/crew';
-// Imported by path, not through the barre: this component needs
-// `react-native-maps`, and the crew barrel is also pulled in by headless
-// code paths that must never touch a native map module.
+// Imported by path, not through the barrel: this component needs the MapLibre
+// native map module, and the crew barrel is also pulled in by headless code
+// paths that must never touch a native module.
 import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
 import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';

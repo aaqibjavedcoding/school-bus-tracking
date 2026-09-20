@@ -35,6 +35,42 @@ Four things were untrue or unpleasant about the old map:
    minutes is still "Live", and the map repeated that word next to a position
    that had gone quiet.
 
+## Map provider policy
+
+**Non-negotiable product rule: the map must never depend on an API key, a
+credit card, billing or a metered tier.** Any provider whose map access
+requires one of those is out — this is what rules out Google Maps, MapTiler,
+Stadia, Geoapify and Mapbox, and what makes a tile URL that carries a `key=`
+credential a metered provider in disguise. The map runs on open source over
+OpenStreetMap data:
+
+- **Engine** — `@maplibre/maplibre-react-native` v11 (open source; the native
+  MapLibre GL SDK is added to the generated projects by the config plugin in
+  `mobile/app.config.js`).
+- **Tiles** — **OpenFreeMap's public instance**, OpenStreetMap data:
+  `https://tiles.openfreemap.org/styles/liberty` (`DEFAULT_MAP_STYLE_URL` in
+  `mobile/src/features/map/map-style.ts`). No registration, no key, no card.
+- **Attribution** — `OpenFreeMap © OpenMapTiles, Data from OpenStreetMap`,
+  rendered by the engine itself: the `attribution` and `logo` props are on and
+  stay on (OSM-derived tiles legally require both).
+
+**The scale path changes ONE variable.** When traffic outgrows the public
+instance, self-host OpenFreeMap
+([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
+same OSM-derived tiles from your own infrastructure) and set
+`EXPO_PUBLIC_MAP_STYLE_URL` to the self-hosted style URL. That variable is
+https-only — `map-style.ts` (pure, spec-pinned) rejects anything else with one
+warning and falls back to the public default — and **no app code changes**:
+the engine, the markers, the camera policy and this document's rules all work
+unchanged.
+
+**Enforcement** — `mobile/scripts/map-provider-policy.spec.ts` (part of
+`npm --prefix mobile test`) fails if a banned provider name or a keyed tile
+URL reappears in `mobile/package.json`, `mobile/app.config.js`,
+`mobile/app.json` or anywhere under `mobile/src/`. The web console is not part
+of this swap yet (see Known limitations #8) and is scanned separately by its
+own CSP pin.
+
 ## Architecture
 
 One **pure state machine** decides what to draw; each platform only renders it.
@@ -67,9 +103,9 @@ differently.
 
 The pure/adapter split is deliberate: everything that decides _what to draw_ is
 runtime-free and unit-tested; only the thin platform adapters touch
-`react-native-maps` or `leaflet`. That is also why `bus-marker-icon.ts` exports
-`busIconOptions()` as plain data and leaves the one-line `L.divIcon(...)` call
-to `MapViewInner.tsx`.
+MapLibre (`@maplibre/maplibre-react-native`) or `leaflet`. That is also why
+`bus-marker-icon.ts` exports `busIconOptions()` as plain data and leaves the
+one-line `L.divIcon(...)` call to `MapViewInner.tsx`.
 
 The **one genuinely shared** piece is the definition of "live":
 `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` live in
@@ -108,30 +144,36 @@ Two properties matter:
 - **it is symmetric about its own centre**, so rotating it about its centre
   keeps the vehicle centre on the GPS coordinate.
 
-Both platforms anchor at the centre: `anchor {0.5, 0.5}` on Google Maps and
-`centerOffset {0, 0}` on Apple Maps (`AIRMapMarker.m`), `iconAnchor [13, 21]` on
-Leaflet.
+Both map surfaces anchor at the vehicle centre: `anchor="center"` on the
+MapLibre `ViewAnnotation` (native), `iconAnchor [13, 21]` on Leaflet (web).
 
-### Why the implementations differ per platform
+### One implementation on both platforms
 
-`react-native-maps` 1.27.2 documents `Marker.icon` **and** `Marker.rotation` as
-_"iOS: Google Maps only"_. This app ships Google Maps on **Android only** —
-`mobile/app.config.js` injects `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` into
-`android.config.googleMaps.apiKey` and nothing equivalent for iOS — so iOS runs
-Apple Maps, where neither prop works. And on **Expo Go + Android** there is no
-Google Maps at all since Expo SDK 53 (the Go app renders Apple Maps only, and
-only on iOS) — so the mobile map surfaces decide at runtime
-(`mapSurfaceMode`, `src/features/map/map-surface-mode.ts`) between rendering the
-map and showing a labelled "needs a development build" panel instead of a blank
-canvas. A development build with the Maps key renders Google Maps everywhere it
-used to. Therefore:
+The old platform-provider library split the implementation: its `Marker.icon`
+**and** `Marker.rotation` were documented _"iOS: Google Maps only"_, so this app
+once shipped Google Maps on Android (key injected by `app.config.js`) and Apple
+Maps on iOS, with a rotation strategy per platform. MapLibre ends that split:
+the bus is a **`ViewAnnotation` carrying the same child view on Android and
+iOS** — one code path, and the turning is a `transform: rotate(heading deg)` on
+the graphic's root view, which is ordinary view layout the engine applies
+identically on both platforms.
 
-- **Android** — the child view stays static and `Marker.rotation` (which maps to
-  `marker.setRotation(...)`, `MapMarker.java:247`) does the turning natively.
-  `tracksViewChanges` is switched off after one frame, so the bitmap is
-  snapshotted once instead of continuously.
-- **iOS** — the child view is rotated with a `transform`, which works on Apple
-  Maps _and_ on Google Maps if the provider is ever changed.
+The rotation is still driven by the pure motion machine (heading resolution,
+shortest-angle path, the 3 km/h gate), and the annotation is committed through
+`refresh()` **only when the heading actually changes** (the
+committed-refresh guard in `BusMarker.tsx`, spec-pinned) — the per-frame value
+is presentation state, and re-committing the annotation layer on every frame
+would buy nothing.
+
+Two runtime boundaries remain, and both are handled the same way as before:
+
+- **Expo Go** — the map engine is a custom native module (MapLibre), which the
+  Expo Go shell does not carry **on any platform**. The mobile map surfaces
+  decide at runtime (`mapSurfaceMode`, `src/features/map/map-surface-mode.ts`)
+  between rendering the map and showing a labelled "needs a development build"
+  panel instead of a blank canvas. Nothing is misconfigured — there is simply
+  no engine in the Go app — and a development build renders the map everywhere
+  (see [Map provider policy](#map-provider-policy): no key is involved).
 - **Web** — inline SVG in a `divIcon`; rotation is a `style.transform` on an
   inner `.bus-marker-rotor` element.
 
@@ -164,8 +206,11 @@ placeholder** specifically so `img-src` can name one exact origin. Reintroducing
 behind a CSP violation, because the subdomains are not in the allow-list. The two
 must be changed together.
 
-Stops keep the platform's default teardrop pin in slate, so a stop and the bus
-are different species at a glance and in a screenshot.
+Stops are a deliberately different species from the bus: MapLibre has no
+teardrop pin of its own, so a stop is a **flat, slate, un-rotating dot**
+(a `ViewAnnotation` carrying a small `View` — `StopMarker.tsx`), rendered
+_before_ the bus so it draws beneath it. A stop and the bus are different at a
+glance and in a screenshot.
 
 ## Animation
 
@@ -208,9 +253,9 @@ sub-pixel at tracking-card zoom.
 ### Per-frame cost
 
 - **Native** — the frame state lives in `BusMarker`, a leaf component that
-  renders a single `<Marker>`. The screen, the `<MapView>`, the polyline and the
-  stop markers never see it. `MapSurface` is `React.memo`'d so the 5 s status
-  tick cannot reach the native map either.
+  renders a single `ViewAnnotation`. The screen, the `<Map>`, the route line and
+  the stop markers never see it. `MapSurface` is `React.memo`'d so the 5 s
+  status tick cannot reach the native map either.
 - **Web** — there is no React state per frame at all: position and rotation are
   applied imperatively (`setLatLng`, one `style.transform`). The React
   `position` prop is fixed at the mount coordinate on purpose, because
@@ -221,22 +266,24 @@ sub-pixel at tracking-card zoom.
 
 ### Native marker updates we did not adopt
 
-Session 2 was asked to evaluate the two native shortcuts for marker updates.
-Both exist in the pinned `react-native-maps` 1.27.2 and **neither is used**. The
-reasons below were read from the installed source, and one of them corrects a
-claim this document made earlier.
+The old library exposed imperative shortcuts for moving a marker without a
+React render. MapLibre's annotation API does not — and that is the right
+shape for this app, because the motion machine owns the rendered position and
+a second, imperative path to the same marker would be a second answer to
+"where is the bus". The update path is therefore exactly one: the leaf
+re-render, bounded as follows.
 
-| API                                                  | where it actually works                                                                                                                                                                                                                                                                                                                                                                                              | why it is not used                                                                                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Marker#animateMarkerToCoordinate(coordinate, ms)`   | **Not "Google-only"** — that was a Paper-architecture statement. Under Fabric (the only architecture in SDK 57) the command is implemented for **Android** (`rnmaps/fabric/MarkerManager.java:246`) and for **iOS Apple Maps** (`ios/AirMaps/RNMapsMarkerView.mm:67`). On **iOS + Google Maps** `MapMarker.tsx:484` forces the legacy path, which has no such method anywhere in `ios/`, so the call is a **no-op**. | It hands the tween to the provider, which bypasses every rule this document pins: the jitter gate, the cadence-derived duration, the gap/jump snap, reduced motion, and "never animate a non-live position". It also cannot rotate the marker independently of the camera, and on one of the four platform/provider combinations it silently does nothing.                                       |
-| `setNativeProps`                                     | Still exposed by RN 0.86.3 (`ReactNativeElement#setNativeProps`; `FabricUIManager` lists it as supported), but the type's own doc comment points at the New Architecture direct-manipulation caveats, and props written this way "will not participate in future diff process".                                                                                                                                      | It is a direct-manipulation escape hatch, not the way this library updates a marker: `react-native-maps` writes coordinates through native **commands** (`MapMarker.tsx` has `setCoordinates`/`animateToCoordinates` commands for exactly that reason). The JS `Marker` is a wrapper over a codegen'd host component, so "send `coordinate` straight to native" is not a supported surface here. |
-| `Marker#setCoordinates(coordinate)` (Fabric command) | Yes, on both platforms: `MapMarker.tsx:423` → `rnmaps/fabric/MarkerManager.java:251` (Android) and `RNMapsMarkerView.mm:91` (iOS). Not deprecated.                                                                                                                                                                                                                                                                   | This is the one genuine option, held in reserve. It is imperative and bypasses the state machine: the marker would move without the motion machine that owns the rendered position, which is two answers to "where is the bus" — the exact class of bug this document exists to prevent.                                                                                                         |
+| API                                    | what it actually is                                                                                                                               | why it is (not) used                                                                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ViewAnnotation#refresh()`             | The one imperative handle on the annotation: forces the annotation layer to re-commit.                                                            | **Used, guarded.** Called only when the committed heading changes (the committed-refresh guard in `BusMarker.tsx`, spec-pinned), never on every frame — re-committing the annotation layer 20×/s would buy nothing the transform does not already do. |
+| `setNativeProps`                       | Still exposed by RN 0.86.3; a direct-manipulation escape hatch that "will not participate in future diff process" (the type's own doc).           | Not used: it would move the marker outside the React tree, i.e. outside the motion machine's rendered position — the exact bug class this document exists to prevent.                                                                                 |
+| an imperative "set coordinate" command | **Does not exist** in `@maplibre/maplibre-react-native`'s annotation API (the old library's `setCoordinates` command has no MapLibre equivalent). | Nothing to hold in reserve: the React re-render of the leaf **is** the imperative surface, and the per-frame cost table above is what it costs.                                                                                                       |
 
 **What would change the answer:** a profile showing dropped frames _inside the
 map_ on the low-end Android the checklist targets — evidence that the ~20 fps
 leaf re-render is a real cost. At `FRAME_MIN_INTERVAL_MS = 50` for a single
-`<Marker>` that has not been observed, and it cannot be observed on this
-machine (see "What was verified automatically"). Adopting any of these would
+`ViewAnnotation` that has not been observed, and it cannot be observed on this
+machine (see "What was verified automatically"). Any future shortcut would
 have to keep reduced motion, the freshness halt, the heading rules and the
 per-trip reset intact — it is not a drop-in swap.
 
@@ -292,19 +339,23 @@ GPS stream.**
 
 ### Telling a user gesture from our own camera move
 
-This is the part that is easy to get wrong, and the providers differ:
+This is the part that is easy to get wrong:
 
-- **Android (Google Maps)** and **iOS with Google** populate `isGesture` on the
-  region events (`MapView.java:670`, `AIRGoogleMap.mm:528`).
-- **Apple Maps does not populate `isGesture` at all.** For it, two independent
-  signals are used: `onPanDrag` (emitted only by user drags —
-  `AIRMapManager.m:678`, `MapView.java:1766`), and a zoom-delta change, which is
-  sound by construction because follow mode never zooms.
-- **Leaflet** — `dragstart` and `boxzoomstart` come only from the user, and
-  `panTo` fires neither. `zoomstart` needs care because `fitBounds` dispatches
-  it from inside a `requestAnimFrame` (`Map.js` `_tryAnimatedZoom`), i.e. _after_
-  the call returns, so gesture detection is suppressed for a short window after
-  the one zoom change we make per trip.
+- **MapLibre (native)** — the region events report a `userInteraction` flag on
+  **both platforms** (Android and iOS), which the binding reads as
+  `isGesture: view.userInteraction === true`. A missing or false flag is read
+  as "not a gesture", never as "probably a gesture". The pure controller keeps
+  its zoom-delta fallback as the provider-independent second signal (sound by
+  construction because follow mode never zooms); because MapLibre reports zoom
+  rather than a latitude delta, the binding feeds it a latitude-span proxy —
+  `360 / 2^zoom`, the world's latitude span at that zoom — which is monotonic
+  in zoom, so its relative change is exactly the relative zoom change the
+  fallback compares.
+- **Leaflet (web, unchanged)** — `dragstart` and `boxzoomstart` come only from
+  the user, and `panTo` fires neither. `zoomstart` needs care because
+  `fitBounds` dispatches it from inside a `requestAnimFrame` (`Map.js`
+  `_tryAnimatedZoom`), i.e. _after_ the call returns, so gesture detection is
+  suppressed for a short window after the one zoom change we make per trip.
 
 **Known trade-off:** on web, a user who pinch-zooms within ~1.5 s of the initial
 fit can be missed, because that window is open. Follow mode then keeps panning
@@ -423,11 +474,11 @@ two spellings on one screen.
   just built so the marker can point along the direction of travel without a
   second watch. The stops come from the `listRouteStops` call the next-stop card
   already made.
-- **No native rebuild** — `react-native-maps` was already a dependency.
-- `DriverTripMap` is imported **by path**, never through the crew barrel, so the
-  headless entry points (`location-task.ts`) cannot pull `react-native-maps` into
-  the background-task graph; `DriverTripMap.web.tsx` is the dependency-free
-  `react-native-web` fallback, mirroring `BusMap.web.tsx`.
+- `DriverTripMap` is imported **by path**, never through the crew barrel, so
+  the headless entry points (`location-task.ts`) cannot pull the map engine
+  (`@maplibre/maplibre-react-native`) into the background-task graph;
+  `DriverTripMap.web.tsx` is the dependency-free `react-native-web` fallback,
+  mirroring `BusMap.web.tsx`.
 
 Interpolated coordinates are presentation only here too: the tween is never
 written into history, ETA, attendance or notifications.
@@ -460,9 +511,10 @@ app-wide floor.
   the callout and by real text in the status panel.
 - The follow state is announced through an `aria-live` / `accessibilityLiveRegion`
   element, because "the camera is following" is otherwise invisible.
-- Map controls sit top-left (status) and top-right (follow) so they cover
-  neither the Google Maps attribution and logo (bottom-left) nor the Apple Maps
-  legal button and Leaflet attribution (bottom-right).
+- Map controls sit top-left (status) and top-right (follow) on native because
+  MapLibre renders the OSM attribution line and its logo in the bottom corners
+  (legally required for OSM-derived tiles, always on via the `attribution` and
+  `logo` props); the web console keeps its Leaflet attribution bottom-right.
 - The route notice renders **below** the map, not over it, for the same reason.
 
 ## Known limitations
@@ -499,27 +551,24 @@ app-wide floor.
 6. **Freshness uses `received_at` (server clock) against the device clock.**
    Significant client/server clock skew would shift the live/last-known boundary
    by that skew. The crew status module has the same property.
-7. **`tracksViewChanges` on iOS Apple Maps is a no-op** (documented as
-   Google-only), so the iOS marker view is re-rendered on rotation. At ~20 fps
-   for one small view this is cheap, but it is a real per-frame cost on the
-   oldest iPhones.
-8. **OpenStreetMap tiles are free but not unlimited — decision deferred, with
-   the blocker written down.** The web map uses `https://tile.openstreetmap.org`
-   under OSM's tile-usage policy, which is intended for low-volume use: it does
-   not permit unrestricted production traffic. Nothing in this repository
-   measures or bounds the console's tile requests, and there is no paid tile
-   account anywhere in the product — so **no provider was changed** (a new
-   provider means an account, a key and a CSP change, all of which need approval
-   outside this change). Options for a separate, explicitly approved change:
-   self-host tiles (no per-request cost, new infrastructure to run); a
-   contracted provider with a free tier (account + key + one `img-src` entry —
-   `CSP_EXTRA_IMG_SRC` in `web/security-headers.js` exists for exactly this);
-   or stay on OSM and keep the traffic bound, since the console is one screen
-   and browsers cache tiles. Attribution is untouched until one of those is
-   approved, and no billing is enabled anywhere.
+7. **The attribution line and the logo are legally required and cannot be
+   removed** to gain corner space — which is why the map's own controls live
+   top-corner on native and the route notice renders below the map.
+8. **The web console still uses `https://tile.openstreetmap.org` — follow-up
+   noted, separate task.** The mobile map moved to OpenFreeMap
+   ([Map provider policy](#map-provider-policy)): OSM data, no key, no account,
+   no billing, and a documented self-host path that changes one variable. The
+   web console was **not** part of that swap: OSMF's tile-usage policy for
+   `tile.openstreetmap.org` is for low-volume use and does not permit
+   unrestricted production traffic, so before the console scales it must move
+   to OpenFreeMap's public instance or self-hosted tiles (both are keyless),
+   plus the matching `img-src` entry in `web/security-headers.js` (`OSM_URL`
+   and the CSP pin change together). Until then the console stays one screen
+   with browser-cached tiles, and no billing is enabled anywhere.
 9. **No paid routing, Directions, Roads, traffic, map-matching or tracking API
-   was added**, and no new map provider. Attribution is preserved on both
-   platforms.
+   was added.** The engine swap to MapLibre + OpenFreeMap introduced no
+   account, key or billing — the policy section above pins that — and
+   attribution is rendered by the engine on native and by Leaflet on web.
 
 ## Manual verification checklist
 
@@ -534,12 +583,20 @@ Playwright — and the sandbox's network reaches the npm registry but not
 `tile.openstreetmap.org`, so even a headless browser could not have drawn the
 web tiles. Nothing here is being reported from a device, an emulator or a
 browser, and **an `expo export` bundle is not a device test**: it exercises the
-bundler, not background location, Apple Maps, the Google Maps renderer, a
+bundler, not background location, the MapLibre tile renderer, a
 low-end GPU or an OS permission dialog.
 
-Run it on: a low-end Android on Google Maps, an iPhone on Apple Maps (the
-provider default), and a browser on the web console. Record what you actually
-see; if a step cannot be reproduced, say so rather than ticking it.
+Run it in a **development build** (Expo Go has no map engine on any platform —
+the map surfaces show the labelled panel instead), on a low-end Android and on
+an iPhone, and in a browser on the web console. Record what you actually see;
+if a step cannot be reproduced, say so rather than ticking it.
+
+**Map engine (development build, parent Track screen)**
+
+- [ ] Tiles load; the attribution line ("OpenFreeMap © OpenMapTiles, Data from
+      OpenStreetMap") and the logo are visible in the bottom corners.
+- [ ] The bus marker and the stop dots draw over the tiles; the map's own
+      controls (top corners) cover nothing that is required to be visible.
 
 **Straight road**
 
@@ -568,6 +625,9 @@ see; if a step cannot be reproduced, say so rather than ticking it.
 
 - [ ] Socket chip says offline; the map says "Last known".
 - [ ] Animation stops while offline; the marker stays put and labelled.
+- [ ] Airplane mode (no network at all): the tiles simply do not load, but the
+      stops, the marker and the freshness text still render — graceful, not
+      blank.
 - [ ] On reconnect, the next fix animates normally from the last known point.
 
 **Background / foreground**
@@ -593,6 +653,13 @@ see; if a step cannot be reproduced, say so rather than ticking it.
 - [ ] Steady frame rate with the map visible; no jank on the parent screen.
 - [ ] Battery draw while the screen is open for 10 minutes.
 
+**Expo Go (any platform)**
+
+- [ ] The map surfaces show the labelled "needs a development build" panel —
+      no blank canvas, nothing that looks misconfigured.
+- [ ] GPS sharing still works as usual (foreground); the trip flow is
+      unchanged.
+
 **Reduced motion**
 
 - [ ] With the OS setting on, the bus snaps between fixes (native and web).
@@ -604,8 +671,10 @@ see; if a step cannot be reproduced, say so rather than ticking it.
 - [ ] Status wording agrees; ETA and stop lists are unchanged.
 - [ ] Hindi and Marathi labels fit their chips without clipping.
 
-**Driver Trip screen (new in Session 2)**
+**Driver Trip screen**
 
+- [ ] The driver starts boarding: the card shows tiles and this device's own
+      marker at the device's position.
 - [ ] The map card sits above the next-stop card, and neither pushes the other
       off screen on a small phone.
 - [ ] The chip reads "Your device" — the driver can tell whose position it is.
@@ -663,21 +732,27 @@ New behavioural coverage added by this change:
 
 ## Native rebuild requirements
 
-**None for iOS/Android app binaries in the usual sense** — no new native
-dependency, no new asset, no config plugin, no manifest entry. The marker is
-drawn with views, and `react-native-maps` 1.27.2 was already installed.
+The map engine swap to **MapLibre does require a native rebuild** — it is a
+new native module (the MapLibre GL SDK), added to the generated projects by
+the config plugin in `mobile/app.config.js`, plus `@types/geojson` for the
+source types. After the swap:
 
-What _is_ required:
+- A **development build** (`npx expo run:android` / `npx expo run:ios`) or an
+  EAS build is required to see the map. **Expo Go cannot render it on any
+  platform** — the Expo Go shell does not carry the custom MapLibre module — so
+  the map surfaces show the labelled "needs a development build" panel there
+  (`src/features/map/map-surface-mode.ts`).
+- No key, no account, no billing is involved ([Map provider
+  policy](#map-provider-policy)); the only build-time fact this map adds is the
+  config plugin itself.
+- A plain JS reload (dev-client / Expo Go) is enough for everything _inside_
+  the map once the native shell has it: the Driver Trip card adds no module
+  beyond the engine, and `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` were
+  added to `@school-bus-tracking/shared-types` (run `npm run build:packages`
+  before typechecking).
 
-- A new JS bundle (Expo Go / dev-client reload is enough) — the Driver Trip map
-  included: it introduces no new native module, no permission and no config
-  entry, so it ships in the same bundle as everything else.
-- `npm run build:packages` before typechecking, because
-  `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` were added to
-  `@school-bus-tracking/shared-types`.
-- A native rebuild **is** needed if you want the Google Maps key or Firebase
-  wiring described in `docs/mobile-expo-sdk.md` — but that is pre-existing and
-  unrelated to this change.
+The marker graphic is drawn with views (no image asset, no `react-native-svg`),
+so it ships in the same bundle as everything else once the engine is present.
 
 ## Session 2 — status of the follow-ups
 
@@ -709,6 +784,10 @@ still binds or a task someone still has to do.
    [Native marker updates we did not adopt](#native-marker-updates-we-did-not-adopt).
    `setCoordinates` (the one cross-platform imperative command) is held in
    reserve pending measured evidence.
-7. **Tile provider decision** — **deferred with the blocker written down**. No
-   provider change, no billing, no attribution change; see Known limitations #8
-   for the three options that need separate approval.
+7. **Tile provider decision** — **mobile: resolved by the engine swap**;
+   **web: still deferred**. The mobile map now runs on MapLibre over
+   OpenFreeMap — no key, no account, no billing, and a self-host path that
+   changes one variable ([Map provider
+   policy](#map-provider-policy)). The web console still uses
+   `tile.openstreetmap.org` and must move to OpenFreeMap or self-hosted tiles
+   before it scales — a separate task; see Known limitations #8.

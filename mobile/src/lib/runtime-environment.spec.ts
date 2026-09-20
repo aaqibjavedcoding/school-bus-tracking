@@ -14,8 +14,9 @@ import {
 
 /**
  * Pins the runtime capability matrix that the rest of the app decides from:
- * Expo Go (SDK ≥ 53) has no Google Maps on Android, no background location
- * and no remote push; a development build or standalone build has all of it.
+ * the Expo Go shell has no map engine (MapLibre is a custom native module
+ * absent from the Go app on every platform), no background location and no
+ * remote push; a development build or standalone build has all of it.
  */
 
 const facts = (overrides: Partial<RuntimeEnvironmentFacts> = {}): RuntimeEnvironmentFacts => ({
@@ -54,23 +55,27 @@ describe('isExpoGoEnvironment', () => {
 });
 
 describe('describeRuntime', () => {
-  it('Expo Go on Android: no Google Maps, no background location, no remote push', () => {
+  it('Expo Go on Android: no map engine, no background location, no remote push', () => {
     const runtime = describeRuntime(facts(EXPO_GO));
     assert.equal(runtime.isExpoGo, true);
     assert.equal(runtime.platform, 'android');
     assert.equal(
-      runtime.googleMapsAvailable,
+      runtime.nativeMapAvailable,
       false,
-      'SDK ≥ 53: Expo Go has no Google Maps on Android',
+      'the MapLibre engine is a custom native module the Go shell does not carry',
     );
     assert.equal(runtime.backgroundLocationAvailable, false);
     assert.equal(runtime.remotePushAvailable, false);
   });
 
-  it('Expo Go on iOS: Apple Maps available, background location and push unavailable', () => {
+  it('Expo Go on iOS: no map engine either (MapLibre is not a platform service)', () => {
     const runtime = describeRuntime(facts({ ...EXPO_GO, platform: 'ios' }));
     assert.equal(runtime.isExpoGo, true);
-    assert.equal(runtime.googleMapsAvailable, true, 'Expo Go on iOS runs Apple Maps, which works');
+    assert.equal(
+      runtime.nativeMapAvailable,
+      false,
+      'unlike the old platform-provider era, the engine is custom and absent on every platform',
+    );
     assert.equal(runtime.backgroundLocationAvailable, false);
     assert.equal(runtime.remotePushAvailable, false);
   });
@@ -78,7 +83,7 @@ describe('describeRuntime', () => {
   it('development build on Android: everything available (unchanged behaviour)', () => {
     const runtime = describeRuntime(facts(DEV_CLIENT));
     assert.equal(runtime.isExpoGo, false);
-    assert.equal(runtime.googleMapsAvailable, true);
+    assert.equal(runtime.nativeMapAvailable, true, 'the dev build carries the MapLibre engine');
     assert.equal(runtime.backgroundLocationAvailable, true);
     assert.equal(runtime.remotePushAvailable, true);
   });
@@ -86,7 +91,7 @@ describe('describeRuntime', () => {
   it('standalone build: everything available', () => {
     const runtime = describeRuntime(facts({ ...STANDALONE, platform: 'ios' }));
     assert.equal(runtime.isExpoGo, false);
-    assert.equal(runtime.googleMapsAvailable, true);
+    assert.equal(runtime.nativeMapAvailable, true);
     assert.equal(runtime.backgroundLocationAvailable, true);
     assert.equal(runtime.remotePushAvailable, true);
   });
@@ -94,7 +99,7 @@ describe('describeRuntime', () => {
   it('bare workflow: everything available', () => {
     const runtime = describeRuntime(facts(BARE));
     assert.equal(runtime.isExpoGo, false);
-    assert.equal(runtime.googleMapsAvailable, true);
+    assert.equal(runtime.nativeMapAvailable, true);
     assert.equal(runtime.backgroundLocationAvailable, true);
     assert.equal(runtime.remotePushAvailable, true);
   });
@@ -126,7 +131,7 @@ describe('getRuntime (registered facts)', () => {
     registerRuntimeFacts(facts({ ...EXPO_GO, platform: 'ios' }));
     const runtime = getRuntime();
     assert.equal(runtime.isExpoGo, true);
-    assert.equal(runtime.googleMapsAvailable, true);
+    assert.equal(runtime.nativeMapAvailable, false);
     assert.equal(runtime.backgroundLocationAvailable, false);
     assert.equal(runtime.remotePushAvailable, false);
   });
@@ -135,7 +140,7 @@ describe('getRuntime (registered facts)', () => {
     __resetRuntimeEnvironmentForTests();
     const runtime = getRuntime();
     assert.equal(runtime.isExpoGo, false);
-    assert.equal(runtime.googleMapsAvailable, true);
+    assert.equal(runtime.nativeMapAvailable, true);
     assert.equal(runtime.backgroundLocationAvailable, true);
     assert.equal(runtime.remotePushAvailable, true);
     assert.equal(runtime.platform, 'unknown');

@@ -436,7 +436,7 @@ export const hi: Dictionary = {
   'map.noCoordinates': 'इस रूट में अभी कोई स्टॉप मैप नहीं है।',
   'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
   'map.needsDevBuildBody':
-    'Expo Go on Android में अब Google Maps शामिल नहीं हैं (Expo SDK 53 और उसके बाद), इसलिए इस build में मैप नहीं दिखेगा। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं — मैप देखने के लिए development build उपयोग करें।',
+    'Expo Go में map engine load नहीं होता, इसलिए इस build में map नहीं दिखेगा। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं — map देखने के लिए development build उपयोग करें।',
   'map.busA11y': 'स्कूल बस',
   'map.stopA11y': 'स्टॉप {number}',
 
