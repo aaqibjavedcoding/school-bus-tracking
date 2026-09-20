@@ -7,7 +7,7 @@
  *   google-services.json (or ANDROID_GOOGLE_SERVICES_FILE)
  *                                   → android.googleServicesFile
  *
- * ### Google Maps
+ * ### Google Maps — required for EVERY native Android build
  *
  * The Android Maps SDK requires the key as a manifest meta-data entry, not a
  * JS prop, and the APK always carries it in plaintext (that is simply how
@@ -19,10 +19,21 @@
  * restricted to the "Maps SDK for Android" API plus this app's package and
  * signing-certificate SHA-1, so a copied key is useless elsewhere.
  *
- * When the variable is unset (e.g. Expo Go, where Maps runs on its own key),
- * no key is injected and `react-native-maps` keeps its default behaviour; a
- * warning names the variable (never its value) so a dev-client/APK made
- * without it is not later debugged as "the map is blank" on the phone.
+ * Without the key a native Android build (development build, APK, AAB) shows
+ * blank map tiles behind the bus marker — regularly reported as a tracking
+ * bug rather than a build-config gap. So the missing-key warning is printed
+ * for exactly the commands that generate the Android project (see
+ * `isNativeAndroidBuild`), and never for Expo Go / JS-only / iOS runs:
+ *
+ * - **Expo Go on Android cannot show Google Maps at all** since Expo SDK 53
+ *   (SDK 52 changelog, "Deprecations": "Google Maps will no longer be
+ *   supported in Expo Go for Android in SDK 53 … On iOS, Expo Go only
+ *   supports Apple Maps. You can use Google Maps in development builds.").
+ *   The app knows this at runtime and shows a labelled "needs a development
+ *   build" panel instead of a blank box (`src/features/map/map-surface-mode.ts`),
+ *   so there is nothing to configure and nothing to warn about in the Go app;
+ * - `expo start` / `expo export` never generate a native project, so a
+ *   missing key cannot affect them.
  *
  * ### Firebase (Android push) — required for a native build, not for Expo Go
  *
@@ -33,7 +44,8 @@
  * `getDevicePushTokenAsync()` fails at runtime — which looks exactly like a
  * delivery problem but is a build configuration problem. This layer therefore
  * sets the field whenever the file is present (or `ANDROID_GOOGLE_SERVICES_FILE`
- * points somewhere else), and prints a **path-only** warning when it is not.
+ * points somewhere else), and prints a **path-only** warning when it is not —
+ * for native Android builds only, for the same reason as above.
  *
  * Nothing here reads or logs the file's contents (it holds an app id and an
  * API key that identifies the Firebase project — not a secret credential, but
@@ -47,6 +59,16 @@
  * `android.package`, because a config downloaded for another package builds
  * fine and then silently fails to deliver.
  *
+ * ### Why the warnings are gated and printed once
+ *
+ * Expo evaluates this file more than once per command (and a tooling reload
+ * clears the require cache between evaluations), so every warning goes
+ * through `warnOnce`: a module-level set **and** an environment marker, so
+ * "warn exactly once" survives cache clears inside one process. And a missing
+ * key is only news where a native Android project is actually being generated
+ * (`isNativeAndroidBuild`) — printing it for `expo start --go` would tell the
+ * driver the map is broken when the app has already handled that case itself.
+ *
  * The stateless function receives the fully-merged static config from
  * `app.json` (every pinned value: name, slug, version, icons, permissions,
  * plugins, scheme, EAS project id, owner) and only adds these two facts —
@@ -58,8 +80,70 @@ const { existsSync } = require('node:fs');
 const { isAbsolute, join, relative } = require('node:path');
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+/**
+ * "Warn exactly once per process", surviving require-cache clears.
+ *
+ * Expo (and reloads of it) evaluate this file several times per command, and
+ * a cache clear would reset a module-level flag alone — so the marker also
+ * lives in `process.env`, which outlives the cache.
+ */
+const warnedOnce = new Set();
+function warnOnce(key, message) {
+  if (warnedOnce.has(key) || process.env[`SBT_APP_CONFIG_WARNED_${key}`]) {
+    return;
+  }
+  warnedOnce.add(key);
+  process.env[`SBT_APP_CONFIG_WARNED_${key}`] = '1';
+  console.warn(message);
+}
+
+/**
+ * Is this evaluation generating the **native Android** project?
+ *
+ * Only there can a missing key / missing google-services.json bite:
+ *
+ * - `expo prebuild` (any target, incl. `--platform android`) and
+ *   `expo run:android` generate the project — unless explicitly iOS-targeted
+ *   (`--platform ios`, `-p ios`, `--platform=ios`), in which case the Android
+ *   project is not touched;
+ * - EAS builds set `EAS_BUILD=true` and `EAS_BUILD_PLATFORM` on the build
+ *   machine: an Android (or platform-unspecified) EAS build generates the
+ *   project, an iOS one does not;
+ * - everything else (`expo start --go`, `expo export`, an iOS run, plain JS
+ *   tooling) never generates the Android project — a missing key cannot
+ *   affect it, and the app's runtime already says the honest thing in the
+ *   cases that matter (the Expo Go map panel, the runtime diagnostics).
+ *
+ * The command tokens are matched **exactly** (`process.argv` carries the CLI
+ * invocation this file is evaluated under): substring matching would treat
+ * `--prebuild-something` as a prebuild.
+ */
+function isNativeAndroidBuild(argv, env) {
+  const tokens = Array.isArray(argv) ? argv : [];
+  const buildsAndroidProject = tokens.includes('prebuild') || tokens.includes('run:android');
+  if (buildsAndroidProject && !isIosTargeted(tokens)) {
+    return true;
+  }
+  const easActive = env.EAS_BUILD === 'true' || env.EAS_BUILD === '1';
+  return easActive && env.EAS_BUILD_PLATFORM !== 'ios';
+}
+
+/** An explicit iOS target (`--platform ios`, `-p ios`, `--platform=ios`). */
+function isIosTargeted(tokens) {
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (tokens[i] === '--platform' || tokens[i] === '-p') {
+      if (tokens[i + 1] === 'ios') {
+        return true;
+      }
+    } else if (tokens[i] === '--platform=ios') {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Resolves the Firebase config path without ever reading its contents. */
-function resolveGoogleServicesFile() {
+function resolveGoogleServicesFile(warn) {
   const override = process.env.ANDROID_GOOGLE_SERVICES_FILE?.trim();
   if (override) {
     const absolute = isAbsolute(override) ? override : join(__dirname, override);
@@ -67,51 +151,69 @@ function resolveGoogleServicesFile() {
       // Expo accepts a path relative to the project root.
       return relative(__dirname, absolute) || './google-services.json';
     }
-    console.warn(
-      `[app.config] ANDROID_GOOGLE_SERVICES_FILE points at a file that does not exist ` +
-        `(${override}); Android push will not be configured in this build.`,
-    );
+    if (warn) {
+      warnOnce(
+        'google-services-override-missing',
+        `[app.config] ANDROID_GOOGLE_SERVICES_FILE points at a file that does not exist ` +
+          `(${override}); Android push will not be configured in this build.`,
+      );
+    }
     return null;
   }
   const local = join(__dirname, 'google-services.json');
   if (existsSync(local)) {
     return './google-services.json';
   }
-  console.warn(
-    '[app.config] mobile/google-services.json is missing, so android.googleServicesFile is not set. ' +
-      'Expo Go and JS-only work are unaffected, but a native Android build made now cannot obtain an ' +
-      'FCM token (push delivery will fail at runtime, not at build time). ' +
-      'Download it from Firebase → Project settings → Your apps (package com.schoolbustracking.app). ' +
-      'See docs/mobile-tracking-reliability.md.',
-  );
+  if (warn) {
+    warnOnce(
+      'google-services-missing',
+      '[app.config] mobile/google-services.json is missing, so android.googleServicesFile is not set. ' +
+        'Expo Go and JS-only work are unaffected, but a native Android build made now cannot obtain an ' +
+        'FCM token (push delivery will fail at runtime, not at build time). ' +
+        'Download it from Firebase → Project settings → Your apps (package com.schoolbustracking.app). ' +
+        'See docs/mobile-tracking-reliability.md.',
+    );
+  }
   return null;
 }
 
 /**
- * Reads the Android Maps key without ever logging it. Mirrors the Firebase
- * warning above: a missing key is harmless in Expo Go but turns every map in
- * a native build (dev client, APK, AAB) into a blank canvas — markers, stops
- * and the "last known" banner still draw, only the tiles are missing — which
- * is regularly reported as a tracking bug rather than a build-config gap.
+ * Reads the Android Maps key without ever logging it. A missing key is a
+ * build-configuration gap for **every** native Android build (development
+ * build, APK, AAB) — blank tiles behind the bus marker, which is regularly
+ * reported as a tracking bug rather than a config gap. It is *not* a problem
+ * for Expo Go: since Expo SDK 53 the Go app simply has no Google Maps on
+ * Android (Apple Maps, iOS only), and the app says so at runtime with the
+ * labelled development-build panel (`src/features/map/map-surface-mode.ts`).
  */
-function resolveGoogleMapsApiKey() {
+function resolveGoogleMapsApiKey(warn) {
   const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
   if (key) {
     return key;
   }
-  console.warn(
-    '[app.config] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is not set, so android.config.googleMaps.apiKey is not injected. ' +
-      'Expo Go is unaffected (Maps runs on its own key there), but a native Android build made now shows ' +
-      'blank map tiles behind the bus marker on the Trip and Track screens. ' +
-      'Set it in mobile/.env or the EAS profile env before `expo prebuild` / `eas build`. ' +
-      'See docs/mobile-operations.md.',
-  );
+  if (warn) {
+    warnOnce(
+      'google-maps-key-missing',
+      '[app.config] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is not set, so android.config.googleMaps.apiKey is not injected. ' +
+        'A native Android build (development build, APK, AAB) made now shows blank map tiles behind the bus ' +
+        'marker on the Trip and Track screens — the key is required for every native Android build. ' +
+        '(Expo Go on Android cannot show Google Maps at all since Expo SDK 53, so there is nothing to ' +
+        'configure there; the app shows a labelled "needs a development build" panel instead.) ' +
+        'Set the key in mobile/.env or the EAS profile env before `expo prebuild` / `eas build --platform android`. ' +
+        'See docs/mobile-operations.md.',
+    );
+  }
   return null;
 }
 
 module.exports = ({ config }) => {
-  const googleMapsApiKey = resolveGoogleMapsApiKey();
-  const googleServicesFile = resolveGoogleServicesFile();
+  // This file is evaluated in the CLI's own process, so process.argv is the
+  // command being run and the warnings can be aimed at the native Android
+  // build (the only consumer of the two facts below) instead of at everyone.
+  const warn = isNativeAndroidBuild(process.argv, process.env);
+
+  const googleMapsApiKey = resolveGoogleMapsApiKey(warn);
+  const googleServicesFile = resolveGoogleServicesFile(warn);
 
   const android = { ...config.android };
 
