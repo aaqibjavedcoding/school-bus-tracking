@@ -440,7 +440,7 @@ export const mr: Dictionary = {
   'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
   'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
   'map.needsDevBuildBody':
-    'Expo Go (Android) मध्ये आता Google Maps समाविष्ट नाहीत (Expo SDK 53 नंतर), म्हणून या build मध्ये मॅप दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — मॅप पाहण्यासाठी development build वापरा।',
+    'Expo Go मध्ये map engine load होत नाही, म्हणून या build मध्ये map दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — map पाहण्यासाठी development build वापरा।',
   'map.busA11y': 'शाळेची बस',
   'map.stopA11y': 'थांबा {number}',
 

@@ -484,7 +484,7 @@ export const en = {
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
   'map.needsDevBuildTitle': 'Map preview needs a development build',
   'map.needsDevBuildBody':
-    'Expo Go on Android no longer includes Google Maps (Expo SDK 53 and later), so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
+    'Expo Go cannot load the map engine, so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
   'map.busA11y': 'School bus',
   'map.stopA11y': 'Stop {number}',
 

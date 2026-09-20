@@ -8,10 +8,11 @@
  * From Expo SDK 53 on (this project is on SDK 57) three capabilities that the
  * app used to take for granted no longer exist **inside the Expo Go app**:
  *
- * - Google Maps on Android — the Expo SDK 52 changelog ("Deprecations") states
- *   it: "Google Maps will no longer be supported in Expo Go for Android in
- *   SDK 53 … On iOS, Expo Go only supports Apple Maps. You can use Google
- *   Maps in development builds."
+ * - The native map engine — the map is `@maplibre/maplibre-react-native`, a
+ *   custom native module that is not part of the Expo SDK, so the Expo Go
+ *   shell has no map engine at all (on **every** platform: there is no
+ *   Android-only carve-out, because the engine is custom, not a platform
+ *   service). A development build carries it.
  * - Background location (`startLocationUpdatesAsync` / `expo-task-manager`) —
  *   expo-location itself warns "Background location is limited in Expo Go:
  *   On Android, it is not available at all" (a LogBox the driver saw on every
@@ -79,14 +80,16 @@ export interface RuntimeEnvironment {
   /** The platform as reported by `Platform.OS`. */
   platform: string;
   /**
-   * Whether the native map (react-native-maps) can render tiles here.
+   * Whether the native map engine can render tiles here.
    *
-   * False **only** in Expo Go on Android: SDK ≥ 53 removed Google Maps from
-   * Expo Go for Android. iOS Expo Go runs Apple Maps, which works, so the
-   * map stays available there; every native build (dev client, APK, AAB)
-   * has Google Maps as soon as the key is wired at build time.
+   * False **only inside Expo Go, on every platform**: the map engine is
+   * MapLibre (`@maplibre/maplibre-react-native`), a custom native module
+   * that the Expo Go shell does not carry. Every native build (dev client,
+   * APK, AAB) carries it — and it needs no key, no account and no billing
+   * (see `features/map/map-style.ts` and `docs/live-tracking-map.md` →
+   * "Map provider policy").
    */
-  googleMapsAvailable: boolean;
+  nativeMapAvailable: boolean;
   /**
    * Whether the OS background-location task can run here.
    *
@@ -139,11 +142,12 @@ export function backgroundUnavailableReasonFor(
  */
 export function describeRuntime(facts: RuntimeEnvironmentFacts): RuntimeEnvironment {
   const isExpoGo = isExpoGoEnvironment(facts);
-  const isAndroid = facts.platform === 'android';
   return {
     isExpoGo,
     platform: facts.platform,
-    googleMapsAvailable: !(isExpoGo && isAndroid),
+    // The map engine is a custom native module (MapLibre): it is absent from
+    // the Expo Go shell on every platform, present in every native build.
+    nativeMapAvailable: !isExpoGo,
     backgroundLocationAvailable: !isExpoGo,
     remotePushAvailable: !isExpoGo,
   };
