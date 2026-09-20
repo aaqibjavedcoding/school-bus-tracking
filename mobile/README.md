@@ -98,8 +98,23 @@ ngrok http 3001    # → https://<something>.ngrok-free.app
 npx cross-env EXPO_PUBLIC_API_URL=https://<something>.ngrok-free.app/api/v1 npm --prefix mobile run start:tunnel
 ```
 
-A **development build** (`expo-dev-client`, still installed) is only needed for
-things Expo Go cannot do — chiefly remote push notifications:
+A **development build** (`expo-dev-client`, still installed) is needed for the
+two things Expo Go cannot do:
+
+- **Remote push notifications** — FCM needs the native wiring an APK/AAB
+  carries; the Expo Go app has no FCM token of its own;
+- **Google Maps on Android** — Expo Go cannot render Google Maps at all since
+  Expo SDK 53 (Apple Maps only, and only on iOS). The app knows this at
+  runtime and shows a labelled "the map needs a development build" panel
+  instead of a blank canvas (`src/features/map/map-surface-mode.ts`); nothing
+  is misconfigured, there is simply no Google Maps to configure in the Go app.
+
+Expo Go is still fine for everyday driving work — foreground GPS sharing,
+manifest, SOS, everything — but the background location task does not run in
+the Go app, so background sharing is gated there with a one-line explanation
+(a development build gets foreground **and** background).
+
+For a development build:
 
 ```bash
 # ONE-TIME per device/emulator (see docs/mobile-expo-sdk.md)
@@ -135,12 +150,33 @@ in the platform cookie jar, so the session survives app restarts.
 - Opt-in background sharing uses `startLocationUpdatesAsync` with an
   `expo-task-manager` task (Android foreground-service notification / iOS
   background location indicator). The active trip id is persisted so the task
-  survives an OS headless relaunch.
+  survives an OS headless relaunch. **The task runs only in development
+  builds** — it cannot run in the Expo Go app, and the app says so (the
+  background toggle fails with a one-line explanation, the diagnostics card
+  reads "unavailable · Background needs a development build") instead of
+  pretending it started.
 - Every fix is validated against the shared `tripLocationUpdateSchema` before
   being emitted over `trip:location:update`. Fixes are never queued, replayed
   or synthesized — if the socket is down, the fix is dropped and counted.
 - Sharing stops automatically when the trip completes/is cancelled and on
   sign-out.
+- **A refused start is visible, and the tap fixes it.** When sharing fails to
+  start, the trip screen's GPS strip shows the reason on a second line (and
+  the primary tap becomes the repair for the failing cause — **Open location
+  settings** when the OS location switch is off or the foreground permission
+  is permanently denied, **Ask for location permission** when the request was
+  refused but can be asked again, a plain **Retry** for anything else; the
+  decision is pure and spec-pinned in `gps-strip-action.ts`). A permission
+  granted there completes the start the driver already asked for — it never
+  starts sharing on its own.
+- **Diagnostics for support.** The Help & support screen has an always-
+  available "Diagnostics (for support)" card: app runtime (Expo Go /
+  development build · platform), API host, live-tracking socket, connection,
+  location services, foreground + background permission, what is sharing,
+  last stop with the server's trip status, recovery attempts, last error, and
+  the delivery counters. Server words (reasons, statuses) render verbatim;
+  the host rows are `host:port` only — nothing that could carry a token is
+  ever shown.
 
 ## Quality gates
 

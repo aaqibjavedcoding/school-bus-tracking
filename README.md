@@ -180,13 +180,19 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - **When sharing starts (driver)**: the driver's own **server-confirmed** lifecycle tap — "Start
   boarding" (`BOARDING`) or "Depart & drive" (`IN_PROGRESS`) on the mobile trip screen — starts
   GPS sharing for that trip immediately (the OS location prompt appears there if not yet granted).
-  The GPS strip's **Share GPS** button is the fallback for a refused/stopped start, and reads
-  **Retry** only after a failed run (`gps-strip-action.ts`). Conductor taps, admin transitions and
-  the offline-queued path never start GPS; a permission granted on the Help screen never does
-  either. A trip that is only `SCHEDULED` cannot share (the server rejects fixes with
-  `trip_not_open`).
+  The GPS strip's **Share GPS** button is the fallback for a refused/stopped start; after a failed
+  run it reads the failing cause's own repair — **Open location settings** (services off /
+  permanently denied), **Ask for location permission** (refused but askable), or **Retry** for the
+  rest — with the reason on a second line (`gps-strip-action.ts`, spec-pinned). Conductor taps,
+  admin transitions and the offline-queued path never start GPS; a permission granted on the Help
+  screen never does either. A trip that is only `SCHEDULED` cannot share (the server rejects fixes
+  with `trip_not_open`).
 - Maps: **Leaflet/react-leaflet** on web (`web/src/features/map`), **react-native-maps** on mobile
-  (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading.
+  (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading. **Expo Go cannot render
+  Google Maps on Android since SDK 53** (Apple Maps only, and only on iOS), so the mobile map
+  surfaces there show a labelled "needs a development build" panel instead of a blank canvas
+  (`src/features/map/map-surface-mode.ts`); a native Android build with the Maps key renders
+  Google Maps.
 
 ### 3.8 ETA & geofence stop arrivals
 
@@ -813,6 +819,10 @@ adding one needs no migration.
   `app.json`. Fixes are validated with the shared Zod schema and emitted over `/live-tracking`;
   invalid ones are dropped. `GpsPermissionRecovery` explains and repairs denied/permanently-denied
   permission, disabled services, missing background permission and battery-optimisation cases.
+  The trip screen's GPS strip makes a **refused start visible** — the reason on a second line and
+  the tap becomes the failing cause's own repair (Open location settings / Ask for location
+  permission / Retry; `gps-strip-action.ts`). Background sharing runs only in development builds —
+  the background task cannot run in Expo Go, and the app says so instead of pretending.
 - **Offline attendance** (`features/crew/offline/`): a durable local queue (AsyncStorage) keyed to
   the signed-in user id — one entry per action with its own idempotency key and captured timestamp,
   states `pending → syncing → success | failed`, exponential backoff on reconnect, and `409`
@@ -827,6 +837,13 @@ adding one needs no migration.
   projects on its own SDK line. `npm --prefix mobile start` therefore execs
   `expo start --go` with `EXPO_NO_REDIRECT_PAGE=1` (the workspace installs `expo-dev-client`, which
   otherwise changes what the QR code encodes). Policy + verified matrix: `docs/mobile-expo-sdk.md`.
+  Expo Go's other limits are runtime facts the app detects
+  (`src/lib/runtime-environment.ts`): it cannot run the background location task (background
+  sharing is gated with a one-line explanation) and, since SDK 53, cannot render Google Maps on
+  Android at all (the map surfaces show a labelled development-build panel instead of a blank
+  map). The build-time warnings for the Maps key / `google-services.json` are aimed at the same
+  boundary — they print only for native Android builds, exactly once (`app.config.js` →
+  `isNativeAndroidBuild` / `warnOnce`, spec-pinned).
 - **UX contracts**: `loading` vs `refreshing` are separate signals — background revalidation and
   token refresh must **never** show a spinner over a working screen; safe-area-aware bottom bar
   metrics computed in `src/theme/bottom-bar-metrics.ts`; keyboard-aware form scrolling
@@ -842,9 +859,14 @@ adding one needs no migration.
   card whose background colour _is_ the state (BOARDING green / ON THE ROAD amber / settled grey,
   mapping pinned by `trip-status-style.spec.ts`), shows next stop + ETA at 24px and exactly one
   64px primary action; metadata hides in a collapsible "More details". The driver's GPS row is
-  only `Sharing ✅/❌` + last update + one tap (Share GPS / Retry / Stop) — the telemetry counters
-  live on the hidden **Help & support** tab (`app/(crew)/help.tsx`, move guarded by
-  `help-routing.spec.ts`). The crew tracking lifecycle publishes **only real changes** (no-op
+  only `Sharing ✅/❌` + last update + one tap (Share GPS / Stop, or — after a refused start — the
+  failing cause's own repair: Open location settings / Ask for location permission / Retry, with
+  the reason on a second line) — the telemetry counters live on the hidden **Help & support** tab
+  (`app/(crew)/help.tsx`, move guarded by `help-routing.spec.ts`), below which an always-available
+  **Diagnostics (for support)** card reports runtime, API host, socket, connection, permissions,
+  what is sharing, last stop + recovery + last error, and the delivery counters (server words
+  verbatim; no token can reach a row — spec-pinned). The crew tracking lifecycle publishes
+  **only real changes** (no-op
   patches are silent) and `GpsPermissionRecovery` keys its OS check on primitives, never on the
   `sharing` binding — the "Maximum update depth exceeded" render loop on the Help screen is pinned
   closed by `gps-permission-recovery-wiring.spec.ts` + `tracking-recovery.sim.spec.ts` (#29).
@@ -855,7 +877,7 @@ adding one needs no migration.
   contracts, the offline queue, GPS sharing, sockets and session logic are untouched
   (full map: `docs/mobile-ux.md` → Phase 2).
 - **Localisation (Phase 3a)**: a dependency-free typed i18n layer in `mobile/src/lib/i18n.ts` with
-  `en` (source of truth) + `hi` + `mr` dictionaries — **345 keys**, key-set
+  `en` (source of truth) + `hi` + `mr` dictionaries — **423 keys**, key-set
   equality enforced at compile
   time _and_ by `i18n-parity.spec.ts` (**0 missing / 0 extra**, no empty values, identical
   `{placeholder}` sets). A key typo or a wrong interpolation param is a **compile error**
@@ -866,8 +888,9 @@ adding one needs no migration.
   and the Help & support screen, applies instantly (no restart) and persists in AsyncStorage
   under `sbt.mobile.locale`.
   **Two classes of string are deliberately never translated**: data (student/route/stop/school
-  names) and server-supplied English (API error messages, `EMERGENCY_TYPE_LABELS`, the four GPS
-  support counters). A **known** server error code maps to local copy via `localizeApiError`; an
+  names) and server-supplied English (API error messages, `EMERGENCY_TYPE_LABELS`, the GPS support
+  counters and the diagnostics counter words — `LOCALE_INVARIANT_KEYS`). A **known** server error
+  code maps to local copy via `localizeApiError`; an
   **unknown** one is shown as-is with its raw code visible. Every locale's length is
   guarded by a per-key character budget (`i18n-budget.ts`, 46 keys) and hardcoded English UI
   copy on crew surfaces is
@@ -1132,8 +1155,8 @@ The workflow file says this inline — do not "streamline" it away.
     calls only.
 14. **Mobile UI copy comes from the i18n module** (`mobile/src/lib/i18n.ts`), never from a literal
     in a component. **Data and server-supplied strings are never translated** — student/route/stop/
-    school names, API error messages, `*_LABELS` maps and the GPS support counters render as the
-    server sent them. A new UI string = a key in `i18n.en.ts` + its Hindi value in
+    school names, API error messages, `*_LABELS` maps and the GPS support counters (plus the
+    diagnostics counter words, `LOCALE_INVARIANT_KEYS`) render as the server sent them. A new UI string = a key in `i18n.en.ts` + its Hindi value in
     `i18n.hi.ts` + its Marathi value in `i18n.mr.ts`; the parity, clipping and grep-gate specs
     enforce the rest.
 15. **Crew feedback is dispatched from one module** (`mobile/src/features/crew/crew-feedback.ts`):
@@ -1162,7 +1185,9 @@ The workflow file says this inline — do not "streamline" it away.
 - **`runs.shift_id` stays nullable** (whole-day semantics are load-bearing); per-run time offsets,
   multi-stop students (join table) and a service calendar (holidays/half-days) are open questions.
 - **GPS table growth**: no partitioning/cold-storage archival yet.
-- **Mobile**: no device-farm E2E; Expo Go cannot receive remote push.
+- **Mobile**: no device-farm E2E; Expo Go cannot receive remote push, cannot run the background
+  location task, and (since SDK 53) cannot render Google Maps on Android — the app detects the
+  runtime and says so (gated background sharing, a labelled development-build map panel).
 - **Security headers/CSP** are tuned for this app's exact needs; adding a third-party origin means
   updating `CSP_EXTRA_*`.
 

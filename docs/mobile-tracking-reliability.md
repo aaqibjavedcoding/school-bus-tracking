@@ -35,21 +35,25 @@ Before this patch the crew GPS path had four failure modes that all looked like
 One **singleton lifecycle controller** owns every tracking fact; screens only
 bind to it and render.
 
-| Module | Responsibility |
-| --- | --- |
-| `src/features/crew/tracking-lifecycle.ts` | The controller: watcher, background task, socket delivery, recovery scheduling, persisted context, stats. Singleton — no per-screen state. |
-| `src/features/crew/useCrewLocationSharing.ts` | Thin binding used by `trip.tsx` and `help.tsx`; subscribes, never starts a second watcher. |
-| `src/features/crew/location-task.ts` | `TaskManager.defineTask` → `runHeadlessCrewLocationTask()`. |
-| `src/services/session-recovery.ts` | Bounded, **single-flight** session recovery for headless runtimes. |
-| `src/services/socket-recovery.ts` | Pure decisions: disconnect classification, bounded backoff, connect wait, ack wait, ack classification. |
-| `src/features/crew/tracking-context.ts` | Persisted "which trip am I sharing" context, scoped to user + school. |
-| `src/features/crew/pending-fix.ts` | The single held-fix slot (latest-only, age- and attempt-bounded). |
-| `src/features/crew/tracking-status.ts` | Pure status derivation from facts (device fix vs server ack). |
-| `src/features/crew/gps-permission-state.ts` | Pure permission/accuracy/services decision + settings-action mapping. |
-| `src/features/crew/battery-guidance.ts` | Honest battery guidance (never claims to detect OEM restrictions). |
-| `src/features/notifications/presentation-dedup.ts` | Foreground socket/push presentation claim registry. |
-| `src/features/notifications/push-config.ts` | Push configuration diagnostics from error facts (no native module needed). |
-| `scripts/verify-firebase-config.mjs` | Build-time Firebase wiring check (facts only, never prints contents). |
+| Module                                             | Responsibility                                                                                                                                                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/crew/tracking-lifecycle.ts`          | The controller: watcher, background task, socket delivery, recovery scheduling, persisted context, stats. Singleton — no per-screen state.                                                                          |
+| `src/features/crew/useCrewLocationSharing.ts`      | Thin binding used by `trip.tsx` and `help.tsx`; subscribes, never starts a second watcher.                                                                                                                          |
+| `src/features/crew/location-task.ts`               | `TaskManager.defineTask` → `runHeadlessCrewLocationTask()`.                                                                                                                                                         |
+| `src/services/session-recovery.ts`                 | Bounded, **single-flight** session recovery for headless runtimes.                                                                                                                                                  |
+| `src/services/socket-recovery.ts`                  | Pure decisions: disconnect classification, bounded backoff, connect wait, ack wait, ack classification.                                                                                                             |
+| `src/features/crew/tracking-context.ts`            | Persisted "which trip am I sharing" context, scoped to user + school.                                                                                                                                               |
+| `src/features/crew/pending-fix.ts`                 | The single held-fix slot (latest-only, age- and attempt-bounded).                                                                                                                                                   |
+| `src/features/crew/tracking-status.ts`             | Pure status derivation from facts (device fix vs server ack), plus the status **line** (`crewTrackingStatusLine`) and `apiHost()` — the host:port-only URL projection that keeps a token out of driver-facing text. |
+| `src/features/crew/gps-permission-state.ts`        | Pure permission/accuracy/services decision + settings-action mapping.                                                                                                                                               |
+| `src/features/crew/gps-strip-action.ts`            | The strip's single tap, decided from lifecycle facts (Share GPS / Stop / Retry / Open location settings / Ask for location permission).                                                                             |
+| `src/lib/runtime-environment.ts`                   | Pure Expo Go / development-build capability facts (can the background task run? can Android show Google Maps?) from the installed SDK. No native modules — testable in Node.                                        |
+| `src/features/map/map-surface-mode.ts`             | Decides, per map surface, between rendering the map and showing the labelled development-build panel.                                                                                                               |
+| `src/features/crew/crew-diagnostics.ts`            | The Help screen's "Diagnostics (for support)" rows, built from the lifecycle snapshot (a spec pins that no JWT-shaped string or secret can reach any row).                                                          |
+| `src/features/crew/battery-guidance.ts`            | Honest battery guidance (never claims to detect OEM restrictions).                                                                                                                                                  |
+| `src/features/notifications/presentation-dedup.ts` | Foreground socket/push presentation claim registry.                                                                                                                                                                 |
+| `src/features/notifications/push-config.ts`        | Push configuration diagnostics from error facts (no native module needed).                                                                                                                                          |
+| `scripts/verify-firebase-config.mjs`               | Build-time Firebase wiring check (facts only, never prints contents).                                                                                                                                               |
 
 Every module in that table except the controller is **pure and native-free**, so
 each branch is unit-tested without a device or an emulator.
@@ -98,13 +102,13 @@ logout — and a trip is never resumed for a different account.
 
 `classifySocketDisconnect()` maps Socket.IO signals to a decision class:
 
-| Class | Trigger | Action |
-| --- | --- | --- |
-| `client-stop` | `io client disconnect` (we called `disconnect()`) | Never retry. |
+| Class          | Trigger                                                                                           | Action                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `client-stop`  | `io client disconnect` (we called `disconnect()`)                                                 | Never retry.                                                                                                           |
 | `auth-expired` | `io server disconnect` with `session:revoked { reason: 'token_expired' }`, or a refused handshake | Refresh the session, **then** reconnect explicitly (Socket.IO does not auto-reconnect after a server-side disconnect). |
-| `auth-revoked` | `session:revoked { reason: 'school_deactivated' \| 'user_deactivated' }` | Permanent: stop retrying and stop tracking. |
-| `network` | `transport close` / `transport error` / `ping timeout` | Bounded backoff. |
-| `unknown` | anything else | Treated like `network`, still bounded. |
+| `auth-revoked` | `session:revoked { reason: 'school_deactivated' \| 'user_deactivated' }`                          | Permanent: stop retrying and stop tracking.                                                                            |
+| `network`      | `transport close` / `transport error` / `ping timeout`                                            | Bounded backoff.                                                                                                       |
+| `unknown`      | anything else                                                                                     | Treated like `network`, still bounded.                                                                                 |
 
 Backoff budget (`TRACKING_RECOVERY_POLICY`): `1 s → 2 s → 4 s → 8 s → 16 s → 20 s`,
 `maxAttempts = 6` (~51 s of trying), then the connection state becomes
@@ -152,29 +156,46 @@ Cleanup happens on trip close, on stop and on logout (`endCrewTrackingSession`).
 
 `deriveCrewTrackingStatus()` derives the headline from facts only:
 
-| Status | Meaning | `schoolSeesLive` |
-| --- | --- | :-: |
-| `stopped` | Nothing running (no watcher, no background task). | ✗ |
-| `services-off` | The OS location switch is off — no fix is possible. | ✗ |
-| `permission-blocked` | Foreground location permission missing/denied. | ✗ |
-| `revoked` | Access permanently revoked for this account/tenant. | ✗ |
-| `connecting` | Running, socket still establishing. | ✗ |
-| `reconnecting` | Running, socket lost, recovery inside its budget. | ✗ |
-| `waiting-for-fix` | Connected and permitted, no device fix yet. | ✗ |
-| `local-only` | **The device has a fresh fix the server never acknowledged** — GPS works, delivery does not. | ✗ |
-| `live` | The server acknowledged a fix inside the live window. | ✓ |
-| `stale` | Something was acknowledged before, nothing recent. | ✗ |
+| Status               | Meaning                                                                                      | `schoolSeesLive` |
+| -------------------- | -------------------------------------------------------------------------------------------- | :--------------: |
+| `stopped`            | Nothing running (no watcher, no background task).                                            |        ✗         |
+| `services-off`       | The OS location switch is off — no fix is possible.                                          |        ✗         |
+| `permission-blocked` | Foreground location permission missing/denied.                                               |        ✗         |
+| `revoked`            | Access permanently revoked for this account/tenant.                                          |        ✗         |
+| `connecting`         | Running, socket still establishing.                                                          |        ✗         |
+| `reconnecting`       | Running, socket lost, recovery inside its budget.                                            |        ✗         |
+| `waiting-for-fix`    | Connected and permitted, no device fix yet.                                                  |        ✗         |
+| `local-only`         | **The device has a fresh fix the server never acknowledged** — GPS works, delivery does not. |        ✗         |
+| `live`               | The server acknowledged a fix inside the live window.                                        |        ✓         |
+| `stale`              | Something was acknowledged before, nothing recent.                                           |        ✗         |
 
 Windows: `SERVER_ACK_LIVE_WINDOW_MS = 30 s`, `SERVER_ACK_STALE_WINDOW_MS = 120 s`,
 `LOCAL_FIX_FRESH_WINDOW_MS = 30 s`. `schoolSeesLive` is true **only** for `live`,
 so no surface can claim "the school can see the bus" from local GPS alone.
 Recovery state is a property of the connection, not of the headline: a socket
-that dropped while the last ack is still fresh reads as `live` *and*
+that dropped while the last ack is still fresh reads as `live` _and_
 `recovering: true`, which is exactly what the driver needs to see.
 
 The UI keeps the two facts on separate lines — a **device line** (the phone has
 GPS, with what accuracy) and a **delivery line** (the server saw it N seconds
 ago, or never) — instead of merging them into one optimistic sentence.
+
+### The status line names the cause (without leaking anything)
+
+`crewTrackingStatusLine()` layers the lifecycle's stop context on the status
+copy for exactly two cases where the plain status is not enough:
+
+- **stopped + the server refused the trip** (`lastStopReason`
+  `trip-not-eligible` / `headless-not-eligible`): the line names the server
+  trip status that ended sharing ("…server status: **COMPLETED**"), recorded by
+  `stopCrewTracking` as `lastStopTripStatus` — the same fact the Help screen's
+  diagnostics card shows next to the stop reason;
+- **the reconnect budget is exhausted** (`gave-up`): the line names the school
+  server being unreachable — through `apiHost()`, which keeps `host:port` only,
+  so an `access_token` query string or userinfo can never reach the line
+  (spec-pinned against both smuggling spots).
+
+Every other state renders the unchanged status copy.
 
 ### `killServiceOnDestroy` — the decision and the evidence
 
@@ -205,7 +226,7 @@ Background task options: `accuracy: BestForNavigation`, `timeInterval: 4 s`,
 `distanceInterval: 10 m`, `deferredUpdatesInterval: 15 s` /
 `deferredUpdatesDistance: 25 m`, `pausesUpdatesAutomatically: false`,
 `showsBackgroundLocationIndicator: true`. Enabling background sharing requires
-the crew member's **explicit consent** *and* a granted background permission —
+the crew member's **explicit consent** _and_ a granted background permission —
 a foreground-only grant never turns it on.
 
 ## 4. Permissions, accuracy and battery
@@ -219,7 +240,7 @@ Behaviour fixes worth calling out:
 
 - **The background result is checked before an issue is cleared.** The previous
   `GpsPermissionRecovery.handleRequestPermission` cleared the banner as soon as
-  the *foreground* request returned, even when `requestBackgroundPermissionsAsync`
+  the _foreground_ request returned, even when `requestBackgroundPermissionsAsync`
   was still denied — the UI said "fixed" while background sharing was impossible.
   `evaluatePermissionRequest()` now requires the relevant grant for the issue
   being resolved.
@@ -259,9 +280,24 @@ app cannot verify the setting. Guidance is shown only when it can still help
   (unchanged behaviour).
 - `ANDROID_GOOGLE_SERVICES_FILE` → `android.googleServicesFile`, falling back to
   `./google-services.json` when that file exists. The env var is a **build-time**
-  variable, so it deliberately does *not* use the `EXPO_PUBLIC_` prefix (which
+  variable, so it deliberately does _not_ use the `EXPO_PUBLIC_` prefix (which
   would inline it into the JS bundle). A path that does not exist produces a
   warning and no wiring, never a crash.
+- **The warnings are aimed and one-shot.** A missing fact is only news where a
+  **native Android project is actually being generated**, so every warning goes
+  through `isNativeAndroidBuild(process.argv, env)` (the exact command tokens
+  `prebuild` / `run:android`, minus an explicit iOS target — `--platform ios`,
+  `-p ios`, `--platform=ios` — or a non-iOS EAS build) **and** `warnOnce()`
+  (a module-level set _and_ an `SBT_APP_CONFIG_*` environment marker, so
+  "exactly once per process" survives the require-cache clears that Expo's
+  re-evaluations and tooling reloads cause). `expo start --go`, `expo export`
+  and iOS builds print nothing — correctly: since SDK 53 Expo Go cannot render
+  Google Maps on Android at all, so a missing key is not a problem there, and
+  the app shows the labelled development-build panel at runtime instead.
+  `scripts/app-config-warnings.spec.ts` evaluates the real config nine
+  cache-cleared times per scenario and pins exactly that: one warning per
+  missing fact for native Android builds, zero for the silent commands, and a
+  set key injected yet never logged.
 
 Rules:
 
@@ -274,7 +310,7 @@ Rules:
 - `npm run verify:firebase` (`scripts/verify-firebase-config.mjs`) prints
   **facts, never contents**: existence, parse ok/failed, how many client apps the
   file declares, and the package names being compared. Exit `0` when configured
-  *or* merely missing (Expo Go / JS work is unaffected — a warning is printed);
+  _or_ merely missing (Expo Go / JS work is unaffected — a warning is printed);
   exit `1` when misconfigured (package mismatch, unreadable file, or an Expo
   config that stops wiring `android.googleServicesFile`). It is gated into the
   native build paths: `prebuild` and `preandroid:build`.
@@ -337,14 +373,14 @@ notification id:
 
 ```bash
 cd mobile
-npm test                 # 681 unit tests (pure modules, guards, i18n parity, Firebase checker)
-npm run test:sim         # 4 simulations, 50 scenarios (offline, push, feedback, tracking)
-npm run test:tracking-sim  # the tracking simulation alone (26 scenarios)
+npm test                 # 902 unit tests (pure modules, guards, i18n parity, Firebase + app-config checkers)
+npm run test:sim         # 4 simulations, 56 scenarios (offline, push, feedback, tracking)
+npm run test:tracking-sim  # the tracking simulation alone (32 scenarios)
 npm run typecheck && (cd .. && npx eslint .)
 ```
 
 These are **Node-level simulations with test doubles** (AsyncStorage,
-expo-location, the socket, the API client) — they are *not* device tests and do
+expo-location, the socket, the API client) — they are _not_ device tests and do
 not prove behaviour on a real phone. They do prove the decision logic end to end,
 including the ordering and cancellation rules that a unit test on a pure function
 cannot reach. Coverage includes: headless start with an empty token; concurrent
@@ -374,6 +410,13 @@ milliseconds instead of ~51 s. Production never calls it.
   or signing workaround is implied anywhere in this patch.
 - **No offline GPS history.** At most one fix is held, for at most 90 s and 3
   attempts. A long tunnel produces a visible gap, not a fabricated track.
+- **Expo Go is foreground-only for location, and has no Android Google Maps.**
+  The background-location task does not run in the Expo Go app, and since Expo
+  SDK 53 Expo Go cannot render Google Maps on Android at all (Apple Maps, iOS
+  only). The app detects the runtime, gates background sharing with a one-line
+  explanation, and shows a labelled development-build panel on the map surfaces
+  instead of a blank map — but a crew phone that needs background coverage or
+  Android map tiles needs a development build.
 - **Simulations ≠ devices.** Everything above is verified in Node with doubles;
   the device checklist below is the human half of the verification.
 
@@ -416,6 +459,12 @@ milliseconds instead of ~51 s. Production never calls it.
 - `lastStopReason` (diagnostics only, never shown as prose): `user`,
   `trip-closed`, `trip-not-eligible`, `headless-not-eligible`, `revoked`,
   `rejected-permanent`, `account-changed`, `session-ended`.
+- `lastStopTripStatus`: the server trip status (`COMPLETED` / `CANCELLED` / …)
+  recorded when a stop was a server eligibility refusal — shown by the status
+  line and by the Help screen's diagnostics card.
+- `message` / `messageAt`: the lifecycle's last failure text and when it
+  happened — the strip's second line and the diagnostics "Last error" row are
+  built from these.
 - Recovery: `attempts`, `exhausted`, `inFlight`, `lastReason`,
   `lastDisconnectClass`.
 - Stats: emitted, disconnected, retried, superseded, expired, invalid, throttled,

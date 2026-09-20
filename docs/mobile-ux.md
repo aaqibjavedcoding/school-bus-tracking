@@ -40,25 +40,25 @@ them.**
 
 ## Measured contrast (computed by `contrast.spec.ts`, not by eye)
 
-| Pair                                                  | Background                | Foreground              | Ratio       | WCAG floor |
-| ----------------------------------------------------- | ------------------------- | ----------------------- | ----------- | ---------- |
-| primary action label                                  | `#15803d` (secondary-700) | white                   | **5.01:1**  | 4.5:1      |
-| success action label                                  | `#15803d` (secondary-700) | white                   | **5.01:1**  | 4.5:1      |
-| danger action label                                   | `#dc2626` (status.danger) | white                   | **4.83:1**  | 4.5:1      |
-| info action label                                     | `#2563eb` (status.info)   | white                   | **5.17:1**  | 4.5:1      |
-| secondary button label                                | white                     | `#1e293b`               | **14.63:1** | 4.5:1      |
-| ghost button label                                    | `#f1f5f9`                 | `#334155`               | **9.45:1**  | 4.5:1      |
-| badge neutral / ghost                                 | `#f1f5f9`                 | `#334155`               | **9.45:1**  | 4.5:1      |
-| badge info                                            | `#e0f2fe`                 | `#0369a1`               | **5.17:1**  | 4.5:1      |
-| badge warning                                         | `#fef3c7`                 | `#b45309`               | **4.51:1**  | 4.5:1      |
-| badge success                                         | `#dcfce7`                 | `#166534`               | **6.49:1**  | 4.5:1      |
-| badge danger                                          | `#fee2e2`                 | `#b91c1c`               | **5.30:1**  | 4.5:1      |
-| interactive border (inputs, chips, secondary buttons) | white                     | `#64748b` (neutral-500) | **4.76:1**  | 3:1        |
-| placeholder text                                      | white                     | `#64748b` (neutral-500) | **4.76:1**  | 3:1        |
-| active chip / active tab tint                         | white                     | `#15803d` (secondary-700) | **5.01:1** | 4.5:1      |
-| toast success                                         | `#15803d`                 | white                   | **5.01:1**  | 4.5:1      |
-| toast danger                                          | `#dc2626`                 | white                   | **4.83:1**  | 4.5:1      |
-| muted text on screen background                       | `#f8fafc`                 | `#475569`               | **7.24:1**  | 4.5:1      |
+| Pair                                                  | Background                | Foreground                | Ratio       | WCAG floor |
+| ----------------------------------------------------- | ------------------------- | ------------------------- | ----------- | ---------- |
+| primary action label                                  | `#15803d` (secondary-700) | white                     | **5.01:1**  | 4.5:1      |
+| success action label                                  | `#15803d` (secondary-700) | white                     | **5.01:1**  | 4.5:1      |
+| danger action label                                   | `#dc2626` (status.danger) | white                     | **4.83:1**  | 4.5:1      |
+| info action label                                     | `#2563eb` (status.info)   | white                     | **5.17:1**  | 4.5:1      |
+| secondary button label                                | white                     | `#1e293b`                 | **14.63:1** | 4.5:1      |
+| ghost button label                                    | `#f1f5f9`                 | `#334155`                 | **9.45:1**  | 4.5:1      |
+| badge neutral / ghost                                 | `#f1f5f9`                 | `#334155`                 | **9.45:1**  | 4.5:1      |
+| badge info                                            | `#e0f2fe`                 | `#0369a1`                 | **5.17:1**  | 4.5:1      |
+| badge warning                                         | `#fef3c7`                 | `#b45309`                 | **4.51:1**  | 4.5:1      |
+| badge success                                         | `#dcfce7`                 | `#166534`                 | **6.49:1**  | 4.5:1      |
+| badge danger                                          | `#fee2e2`                 | `#b91c1c`                 | **5.30:1**  | 4.5:1      |
+| interactive border (inputs, chips, secondary buttons) | white                     | `#64748b` (neutral-500)   | **4.76:1**  | 3:1        |
+| placeholder text                                      | white                     | `#64748b` (neutral-500)   | **4.76:1**  | 3:1        |
+| active chip / active tab tint                         | white                     | `#15803d` (secondary-700) | **5.01:1**  | 4.5:1      |
+| toast success                                         | `#15803d`                 | white                     | **5.01:1**  | 4.5:1      |
+| toast danger                                          | `#dc2626`                 | white                     | **4.83:1**  | 4.5:1      |
+| muted text on screen background                       | `#f8fafc`                 | `#475569`                 | **7.24:1**  | 4.5:1      |
 
 **Regression marker (the bug this fixes):** the old primary button rendered
 white text on `primary[500]` = **2.15:1** — it failed every threshold and is
@@ -168,10 +168,15 @@ untouched.
 2. Offline-sync banner (unchanged).
 3. **Driver GPS strip** (`features/crew/GpsShareStrip.tsx`) — the whole
    driving-time story: `Sharing ✅ / ❌` + last-update time + one tap
-   (**Share GPS** first, **Retry** after a failure, **Stop** while running —
-   `gps-strip-action.ts`) + a "GPS details & support" link. The driver's
-   confirmed lifecycle tap starts sharing itself, so the strip's button is the
-   fallback, not the normal way in.
+   (**Share GPS** first, **Stop** while running, and after a failed start the
+   failing cause's own repair — **Open location settings** for a services-off
+   switch or a permanent denial, **Ask for location permission** for a
+   refused-but-askable prompt, **Retry** only for anything else —
+   `gps-strip-action.ts`, spec-pinned) + a "GPS details & support" link. A
+   failed start also gets a **second line with the reason** (danger tone,
+   announced politely) so `Sharing ❌` is never left to be guessed. The
+   driver's confirmed lifecycle tap starts sharing itself, so the strip's
+   button is the fallback, not the normal way in.
 4. Driver navigation card (button is now `secondary` — the lifecycle action
    stays the only filled primary on the screen).
 5. Manifest / Stops & ETA links (56–60px, icon + label).
@@ -187,8 +192,15 @@ reading), recent alerts, cancel flow.
 from the trip screen)** — **the GPS telemetry moved here, nothing was
 deleted**: the full `GpsSharePanel` with all four counters ("Sent",
 "Rejected", "Dropped (offline)", "Invalid fix"), last fix + server reason, the
-background-sharing switch, and the permission-recovery UI. Framed as what it
-is: numbers the crew reads _with the support team_, not while driving. A
+background-sharing switch, and the permission-recovery UI. Below the panel, an
+always-available **Diagnostics (for support)** card (both crew roles, with or
+without a trip): app runtime (Expo Go / development build · platform), API
+host, live-tracking socket, connection, location services, foreground +
+background permission, what is sharing, last stop with the server's trip
+status, recovery attempts + last reason, last error + when, and the delivery
+counters — built by `crew-diagnostics.ts`, whose spec pins that no JWT-shaped
+string or secret can reach any row. Framed as what it is: numbers the crew
+reads _with the support team_, not while driving. A
 source guard (`features/crew/help-routing.spec.ts`) asserts the move in both
 directions so a future edit cannot undo it silently.
 
@@ -288,31 +300,33 @@ switch and the guards. **3b is voice + haptics** (`expo-speech` /
 
 ### The key set
 
-`mobile/src/lib/i18n.en.ts` is the **source of truth**: **345 keys** (286 at
+`mobile/src/lib/i18n.en.ts` is the **source of truth**: **423 keys** (286 at
 Phase 3a, +28 by Phase 3b for voice lines and sound settings, +29 by Phase 4b
 for the crew PIN/QR login, +1 for `settings.language.nameMr` when Marathi
-joined), flat and dotted (`manifest.confirmBoard`, `gps.tierGood`,
-`error.HTTP_409`). `mobile/src/lib/i18n.hi.ts` and `mobile/src/lib/i18n.mr.ts`
+joined, and more by the later phases; the reliability/runtime effort of this
+branch adds +35 — the map panel, the background gating, the strip repair
+actions, the status line and the diagnostics card), flat and dotted
+(`manifest.confirmBoard`, `gps.tierGood`, `error.HTTP_409`). `mobile/src/lib/i18n.hi.ts` and `mobile/src/lib/i18n.mr.ts`
 are typed as `Dictionary` — the same key set with widened values — so a
 missing or extra key in any locale is a **compile** error before it is ever a
 runtime one.
 
-| Group                                                | Keys    | Covers                                                                   |
-| ---------------------------------------------------- | ------- | ------------------------------------------------------------------------ |
-| `nav.*`, `role.*`                                    | 20      | tab labels, screen titles, role words                                    |
-| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 20px card words                    |
-| `trip.*`                                             | 39      | trip screen, "More details", lifecycle actions, cancel flow              |
-| `manifest.*`                                         | 42      | board/drop, filters, summary badges, search, a11y labels + announcements |
-| `sos.*`                                              | 39      | hold-to-confirm, status line, details sheet, cancel flow                 |
-| `gps.*` (incl. `gps.recovery.*`)                     | 44      | sharing strip + panel, permission recovery                               |
-| `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                          |
-| `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                  |
-| `help.*`, `settings.*`                               | 23      | Help screen, the language switch + the Phase-3b sound settings           |
-| `login.*`                                            | 39      | sign-in labels + the crew PIN/QR path (school code + PIN, no user id)    |
-| `common.*`, `time.*`                                 | 12      | shared chrome, relative time, minutes, the On/Off switch words           |
-| `error.*`                                            | 18      | known server error codes + the four crew-login codes + the unknown-code prefix|
-| `voice.*`                                            | 17      | **spoken only** — Latin script in every locale, never rendered on screen |
-| **total**                                            | **345** | the groups above are exhaustive — every key is in exactly one            |
+| Group                                                | Keys    | Covers                                                                         |
+| ---------------------------------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `nav.*`, `role.*`                                    | 20      | tab labels, screen titles, role words                                          |
+| `status.*`, `attendance.label.*`, `boarding.label.*` | 16      | trip/attendance vocabulary, incl. the 20px card words                          |
+| `trip.*`                                             | 39      | trip screen, "More details", lifecycle actions, cancel flow                    |
+| `manifest.*`                                         | 42      | board/drop, filters, summary badges, search, a11y labels + announcements       |
+| `sos.*`                                              | 39      | hold-to-confirm, status line, details sheet, cancel flow                       |
+| `gps.*` (incl. `gps.recovery.*`)                     | 44      | sharing strip + panel, permission recovery                                     |
+| `offline.*`                                          | 15      | sync banner (with `.one`/`.other` plural pairs)                                |
+| `stops.*`, `eta.*`, `navigate.*`, `connection.*`     | 21      | stops screen, ETA views, navigation hand-off, live chip                        |
+| `help.*`, `settings.*`                               | 23      | Help screen, the language switch + the Phase-3b sound settings                 |
+| `login.*`                                            | 39      | sign-in labels + the crew PIN/QR path (school code + PIN, no user id)          |
+| `common.*`, `time.*`                                 | 12      | shared chrome, relative time, minutes, the On/Off switch words                 |
+| `error.*`                                            | 18      | known server error codes + the four crew-login codes + the unknown-code prefix |
+| `voice.*`                                            | 17      | **spoken only** — Latin script in every locale, never rendered on screen       |
+| **total**                                            | **345** | the groups above are exhaustive — every key is in exactly one                  |
 
 ### Resolution order
 
@@ -329,7 +343,7 @@ Implemented once, in `resolveInitialLocale` (`src/lib/i18n.ts`), and pinned by
 
 The deliberate consequence: **a crew member on a Hindi- or Marathi-locale
 phone still opens in English** until they pick a language themselves — the
-switch lives on the **login screen** (a row of self-naming pills) *and* on
+switch lives on the **login screen** (a row of self-naming pills) _and_ on
 the Help screen, and once tapped the saved choice wins forever. Admins and
 parents follow the device, since their screens are also used from the English
 web console.
@@ -373,11 +387,13 @@ Two classes of string are **deliberately never translated**:
    `{status}`) carry data into translated sentences and stay untouched.
 2. **Server-supplied English.** API error `message`s, `EMERGENCY_TYPE_LABELS` /
    `EMERGENCY_STATUS_LABELS`, `*_document_type_label`, the GPS `lastReason`,
-   the offline queue's `lastError`, and the **four support counters** on the
-   Help screen ("Sent", "Rejected", "Dropped (offline)", "Invalid fix") — those
-   last are pinned verbatim by `help-routing.spec.ts` because they are read
-   aloud _to the support engineer_, who works in English, and the screen says
-   so.
+   the offline queue's `lastError`, and the **support counters** on the Help
+   screen — the four panel counters ("Sent", "Rejected", "Dropped (offline)",
+   "Invalid fix") pinned verbatim by `help-routing.spec.ts`, plus the
+   diagnostics card's counter words (sent / accepted / rejected / pending /
+   invalid / retried) and the runtime names (Expo Go / Development build)
+   declared in `LOCALE_INVARIANT_KEYS` — because they are read aloud _to the
+   support engineer_, who works in English, and the screen says so.
 
 Where the server supplies a **known error code**, the app swaps in its own
 copy. `KNOWN_ERROR_CODES` in `src/lib/i18n.ts` maps the codes the server
@@ -462,12 +478,12 @@ dictionary — a screen reader announces in the same language the screen shows.
 
 ### Guard specs added in Phase 3a (all under `npm --prefix mobile test`)
 
-| Spec                        | Pins                                                                                                                                                                                                                                                                                                           |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spec                        | Pins                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `i18n.spec.ts` (21)         | resolution order (saved → role/device → `en`), crew-default-English (a saved choice always wins), tag normalisation, interpolation (an unknown placeholder stays visible, never `undefined`), subscribe/notify, persist-on-choice vs no-persist-on-default, a failing store is non-fatal, `pluralKey`, the whole server-string boundary table |
-| `i18n-parity.spec.ts` (9)   | **0 missing / 0 extra** keys, no empty values, identical placeholder names _and_ counts, complete `.one`/`.other` pairs, every key identical to English in any locale declared in `LOCALE_INVARIANT_KEYS`, distinct status words in every locale, ✓/✕/⏳ glyphs survive translation                                                   |
-| `i18n-clipping.spec.ts` (6) | all 46 budgeted keys fit in **both** locales, no key grows past `growthCeiling`, the per-key growth envelope, the single-line filter chip is fed only budgeted keys, the tab bar stays four labelled actions                                                                                                   |
-| `i18n-literals.spec.ts` (5) | **0** hardcoded English UI literals on crew screens _and_ crew components, every copy-rendering screen subscribes to the locale, the scan is not empty                                                                                                                                                         |
+| `i18n-parity.spec.ts` (9)   | **0 missing / 0 extra** keys, no empty values, identical placeholder names _and_ counts, complete `.one`/`.other` pairs, every key identical to English in any locale declared in `LOCALE_INVARIANT_KEYS`, distinct status words in every locale, ✓/✕/⏳ glyphs survive translation                                                           |
+| `i18n-clipping.spec.ts` (6) | all 46 budgeted keys fit in **both** locales, no key grows past `growthCeiling`, the per-key growth envelope, the single-line filter chip is fed only budgeted keys, the tab bar stays four labelled actions                                                                                                                                  |
+| `i18n-literals.spec.ts` (5) | **0** hardcoded English UI literals on crew screens _and_ crew components, every copy-rendering screen subscribes to the locale, the scan is not empty                                                                                                                                                                                        |
 
 The Phase-1 and Phase-2 guards still pass **unchanged**: `contrast.spec.ts`,
 `legibility.spec.ts` (Hindi included — 0 text under 16px on crew surfaces),
@@ -645,3 +661,105 @@ something the server refused.
 | `crew-feedback.spec.ts` (24)        | role defaults, the full role × (voice, vibration) × on/off matrix with **zero** native calls when off, persistence and cold start, non-blocking, a throwing driver never changes a result                              |
 | `crew-feedback-wiring.spec.ts` (11) | only the native wrapper imports `expo-speech`/`expo-haptics`, no `await` on the speech path, all six surfaces report, no surface touches patterns or phrases, zero-touch boundaries hold                               |
 | `crew-feedback.sim.spec.ts` (10)    | the **real** native wrapper against mocked `expo-speech`/`expo-haptics`: exact spoken strings, `stop`-before-`speak`, settings gating, a no-TTS-engine device                                                          |
+
+---
+
+## Reliability & runtime awareness (this branch)
+
+The client-visible half of the reliability/runtime effort: the app stops
+_pretending_ where the platform can't deliver, and says what it can't do in
+the driver's language. Everything below is client-side presentation +
+build-time config; API contracts, the lifecycle controller, the offline queue
+and the i18n layer are untouched.
+
+### The app knows which runtime it is
+
+`src/lib/runtime-environment.ts` is a **pure** module that turns the installed
+SDK facts into two capability questions, with no native module import (so it
+is testable in Node and can never throw the way `expo-constants` does outside
+the app):
+
+- **Can this runtime run the background location task?** — No in the Expo Go
+  app (the OS background task + Android foreground service do not run there);
+  yes in a development build.
+- **Can this runtime show Google Maps on Android?** — No in Expo Go since SDK
+  53 (Apple Maps only, and only on iOS); yes in a development build with the
+  Maps key.
+
+The detection is honest about its own limits: an unknown/missing SDK version
+yields an "unknown" runtime, not a guess, and every consumer treats "unknown"
+as "say we don't know", never as "all good".
+
+### Maps: a labelled panel instead of a blank box
+
+`src/features/map/map-surface-mode.ts` decides, per map surface, between
+rendering the map and showing a labelled **"the map needs a development
+build"** panel. The panel is a first-class screen state (not an error): it
+names the runtime, explains the SDK 53 Expo Go limitation, and points at the
+fix (install a development build with the Maps key). `BusMap.tsx` and
+`DriverTripMap.tsx` both route through it, so the parent Track screen and the
+driver Trip screen say the same true thing. A development build with the key
+renders Google Maps exactly as before — the panel is Expo Go only.
+
+### GPS start failures are visible, and the tap fixes them
+
+`gps-strip-action.ts` now decides the strip's single tap from the same facts as
+`evaluateGpsPermissions`, so a refused start is never left as a bare "Retry":
+
+- **Stop** while running (the only honest primary tap while fixes are produced,
+  whatever the OS says);
+- **Open location settings** when the OS location switch is off **or** the
+  foreground permission is permanently denied (only the OS settings screen can
+  fix either — a retry or an in-app prompt can't);
+- **Ask for location permission** when the request was refused but can be asked
+  again (the start left the coarse state `undetermined`); a grant there
+  completes the start the driver already asked for — explicit intent, never the
+  auto-start `GpsPermissionRecovery` is forbidden from doing;
+- **Retry** only when the start failed for another reason (e.g. the server
+  could not be reached).
+
+The lifecycle's failure message renders as a **second line** on the strip
+(danger tone, `accessibilityLiveRegion="polite"`), so `Sharing ❌` is never
+left to be guessed. `crewTrackingStatusLine()` layers the stop context on the
+status copy for two cases — a server-refused trip names the status that ended
+sharing (`lastStopTripStatus`), an exhausted reconnect budget names the school
+server via `apiHost()` (`host:port` only, so a token in the query or userinfo
+can never reach the screen).
+
+### A diagnostics card for support
+
+The Help screen gains an always-available **"Diagnostics (for support)"** card
+(both crew roles, with or without a trip), built by
+`src/features/crew/crew-diagnostics.ts` from the lifecycle snapshot: app
+runtime, API host, live-tracking socket, connection, location services,
+foreground + background permission (with the development-build reason where the
+runtime can't run the task), what is sharing, last stop + server status,
+recovery attempts + last reason, last error + when, and the delivery counters
+(sent = accepted + rejected + throttled). Two invariants are spec-pinned: no
+JWT-shaped string or secret in **any** row (a token in the URL query string or
+in userinfo), and the counter arithmetic. Server words (reasons, statuses)
+render verbatim; the counter words are locale-invariant like the four panel
+counters.
+
+### Build-time warnings are aimed, not shouted
+
+`app.config.js` prints its missing-Maps-key / missing-`google-services.json`
+warnings **only for native Android builds** (`isNativeAndroidBuild`: the exact
+command tokens `prebuild` / `run:android`, minus an explicit iOS target, or a
+non-iOS EAS build) and **exactly once** per process (`warnOnce` — a module set
+plus an `SBT_APP_CONFIG_*` env marker, so "once" survives the require-cache
+clears Expo's reloads cause). `expo start --go` / `expo export` / iOS builds
+print nothing — in the Expo Go case the app already says the honest thing at
+runtime (the map panel, the gated background toggle), so a build-time warning
+would only scare.
+
+### Guard specs (all under `npm --prefix mobile test`)
+
+| Spec                                  | Pins                                                                                                                                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime-environment.spec.ts` (13)    | the pure Expo Go / dev-build capability facts, the SDK-version detection, and "unknown" never masquerading as "all good"                                                                 |
+| `map-surface-mode.spec.ts` (5)        | which map surfaces show the labelled development-build panel instead of a blank map, and only in the Expo Go + no-key case                                                               |
+| `gps-strip-action.spec.ts` (extended) | the strip tap: Share GPS / Stop / Retry **plus** the repair actions — settings for services-off or permanent denial, in-app request for a refused-but-askable prompt, running stays Stop |
+| `tracking-status.spec.ts` (extended)  | `crewTrackingStatusLine` names the server status for a refused trip and the `host:port` for a gave-up reconnect, and `apiHost()` drops query/userinfo so a token can't reach the line    |
+| `crew-diagnostics.spec.ts` (8)        | the support readout: no JWT-shaped string or secret in any row (token in query or userinfo), counter arithmetic, runtime names, null handling                                            |
+| `app-config-warnings.spec.ts` (11)    | build-time warnings: exactly once per missing fact for native Android builds, silent for Expo Go / export / iOS; a set key is injected but never logged                                  |
