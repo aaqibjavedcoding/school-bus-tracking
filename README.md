@@ -177,6 +177,14 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - REST fallback/history: `POST|GET /trips/:id/location`, `GET /trips/:id/location/history`.
 - `trip:tracking:started` / `trip:tracking:stopped` bracket the live window; sharing auto-stops on
   terminal trip states and on sign-out.
+- **When sharing starts (driver)**: the driver's own **server-confirmed** lifecycle tap — "Start
+  boarding" (`BOARDING`) or "Depart & drive" (`IN_PROGRESS`) on the mobile trip screen — starts
+  GPS sharing for that trip immediately (the OS location prompt appears there if not yet granted).
+  The GPS strip's **Share GPS** button is the fallback for a refused/stopped start, and reads
+  **Retry** only after a failed run (`gps-strip-action.ts`). Conductor taps, admin transitions and
+  the offline-queued path never start GPS; a permission granted on the Help screen never does
+  either. A trip that is only `SCHEDULED` cannot share (the server rejects fixes with
+  `trip_not_open`).
 - Maps: **Leaflet/react-leaflet** on web (`web/src/features/map`), **react-native-maps** on mobile
   (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading.
 
@@ -834,8 +842,12 @@ adding one needs no migration.
   card whose background colour _is_ the state (BOARDING green / ON THE ROAD amber / settled grey,
   mapping pinned by `trip-status-style.spec.ts`), shows next stop + ETA at 24px and exactly one
   64px primary action; metadata hides in a collapsible "More details". The driver's GPS row is
-  only `Sharing ✅/❌` + last update + Retry — the telemetry counters live on the hidden
-  **Help & support** tab (`app/(crew)/help.tsx`, move guarded by `help-routing.spec.ts`).
+  only `Sharing ✅/❌` + last update + one tap (Share GPS / Retry / Stop) — the telemetry counters
+  live on the hidden **Help & support** tab (`app/(crew)/help.tsx`, move guarded by
+  `help-routing.spec.ts`). The crew tracking lifecycle publishes **only real changes** (no-op
+  patches are silent) and `GpsPermissionRecovery` keys its OS check on primitives, never on the
+  `sharing` binding — the "Maximum update depth exceeded" render loop on the Help screen is pinned
+  closed by `gps-permission-recovery-wiring.spec.ts` + `tracking-recovery.sim.spec.ts` (#29).
   SOS is **hold-to-confirm** (~0.9s, single-fire, same idempotency key per alert, offline shows
   "queued ⏳" with an automatic same-key retry); manifest rows are full-row tap targets with a
   60px ✓/✕, a green success flash and an inline "Name ✓ time". All Phase-2 copy is centralized

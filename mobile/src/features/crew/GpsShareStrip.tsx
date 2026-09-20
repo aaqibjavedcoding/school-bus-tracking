@@ -4,14 +4,22 @@ import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Button } from '../../components';
 import { crewCopy } from './crew-copy';
 import { feedback } from './crew-feedback.ts';
+import { gpsStripActions } from './gps-strip-action.ts';
 import type { CrewLocationSharing } from './useCrewLocationSharing';
 
 /**
  * The driver's whole GPS story on the trip screen (Phase 2): **Sharing ✅/❌,
- * the last update time, and one Retry tap.** Nothing else — the counters
+ * the last update time, and one tap.** Nothing else — the counters
  * ("Rejected", "Dropped (offline)", "Invalid fix") and every raw diagnostic
  * moved to the Help/Support screen (`app/(crew)/help.tsx`), where the
  * support team reads them *with* the driver instead of at them.
+ *
+ * The one tap says what it does (`gps-strip-action.ts`): **Share GPS** when
+ * nothing is running yet, **Retry** when the last run failed, **Stop** while
+ * running — plus a Retry beside Stop when the reconnect budget has given up.
+ * Since the driver's lifecycle taps ("Start boarding" / "Depart & drive")
+ * start sharing themselves, Share GPS is the fallback for a refused or
+ * stopped start, not the normal way in.
  *
  * This is presentation only: start/stop/retry call the untouched
  * `useCrewLocationSharing` actions.
@@ -60,6 +68,14 @@ export const GpsShareStrip: React.FC<{
     feedback.on({ type: active ? 'gps.on' : 'gps.off' });
   }, [active]);
 
+  const actions = gpsStripActions({
+    foregroundActive: sharing.sharing,
+    backgroundActive: sharing.backgroundActive,
+    lastStopReason: sharing.lastStopReason,
+    recoveryExhausted: sharing.statusDetail.recoveryExhausted,
+    message: sharing.message,
+  });
+
   return (
     <View style={styles.card}>
       <View style={styles.mainRow}>
@@ -67,20 +83,35 @@ export const GpsShareStrip: React.FC<{
           <Text style={styles.stateLine}>{deviceLine}</Text>
           <Text style={styles.updateLine}>{deliveryLine}</Text>
         </View>
-        {sharing.sharing || sharing.backgroundActive ? (
-          <Button
-            label={crewCopy.gps.stop}
-            icon="stop-circle"
-            variant="secondary"
-            size="md"
-            onPress={() => void sharing.stopSharing()}
-            busy={sharing.busy}
-            disabled={sharing.busy}
-          />
+        {actions.primary === 'stop' ? (
+          <View style={styles.buttonRow}>
+            {actions.showRetryWhileRunning ? (
+              <Button
+                label={crewCopy.gps.retry}
+                icon="refresh"
+                tone="success"
+                size="md"
+                onPress={() => void sharing.retry()}
+                busy={sharing.busy}
+                disabled={sharing.busy}
+              />
+            ) : null}
+            <Button
+              label={crewCopy.gps.stop}
+              icon="stop-circle"
+              variant="secondary"
+              size="md"
+              onPress={() => void sharing.stopSharing()}
+              busy={sharing.busy}
+              disabled={sharing.busy}
+            />
+          </View>
         ) : (
           <Button
-            label={crewCopy.gps.retry}
-            icon="refresh"
+            // Both start the same way (`retry()` starts when nothing runs);
+            // only the word differs: "Share GPS" first, "Retry" after a failure.
+            label={actions.primary === 'retry' ? crewCopy.gps.retry : crewCopy.gps.share}
+            icon={actions.primary === 'retry' ? 'refresh' : 'navigate'}
             tone="success"
             size="md"
             onPress={() => void sharing.retry()}
@@ -121,6 +152,11 @@ const styles = StyleSheet.create({
   statusBlock: {
     flex: 1,
     gap: 2,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   stateLine: {
     fontSize: 14,

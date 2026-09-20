@@ -87,7 +87,14 @@ export interface CrewLocationSharing {
   lastStopReason: string | null;
   connection: CrewTrackingState['connection'];
   recovery: CrewTrackingState['recovery'];
-  startSharing: () => Promise<void>;
+  /**
+   * Starts sharing for the screen's current trip. `trip` overrides it for the
+   * one case where the screen's copy is known to be stale: the driver's own
+   * lifecycle tap was just confirmed by the server (`BOARDING` /
+   * `IN_PROGRESS`), and sharing must start on that confirmed trip without
+   * waiting for the list to reload. A non-shareable trip is refused either way.
+   */
+  startSharing: (trip?: TripResponse) => Promise<void>;
   stopSharing: () => Promise<void>;
   enableBackground: () => Promise<void>;
   disableBackground: () => Promise<void>;
@@ -141,15 +148,35 @@ export function useCrewLocationSharing(
 
   // A trip that closed (completed/cancelled) or a settled load with no trip
   // ends tracking — but an unsettled load (a screen still fetching) must not.
+  //
+  // The rule runs when **this screen's knowledge** changes (its load settling,
+  // its trip changing status or identity) — never merely because the lifecycle
+  // started. Two screens bind this hook with independent loads (Trip, Help) and
+  // the tab navigator keeps both mounted, so a screen can hold a copy that is
+  // older than the run: Help opened before the trip was dispatched ("no trip")
+  // or before the driver's lifecycle tap ("SCHEDULED"). Reacting to the watcher
+  // starting let such a stale copy tear down the run the driver had just
+  // started on the other screen. A screen only gets a vote when it learns
+  // something new, and the lifecycle state is read at that moment.
   useEffect(() => {
-    if (!settled || !active) {
+    if (!settled) {
+      return;
+    }
+    const running = getCrewTrackingState();
+    if (!running.foregroundActive && !running.backgroundActive) {
       return;
     }
     if (trip && isTripShareable(trip)) {
       return;
     }
+    // A SCHEDULED copy of the very trip the lifecycle is tracking is a stale
+    // read, not a closed trip: tracking only ever starts on a trip the server
+    // confirmed as BOARDING/IN_PROGRESS, and a status never moves backwards.
+    if (trip && trip.status === TripStatus.SCHEDULED && running.tripId === trip.id) {
+      return;
+    }
     void stopCrewTracking('trip-closed');
-  }, [settled, active, trip?.id, trip?.status]);
+  }, [settled, trip?.id, trip?.status]);
 
   const statusDetail = useMemo(
     () =>
@@ -193,8 +220,8 @@ export function useCrewLocationSharing(
       ageMs === null ? '' : formatRelative(new Date(tick - ageMs).toISOString(), tick),
   });
 
-  const startSharing = useCallback(async () => {
-    const currentTrip = tripRef.current;
+  const startSharing = useCallback(async (tripOverride?: TripResponse) => {
+    const currentTrip = tripOverride ?? tripRef.current;
     if (!currentTrip || !isTripShareable(currentTrip)) {
       return;
     }
@@ -237,32 +264,57 @@ export function useCrewLocationSharing(
     await requestCrewTrackingRecovery();
   }, []);
 
-  return {
-    foregroundPermission: snapshot.foregroundPermission,
-    backgroundPermission: snapshot.backgroundPermission,
-    sharing: snapshot.foregroundActive,
-    backgroundActive: snapshot.backgroundActive,
-    backgroundConsent: snapshot.backgroundConsent,
-    stats: snapshot.stats,
-    busy: snapshot.busy,
-    message: snapshot.message,
-    canShare: isTripShareable(trip),
-    statusDetail,
-    status: statusDetail.status,
-    statusLine: t(copy.key, copy.params as never),
-    statusTone: crewTrackingStatusTone(statusDetail.status),
-    issue,
-    accuracy: snapshot.accuracy,
-    servicesEnabled: snapshot.servicesEnabled,
-    lastStopReason: snapshot.lastStopReason,
-    connection: snapshot.connection,
-    recovery: snapshot.recovery,
-    startSharing,
-    stopSharing,
-    enableBackground,
-    disableBackground,
-    retry,
-  };
+  const statusLine = t(copy.key, copy.params as never);
+  const statusTone = crewTrackingStatusTone(statusDetail.status);
+  const canShare = isTripShareable(trip);
+
+  // One stable object per distinct state. Consumers key effects and callbacks
+  // on this binding (`GpsPermissionRecovery`, the strips), so handing out a
+  // fresh literal on every render would make "nothing changed" look like a
+  // change and re-arm their work each time — the render loop this hook's
+  // subscribers hit once. Every input is either a primitive, a reference the
+  // lifecycle only replaces on publish, or a memoised derivation.
+  return useMemo<CrewLocationSharing>(
+    () => ({
+      foregroundPermission: snapshot.foregroundPermission,
+      backgroundPermission: snapshot.backgroundPermission,
+      sharing: snapshot.foregroundActive,
+      backgroundActive: snapshot.backgroundActive,
+      backgroundConsent: snapshot.backgroundConsent,
+      stats: snapshot.stats,
+      busy: snapshot.busy,
+      message: snapshot.message,
+      canShare,
+      statusDetail,
+      status: statusDetail.status,
+      statusLine,
+      statusTone,
+      issue,
+      accuracy: snapshot.accuracy,
+      servicesEnabled: snapshot.servicesEnabled,
+      lastStopReason: snapshot.lastStopReason,
+      connection: snapshot.connection,
+      recovery: snapshot.recovery,
+      startSharing,
+      stopSharing,
+      enableBackground,
+      disableBackground,
+      retry,
+    }),
+    [
+      snapshot,
+      canShare,
+      statusDetail,
+      statusLine,
+      statusTone,
+      issue,
+      startSharing,
+      stopSharing,
+      enableBackground,
+      disableBackground,
+      retry,
+    ],
+  );
 }
 
 /**

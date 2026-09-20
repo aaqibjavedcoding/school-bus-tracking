@@ -167,8 +167,11 @@ untouched.
    exposed). **De-prioritised, not deleted.**
 2. Offline-sync banner (unchanged).
 3. **Driver GPS strip** (`features/crew/GpsShareStrip.tsx`) — the whole
-   driving-time story: `Sharing ✅ / ❌` + last-update time + one **Retry**
-   (or Stop) tap + a "GPS details & support" link.
+   driving-time story: `Sharing ✅ / ❌` + last-update time + one tap
+   (**Share GPS** first, **Retry** after a failure, **Stop** while running —
+   `gps-strip-action.ts`) + a "GPS details & support" link. The driver's
+   confirmed lifecycle tap starts sharing itself, so the strip's button is the
+   fallback, not the normal way in.
 4. Driver navigation card (button is now `secondary` — the lifecycle action
    stays the only filled primary on the screen).
 5. Manifest / Stops & ETA links (56–60px, icon + label).

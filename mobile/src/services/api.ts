@@ -32,6 +32,13 @@ import { apiCache, cacheKey, isCacheableGet } from './api-cache.ts';
  *    the same WiFi reaches the API automatically: no env var and no manual IP
  *    editing required. The dev server's port is swapped for the API port
  *    (`EXPO_PUBLIC_API_PORT` to override the default 3001).
+ *    **Exception — tunnels.** With `expo start --tunnel` (or a manual ngrok /
+ *    cloudflared / localtunnel) the host is a public tunnel name that
+ *    forwards *only* the dev-server port, so swapping the port yields an
+ *    address nothing answers on. Deriving it anyway would surface as a bare
+ *    "Unable to connect" at sign-in; instead this is an
+ *    {@link ApiConfigurationError} that names the tunnel and the variable to
+ *    set ({@link isTunnelHost}).
  * 3. Platform defaults **for dev runtimes only**: the Android emulator
  *    reaches the host machine via `10.0.2.2`; the iOS simulator and web share
  *    the host's `localhost`.
@@ -56,6 +63,37 @@ export class ApiConfigurationError extends Error {
 export const API_URL_NOT_CONFIGURED_MESSAGE =
   'API URL is not configured for this build. Set EXPO_PUBLIC_API_URL to the deployed API base URL ' +
   '(e.g. https://api.your-domain.example/api/v1) via the EAS build profile env or an .env file, then rebuild.';
+
+/**
+ * Hostnames Metro is served through when a tunnel is in use. Each forwards
+ * exactly one local port — the dev server's — so the API can never be reached
+ * by swapping that port for the API's. Kept as an explicit list (not "any
+ * public DNS name") so a company dev box reachable on both ports keeps
+ * working unchanged.
+ */
+const TUNNEL_HOST_PATTERNS: RegExp[] = [
+  /\.exp\.direct$/i, // `expo start --tunnel` (ngrok-backed, the default)
+  /\.boltexpo\.dev$/i, // `expo start --tunnel` with EXPO_UNSTABLE_TUNNEL_V2
+  /\.ngrok(?:-free)?\.(?:io|app|dev)$/i, // manual ngrok
+  /\.trycloudflare\.com$/i, // cloudflared quick tunnel
+  /\.loca\.lt$/i, // localtunnel
+];
+
+/** True when `host` is a dev-server tunnel that cannot forward the API port. */
+export function isTunnelHost(host: string): boolean {
+  return TUNNEL_HOST_PATTERNS.some((pattern) => pattern.test(host));
+}
+
+/** Message shown on the sign-in screen when Metro is tunnelled and no API URL is set. */
+export function tunnelApiUrlMessage(host: string, apiPort: string): string {
+  const prefix = APP_CONFIG.apiPrefix;
+  return (
+    `Metro is served through a tunnel (${host}), which forwards only the dev server, not the API on port ${apiPort}. ` +
+    `Set EXPO_PUBLIC_API_URL to an address this phone can reach: http://<your-lan-ip>:${apiPort}/${prefix} when phone ` +
+    `and computer share a network, or a separate tunnel to port ${apiPort} (e.g. ngrok http ${apiPort}) as ` +
+    `https://<that-tunnel>/${prefix}. Then restart Metro.`
+  );
+}
 
 export interface ApiEnv {
   /** True when running against a local Metro dev server (`__DEV__`). */
@@ -131,6 +169,12 @@ export function resolveApiBaseUrl(env: ApiEnv): string {
 
   if (env.dev && env.devHost) {
     const host = hostFromUri(env.devHost);
+    if (host && isTunnelHost(host)) {
+      // The tunnel forwards Metro's port only; `http://<tunnel>:3001` is an
+      // address nothing listens on, and the phone would report it as a bare
+      // "Unable to connect" at sign-in. Fail with the cause and the fix.
+      throw new ApiConfigurationError(tunnelApiUrlMessage(host, apiPort));
+    }
     if (host && !isLoopbackHost(host)) {
       return `http://${host}:${apiPort}/${APP_CONFIG.apiPrefix}`;
     }

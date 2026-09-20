@@ -45,6 +45,29 @@ export function pickCrewTrip(items: TripResponse[]): TripResponse | null {
 }
 
 /**
+ * The crew's list of today's trips with one row replaced by its
+ * server-confirmed successor (same id) — the optimistic step after a lifecycle
+ * tap, so the status card and the GPS lifecycle read the confirmed status
+ * immediately instead of a stale copy until `GET /trips` reloads.
+ *
+ * Fields the confirmed row does not carry keep the list's value (the list is
+ * enriched with route/bus labels server-side; a merge can never blank them).
+ * A row the list did not contain is appended, never dropped. The input is not
+ * mutated.
+ */
+export function mergeTripUpdate(items: TripResponse[], applied: TripResponse): TripResponse[] {
+  let replaced = false;
+  const merged = items.map((item) => {
+    if (item.id !== applied.id) {
+      return item;
+    }
+    replaced = true;
+    return { ...item, ...applied };
+  });
+  return replaced ? merged : [...merged, applied];
+}
+
+/**
  * Forward lifecycle transitions offered to crew: one step at a time along
  * `SCHEDULED → BOARDING → IN_PROGRESS → COMPLETED`. Cancellation stays a
  * dispatcher action on the web/admin surface, never a one-tap crew button.

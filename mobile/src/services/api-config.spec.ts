@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ApiConfigurationError, resolveApiBaseUrl, type ApiEnv } from './api.ts';
+import { ApiConfigurationError, isTunnelHost, resolveApiBaseUrl, type ApiEnv } from './api.ts';
 
 /**
  * Pins the API base-URL resolution: env override wins, then the Metro
@@ -58,7 +58,10 @@ describe('resolveApiBaseUrl', () => {
   });
 
   it('falls back to localhost only on dev runtimes (iOS simulator, web)', () => {
-    assert.equal(resolveApiBaseUrl(env({ devHost: 'localhost:8081' })), 'http://localhost:3001/api/v1');
+    assert.equal(
+      resolveApiBaseUrl(env({ devHost: 'localhost:8081' })),
+      'http://localhost:3001/api/v1',
+    );
   });
 
   it('never falls back to localhost in a release build: missing URL is a configuration error', () => {
@@ -103,5 +106,89 @@ describe('resolveApiBaseUrl', () => {
       (error: unknown) => error instanceof ApiConfigurationError,
     );
     assert.equal(resolveApiBaseUrl(env()), 'http://localhost:3001/api/v1');
+  });
+
+  /**
+   * `expo start --tunnel` serves Metro through a public hostname that forwards
+   * the dev-server port only. Swapping that port for the API's used to produce
+   * `http://<tunnel>:3001/api/v1` — an address nothing answers on — so the
+   * phone showed a bare "Unable to connect" at sign-in with no hint that the
+   * tunnel was the cause. The resolver now refuses with the cause and the fix.
+   */
+  describe('tunnelled Metro (expo start --tunnel)', () => {
+    it('refuses to derive the API URL from an Expo tunnel host and names the fix', () => {
+      assert.throws(
+        () =>
+          resolveApiBaseUrl(
+            env({ devHost: 'abc123-anonymous-8081.exp.direct', platform: 'android' }),
+          ),
+        (error: unknown) => {
+          assert.ok(error instanceof ApiConfigurationError);
+          const message = (error as Error).message;
+          assert.match(message, /abc123-anonymous-8081\.exp\.direct/);
+          assert.match(message, /EXPO_PUBLIC_API_URL/);
+          assert.match(message, /3001/);
+          assert.match(message, /http:\/\/<your-lan-ip>:3001\/api\/v1/);
+          return true;
+        },
+      );
+    });
+
+    it('names the overridden API port in the tunnel message', () => {
+      process.env.EXPO_PUBLIC_API_PORT = '4000';
+      assert.throws(
+        () => resolveApiBaseUrl(env({ devHost: 'abc123-anonymous-8081.exp.direct' })),
+        (error: unknown) =>
+          error instanceof ApiConfigurationError && /4000/.test((error as Error).message),
+      );
+    });
+
+    it('treats Expo tunnel v2, ngrok, cloudflared and localtunnel hosts the same way', () => {
+      for (const devHost of [
+        'session.boltexpo.dev',
+        'a1b2c3d4.ngrok.io',
+        'a1b2-203-0-113-9.ngrok-free.app',
+        'a1b2c3d4.ngrok.app',
+        'a1b2c3d4.ngrok.dev',
+        'quiet-river-1234.trycloudflare.com',
+        'brave-cat-42.loca.lt',
+      ]) {
+        assert.throws(
+          () => resolveApiBaseUrl(env({ devHost })),
+          (error: unknown) => error instanceof ApiConfigurationError,
+          devHost,
+        );
+      }
+    });
+
+    it('still lets EXPO_PUBLIC_API_URL win when Metro is tunnelled', () => {
+      process.env.EXPO_PUBLIC_API_URL = 'https://api-tunnel.ngrok-free.app/api/v1';
+      assert.equal(
+        resolveApiBaseUrl(
+          env({ devHost: 'abc123-anonymous-8081.exp.direct', platform: 'android' }),
+        ),
+        'https://api-tunnel.ngrok-free.app/api/v1',
+      );
+    });
+
+    it('keeps LAN addresses, mDNS names and plain machine names on the derived URL', () => {
+      assert.equal(
+        resolveApiBaseUrl(env({ devHost: '192.168.1.20:8081' })),
+        'http://192.168.1.20:3001/api/v1',
+      );
+      assert.equal(
+        resolveApiBaseUrl(env({ devHost: 'my-laptop.local:8081' })),
+        'http://my-laptop.local:3001/api/v1',
+      );
+      assert.equal(
+        resolveApiBaseUrl(env({ devHost: 'devbox.corp.example:8081' })),
+        'http://devbox.corp.example:3001/api/v1',
+      );
+      assert.equal(isTunnelHost('192.168.1.20'), false);
+      assert.equal(isTunnelHost('my-laptop.local'), false);
+      // Only a *suffix* match counts: a LAN host that merely contains the word is not a tunnel.
+      assert.equal(isTunnelHost('ngrok.dev.internal'), false);
+      assert.equal(isTunnelHost('exp.direct.lan'), false);
+    });
   });
 });

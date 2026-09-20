@@ -947,3 +947,45 @@ test('28. an unavailable heading never reaches the uploaded payload or the marke
   assert.ok(localFix);
   assert.equal(localFix.heading, null, 'nor may it become a direction the device never had');
 });
+
+test('29. an unchanged permission refresh publishes nothing (render-loop regression)', async () => {
+  // The crew Help screen re-reads OS permissions from a render-driven effect.
+  // Every publish re-renders every subscribed screen, so a refresh that finds
+  // the same values must be silent — otherwise "same values" → publish →
+  // render → refresh → publish … ("Maximum update depth exceeded").
+  let publishes = 0;
+  const unsubscribe = lifecycle.subscribeCrewTracking(() => {
+    publishes += 1;
+  });
+  try {
+    const before = lifecycle.getCrewTrackingState();
+    await lifecycle.refreshCrewPermissions();
+    const afterFirst = publishes;
+    assert.ok(afterFirst >= 1, 'the first read of granted permissions is a real change');
+    assert.notEqual(
+      lifecycle.getCrewTrackingState(),
+      before,
+      'a real change replaces the snapshot',
+    );
+
+    const settled = lifecycle.getCrewTrackingState();
+    await lifecycle.refreshCrewPermissions();
+    await lifecycle.refreshCrewPermissions();
+    await lifecycle.hydrateCrewTracking(DRIVER);
+
+    assert.equal(publishes, afterFirst, 'identical OS values must not notify subscribers');
+    assert.equal(
+      lifecycle.getCrewTrackingState(),
+      settled,
+      'and must not allocate a new snapshot (React would treat it as a state change)',
+    );
+
+    // A genuine change still goes through.
+    location.foreground = deniedPermission;
+    await lifecycle.refreshCrewPermissions();
+    assert.equal(publishes, afterFirst + 1, 'a revoked permission is published exactly once');
+    assert.equal(lifecycle.getCrewTrackingState().foregroundPermission, 'denied');
+  } finally {
+    unsubscribe();
+  }
+});

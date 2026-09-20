@@ -308,17 +308,47 @@ function publish(): void {
   }
 }
 
+/**
+ * True when every key of `next` already holds the same value (`Object.is`) in
+ * `current` — i.e. applying the patch would change nothing.
+ *
+ * A no-op patch must **not** allocate a new state object or notify subscribers.
+ * Every subscribed screen re-renders on `publish()` (`setSnapshot` with a new
+ * reference), and a screen whose effect re-reads the OS permissions on render
+ * (`GpsPermissionRecovery` → `refreshCrewPermissions`) turned that into an
+ * infinite render loop ("Maximum update depth exceeded"): identical permission
+ * values were published as a change, forever. Publishing only real changes
+ * closes that loop at the source, independently of how any screen is wired.
+ */
+function isNoopPatch<T extends object>(current: T, next: Partial<T>): boolean {
+  for (const key of Object.keys(next) as Array<keyof T>) {
+    if (!Object.is(current[key], next[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function patch(next: Partial<CrewTrackingState>): void {
+  if (isNoopPatch(state, next)) {
+    return;
+  }
   state = { ...state, ...next };
   publish();
 }
 
 function patchStats(next: Partial<CrewLocationStats>): void {
+  if (isNoopPatch(state.stats, next)) {
+    return;
+  }
   state = { ...state, stats: { ...state.stats, ...next } };
   publish();
 }
 
 function patchRecovery(next: Partial<CrewTrackingRecoveryState>): void {
+  if (isNoopPatch(state.recovery, next)) {
+    return;
+  }
   state = { ...state, recovery: { ...state.recovery, ...next } };
   publish();
 }
@@ -387,6 +417,10 @@ function permissionSnapshotOf(
  * Called on start, on hydrate and whenever the app returns from OS settings —
  * a grant that happened in Settings must be observed, and a revocation must be
  * reported instead of silently producing no fixes.
+ *
+ * Safe to call from a render-driven effect: when the OS reports the same
+ * values as before, nothing is published (see `patch`), so subscribers are not
+ * re-rendered for a refresh that changed nothing.
  */
 export async function refreshCrewPermissions(): Promise<{
   foregroundPermission: PermissionState;
