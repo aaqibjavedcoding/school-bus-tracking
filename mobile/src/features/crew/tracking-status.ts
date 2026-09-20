@@ -282,7 +282,88 @@ export type CrewTrackingCopyKey =
   | 'gps.status.permissionBlocked'
   | 'gps.status.servicesOff'
   | 'gps.status.revoked'
-  | 'gps.status.stopped';
+  | 'gps.status.stopped'
+  | 'gps.status.tripNotEligible'
+  | 'gps.status.cannotReachServer';
+
+/**
+ * The host part of an API base URL — for copy that must name *which* server
+ * the app talks to without leaking anything else.
+ *
+ * `URL().host` is deliberately the whole extraction: it keeps scheme+host+port
+ * (nothing) — just `host:port`, with any userinfo, path, query and fragment
+ * dropped. A misconfigured `EXPO_PUBLIC_API_URL` carrying a token in the query
+ * string or in userinfo therefore can never reach a driver-facing line or the
+ * diagnostics card through this helper. `null` (no configured URL) is the
+ * honest answer, never a guess.
+ */
+export function apiHost(apiBaseUrl: string | null | undefined): string | null {
+  if (!apiBaseUrl) {
+    return null;
+  }
+  try {
+    const host = new URL(apiBaseUrl).host;
+    return host === '' ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The status line with the lifecycle's stop/recovery context layered on.
+ *
+ * `crewTrackingStatusCopy` answers "what is the delivery doing right now"
+ * from status + ages alone. These two facts need extra lifecycle state and are
+ * exactly the ones a driver cannot diagnose:
+ *
+ * - tracking stopped because the **server** says the trip no longer accepts
+ *   GPS — say so, with the server's status (`{status}` is data, not copy);
+ * - the bounded reconnect budget is exhausted (`gave-up`) — the remaining
+ *   question is reachability, so name the school server's host (`{host}` is
+ *   `apiHost`, never the full URL).
+ *
+ * Everything else falls through to `crewTrackingStatusCopy` unchanged.
+ */
+export function crewTrackingStatusLine(input: {
+  status: CrewTrackingStatus;
+  serverAckAgeMs: number | null;
+  localFixAgeMs: number | null;
+  formatAge: StatusAgeFormatter;
+  /** Why tracking last stopped (lifecycle state; `null` while running). */
+  lastStopReason?: string | null;
+  /** Server trip status recorded with a `trip-not-eligible` stop, if any. */
+  lastStopTripStatus?: string | null;
+  /** Lifecycle connection state (for the `gave-up` line). */
+  connection?: TrackingConnectionState;
+  /** The API base URL, for the host in the `gave-up` line. */
+  apiBaseUrl?: string | null;
+}): { key: CrewTrackingCopyKey; params: Record<string, string | number> } {
+  const base = crewTrackingStatusCopy({
+    status: input.status,
+    serverAckAgeMs: input.serverAckAgeMs,
+    localFixAgeMs: input.localFixAgeMs,
+    formatAge: input.formatAge,
+  });
+
+  if (
+    input.status === 'stopped' &&
+    input.lastStopReason === 'trip-not-eligible' &&
+    input.lastStopTripStatus
+  ) {
+    return { key: 'gps.status.tripNotEligible', params: { status: input.lastStopTripStatus } };
+  }
+
+  if (input.connection === 'gave-up') {
+    const host = apiHost(input.apiBaseUrl);
+    if (host) {
+      return { key: 'gps.status.cannotReachServer', params: { host } };
+    }
+    // No configured host to name (dev default not resolved yet): fall through
+    // to the honest reconnecting/stopped word rather than a fake address.
+  }
+
+  return base;
+}
 
 /** Tone for the status badge: colour is never the only cue, the word repeats it. */
 export function crewTrackingStatusTone(

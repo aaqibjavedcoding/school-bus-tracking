@@ -198,6 +198,11 @@ export const en = {
   'gps.neverUpdated': 'No update yet',
   'gps.retry': 'Retry',
   'gps.stop': 'Stop',
+  // Strip repair taps (`gps-strip-action.ts`): the tap fixes the named
+  // problem — only Settings can fix a switch-off / permanent denial, and the
+  // OS will still answer an in-app request it can ask again.
+  'gps.openSettings': 'Open location settings',
+  'gps.requestPermission': 'Request location permission',
   'gps.helpLink': 'GPS details & support',
   'gps.panelTitle': 'Live GPS sharing',
   'gps.badgeSharing': 'Sharing',
@@ -210,6 +215,9 @@ export const en = {
   'gps.backgroundOn': 'Device location runs as a background task while the screen is off.',
   'gps.backgroundAllowed': 'Allowed — enable to keep sending fixes with the screen off.',
   'gps.backgroundNeeded': 'Requires “Allow all the time” location permission.',
+  // The diagnostics card's background-permission line, when the runtime
+  // itself cannot run the task (the fixable case: a development build).
+  'gps.backgroundNeedsDevBuild': 'Background needs a development build',
   'gps.tierGood': 'GPS good',
   'gps.tierWeak': 'GPS weak',
   'gps.tierStale': 'GPS stale',
@@ -233,6 +241,11 @@ export const en = {
   'gps.status.servicesOff': 'Location services are off',
   'gps.status.revoked': 'Access revoked — tracking stopped',
   'gps.status.stopped': 'Not sharing',
+  // Lifecycle-context lines (`crewTrackingStatusLine`): `{status}` and
+  // `{host}` are data (the server's trip status, the server's host — never a
+  // URL with a query string).
+  'gps.status.tripNotEligible': 'This trip no longer accepts GPS sharing (server status: {status})',
+  'gps.status.cannotReachServer': 'Cannot reach the school server ({host})',
   'gps.deliveryBadge': 'Delivery',
   'gps.accuracyReduced': 'Approx. GPS',
   'gps.servicesOff': 'Location off',
@@ -306,6 +319,41 @@ export const en = {
   'help.languageTitle': 'Language',
   'help.languageHint': 'The screen changes language as soon as you pick one.',
   'help.languageCurrent': 'Now showing',
+
+  // ── Diagnostics readout (for the support engineer) ──────────────────────
+  // Labels are localised; the values are data (server strings stay verbatim —
+  // the server-string boundary) or localised value words below. The delivery
+  // counter WORDS are locale-invariant: they are read aloud to a support
+  // engineer who works in English, like the four support counters.
+  'help.diagnostics.title': 'Diagnostics (for support)',
+  'help.diagnostics.hint':
+    'If sharing is not working, read these lines to the support engineer. They show what this phone knows about its runtime, the school server and GPS — nothing here starts or stops sharing.',
+  'help.diagnostics.runtime': 'App runtime',
+  'help.diagnostics.apiHost': 'Server address (API host)',
+  'help.diagnostics.socket': 'Live tracking socket',
+  'help.diagnostics.connection': 'Connection',
+  'help.diagnostics.locationServices': 'Location services',
+  'help.diagnostics.foregroundPermission': 'Location permission (foreground)',
+  'help.diagnostics.backgroundPermission': 'Location permission (background)',
+  'help.diagnostics.sharing': 'Sharing running',
+  'help.diagnostics.lastStop': 'Last stopped (server reason)',
+  'help.diagnostics.recovery': 'Recovery attempts (last reason)',
+  'help.diagnostics.lastError': 'Last error',
+  'help.diagnostics.delivery': 'Delivery counters',
+  'help.diagnostics.valueExpoGo': 'Expo Go',
+  'help.diagnostics.valueDevBuild': 'Development build',
+  'help.diagnostics.valueUnknown': 'Unknown',
+  'help.diagnostics.valueNotSet': 'Not set',
+  'help.diagnostics.valueExhausted': 'budget exhausted',
+  'help.diagnostics.valueForeground': 'foreground',
+  'help.diagnostics.valueBackground': 'background',
+  // Invariant in hi/mr (declared in LOCALE_INVARIANT_KEYS).
+  'help.diagnostics.sent': 'Sent',
+  'help.diagnostics.accepted': 'Accepted',
+  'help.diagnostics.rejected': 'Rejected',
+  'help.diagnostics.pending': 'Pending (offline)',
+  'help.diagnostics.invalid': 'Invalid fix',
+  'help.diagnostics.retried': 'Retried',
 
   // ── Language switcher (self-designations are locale-invariant) ─────────
   'settings.language.nameEn': 'English',

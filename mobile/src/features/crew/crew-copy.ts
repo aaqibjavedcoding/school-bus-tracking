@@ -109,6 +109,14 @@ export const crewCopy = {
     get stop(): string {
       return t('gps.stop');
     },
+    /** The tap opens the OS location settings (services off / permanent denial). */
+    get openSettings(): string {
+      return t('gps.openSettings');
+    },
+    /** The tap fires the in-app OS permission request (refused, can ask again). */
+    get requestPermission(): string {
+      return t('gps.requestPermission');
+    },
     get helpLink(): string {
       return t('gps.helpLink');
     },

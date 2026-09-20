@@ -317,6 +317,22 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'trip.emptyValue',
   'manifest.confirmBoard',
   'manifest.confirmDrop',
+  // Product/technical terms the diagnostics readout uses in every locale:
+  // "Expo Go" and "Development build" are proper names, and the delivery
+  // counter words are read aloud to a support engineer who works in English
+  // (the server-string boundary, `docs/mobile-ux.md`).
+  'help.diagnostics.valueExpoGo',
+  'help.diagnostics.valueDevBuild',
+  // "foreground" / "background" are the technical pair the OS uses; they stay
+  // English in every locale, next to the OS permission words they qualify.
+  'help.diagnostics.valueForeground',
+  'help.diagnostics.valueBackground',
+  'help.diagnostics.sent',
+  'help.diagnostics.accepted',
+  'help.diagnostics.rejected',
+  'help.diagnostics.pending',
+  'help.diagnostics.invalid',
+  'help.diagnostics.retried',
 ];
 
 // ── Server error codes ─────────────────────────────────────────────────────

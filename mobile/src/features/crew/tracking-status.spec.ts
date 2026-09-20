@@ -6,7 +6,9 @@ import {
   LOCAL_FIX_FRESH_WINDOW_MS,
   SERVER_ACK_LIVE_WINDOW_MS,
   SERVER_ACK_STALE_WINDOW_MS,
+  apiHost,
   crewTrackingStatusCopy,
+  crewTrackingStatusLine,
   crewTrackingStatusTone,
   deriveCrewTrackingStatus,
   freshnessBucket,
@@ -325,5 +327,104 @@ describe('status copy', () => {
     assert.equal(crewTrackingStatusTone('reconnecting'), 'warning');
     assert.equal(crewTrackingStatusTone('revoked'), 'danger');
     assert.equal(crewTrackingStatusTone('stopped'), 'neutral');
+  });
+});
+
+describe('apiHost', () => {
+  it('keeps host and port, drops everything that could carry a secret', () => {
+    assert.equal(apiHost('http://192.168.1.50:3001/api/v1'), '192.168.1.50:3001');
+    assert.equal(apiHost('https://bus.example.com/api/v1?access_token=x'), 'bus.example.com');
+    assert.equal(
+      apiHost('http://driver:secret-token@10.0.0.5:8080/api/v1'),
+      '10.0.0.5:8080',
+      'userinfo is a classic token smuggling spot',
+    );
+    assert.equal(apiHost('https://bus.example.com/some/path?token=x#frag'), 'bus.example.com');
+  });
+
+  it('is null for no URL, not a guess', () => {
+    assert.equal(apiHost(null), null);
+    assert.equal(apiHost(''), null);
+    assert.equal(apiHost('not a url'), null);
+  });
+});
+
+describe('crewTrackingStatusLine', () => {
+  const formatAge = (ageMs: number | null): string => (ageMs === null ? 'never' : `${ageMs}ms`);
+
+  it('a server-refused trip says which status ended sharing', () => {
+    const line = crewTrackingStatusLine({
+      status: 'stopped',
+      serverAckAgeMs: null,
+      localFixAgeMs: null,
+      formatAge,
+      lastStopReason: 'trip-not-eligible',
+      lastStopTripStatus: 'COMPLETED',
+    });
+    assert.equal(line.key, 'gps.status.tripNotEligible');
+    assert.deepEqual(line.params, { status: 'COMPLETED' });
+  });
+
+  it('a trip refusal without a recorded status falls back to the plain stop line', () => {
+    const line = crewTrackingStatusLine({
+      status: 'stopped',
+      serverAckAgeMs: null,
+      localFixAgeMs: null,
+      formatAge,
+      lastStopReason: 'trip-not-eligible',
+      lastStopTripStatus: null,
+    });
+    assert.equal(line.key, 'gps.status.stopped');
+  });
+
+  it('an exhausted reconnect budget names the server host', () => {
+    const line = crewTrackingStatusLine({
+      status: 'reconnecting',
+      serverAckAgeMs: null,
+      localFixAgeMs: null,
+      formatAge,
+      connection: 'gave-up',
+      apiBaseUrl: 'http://192.168.1.50:3001/api/v1?access_token=never-shown',
+    });
+    assert.equal(line.key, 'gps.status.cannotReachServer');
+    assert.deepEqual(line.params, { host: '192.168.1.50:3001' }, 'the host — never the URL');
+  });
+
+  it('an exhausted budget with no configured URL falls through to the plain line', () => {
+    const line = crewTrackingStatusLine({
+      status: 'stopped',
+      serverAckAgeMs: null,
+      localFixAgeMs: null,
+      formatAge,
+      connection: 'gave-up',
+      apiBaseUrl: null,
+    });
+    assert.equal(line.key, 'gps.status.stopped');
+  });
+
+  it('everything else is the unchanged status copy', () => {
+    const line = crewTrackingStatusLine({
+      status: 'live',
+      serverAckAgeMs: 4_000,
+      localFixAgeMs: 1_000,
+      formatAge,
+      connection: 'connected',
+      lastStopReason: null,
+    });
+    assert.equal(line.key, 'gps.status.live');
+    assert.deepEqual(line.params, { time: '4000ms' });
+  });
+
+  it('the refused-trip line only applies while stopped', () => {
+    // The same stop reason from a previous run must not hijack a live line.
+    const line = crewTrackingStatusLine({
+      status: 'live',
+      serverAckAgeMs: 4_000,
+      localFixAgeMs: 1_000,
+      formatAge,
+      lastStopReason: 'trip-not-eligible',
+      lastStopTripStatus: 'COMPLETED',
+    });
+    assert.equal(line.key, 'gps.status.live');
   });
 });

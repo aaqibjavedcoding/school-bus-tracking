@@ -475,7 +475,18 @@ test('6. a completed trip cannot resume tracking', async () => {
   assert.equal(result.eligibility, 'refused');
   assert.equal(result.delivered, 0);
   assert.equal(socket.locationUpdates().length, 0, 'not one fix is sent for a closed trip');
-  assert.equal(lifecycle.getCrewTrackingState().tripId, null, 'tracking was stopped');
+  const stopped = lifecycle.getCrewTrackingState();
+  assert.equal(stopped.tripId, null, 'tracking was stopped');
+  assert.equal(
+    stopped.lastStopReason,
+    'headless-not-eligible',
+    'the stop records that the server refused the trip',
+  );
+  assert.equal(
+    stopped.lastStopTripStatus,
+    'COMPLETED',
+    'the server status that ended sharing is recorded for the diagnostics readout',
+  );
   assert.equal(
     storage.get(contextModule.CREW_TRACKING_CONTEXT_KEY),
     undefined,
