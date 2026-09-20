@@ -76,4 +76,85 @@ describe('gpsStripActions', () => {
       'stop',
     );
   });
+
+  test('the OS location switch being off offers Settings, not Retry', () => {
+    assert.equal(
+      gpsStripActions({ ...idle, servicesEnabled: false, message: 'Location services are off' })
+        .primary,
+      'open-settings',
+      're-running the start cannot turn the switch on',
+    );
+  });
+
+  test('a permanently denied foreground permission offers Settings, not Retry', () => {
+    // 'denied' means "asked, refused, cannot ask again" (mapPermissionState):
+    // only the OS settings screen can fix it.
+    assert.equal(
+      gpsStripActions({
+        ...idle,
+        foregroundPermission: 'denied',
+        message: 'Location permission is required',
+      }).primary,
+      'open-settings',
+    );
+  });
+
+  test('a refused-but-askable permission offers the in-app request', () => {
+    // 'undetermined' covers "never asked" AND "denied once, can ask again".
+    // With a failure message present the start was refused, so the tap asks
+    // again in-app — the OS will still answer.
+    assert.equal(
+      gpsStripActions({
+        ...idle,
+        foregroundPermission: 'undetermined',
+        message: 'Location permission is required',
+      }).primary,
+      'request-permission',
+    );
+  });
+
+  test('an undetermined permission with no failure is a plain first start', () => {
+    // Nothing was refused: "Share GPS" already asks for the permission as
+    // part of starting, so a dedicated request button would be a second tap
+    // for the same thing.
+    assert.equal(
+      gpsStripActions({ ...idle, foregroundPermission: 'undetermined' }).primary,
+      'share',
+    );
+  });
+
+  test('a granted permission with a failed start stays a Retry', () => {
+    // Permission is not the problem (a start failed for another reason, e.g.
+    // the server could not be reached): retrying the start is the right tap.
+    assert.equal(
+      gpsStripActions({
+        ...idle,
+        foregroundPermission: 'granted',
+        servicesEnabled: true,
+        message: 'Could not start GPS sharing.',
+      }).primary,
+      'retry',
+    );
+  });
+
+  test('OS-side blockers win even when a run has given up reconnecting', () => {
+    assert.equal(
+      gpsStripActions({ ...idle, recoveryExhausted: true, servicesEnabled: false }).primary,
+      'open-settings',
+    );
+  });
+
+  test('repair actions do not disturb the running-run semantics', () => {
+    // While fixes are being produced, nothing about permissions may turn the
+    // primary tap into anything but Stop.
+    assert.equal(
+      gpsStripActions({
+        ...idle,
+        foregroundActive: true,
+        servicesEnabled: false,
+        foregroundPermission: 'denied',
+      }).primary,
+      'stop',
+    );
+  });
 });

@@ -12,8 +12,19 @@ import {
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { SoundSettingsCard } from '../../src/features/crew/SoundSettingsCard';
+import { buildDiagnosticsRows } from '../../src/features/crew/crew-diagnostics';
 import { crewCopy } from '../../src/features/crew/crew-copy';
-import { Card, LanguageSwitcher, LoadingView, Screen, SectionTitle } from '../../src/components';
+import { API_BASE_URL } from '../../src/services/api.ts';
+import '../../src/lib/runtime-env.ts';
+import { getRuntime } from '../../src/lib/runtime-environment.ts';
+import {
+  Card,
+  KeyValue,
+  LanguageSwitcher,
+  LoadingView,
+  Screen,
+  SectionTitle,
+} from '../../src/components';
 import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
@@ -125,6 +136,20 @@ export default function CrewHelpScreen() {
           <Text style={styles.body}>{t('gps.driverOnlyBody')}</Text>
         </Card>
       )}
+
+      {/**
+       * The diagnostics readout — available to EVERY crew role, with or
+       * without a trip. It is the one place a support call can name: what
+       * kind of app this phone runs (Expo Go cannot show the map or run the
+       * background task), which server it talks to, and what the OS and the
+       * lifecycle say about GPS. Pure readout: it renders rows from the
+       * shared lifecycle snapshot and never starts or stops anything.
+       */}
+      <Card title={t('help.diagnostics.title')} description={t('help.diagnostics.hint')}>
+        {buildDiagnosticsRows(sharing.trackingState, getRuntime(), API_BASE_URL).map((row) => (
+          <KeyValue key={row.label} label={row.label} value={row.value} />
+        ))}
+      </Card>
     </Screen>
   );
 }

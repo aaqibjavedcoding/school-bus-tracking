@@ -64,9 +64,23 @@ Attendance and GPS are different systems. The offline queue only handles attenda
 The crew trip screen deliberately shows only three things while driving —
 `Sharing ✅ / ❌`, the last-update time, and one tap (`GpsShareStrip`). The tap
 says what it does (`gps-strip-action.ts`, spec-pinned): **Share GPS** when
-nothing is running yet, **Retry** when the last run failed (permanent rejection,
-revoked session, refused permission), **Stop** while running — plus a Retry
-beside Stop when the bounded reconnect budget has given up (`gave-up`).
+nothing is running yet, **Stop** while running — plus a Retry beside Stop when
+the bounded reconnect budget has given up (`gave-up`).
+
+When a start **failed**, the strip does not just say "Retry": the reason is
+shown on a second line (danger tone, announced politely) and the primary tap
+becomes the repair for the failing cause — **Open location settings** when the
+OS location switch is off or the foreground permission was permanently denied
+(only the OS settings screen can fix either), **Ask for location permission**
+when the request was refused but can be asked again, and a plain **Retry**
+only when the start failed for another reason (e.g. the server could not be
+reached). A permission granted there completes the start the driver already
+asked for — it never starts sharing on its own (that is the
+`GpsPermissionRecovery` contract below). The status line likewise names the
+cause where the plain status is not enough: a server-refused trip shows which
+status ended sharing (`COMPLETED`, `CANCELLED`, …), and an exhausted reconnect
+budget names the school server being unreachable — `host:port` only, so an
+`access_token` in the URL can never reach the screen (`apiHost()`, spec-pinned).
 
 **Sharing starts from the driver's own lifecycle tap.** A server-confirmed
 "Start boarding" / "Depart & drive" on the trip screen starts GPS sharing for
@@ -82,6 +96,51 @@ last reason render there in the full `GpsSharePanel`, framed for the support
 team (`src/features/crew/help-routing.spec.ts` guards the move in CI). The
 underlying stats pipeline (`location-task.ts` counters) is unchanged — the
 Help screen simply renders what the driver no longer has to.
+
+#### Diagnostics card (for support)
+
+Below the panel, the Help screen has an always-available **Diagnostics (for
+support)** card (both crew roles, with or without a trip) — the readout a
+support engineer needs to pin down "the school cannot see the bus" from the
+phone itself: app runtime (Expo Go / development build · platform), API host,
+live-tracking socket, connection, location services, foreground + background
+permission (with the development-build reason where the runtime cannot run the
+background task), what is sharing, last stop with the server's trip status,
+recovery attempts + last reason, last error + when, and the delivery counters
+(sent = accepted + rejected + throttled, i.e. what the server received).
+`src/features/crew/crew-diagnostics.ts` builds the rows from the lifecycle
+snapshot; a spec pins the two invariants — no JWT-shaped string or secret can
+reach **any** row (a token in the URL query string or in userinfo), and the
+counter arithmetic. Server words (reasons, statuses) render verbatim; the
+counter words are locale-invariant like the four panel counters.
+
+#### Expo Go vs development build (capability, not configuration)
+
+The app detects at runtime whether it runs in **Expo Go** or a **development
+build** (`src/lib/runtime-environment.ts`, pure + spec-pinned) and gates the
+capabilities accordingly:
+
+- **Maps.** Expo Go cannot render Google Maps on Android at all since Expo
+  SDK 53 (Apple Maps only, and only on iOS). Instead of a blank canvas the map
+  surfaces show a labelled "the map needs a development build" panel
+  (`src/features/map/map-surface-mode.ts`). Nothing to configure: a native
+  Android build with `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` renders Google Maps.
+- **Background sharing.** The OS background-location task
+  (`startLocationUpdatesAsync`) does not run in the Expo Go app, so background
+  sharing is unavailable there: the enable toggle fails with a one-line
+  explanation and the diagnostics card reads
+  "unavailable · Background needs a development build". Foreground sharing
+  works in Expo Go; a development build gets both.
+- **Push** (unchanged rule): FCM needs the native wiring an APK/AAB carries.
+
+Build-time, the inverse boundary applies: `app.config.js` prints its
+missing-Maps-key / missing-`google-services.json` warnings **only for native
+Android builds** (`isNativeAndroidBuild`: `expo prebuild` / `expo run:android`
+without an iOS target, or a non-iOS EAS build), and each **exactly once**
+(`warnOnce` — a module set plus an environment marker, so "once" survives the
+require-cache clears Expo's reloads cause). `expo start --go` / `expo export` /
+iOS builds stay silent — they generate no Android project, and in the Expo Go
+case the app already says the honest thing at runtime.
 
 ### GPS Permission Recovery
 
@@ -250,8 +309,11 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
   - API error messages, emergency type/status labels, document type labels —
     the server sends English and Phase 3 is client-side only;
   - the four GPS counters on the Help screen ("Sent", "Rejected",
-    "Dropped (offline)", "Invalid fix") — they are read aloud to the support
-    engineer, who works in English;
+    "Dropped (offline)", "Invalid fix") **and the diagnostics card's counter
+    words** (sent / accepted / rejected / pending / invalid / retried) — they
+    are read aloud to the support engineer, who works in English. The runtime
+    names "Expo Go" / "Development build" are declared invariant the same way
+    (`LOCALE_INVARIANT_KEYS` in `src/lib/i18n.ts`, spec-checked);
   - an **unknown** server error code shows the server's message plus a
     `Server code XYZ` line. Ask the caller to read that code back — it is the
     exact identifier the API returned.
@@ -364,19 +426,29 @@ All major management screens support:
 ### Google Maps (`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`)
 
 Read by `app.config.js` and injected into `android.config.googleMaps.apiKey`
-at prebuild/build time. Required for standalone Android builds that show the
-live map; omit for Expo Go. Restrict the key in Google Cloud to "Maps SDK
-for Android" + this package name + the signing-certificate SHA-1.
+at prebuild/build time. Required for **every native Android build**
+(development build, APK, AAB) that shows the live map. Restrict the key in
+Google Cloud to "Maps SDK for Android" + this package name + the
+signing-certificate SHA-1.
 
-Symptom when it is missing from a dev-client / APK / AAB build: the map area
-on the parent Track screen and the driver Trip screen renders as a blank
+**Expo Go is not "unaffected" — it cannot show Google Maps at all on Android
+since Expo SDK 53** (Apple Maps only, and only on iOS). So there is no key to
+configure there; the map surfaces show a labelled "needs a development build"
+panel instead (`src/features/map/map-surface-mode.ts`). The key is only news
+where a native Android project is actually generated, which is also where the
+warning fires.
+
+Symptom when the key is missing from a dev-client / APK / AAB build: the map
+area on the parent Track screen and the driver Trip screen renders as a blank
 (beige or grey) canvas while the bus marker, stops and the freshness banner
 still draw — the position data is fine, only the tiles are absent. It looks
 like a tracking bug but is a build-configuration gap; `app.config.js` prints a
-warning naming the variable at `expo start` / `expo prebuild` / `eas build`
-so it is caught before the build ships. The key is read at build time only:
-adding it to `.env` afterwards needs a new native build, a JS reload is not
-enough.
+warning naming the variable for the native Android build commands (`expo
+prebuild` / `expo run:android` without an iOS target, or a non-iOS EAS build) —
+exactly once per process — so it is caught before the build ships. `expo start`
+/ `expo export` / iOS builds print nothing because they generate no Android
+project. The key is read at build time only: adding it to `.env` afterwards
+needs a new native build, a JS reload is not enough.
 
 Both variables can be set via a local `.env`, the shell environment, or the
 `env` block of an `eas.json` build profile. See `mobile/.env.example`.

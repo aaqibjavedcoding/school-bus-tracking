@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Linking } from 'react-native';
+import * as Location from 'expo-location';
 import { TripStatus, type TripResponse } from '@school-bus-tracking/shared-types';
 import { t } from '../../lib/i18n.ts';
 import { formatRelative } from '../../lib/format.ts';
+import { API_BASE_URL } from '../../services/api.ts';
 import {
   getCrewTrackingState,
+  refreshCrewPermissions,
   requestCrewTrackingRecovery,
   setBackgroundTrackingEnabled,
   startCrewTracking,
@@ -15,12 +19,16 @@ import {
 import type { CrewLocationStats } from './tracking-lifecycle.ts';
 import type { CrewTrackingStatusResult } from './tracking-status.ts';
 import {
-  crewTrackingStatusCopy,
+  crewTrackingStatusLine,
   crewTrackingStatusTone,
   deriveCrewTrackingStatus,
 } from './tracking-status.ts';
-import type { GpsIssue, LocationAccuracyAuthorization, PermissionState } from './gps-permission-state.ts';
-import { evaluateGpsPermissions } from './gps-permission-state.ts';
+import type {
+  GpsIssue,
+  LocationAccuracyAuthorization,
+  PermissionState,
+} from './gps-permission-state.ts';
+import { evaluateGpsPermissions, mapPermissionState } from './gps-permission-state.ts';
 
 /**
  * Crew GPS sharing (DRIVER + CONDUCTOR) — the React binding over the **one**
@@ -88,6 +96,12 @@ export interface CrewLocationSharing {
   connection: CrewTrackingState['connection'];
   recovery: CrewTrackingState['recovery'];
   /**
+   * The full lifecycle snapshot (stable reference between publishes).
+   * The diagnostics readout on the Help screen renders rows from it — one
+   * reference instead of a dozen parallel fields drifting apart.
+   */
+  trackingState: CrewTrackingState;
+  /**
    * Starts sharing for the screen's current trip. `trip` overrides it for the
    * one case where the screen's copy is known to be stale: the driver's own
    * lifecycle tap was just confirmed by the server (`BOARDING` /
@@ -100,6 +114,21 @@ export interface CrewLocationSharing {
   disableBackground: () => Promise<void>;
   /** Forces one bounded recovery pass (retry button). */
   retry: () => Promise<void>;
+  /**
+   * Opens the OS location settings (strip repair tap: location switch off, or
+   * a foreground permission that can only be granted in Settings). Never
+   * starts sharing — the driver comes back and taps the strip again.
+   */
+  openLocationSettings: () => Promise<void>;
+  /**
+   * Fires the in-app foreground permission request (strip repair tap: the
+   * permission was refused or never asked, and the OS will still answer).
+   * A **grant** completes the start the driver already asked for (the strip
+   * offered this button because a start was refused) — that is the driver's
+   * explicit intent, not the auto-start that `GpsPermissionRecovery` must
+   * never do. A refusal or "ask later" leaves everything exactly as it was.
+   */
+  requestLocationPermission: () => Promise<void>;
 }
 
 /** Trips that accept GPS fixes (mirrors the server's tracking-active rule). */
@@ -210,7 +239,11 @@ export function useCrewLocationSharing(
     ],
   );
 
-  const copy = crewTrackingStatusCopy({
+  // The line carries the lifecycle's stop context on top of the status copy:
+  // a server-refused trip names the status, an exhausted reconnect budget
+  // names the host it could not reach (`API_BASE_URL` host only — never the
+  // full URL, so a misconfigured token-in-query can never leak into copy).
+  const copy = crewTrackingStatusLine({
     status: statusDetail.status,
     serverAckAgeMs: statusDetail.serverAckAgeMs,
     localFixAgeMs: statusDetail.localFixAgeMs,
@@ -218,6 +251,10 @@ export function useCrewLocationSharing(
     // the line keeps ageing between fixes instead of freezing at the last one.
     formatAge: (ageMs) =>
       ageMs === null ? '' : formatRelative(new Date(tick - ageMs).toISOString(), tick),
+    lastStopReason: snapshot.lastStopReason,
+    lastStopTripStatus: snapshot.lastStopTripStatus,
+    connection: snapshot.connection,
+    apiBaseUrl: API_BASE_URL,
   });
 
   const startSharing = useCallback(async (tripOverride?: TripResponse) => {
@@ -253,7 +290,7 @@ export function useCrewLocationSharing(
     const who = identityRef.current;
     // Nothing running yet: Retry means "start sharing" for this trip.
     const running = getCrewTrackingState();
-    if ((!running.foregroundActive && !running.backgroundActive) && currentTrip && who) {
+    if (!running.foregroundActive && !running.backgroundActive && currentTrip && who) {
       await startCrewTracking({
         tripId: currentTrip.id,
         userId: who.userId,
@@ -262,6 +299,40 @@ export function useCrewLocationSharing(
       return;
     }
     await requestCrewTrackingRecovery();
+  }, []);
+
+  const openLocationSettings = useCallback(async () => {
+    try {
+      await Linking.openSettings();
+    } catch {
+      // The OS refused to open Settings: nothing to do. The strip keeps
+      // showing the same blocker when the driver comes back.
+    }
+  }, []);
+
+  const requestLocationPermission = useCallback(async () => {
+    // The driver explicitly tapped this (the strip only offers it after a
+    // refused start): ask the OS.
+    const requested = await Location.requestForegroundPermissionsAsync().catch(() => null);
+    await refreshCrewPermissions();
+    if (mapPermissionState(requested) !== 'granted') {
+      // Refused / "ask later": the lifecycle's message keeps naming the
+      // blocker, and the button stays a permission request. No state change
+      // is claimed.
+      return;
+    }
+    // Granted: complete the start the driver already asked for (this button
+    // exists because that start was refused — their intent is explicit).
+    const currentTrip = tripRef.current;
+    const who = identityRef.current;
+    if (!currentTrip || !isTripShareable(currentTrip) || !who) {
+      return;
+    }
+    await startCrewTracking({
+      tripId: currentTrip.id,
+      userId: who.userId,
+      schoolId: who.schoolId,
+    });
   }, []);
 
   const statusLine = t(copy.key, copy.params as never);
@@ -295,11 +366,14 @@ export function useCrewLocationSharing(
       lastStopReason: snapshot.lastStopReason,
       connection: snapshot.connection,
       recovery: snapshot.recovery,
+      trackingState: snapshot,
       startSharing,
       stopSharing,
       enableBackground,
       disableBackground,
       retry,
+      openLocationSettings,
+      requestLocationPermission,
     }),
     [
       snapshot,
@@ -313,6 +387,8 @@ export function useCrewLocationSharing(
       enableBackground,
       disableBackground,
       retry,
+      openLocationSettings,
+      requestLocationPermission,
     ],
   );
 }
@@ -329,4 +405,3 @@ function permissionSnapshot(
   }
   return { granted: mapped === 'granted', canAskAgain: mapped !== 'denied' };
 }
-

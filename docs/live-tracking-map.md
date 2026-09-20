@@ -118,7 +118,13 @@ Leaflet.
 _"iOS: Google Maps only"_. This app ships Google Maps on **Android only** —
 `mobile/app.config.js` injects `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` into
 `android.config.googleMaps.apiKey` and nothing equivalent for iOS — so iOS runs
-Apple Maps, where neither prop works. Therefore:
+Apple Maps, where neither prop works. And on **Expo Go + Android** there is no
+Google Maps at all since Expo SDK 53 (the Go app renders Apple Maps only, and
+only on iOS) — so the mobile map surfaces decide at runtime
+(`mapSurfaceMode`, `src/features/map/map-surface-mode.ts`) between rendering the
+map and showing a labelled "needs a development build" panel instead of a blank
+canvas. A development build with the Maps key renders Google Maps everywhere it
+used to. Therefore:
 
 - **Android** — the child view stays static and `Marker.rotation` (which maps to
   `marker.setRotation(...)`, `MapMarker.java:247`) does the turning natively.

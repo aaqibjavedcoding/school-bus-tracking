@@ -18,9 +18,25 @@
  *
  * Stops the crew member chose, or that the trip/session lifecycle made on their
  * behalf, are not failures: after them the next tap is a plain start again.
+ *
+ * The two repair actions (`open-settings`, `request-permission`) exist so a
+ * refused start shows a tap that fixes the *named* problem — the lifecycle's
+ * message says "location permission is required", and the button must then be
+ * the permission request, not a second "Retry" that fails the same way.
  */
 
-export type GpsStripAction = 'share' | 'retry' | 'stop';
+import type { PermissionState } from './gps-permission-state.ts';
+
+export type GpsStripAction =
+  | 'share'
+  | 'retry'
+  | 'stop'
+  /** The OS location switch is off or the permission is permanently denied —
+   *  only the OS settings screen can fix that, so the tap opens it. */
+  | 'open-settings'
+  /** The permission was asked and refused (or never asked) but can be asked
+   *  again in-app — the tap fires the OS permission request. */
+  | 'request-permission';
 
 export interface GpsStripInput {
   /** A foreground watch is running on this device. */
@@ -33,6 +49,10 @@ export interface GpsStripInput {
   recoveryExhausted: boolean;
   /** A start/refused-permission message the lifecycle is currently showing. */
   message: string | null;
+  /** OS location switch state (`null` when the platform would not answer). */
+  servicesEnabled?: boolean | null;
+  /** Coarse foreground location permission state (see `mapPermissionState`). */
+  foregroundPermission?: PermissionState;
 }
 
 export interface GpsStripActions {
@@ -59,6 +79,22 @@ export function gpsStripActions(input: GpsStripInput): GpsStripActions {
   if (running) {
     return { primary: 'stop', showRetryWhileRunning: input.recoveryExhausted };
   }
+
+  // Nothing running: OS-side blockers beat "retry". A previous failure message
+  // may name the problem ("location permission is required"), but re-running
+  // the start is not the fix — opening the OS settings or asking the
+  // permission again is. Precedence mirrors `evaluateGpsPermissions`.
+  if (input.servicesEnabled === false || input.foregroundPermission === 'denied') {
+    return { primary: 'open-settings', showRetryWhileRunning: false };
+  }
+  if (input.foregroundPermission === 'undetermined' && input.message !== null) {
+    // Refused (or never asked) but the OS will still answer an in-app request:
+    // the tap asks, and a grant completes the start the driver already asked
+    // for. A plain denial that can be asked again maps to 'undetermined', so
+    // this is exactly the "ask again" case.
+    return { primary: 'request-permission', showRetryWhileRunning: false };
+  }
+
   const failedStart = input.message !== null;
   const failedRun = input.lastStopReason !== null && !CHOSEN_STOP_REASONS.has(input.lastStopReason);
   return {

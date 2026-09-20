@@ -5,12 +5,16 @@ import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
+import '../../lib/runtime-env.ts';
+import { getRuntime } from '../../lib/runtime-environment.ts';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { BusMarker } from '../map/BusMarker';
 import type { BusMotionFix } from '../map/bus-motion.ts';
 import type { RenderedMarker } from '../map/useBusMarkerMotion';
 import { useFollowCamera } from '../map/useFollowCamera';
+import { mapSurfaceMode } from '../map/map-surface-mode';
+import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
 import { driverMapCopy, type DriverMapPresentation } from './crew-map-presentation.ts';
 
 /**
@@ -264,7 +268,12 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     // recomputing it per fix would be a controlled camera in disguise.
   }, [routeCoordinates]);
 
-  if (routeCoordinates.length === 0 && !localFix) {
+  // Which surface fills the map's box: tiles, the labelled development-build
+  // panel, or the empty-route state (Expo Go on Android cannot render Google
+  // Maps — see `map-surface-mode.ts`).
+  const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!localFix);
+
+  if (surfaceMode === 'no-coordinates') {
     return (
       <View style={[styles.placeholder, { height }]}>
         <Text style={styles.placeholderText}>{t('map.noCoordinates')}</Text>
@@ -275,28 +284,35 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   return (
     <View>
       <View style={[styles.wrap, { height }]}>
-        <DriverMapSurface
-          stops={locatedStops}
-          routeCoordinates={routeCoordinates}
-          initialRegion={initialRegion}
-          localFix={localFix}
-          tripId={tripId}
-          reducedMotion={reducedMotion}
-          animate={presentation.animate}
-          accuracyCircleMeters={presentation.accuracyCircleMeters}
-          busTitle={t('map.busA11y')}
-          busDescription={busDescription}
-          locale={locale}
-          onFrame={onFrame}
-          onUserGesture={onUserGesture}
-          onRegionChange={onRegionChange}
-          onRegionChangeComplete={onRegionChangeComplete}
-          onMapReady={onMapReady}
-          mapRef={mapRef}
-        />
+        {surfaceMode === 'needs-dev-build' ? (
+          // The driver's GPS still works in Expo Go — only the map provider is
+          // missing, so the panel names that instead of showing a blank box.
+          <NeedsDevBuildPanel />
+        ) : (
+          <DriverMapSurface
+            stops={locatedStops}
+            routeCoordinates={routeCoordinates}
+            initialRegion={initialRegion}
+            localFix={localFix}
+            tripId={tripId}
+            reducedMotion={reducedMotion}
+            animate={presentation.animate}
+            accuracyCircleMeters={presentation.accuracyCircleMeters}
+            busTitle={t('map.busA11y')}
+            busDescription={busDescription}
+            locale={locale}
+            onFrame={onFrame}
+            onUserGesture={onUserGesture}
+            onRegionChange={onRegionChange}
+            onRegionChangeComplete={onRegionChangeComplete}
+            onMapReady={onMapReady}
+            mapRef={mapRef}
+          />
+        )}
 
         {/* Top-left: clear of the Google Maps attribution (bottom-left) and the
-            Apple Maps legal button (bottom-right). */}
+            Apple Maps legal button (bottom-right). Kept on every surface — the
+            device's own position line is true even when the tiles are not. */}
         <View style={styles.panel}>
           <View style={styles.panelChips}>
             <Text style={styles.chipSource}>{t('driverMap.source')}</Text>
@@ -310,7 +326,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
           {copy.delivery ? <Text style={styles.panelNote}>{copy.delivery}</Text> : null}
         </View>
 
-        {exploring ? (
+        {surfaceMode === 'map' && exploring ? (
           <Pressable
             onPress={recenter}
             accessibilityRole="button"
@@ -328,7 +344,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
         </Text>
       </View>
 
-      {routeCoordinates.length > 1 ? (
+      {surfaceMode === 'map' && routeCoordinates.length > 1 ? (
         /* Below the map, never over it: the bottom corners belong to the
            provider's attribution and legal links. */
         <Text style={styles.routeNotice}>{t('map.routeNotice')}</Text>

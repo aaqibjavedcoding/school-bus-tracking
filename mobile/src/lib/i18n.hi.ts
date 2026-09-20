@@ -193,6 +193,8 @@ export const hi: Dictionary = {
   'gps.neverUpdated': 'अभी कोई अपडेट नहीं',
   'gps.retry': 'फिर कोशिश करें',
   'gps.stop': 'रोकें',
+  'gps.openSettings': 'लोकेशन सेटिंग खोलें',
+  'gps.requestPermission': 'लोकेशन अनुमति मांगें',
   'gps.helpLink': 'GPS विवरण और सहायता',
   'gps.panelTitle': 'लाइव GPS शेयरिंग',
   'gps.badgeSharing': 'शेयर हो रहा है',
@@ -204,6 +206,7 @@ export const hi: Dictionary = {
   'gps.backgroundOn': 'स्क्रीन बंद होने पर भी लोकेशन बैकग्राउंड टास्क से चलती रहती है।',
   'gps.backgroundAllowed': 'अनुमति है — स्क्रीन बंद रहते भी भेजने के लिए चालू करें।',
   'gps.backgroundNeeded': '“Allow all the time” लोकेशन अनुमति चाहिए।',
+  'gps.backgroundNeedsDevBuild': 'Background के लिए development build ज़रूरी है',
   'gps.tierGood': 'GPS ठीक',
   'gps.tierWeak': 'GPS कमज़ोर',
   'gps.tierStale': 'GPS पुराना',
@@ -223,6 +226,9 @@ export const hi: Dictionary = {
   'gps.status.servicesOff': 'लोकेशन सेवा बंद है',
   'gps.status.revoked': 'पहुंच रद्द — ट्रैकिंग बंद',
   'gps.status.stopped': 'शेयर नहीं हो रहा',
+  'gps.status.tripNotEligible':
+    'यह ट्रिप अब GPS sharing स्वीकार नहीं करती (server status: {status})',
+  'gps.status.cannotReachServer': 'School server से संपर्क नहीं हो पा रहा ({host})',
   'gps.deliveryBadge': 'डिलीवरी',
   'gps.accuracyReduced': 'लगभग GPS',
   'gps.servicesOff': 'लोकेशन बंद',
@@ -234,6 +240,8 @@ export const hi: Dictionary = {
   'gps.message.startFailed': 'GPS शेयरिंग शुरू नहीं हो सकी।',
   'gps.message.backgroundDenied': 'स्क्रीन बंद रहते भी भेजने के लिए “Always” लोकेशन अनुमति दें।',
   'gps.message.backgroundUnavailable': 'इस डिवाइस पर बैकग्राउंड लोकेशन उपलब्ध नहीं है।',
+  'gps.message.backgroundNeedsDevBuild':
+    'बैकग्राउंड शेयरिंग के लिए development build ज़रूरी है — Expo Go बैकग्राउंड GPS task नहीं चला सकता।',
   'gps.message.backgroundNeedsTrip': 'बैकग्राउंड शेयरिंग के लिए चल रही ट्रिप चाहिए।',
   'gps.message.backgroundFailed': 'बैकग्राउंड शेयरिंग चालू नहीं हो सकी।',
   'gps.message.revoked': 'लाइव ट्रैकिंग की पहुंच रद्द हो गई — शेयरिंग बंद कर दी गई है।',
@@ -283,6 +291,38 @@ export const hi: Dictionary = {
   'help.languageTitle': 'भाषा',
   'help.languageHint': 'भाषा चुनते ही स्क्रीन तुरंत उसी भाषा में दिखेगी।',
   'help.languageCurrent': 'अभी दिख रही है',
+
+  // ── Diagnostics readout (support engineer को पढ़ने के लिए) ─────────────
+  // Counter शब्द en जैसी ही रहते हैं (support engineer English काम करता
+  // है — LOCALE_INVARIANT_KEYS में घोषित)।
+  'help.diagnostics.title': 'Diagnostics (support के लिए)',
+  'help.diagnostics.hint':
+    'अगर शेयरिंग काम नहीं कर रही है, तो ये पंक्तियाँ support engineer को पढ़कर सुनाएँ। ये इस फ़ोन के runtime, school server और GPS के बारे में बताती हैं — यहाँ से sharing न शुरू होती है, न रुकती है।',
+  'help.diagnostics.runtime': 'App का runtime',
+  'help.diagnostics.apiHost': 'Server पता (API host)',
+  'help.diagnostics.socket': 'Live tracking का socket',
+  'help.diagnostics.connection': 'कनेक्शन',
+  'help.diagnostics.locationServices': 'लोकेशन सेवाएँ',
+  'help.diagnostics.foregroundPermission': 'लोकेशन अनुमति (foreground)',
+  'help.diagnostics.backgroundPermission': 'लोकेशन अनुमति (background)',
+  'help.diagnostics.sharing': 'शेयरिंग चल रही है',
+  'help.diagnostics.lastStop': 'किसलिए रुकी (server reason)',
+  'help.diagnostics.recovery': 'Recovery कोशिशें (अंतिम reason)',
+  'help.diagnostics.lastError': 'अंतिम error',
+  'help.diagnostics.delivery': 'शेयरिंग के counters',
+  'help.diagnostics.valueExpoGo': 'Expo Go',
+  'help.diagnostics.valueDevBuild': 'Development build',
+  'help.diagnostics.valueUnknown': 'अज्ञात',
+  'help.diagnostics.valueNotSet': 'Set नहीं है',
+  'help.diagnostics.valueExhausted': 'budget खत्म',
+  'help.diagnostics.valueForeground': 'foreground',
+  'help.diagnostics.valueBackground': 'background',
+  'help.diagnostics.sent': 'Sent',
+  'help.diagnostics.accepted': 'Accepted',
+  'help.diagnostics.rejected': 'Rejected',
+  'help.diagnostics.pending': 'Pending (offline)',
+  'help.diagnostics.invalid': 'Invalid fix',
+  'help.diagnostics.retried': 'Retried',
 
   // ── Language switcher (self-designations stay in their own script) ─────
   'settings.language.nameEn': 'English',
@@ -394,6 +434,9 @@ export const hi: Dictionary = {
   'map.offlineNote': 'ऑफ़लाइन — अंतिम ज्ञात स्थिति दिखाई जा रही है।',
   'map.routeNotice': 'स्टॉप के बीच सीधी रेखाएँ — चलाया गया मार्ग नहीं।',
   'map.noCoordinates': 'इस रूट में अभी कोई स्टॉप मैप नहीं है।',
+  'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
+  'map.needsDevBuildBody':
+    'Expo Go on Android में अब Google Maps शामिल नहीं हैं (Expo SDK 53 और उसके बाद), इसलिए इस build में मैप नहीं दिखेगा। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं — मैप देखने के लिए development build उपयोग करें।',
   'map.busA11y': 'स्कूल बस',
   'map.stopA11y': 'स्टॉप {number}',
 

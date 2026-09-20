@@ -42,9 +42,7 @@ export const GpsShareStrip: React.FC<{
    * becomes "stale" even when no new fix arrives.
    */
   const deviceLine =
-    sharing.sharing || sharing.backgroundActive
-      ? crewCopy.gps.sharingOn
-      : crewCopy.gps.sharingOff;
+    sharing.sharing || sharing.backgroundActive ? crewCopy.gps.sharingOn : crewCopy.gps.sharingOff;
   const deliveryLine = sharing.statusLine || crewCopy.gps.neverUpdated;
 
   /**
@@ -74,7 +72,17 @@ export const GpsShareStrip: React.FC<{
     lastStopReason: sharing.lastStopReason,
     recoveryExhausted: sharing.statusDetail.recoveryExhausted,
     message: sharing.message,
+    servicesEnabled: sharing.servicesEnabled,
+    foregroundPermission: sharing.foregroundPermission,
   });
+
+  /**
+   * The failure line: when the lifecycle has a message (a refused start, a
+   * revoked session, a background the runtime cannot run), the strip says it
+   * in words instead of leaving the driver to guess why "Sharing ❌". Spoken
+   * by screen readers the moment it appears (`accessibilityLiveRegion`).
+   */
+  const failureLine = sharing.message;
 
   return (
     <View style={styles.card}>
@@ -106,6 +114,28 @@ export const GpsShareStrip: React.FC<{
               disabled={sharing.busy}
             />
           </View>
+        ) : actions.primary === 'open-settings' ? (
+          // The blocker is OS-side and only Settings can fix it — the tap
+          // says exactly that instead of offering a retry that fails again.
+          <Button
+            label={crewCopy.gps.openSettings}
+            icon="settings-outline"
+            tone="success"
+            size="md"
+            onPress={() => void sharing.openLocationSettings()}
+            busy={sharing.busy}
+            disabled={sharing.busy}
+          />
+        ) : actions.primary === 'request-permission' ? (
+          <Button
+            label={crewCopy.gps.requestPermission}
+            icon="location-outline"
+            tone="success"
+            size="md"
+            onPress={() => void sharing.requestLocationPermission()}
+            busy={sharing.busy}
+            disabled={sharing.busy}
+          />
         ) : (
           <Button
             // Both start the same way (`retry()` starts when nothing runs);
@@ -120,6 +150,11 @@ export const GpsShareStrip: React.FC<{
           />
         )}
       </View>
+      {failureLine ? (
+        <Text style={styles.failureLine} accessibilityLiveRegion="polite">
+          {failureLine}
+        </Text>
+      ) : null}
       <Button
         label={crewCopy.gps.helpLink}
         icon="help-circle"
@@ -166,6 +201,12 @@ const styles = StyleSheet.create({
   updateLine: {
     fontSize: 14,
     color: '#475569',
+  },
+  // The failure line reuses the measured badge-danger foreground (5.30:1 on
+  // white) — the error tone is stated by the colour table, not by eye.
+  failureLine: {
+    fontSize: 14,
+    color: '#b91c1c',
   },
   helpLink: {
     alignSelf: 'flex-start',

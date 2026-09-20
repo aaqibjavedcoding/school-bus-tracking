@@ -201,6 +201,8 @@ export const mr: Dictionary = {
   'gps.neverUpdated': 'अजून अ‍ॅपडेट नाही',
   'gps.retry': 'पुन्हा करा',
   'gps.stop': 'थांबवा',
+  'gps.openSettings': 'लोकेशन सेटिंग उघडा',
+  'gps.requestPermission': 'लोकेशन परवानगी मागवा',
   'gps.helpLink': 'GPS तपशील आणि सहाय्य',
   'gps.panelTitle': 'लाइव्ह GPS शेअरिंग',
   'gps.badgeSharing': 'शेअरिंग सुरू',
@@ -212,6 +214,7 @@ export const mr: Dictionary = {
   'gps.backgroundOn': 'स्क्रीन बंद असतानाही स्थान बॅकग्राउंड टास्कने सुरू राहते.',
   'gps.backgroundAllowed': 'परवानगी आहे — स्क्रीन बंद ठेवताना पाठवण्यासाठी सुरू करा.',
   'gps.backgroundNeeded': '"Allow all the time" लोकेशन परवानगी आवश्यक आहे.',
+  'gps.backgroundNeedsDevBuild': 'Background साठी development build आवश्यक आहे',
   'gps.tierGood': 'GPS बरं',
   'gps.tierWeak': 'GPS कमकुवत',
   'gps.tierStale': 'GPS जुने',
@@ -231,6 +234,8 @@ export const mr: Dictionary = {
   'gps.status.servicesOff': 'लोकेशन सेवा बंद आहे',
   'gps.status.revoked': 'प्रवेश रद्द — ट्रॅकिंग बंद',
   'gps.status.stopped': 'शेअर होत नाही',
+  'gps.status.tripNotEligible': 'ही ट्रिप आता GPS sharing स्वीकारत नाही (server status: {status})',
+  'gps.status.cannotReachServer': 'शाळेच्या server शी संपर्क होत नाही ({host})',
   'gps.deliveryBadge': 'डिलिव्हरी',
   'gps.accuracyReduced': 'अंदाजे GPS',
   'gps.servicesOff': 'लोकेशन बंद',
@@ -242,6 +247,8 @@ export const mr: Dictionary = {
   'gps.message.startFailed': 'GPS शेअरिंग सुरू होऊ शकले नाही.',
   'gps.message.backgroundDenied': 'स्क्रीन बंद असतानाही पाठवण्यासाठी “Always” लोकेशन परवानगी द्या.',
   'gps.message.backgroundUnavailable': 'या डिव्हाइसवर बॅकग्राउंड लोकेशन उपलब्ध नाही.',
+  'gps.message.backgroundNeedsDevBuild':
+    'बॅकग्राउंड शेअरिंगसाठी development build आवश्यक आहे — Expo Go बॅकग्राउंड GPS task चालवू शकत नाही.',
   'gps.message.backgroundNeedsTrip': 'बॅकग्राउंड शेअरिंगसाठी सुरू असलेली ट्रिप आवश्यक आहे.',
   'gps.message.backgroundFailed': 'बॅकग्राउंड शेअरिंग चालू होऊ शकले नाही.',
   'gps.message.revoked': 'लाइव्ह ट्रॅकिंगचा प्रवेश रद्द झाला — शेअरिंग थांबवले आहे.',
@@ -291,6 +298,38 @@ export const mr: Dictionary = {
   'help.languageTitle': 'भाषा',
   'help.languageHint': 'भाषा निवडताच स्क्रीन त्याच भाषेत दिसते.',
   'help.languageCurrent': 'सध्या दिसत आहे',
+
+  // ── Diagnostics readout (support engineer ला वाचण्यासाठी) ─────────────
+  // Counter शब्द en सारखेच राहतात (support engineer English मध्ये काम करतो —
+  // LOCALE_INVARIANT_KEYS मध्ये घोषित)।
+  'help.diagnostics.title': 'Diagnostics (support साठी)',
+  'help.diagnostics.hint':
+    'जर शेअरिंग काम करत नसेल, तर ह्या ओळी support engineer ला वाचून सांगा। ह्या या फोनच्या runtime, शाळेच्या server आणि GPS बद्दल सांगतात — इथून शेअरिंग न सुरू होते, न थांबते।',
+  'help.diagnostics.runtime': 'App ची runtime',
+  'help.diagnostics.apiHost': 'Server पत्ता (API host)',
+  'help.diagnostics.socket': 'Live tracking चा socket',
+  'help.diagnostics.connection': 'कनेक्शन',
+  'help.diagnostics.locationServices': 'लोकेशन सेवा',
+  'help.diagnostics.foregroundPermission': 'लोकेशन परवानगी (foreground)',
+  'help.diagnostics.backgroundPermission': 'लोकेशन परवानगी (background)',
+  'help.diagnostics.sharing': 'शेअरिंग सुरू आहे',
+  'help.diagnostics.lastStop': 'काणाने थांबली (server reason)',
+  'help.diagnostics.recovery': 'Recovery प्रयत्न (मागील reason)',
+  'help.diagnostics.lastError': 'शेवटची error',
+  'help.diagnostics.delivery': 'शेअरिंगचे counters',
+  'help.diagnostics.valueExpoGo': 'Expo Go',
+  'help.diagnostics.valueDevBuild': 'Development build',
+  'help.diagnostics.valueUnknown': 'अज्ञात',
+  'help.diagnostics.valueNotSet': 'Set नाही',
+  'help.diagnostics.valueExhausted': 'budget संपला',
+  'help.diagnostics.valueForeground': 'foreground',
+  'help.diagnostics.valueBackground': 'background',
+  'help.diagnostics.sent': 'Sent',
+  'help.diagnostics.accepted': 'Accepted',
+  'help.diagnostics.rejected': 'Rejected',
+  'help.diagnostics.pending': 'Pending (offline)',
+  'help.diagnostics.invalid': 'Invalid fix',
+  'help.diagnostics.retried': 'Retried',
 
   // ── Language switcher (self-designations stay in their own script) ─────
   'settings.language.nameEn': 'English',
@@ -399,6 +438,9 @@ export const mr: Dictionary = {
   'map.offlineNote': 'ऑफलाइन — शेवटची ज्ञात स्थिती दाखवत आहे।',
   'map.routeNotice': 'थांब्यांमधील सरळ रेषा — प्रत्यक्ष मार्ग नाही।',
   'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
+  'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
+  'map.needsDevBuildBody':
+    'Expo Go (Android) मध्ये आता Google Maps समाविष्ट नाहीत (Expo SDK 53 नंतर), म्हणून या build मध्ये मॅप दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — मॅप पाहण्यासाठी development build वापरा।',
   'map.busA11y': 'शाळेची बस',
   'map.stopA11y': 'थांबा {number}',
 
