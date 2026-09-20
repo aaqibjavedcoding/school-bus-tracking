@@ -7,15 +7,13 @@ import { colors } from '@school-bus-tracking/design-tokens';
  *
  * ### Why it is drawn with `View`s and not an image
  *
- * `react-native-maps` 1.27.2 documents `Marker.icon` and `Marker.rotation` as
- * **"iOS: Google Maps only"**, and this app ships Google Maps on **Android**
- * only (`mobile/app.config.js` injects `android.config.googleMaps.apiKey`; iOS
- * keeps Apple Maps). A rotated marker therefore has to be a custom child view
- * on iOS, where the only lever is a `transform`. Drawing the bus as views keeps
- * **one** implementation for both platforms — no PNG for Google Maps and a
- * second, subtly different drawing for Apple Maps. It also needs no asset
- * pipeline, no network request and no new dependency (`react-native-svg` is
- * deliberately not added; see the zero-dependency rule in `src/lib/i18n.ts`).
+ * MapLibre renders custom annotations as React Native child views (rasterised
+ * offscreen into a bitmap on Android, live on iOS), so a rotating marker has
+ * to be a custom child view on **every** platform — the only lever is a
+ * `transform`. Drawing the bus as views keeps **one** implementation for both
+ * platforms — no PNG and no second, subtly different drawing. It also needs no
+ * asset pipeline, no network request and no new dependency (`react-native-svg`
+ * is deliberately not added; see the zero-dependency rule in `src/lib/i18n.ts`).
  *
  * ### Geometry
  *
@@ -24,9 +22,9 @@ import { colors } from '@school-bus-tracking/design-tokens';
  * about its centre keeps the vehicle centre on the GPS coordinate. Both
  * properties are what make a heading reading on this marker mean something.
  *
- * Stops stay deliberately different: they remain the platform's teardrop pins in
- * slate, so a stop can never be mistaken for the bus at a glance or in a
- * screenshot.
+ * Stops stay deliberately different: they are flat, slate, un-rotating dots
+ * (`StopMarker`), so a stop can never be mistaken for the bus at a glance or
+ * in a screenshot.
  */
 
 /** Marker footprint, in dp. Exported so the anchor maths stays honest. */

@@ -1,6 +1,16 @@
 import React, { useMemo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Circle, Marker, Polyline, type LatLng, type Region } from 'react-native-maps';
+import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  type CameraRef,
+  type InitialViewState,
+  type MapProps,
+  type ViewStateChangeEvent,
+} from '@maplibre/maplibre-react-native';
+import type { Feature, LineString, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { t } from '../../lib/i18n.ts';
@@ -10,12 +20,25 @@ import { getRuntime } from '../../lib/runtime-environment.ts';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { BusMarker } from '../map/BusMarker';
+import { StopMarker } from '../map/StopMarker';
+import { accuracyCirclePolygon } from '../map/accuracy-circle';
 import type { BusMotionFix } from '../map/bus-motion.ts';
-import type { RenderedMarker } from '../map/useBusMarkerMotion';
-import { useFollowCamera } from '../map/useFollowCamera';
+import { resolveMapStyleUrl } from '../map/map-style';
 import { mapSurfaceMode } from '../map/map-surface-mode';
 import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
+import type { RenderedMarker } from '../map/useBusMarkerMotion';
+import { useFollowCamera } from '../map/useFollowCamera';
 import { driverMapCopy, type DriverMapPresentation } from './crew-map-presentation.ts';
+
+/**
+ * MapLibre renders its children (Camera, sources, layers, annotations) by
+ * spreading its props onto the native view, so children work at runtime. In
+ * this monorepo the package hoists above `react-native`, so tsc cannot
+ * resolve the RN `ViewProps` the component's prop type extends and silently
+ * drops `children` from it — restore that one prop here rather than fight
+ * the hoisted layout.
+ */
+const MapView = Map as unknown as React.ComponentType<MapProps & { children?: React.ReactNode }>;
 
 /**
  * The **Driver Trip** map: where this driver is, on their own run.
@@ -42,6 +65,14 @@ import { driverMapCopy, type DriverMapPresentation } from './crew-map-presentati
  * Interpolated coordinates — the ones this component animates through between
  * fixes — are presentation only. They are never written into history, ETA,
  * attendance or notifications, exactly as on the observer map.
+ *
+ * ### The engine, and what it must never become
+ *
+ * Same engine and style policy as the observer map (`map-style.ts`,
+ * `docs/live-tracking-map.md` → "Map provider policy"): OpenFreeMap over
+ * OpenStreetMap by default, an https-only self-hosted override later, no key
+ * and no billing. With no network the tiles simply do not load; the marker,
+ * the stops and the device position line are overlays and keep working.
  */
 export interface DriverTripMapProps {
   /** The trip's stops, in order. Coordinates are optional on the API shape. */
@@ -55,23 +86,38 @@ export interface DriverTripMapProps {
   height?: number;
 }
 
+/**
+ * The style URL for this bundle (one per build — see `map-style.ts` and the
+ * note on the observer map).
+ */
+const MAP_STYLE_URL = resolveMapStyleUrl({
+  EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
+});
+
 /** Padding that keeps markers off the edge when the route is fitted. */
 const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
 /** Zoom used when there is exactly one point to frame. */
 const SINGLE_POINT_ZOOM = 15;
 
 /**
- * School-bus amber with an explicit alpha — `rgba()` rather than an 8-digit hex
- * because Android's `Color.parseColor` reads `#AARRGGBB`, not `#RRGGBBAA`.
- * Identical to the observer map's circle so a coarse fix looks the same on both.
+ * School-bus amber with an explicit alpha — `rgba()` rather than an 8-digit
+ * hex because it is parsed identically by style-spec paint properties on both
+ * platforms. Identical to the observer map's circle so a coarse fix looks the
+ * same on both.
  */
 const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 
-function initialRegionFor(points: LatLng[]): Region | null {
+/**
+ * Only ever used for the `Camera`'s `initialViewState` — read once at map
+ * creation, never as a controlled camera (see the observer map's note).
+ */
+function initialCameraFor(
+  points: Array<{ latitude: number; longitude: number }>,
+): InitialViewState | null {
   if (points.length === 0) return null;
   if (points.length === 1) {
-    return { ...points[0], latitudeDelta: 0.02, longitudeDelta: 0.02 };
+    return { center: [points[0].longitude, points[0].latitude], zoom: SINGLE_POINT_ZOOM };
   }
   const latitudes = points.map((point) => point.latitude);
   const longitudes = points.map((point) => point.longitude);
@@ -79,43 +125,36 @@ function initialRegionFor(points: LatLng[]): Region | null {
   const maxLat = Math.max(...latitudes);
   const minLng = Math.min(...longitudes);
   const maxLng = Math.max(...longitudes);
+  // The zoom at which the world's latitude span matches the fitted span
+  // (1.4×, the same padding the old region used): span = 360 / 2^zoom.
+  const zoom = Math.max(2, Math.log2(360 / Math.max(0.01, (maxLat - minLat) * 1.4)));
   return {
-    latitude: (minLat + maxLat) / 2,
-    longitude: (minLng + maxLng) / 2,
-    latitudeDelta: Math.max(0.01, (maxLat - minLat) * 1.4),
-    longitudeDelta: Math.max(0.01, (maxLng - minLng) * 1.4),
+    center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
+    zoom,
   };
-}
-
-/**
- * Adapts `react-native-maps`' `(region, details)` callback to the shape the
- * follow policy wants, tolerating a provider that omits `details`.
- */
-function regionChangeProxy(
-  handler: (region: Region, details: { isGesture?: boolean }) => void,
-): (region: Region, details?: { isGesture?: boolean }) => void {
-  return (region, details) => handler(region, details ?? {});
 }
 
 interface SurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
-  routeCoordinates: LatLng[];
-  initialRegion: Region | null;
+  routeLineFeature: Feature<LineString> | null;
+  accuracyCircleFeature: Feature<Polygon> | null;
+  initialCamera: InitialViewState | null;
   localFix: BusMotionFix | null;
   tripId: string | null;
   reducedMotion: boolean;
   animate: boolean;
-  accuracyCircleMeters: number | null;
   busTitle: string;
   busDescription: string;
-  /** Busts the memo on a language switch, so the callouts re-translate. */
+  /**
+   * Declared so the memo compares it — busting the cache on a language switch
+   * so the callouts re-translate — but deliberately NOT destructured.
+   */
   locale: string;
   onFrame: (marker: RenderedMarker) => void;
-  onUserGesture: () => void;
-  onRegionChange: (region: Region, details: { isGesture?: boolean }) => void;
-  onRegionChangeComplete: (region: Region, details: { isGesture?: boolean }) => void;
+  onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
+  onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
-  mapRef: React.RefObject<MapView | null>;
+  cameraRef: React.RefObject<CameraRef | null>;
 }
 
 /**
@@ -126,71 +165,86 @@ interface SurfaceProps {
 const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
   ({
     stops,
-    routeCoordinates,
-    initialRegion,
+    routeLineFeature,
+    accuracyCircleFeature,
+    initialCamera,
     localFix,
     tripId,
     reducedMotion,
     animate,
-    accuracyCircleMeters,
     busTitle,
     busDescription,
     onFrame,
-    onUserGesture,
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
-    mapRef,
+    cameraRef,
   }) => (
     <MapView
-      ref={mapRef}
       style={styles.map}
-      initialRegion={initialRegion ?? undefined}
-      showsUserLocation={false}
-      showsMyLocationButton={false}
-      showsCompass={false}
-      toolbarEnabled={false}
-      onMapReady={onMapReady}
-      onPanDrag={onUserGesture}
-      onRegionChange={regionChangeProxy(onRegionChange)}
-      onRegionChangeComplete={regionChangeProxy(onRegionChangeComplete)}
+      mapStyle={MAP_STYLE_URL}
+      // OSM-derived tiles legally require the attribution and the logo;
+      // MapLibre renders both in the BOTTOM corners, so the panel lives
+      // top-left.
+      attribution
+      logo
+      onRegionIsChanging={onRegionChange}
+      onRegionDidChange={onRegionChangeComplete}
+      onDidFinishLoadingMap={onMapReady}
     >
-      {routeCoordinates.length > 1 ? (
-        <Polyline
-          coordinates={routeCoordinates}
-          strokeColor={colors.primary[600]}
-          strokeWidth={3}
-          lineDashPattern={Platform.OS === 'ios' ? [4, 4] : undefined}
-        />
-      ) : null}
+      {/* Uncontrolled after the initial state; imperative via cameraRef. */}
+      <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
 
-      {stops.map((stop) => (
-        <Marker
-          key={stop.id}
-          coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
-          title={stop.name}
-          description={`${t('map.stopA11y', { number: stop.sequence_number })}${
-            stop.address ? ` · ${stop.address}` : ''
-          }`}
-          pinColor={colors.neutral[700]}
-          zIndex={1}
-          tracksViewChanges={false}
-        />
-      ))}
+      {routeLineFeature ? (
+        <GeoJSONSource id="sbt-route" data={routeLineFeature}>
+          <Layer
+            type="line"
+            id="sbt-route-line"
+            source="sbt-route"
+            paint={{
+              'line-color': colors.primary[600],
+              'line-width': 3,
+              'line-dasharray': [4, 4],
+            }}
+          />
+        </GeoJSONSource>
+      ) : null}
 
       {/* Uncertainty drawn rather than asserted. Centred on the reported fix,
           not on the interpolated marker, because the radius belongs to the
           measurement. */}
-      {localFix && accuracyCircleMeters !== null ? (
-        <Circle
-          center={{ latitude: localFix.latitude, longitude: localFix.longitude }}
-          radius={accuracyCircleMeters}
-          strokeColor={ACCURACY_STROKE}
-          fillColor={ACCURACY_FILL}
-          strokeWidth={1}
-        />
+      {accuracyCircleFeature ? (
+        <GeoJSONSource id="sbt-accuracy" data={accuracyCircleFeature}>
+          <Layer
+            type="fill"
+            id="sbt-accuracy-fill"
+            source="sbt-accuracy"
+            paint={{ 'fill-color': ACCURACY_FILL }}
+          />
+          <Layer
+            type="line"
+            id="sbt-accuracy-stroke"
+            source="sbt-accuracy"
+            paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
+          />
+        </GeoJSONSource>
       ) : null}
 
+      {stops.map((stop) => (
+        <StopMarker
+          key={stop.id}
+          id={`stop-${stop.id}`}
+          latitude={stop.latitude}
+          longitude={stop.longitude}
+          title={stop.name}
+          description={`${t('map.stopA11y', { number: stop.sequence_number })}${
+            stop.address ? ` · ${stop.address}` : ''
+          }`}
+        />
+      ))}
+
+      {/* Rendered after the stops so the bus draws above them (tree order is
+          the annotation z-order). */}
       {localFix ? (
         <BusMarker
           fix={localFix}
@@ -228,16 +282,33 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       ),
     [stops],
   );
-  const routeCoordinates = useMemo<LatLng[]>(
+  const routeCoordinates = useMemo(
     () => locatedStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude })),
     [locatedStops],
   );
+  const routeLineFeature = useMemo<Feature<LineString> | null>(() => {
+    if (routeCoordinates.length < 2) return null;
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: routeCoordinates.map((point) => [point.longitude, point.latitude]),
+      },
+    };
+  }, [routeCoordinates]);
+  const accuracyCircleFeature = useMemo<Feature<Polygon> | null>(() => {
+    if (!localFix || presentation.accuracyCircleMeters === null) return null;
+    return accuracyCirclePolygon(
+      { latitude: localFix.latitude, longitude: localFix.longitude },
+      presentation.accuracyCircleMeters,
+    );
+  }, [localFix, presentation.accuracyCircleMeters]);
 
   const {
-    mapRef,
+    cameraRef,
     exploring,
     onFrame,
-    onUserGesture,
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
@@ -260,17 +331,19 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   // only when the school cannot see what is drawn (see `crew-map-presentation`).
   const copy = driverMapCopy(presentation, localFix ? formatRelative(localFix.recorded_at) : '');
 
-  const initialRegion = useMemo(() => {
-    const points: LatLng[] = [...routeCoordinates];
+  const initialCamera = useMemo(() => {
+    const points: Array<{ latitude: number; longitude: number }> = [...routeCoordinates];
     if (localFix) points.push({ latitude: localFix.latitude, longitude: localFix.longitude });
-    return initialRegionFor(points);
-    // Keyed on stops only: `initialRegion` is read once by the native map, and
+    return initialCameraFor(points);
+    // Keyed on stops only: `initialViewState` is read once by the engine, and
     // recomputing it per fix would be a controlled camera in disguise.
+    // (`localFix` is read inside but deliberately not a dependency, for the
+    // same reason the old `initialRegion` was keyed on stops alone.)
   }, [routeCoordinates]);
 
   // Which surface fills the map's box: tiles, the labelled development-build
-  // panel, or the empty-route state (Expo Go on Android cannot render Google
-  // Maps — see `map-surface-mode.ts`).
+  // panel, or the empty-route state (Expo Go carries no map engine on any
+  // platform — see `map-surface-mode.ts`).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!localFix);
 
   if (surfaceMode === 'no-coordinates') {
@@ -285,34 +358,33 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     <View>
       <View style={[styles.wrap, { height }]}>
         {surfaceMode === 'needs-dev-build' ? (
-          // The driver's GPS still works in Expo Go — only the map provider is
+          // The driver's GPS still works in Expo Go — only the map engine is
           // missing, so the panel names that instead of showing a blank box.
           <NeedsDevBuildPanel />
         ) : (
           <DriverMapSurface
             stops={locatedStops}
-            routeCoordinates={routeCoordinates}
-            initialRegion={initialRegion}
+            routeLineFeature={routeLineFeature}
+            accuracyCircleFeature={accuracyCircleFeature}
+            initialCamera={initialCamera}
             localFix={localFix}
             tripId={tripId}
             reducedMotion={reducedMotion}
             animate={presentation.animate}
-            accuracyCircleMeters={presentation.accuracyCircleMeters}
             busTitle={t('map.busA11y')}
             busDescription={busDescription}
             locale={locale}
             onFrame={onFrame}
-            onUserGesture={onUserGesture}
             onRegionChange={onRegionChange}
             onRegionChangeComplete={onRegionChangeComplete}
             onMapReady={onMapReady}
-            mapRef={mapRef}
+            cameraRef={cameraRef}
           />
         )}
 
-        {/* Top-left: clear of the Google Maps attribution (bottom-left) and the
-            Apple Maps legal button (bottom-right). Kept on every surface — the
-            device's own position line is true even when the tiles are not. */}
+        {/* Top-left: clear of the MapLibre attribution and logo (bottom
+            corners). Kept on every surface — the device's own position line
+            is true even when the tiles are not. */}
         <View style={styles.panel}>
           <View style={styles.panelChips}>
             <Text style={styles.chipSource}>{t('driverMap.source')}</Text>
@@ -346,7 +418,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
 
       {surfaceMode === 'map' && routeCoordinates.length > 1 ? (
         /* Below the map, never over it: the bottom corners belong to the
-           provider's attribution and legal links. */
+           provider's attribution and logo. */
         <Text style={styles.routeNotice}>{t('map.routeNotice')}</Text>
       ) : null}
     </View>

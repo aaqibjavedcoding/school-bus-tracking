@@ -1,6 +1,16 @@
 import React, { useMemo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Circle, Marker, Polyline, type LatLng, type Region } from 'react-native-maps';
+import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  type CameraRef,
+  type InitialViewState,
+  type MapProps,
+  type ViewStateChangeEvent,
+} from '@maplibre/maplibre-react-native';
+import type { Feature, LineString, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { fixAgeMs } from '../../lib/geo';
@@ -11,13 +21,26 @@ import '../../lib/runtime-env.ts';
 import { getRuntime } from '../../lib/runtime-environment.ts';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import type { ConnectionState, LiveFix } from '../tracking/useLiveTripTracking';
+import { accuracyCirclePolygon } from './accuracy-circle';
 import { BusMarker } from './BusMarker';
+import { StopMarker } from './StopMarker';
+import { resolveMapStyleUrl } from './map-style';
 import { mapSurfaceMode } from './map-surface-mode';
 import { NeedsDevBuildPanel } from './needs-dev-build-panel';
 import type { RenderedMarker } from './useBusMarkerMotion';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
 import { useFollowCamera } from './useFollowCamera';
+
+/**
+ * MapLibre renders its children (Camera, sources, layers, annotations) by
+ * spreading its props onto the native view, so children work at runtime. In
+ * this monorepo the package hoists above `react-native`, so tsc cannot
+ * resolve the RN `ViewProps` the component's prop type extends and silently
+ * drops `children` from it — restore that one prop here rather than fight
+ * the hoisted layout.
+ */
+const MapView = Map as unknown as React.ComponentType<MapProps & { children?: React.ReactNode }>;
 
 /**
  * Native live-tracking map (parent tracking, admin trip detail, admin tracking).
@@ -36,14 +59,25 @@ import { useFollowCamera } from './useFollowCamera';
  * between stops is the same kind of straight line, and the map says so. See
  * `docs/live-tracking-map.md`.
  *
- * ### What this rewrite changes
+ * ### The engine, and what it must never become
  *
- * This component used to pass a **controlled** `region` recomputed from
- * `[stops, fix]`, which re-fitted the whole route on every GPS update — nobody
- * could look at a stop for longer than four seconds. The camera is now
- * uncontrolled and owned by an explicit follow policy: fit the route once per
- * trip, then only *pan* (never zoom) while following, and any genuine user
- * gesture hands the camera to the user until they press "Follow bus".
+ * Tiles and vector data come from one URL, resolved by `map-style.ts`:
+ * OpenFreeMap's public style over OpenStreetMap data by default, an
+ * https-only override when self-hosting later. No key, no account, no billing
+ * — the rule and its rationale live in `docs/live-tracking-map.md` → "Map
+ * provider policy". When there is no network the tiles simply do not load;
+ * the markers, the accuracy circle and the freshness panel below are
+ * React Native views and overlays, so they keep working.
+ *
+ * ### What the camera does (and does not do)
+ *
+ * The camera is uncontrolled and owned by an explicit follow policy: fit the
+ * route once per trip, then only *pan* (never zoom) while following, and any
+ * genuine user gesture hands the camera to the user until they press "Follow
+ * bus". One implementation, shared with the Driver Trip map: the policy lives
+ * in `follow-camera.ts` (pure reducer) and `follow-camera-controller.ts`
+ * (pure over a camera port); `useFollowCamera` is the React binding that
+ * speaks to the MapLibre `Camera` ref.
  */
 export interface BusMapProps {
   stops: StopResponse[];
@@ -64,6 +98,15 @@ export interface BusMapProps {
   connection?: ConnectionState;
 }
 
+/**
+ * The style URL for this bundle. Metro inlines `process.env.EXPO_PUBLIC_*` at
+ * bundle time, so this is decided once, per build, in the one place the
+ * product rule allows it (`map-style.ts`) — never hard-coded in a component.
+ */
+const MAP_STYLE_URL = resolveMapStyleUrl({
+  EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
+});
+
 /** Padding that keeps markers off the edge when the route is fitted. */
 const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
 /** Zoom used when there is exactly one point to frame. */
@@ -72,24 +115,27 @@ const SINGLE_POINT_ZOOM = 15;
 /**
  * School-bus amber with an explicit alpha.
  *
- * `rgba()` rather than an 8-digit hex on purpose: Android's `Color.parseColor`
- * reads `#AARRGGBB`, not `#RRGGBBAA`, so appending alpha to a 6-digit hex token
- * produces a different colour on Android than on iOS. These props are typed
- * `ColorValue` (`NativeComponentCircle.ts`) and go through `processColor`,
- * which handles `rgba()` identically on both platforms.
+ * `rgba()` rather than an 8-digit hex on purpose: the colour goes into a
+ * MapLibre style-spec paint property, and `rgba()` is parsed identically on
+ * both platforms, while 8-digit hex has historical portability gaps in style
+ * spec parsers.
  */
 const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 
 /**
- * Only ever used for `initialRegion`, so the map opens somewhere sensible before
- * the first `fitToCoordinates` lands. It is deliberately **not** passed as the
- * controlled `region` prop — that prop is the bug this rewrite removes.
+ * Only ever used for the `Camera`'s `initialViewState`, so the map opens
+ * somewhere sensible before the first `fitToData` lands. The engine reads it
+ * once at map creation — this is deliberately **not** a controlled camera
+ * (that prop-recomputed-per-fix pattern is the bug the follow-camera rewrite
+ * removed).
  */
-function initialRegionFor(points: LatLng[]): Region | null {
+function initialCameraFor(
+  points: Array<{ latitude: number; longitude: number }>,
+): InitialViewState | null {
   if (points.length === 0) return null;
   if (points.length === 1) {
-    return { ...points[0], latitudeDelta: 0.02, longitudeDelta: 0.02 };
+    return { center: [points[0].longitude, points[0].latitude], zoom: SINGLE_POINT_ZOOM };
   }
   const latitudes = points.map((point) => point.latitude);
   const longitudes = points.map((point) => point.longitude);
@@ -97,11 +143,12 @@ function initialRegionFor(points: LatLng[]): Region | null {
   const maxLat = Math.max(...latitudes);
   const minLng = Math.min(...longitudes);
   const maxLng = Math.max(...longitudes);
+  // The zoom at which the world's latitude span matches the fitted span
+  // (1.4×, the same padding the old region used): span = 360 / 2^zoom.
+  const zoom = Math.max(2, Math.log2(360 / Math.max(0.01, (maxLat - minLat) * 1.4)));
   return {
-    latitude: (minLat + maxLat) / 2,
-    longitude: (minLng + maxLng) / 2,
-    latitudeDelta: Math.max(0.01, (maxLat - minLat) * 1.4),
-    longitudeDelta: Math.max(0.01, (maxLng - minLng) * 1.4),
+    center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
+    zoom,
   };
 }
 
@@ -109,23 +156,26 @@ function initialRegionFor(points: LatLng[]): Region | null {
 
 interface MapSurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
-  routeCoordinates: LatLng[];
-  initialRegion: Region | null;
+  routeLineFeature: Feature<LineString> | null;
+  accuracyCircleFeature: Feature<Polygon> | null;
+  initialCamera: InitialViewState | null;
   fix: LiveFix | null;
   tripId: string | null;
   reducedMotion: boolean;
   animate: boolean;
-  accuracyCircleMeters: number | null;
   busTitle: string;
   busDescription: string;
-  /** Busts the memo on a language switch, so the callouts re-translate. */
+  /**
+   * Declared so the memo compares it — busting the cache on a language switch
+   * so the callouts re-translate — but deliberately NOT destructured: nothing
+   * in the tree reads it, `t()` reads module state.
+   */
   locale: string;
   onFrame: (marker: RenderedMarker) => void;
-  onUserGesture: () => void;
-  onRegionChange: (region: Region, details: { isGesture?: boolean }) => void;
-  onRegionChangeComplete: (region: Region, details: { isGesture?: boolean }) => void;
+  onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
+  onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
-  mapRef: React.RefObject<MapView | null>;
+  cameraRef: React.RefObject<CameraRef | null>;
 }
 
 /**
@@ -136,77 +186,104 @@ interface MapSurfaceProps {
 const MapSurface: React.FC<MapSurfaceProps> = React.memo(
   ({
     stops,
-    routeCoordinates,
-    initialRegion,
+    routeLineFeature,
+    accuracyCircleFeature,
+    initialCamera,
     fix,
     tripId,
     reducedMotion,
     animate,
-    accuracyCircleMeters,
     busTitle,
     busDescription,
     onFrame,
-    onUserGesture,
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
-    mapRef,
+    cameraRef,
   }) => (
     <MapView
-      ref={mapRef}
       style={styles.map}
-      initialRegion={initialRegion ?? undefined}
-      showsUserLocation={false}
-      showsCompass={false}
-      toolbarEnabled={false}
-      onMapReady={onMapReady}
-      onPanDrag={onUserGesture}
-      onRegionChange={handleRegionChangeProxy(onRegionChange)}
-      onRegionChangeComplete={handleRegionChangeProxy(onRegionChangeComplete)}
+      mapStyle={MAP_STYLE_URL}
+      // OpenStreetMap-derived tiles legally require the attribution and the
+      // logo; MapLibre renders both in the BOTTOM corners, which is why this
+      // map's own controls live in the TOP corners.
+      attribution
+      logo
+      onRegionIsChanging={onRegionChange}
+      onRegionDidChange={onRegionChangeComplete}
+      onDidFinishLoadingMap={onMapReady}
     >
-      {routeCoordinates.length > 1 ? (
-        <Polyline
-          coordinates={routeCoordinates}
-          strokeColor={colors.primary[600]}
-          strokeWidth={3}
-          lineDashPattern={Platform.OS === 'ios' ? [4, 4] : undefined}
-        />
+      {/*
+        The camera: uncontrolled after the initial state. All movement is
+        imperative through `cameraRef` (see `useFollowCamera`), so a follow
+        pan re-renders nothing.
+      */}
+      <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
+
+      {routeLineFeature ? (
+        <GeoJSONSource id="sbt-route" data={routeLineFeature}>
+          {/*
+            Straight dashed line between stops, in sequence — the same
+            "not a route" honesty the notice below the map states
+            (`map.routeNotice`).
+          */}
+          <Layer
+            type="line"
+            id="sbt-route-line"
+            source="sbt-route"
+            paint={{
+              'line-color': colors.primary[600],
+              'line-width': 3,
+              'line-dasharray': [4, 4],
+            }}
+          />
+        </GeoJSONSource>
+      ) : null}
+
+      {/*
+        Uncertainty drawn rather than asserted: when the device reports a
+        coarse radius, the map shows the circle that radius describes instead
+        of implying the bus is precisely where the dot is. Centred on the
+        reported fix rather than on the interpolated marker, because the
+        radius belongs to the measurement.
+      */}
+      {accuracyCircleFeature ? (
+        <GeoJSONSource id="sbt-accuracy" data={accuracyCircleFeature}>
+          <Layer
+            type="fill"
+            id="sbt-accuracy-fill"
+            source="sbt-accuracy"
+            paint={{ 'fill-color': ACCURACY_FILL }}
+          />
+          <Layer
+            type="line"
+            id="sbt-accuracy-stroke"
+            source="sbt-accuracy"
+            paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
+          />
+        </GeoJSONSource>
       ) : null}
 
       {stops.map((stop) => (
-        // Stops keep the platform's teardrop pin in slate: visually a different
-        // species from the flat, amber, rotating bus — at a glance and in a
-        // screenshot.
-        <Marker
+        // Stops keep a deliberately different species from the bus — a flat,
+        // slate, un-rotating dot — so a stop and the bus are different at a
+        // glance and in a screenshot.
+        <StopMarker
           key={stop.id}
-          coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
+          id={`stop-${stop.id}`}
+          latitude={stop.latitude}
+          longitude={stop.longitude}
           title={stop.name}
           description={`${t('map.stopA11y', { number: stop.sequence_number })}${
             stop.address ? ` · ${stop.address}` : ''
           }`}
-          pinColor={colors.neutral[700]}
-          zIndex={1}
-          tracksViewChanges={false}
         />
       ))}
 
       {/*
-        Uncertainty drawn rather than asserted: when the device reports a coarse
-        radius, the map shows the circle that radius describes instead of
-        implying the bus is precisely where the dot is. Centred on the reported
-        fix rather than on the interpolated marker, because the radius belongs
-        to the measurement.
+        The bus: rendered AFTER the stops so it draws above them (annotation
+        order in the tree is the z-order), the way `zIndex` 2 > 1 did before.
       */}
-      {fix && accuracyCircleMeters !== null ? (
-        <Circle
-          center={{ latitude: fix.latitude, longitude: fix.longitude }}
-          radius={accuracyCircleMeters}
-          strokeColor={ACCURACY_STROKE}
-          fillColor={ACCURACY_FILL}
-          strokeWidth={1}
-        />
-      ) : null}
-
       {fix ? (
         <BusMarker
           fix={fix}
@@ -222,16 +299,6 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
   ),
 );
 MapSurface.displayName = 'MapSurface';
-
-/**
- * Adapts `react-native-maps`' `(region, details)` callback to the shape the
- * follow policy wants, tolerating a provider that omits `details`.
- */
-function handleRegionChangeProxy(
-  handler: (region: Region, details: { isGesture?: boolean }) => void,
-): (region: Region, details: { isGesture?: boolean }) => void {
-  return (region, details) => handler(region, details ?? {});
-}
 
 // ── Status panel ───────────────────────────────────────────────────────────
 
@@ -307,10 +374,21 @@ export const BusMap: React.FC<BusMapProps> = ({
       ),
     [stops],
   );
-  const routeCoordinates = useMemo<LatLng[]>(
+  const routeCoordinates = useMemo(
     () => locatedStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude })),
     [locatedStops],
   );
+  const routeLineFeature = useMemo<Feature<LineString> | null>(() => {
+    if (routeCoordinates.length < 2) return null;
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: routeCoordinates.map((point) => [point.longitude, point.latitude]),
+      },
+    };
+  }, [routeCoordinates]);
 
   const presentation = useMemo(
     () =>
@@ -321,6 +399,16 @@ export const BusMap: React.FC<BusMapProps> = ({
       }),
     [fix, connection, now],
   );
+
+  // The ring belongs to the measurement, not the interpolated marker, so it
+  // is keyed on the raw fix and the presentation's radius only.
+  const accuracyCircleFeature = useMemo<Feature<Polygon> | null>(() => {
+    if (!fix || presentation.accuracyCircleMeters === null) return null;
+    return accuracyCirclePolygon(
+      { latitude: fix.latitude, longitude: fix.longitude },
+      presentation.accuracyCircleMeters,
+    );
+  }, [fix, presentation.accuracyCircleMeters]);
 
   // Not memoised: `t()` must re-run on a language switch, and a plain string
   // compares equal in the memo below, so this costs nothing.
@@ -337,12 +425,11 @@ export const BusMap: React.FC<BusMapProps> = ({
   // `follow-camera.ts` (pure reducer) and `follow-camera-controller.ts` (pure
   // over a camera port), and `useFollowCamera` is the React binding. Following
   // the bus still re-renders nothing — `onFrame` is called from the marker's
-  // animation loop and moves the camera imperatively through the map ref.
+  // animation loop and moves the camera imperatively through the camera ref.
   const {
-    mapRef,
+    cameraRef,
     exploring,
     onFrame: handleFrame,
-    onUserGesture,
     onRegionChange: handleRegionChange,
     onRegionChangeComplete: handleRegionChangeComplete,
     onMapReady: handleMapReady,
@@ -355,17 +442,19 @@ export const BusMap: React.FC<BusMapProps> = ({
     edgePadding: FIT_EDGE_PADDING,
   });
 
-  const initialRegion = useMemo(() => {
-    const points: LatLng[] = [...routeCoordinates];
+  const initialCamera = useMemo(() => {
+    const points: Array<{ latitude: number; longitude: number }> = [...routeCoordinates];
     if (fix) points.push({ latitude: fix.latitude, longitude: fix.longitude });
-    return initialRegionFor(points);
-    // Keyed on stops only: `initialRegion` is read once by the native map, and
+    return initialCameraFor(points);
+    // Keyed on stops only: `initialViewState` is read once by the engine, and
     // recomputing it per fix would be a controlled camera in disguise.
+    // (`fix` is read inside but deliberately not a dependency, for the same
+    // reason the old `initialRegion` was keyed on stops alone.)
   }, [routeCoordinates]);
 
   // Which surface fills the map's box: tiles, the labelled development-build
   // panel, or the empty-route state. Precedence and rationale live in
-  // `map-surface-mode.ts` (Expo Go on Android cannot render Google Maps).
+  // `map-surface-mode.ts` (Expo Go carries no map engine on any platform).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
 
   if (surfaceMode === 'no-coordinates') {
@@ -380,34 +469,33 @@ export const BusMap: React.FC<BusMapProps> = ({
     <View>
       <View style={[styles.wrap, { height }]}>
         {surfaceMode === 'needs-dev-build' ? (
-          // No map provider exists in this runtime — a labelled panel says so
+          // No map engine exists in this runtime — a labelled panel says so
           // instead of the blank grey box drivers used to get.
           <NeedsDevBuildPanel />
         ) : (
           <MapSurface
             stops={locatedStops}
-            routeCoordinates={routeCoordinates}
-            initialRegion={initialRegion}
+            routeLineFeature={routeLineFeature}
+            accuracyCircleFeature={accuracyCircleFeature}
+            initialCamera={initialCamera}
             fix={fix}
             tripId={tripId}
             reducedMotion={reducedMotion}
             animate={presentation.animate}
-            accuracyCircleMeters={presentation.accuracyCircleMeters}
             busTitle={busTitle ?? t('map.busA11y')}
             busDescription={busDescription}
             locale={locale}
             onFrame={handleFrame}
-            onUserGesture={onUserGesture}
             onRegionChange={handleRegionChange}
             onRegionChangeComplete={handleRegionChangeComplete}
             onMapReady={handleMapReady}
-            mapRef={mapRef}
+            cameraRef={cameraRef}
           />
         )}
 
-        {/* Top-left: clear of the Google Maps attribution (bottom-left) and the
-          Apple Maps legal button (bottom-right). Kept on every surface: the
-          freshness of the position is true even when the tiles are not. */}
+        {/* Top-left: clear of the MapLibre attribution and logo (bottom
+          corners). Kept on every surface: the freshness of the position is
+          true even when the tiles are not. */}
         <MapStatusPanel presentation={presentation} fix={fix} now={now} />
 
         {surfaceMode === 'map' && exploring ? (
@@ -433,7 +521,7 @@ export const BusMap: React.FC<BusMapProps> = ({
 
       {surfaceMode === 'map' && routeCoordinates.length > 1 ? (
         /* Below the map, never over it: the bottom corners belong to the
-           provider's attribution and legal links. */
+           provider's attribution and logo. */
         <Text style={styles.routeNotice}>{t('map.routeNotice')}</Text>
       ) : null}
     </View>

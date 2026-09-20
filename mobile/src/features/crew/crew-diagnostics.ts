@@ -9,7 +9,7 @@ import { apiHost } from './tracking-status.ts';
  * The "read these lines to support" readout on the Help screen.
  *
  * Every row is one fact a support engineer can act on: what kind of app this
- * phone is running (Expo Go has no Google Maps and no background task — see
+ * phone is running (Expo Go has no map engine and no background task — see
  * `lib/runtime-environment.ts`), which server it talks to, and what the OS /
  * lifecycle say about GPS. The builder is pure (state in, rows out) so
  * `crew-diagnostics.spec.ts` can pin the two invariants that matter most:

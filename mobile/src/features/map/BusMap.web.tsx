@@ -6,12 +6,13 @@ import { formatSpeedKmh, formatTime } from '../../lib/format';
 import type { BusMapProps } from './BusMap';
 
 /**
- * Web fallback for the native `react-native-maps` `BusMap`.
+ * Web fallback for the native `BusMap`.
  *
- * `react-native-maps` is a native-only module and cannot be bundled for the
- * web preview, so on web we render an equivalent, dependency-free summary:
- * the live bus position (speed + last fix time) and the ordered route stops.
- * The native map is unchanged on iOS/Android via `BusMap.tsx`.
+ * The native map needs the MapLibre engine, which is a native-only module and
+ * cannot be bundled for the web preview, so on web we render an equivalent,
+ * dependency-free summary: the live bus position (speed + last fix time) and
+ * the ordered route stops. The native map is unchanged on iOS/Android via
+ * `BusMap.tsx`.
  */
 export const BusMap: React.FC<BusMapProps> = ({ stops, fix, height = 260, busTitle = 'Bus' }) => {
   const locatedStops = useMemo(

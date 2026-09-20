@@ -23,8 +23,8 @@ import {
  *
  * It used to live inline in `BusMap.tsx`, which meant a second map (the Driver
  * Trip screen) had no way to reuse it and would have reimplemented the camera —
- * exactly how `react-native-maps` maps end up with two different camera
- * behaviours. The rules below are subtle enough that a copy would drift.
+ * exactly how map integrations end up with two different camera behaviours.
+ * The rules below are subtle enough that a copy would drift.
  *
  * ### The rules, and why each one exists
  *
@@ -42,7 +42,7 @@ import {
  *    provider-independent second signal (`isZoomGesture`).
  */
 
-/** A WGS-84 point. Structurally identical to `react-native-maps`' `LatLng`. */
+/** A WGS-84 point — the camera policy's own coordinate shape. */
 export interface CameraPoint {
   latitude: number;
   longitude: number;
@@ -56,8 +56,9 @@ export interface EdgePadding {
 }
 
 /**
- * The only thing this controller needs from a map. `react-native-maps`'
- * `MapView` satisfies it; a test double satisfies it in ten lines.
+ * The only thing this controller needs from a map. The MapLibre `Camera` ref
+ * satisfies it (see `useFollowCamera.ts`); a test double satisfies it in ten
+ * lines.
  */
 export interface FollowCameraPort {
   /** Moves the camera centre (and optionally zoom) over `duration` ms. */
@@ -214,15 +215,18 @@ export function createFollowCameraController(
     },
 
     regionChanged(_region, details) {
-      // Android (Google Maps) and iOS-with-Google report gesture attribution
-      // here. Reacting to the first event rather than the last means the camera
-      // stops fighting the user mid-drag instead of after the drag ends.
+      // The engine reports gesture attribution on the region events (MapLibre
+      // sets `userInteraction` on both platforms; the binding maps it to
+      // `isGesture`). Reacting to the first event rather than the last means
+      // the camera stops fighting the user mid-drag instead of after the drag
+      // ends.
       if (details.isGesture === true) dispatch({ type: 'user-gesture' });
     },
 
     regionChangeComplete(region, details) {
-      // Apple Maps does not emit `isGesture` at all, so a zoom delta we did not
-      // cause is the provider-independent second signal. Follow mode only ever
+      // A zoom delta we did not cause is the provider-independent second
+      // signal (kept for the case where an engine stops reporting gesture
+      // attribution — the old Apple-Maps situation). Follow mode only ever
       // pans, so any zoom change is a user's.
       if (details.isGesture === true || isZoomGesture(expectedDelta, region.latitudeDelta)) {
         dispatch({ type: 'user-gesture' });

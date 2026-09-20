@@ -33,9 +33,10 @@ export function isValidCoordinate(latitude: number, longitude: number): boolean 
 /**
  * The maps URL for one destination.
  *
- * `https://maps.google.com/maps?daddr=…` is the portable form: Android
- * resolves it to Google Maps, iOS to Apple Maps (or Google Maps when
- * installed). It needs no app-specific scheme detection and no API key.
+ * `https://maps.google.com/maps?daddr=…` is the portable form: Android opens
+ * it in the device's own maps app, iOS in Apple Maps (or an installed
+ * alternative). It is a hand-off to a device feature — no app-specific scheme
+ * detection and no API key involved.
  */
 export function buildNavigationUrl(target: NavigationTarget): string | null {
   if (!isValidCoordinate(target.latitude, target.longitude)) {

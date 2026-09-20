@@ -132,11 +132,11 @@ export const ZOOM_GESTURE_TOLERANCE = 0.02;
 /**
  * Detects a user **zoom** on providers that do not report gesture attribution.
  *
- * Android (Google Maps) and iOS-with-Google set `isGesture` on the region
- * events, but Apple Maps — the default iOS provider here — does not. This is
- * the provider-independent half of gesture detection, and it is sound by
- * construction: follow mode only ever *pans*, so any zoom change the map did
- * not just report back to us must have come from the user.
+ * Native (MapLibre) reports gesture attribution on both platforms; Leaflet
+ * uses `dragstart`/`boxzoomstart` plus the window after our own fit. This
+ * fallback is the provider-independent half of gesture detection and stays
+ * sound by construction: follow mode only ever *pans*, so any zoom change the
+ * map did not just report back to us must have come from the user.
  *
  * `previousDelta` is `null` right after we change zoom ourselves (the initial
  * fit), which means "the next delta is unknown — record it, do not judge it".

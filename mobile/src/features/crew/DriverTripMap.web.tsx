@@ -11,12 +11,13 @@ import type { DriverTripMapProps } from './DriverTripMap';
 /**
  * Web fallback for the native `DriverTripMap`.
  *
- * `react-native-maps` is a native-only module and cannot be bundled for the web
- * preview, so this renders the same *facts* without a map: this device's own
- * position, its freshness, and the ordered stops. It deliberately says the same
- * things the native panel does — including that the position is the device's
- * own and whether it has been delivered — because a web build that quietly
- * dropped the honesty line would be worse than no map at all.
+ * The native map needs the MapLibre engine, which is a native-only module and
+ * cannot be bundled for the web preview, so this renders the same *facts*
+ * without a map: this device's own position, its freshness, and the ordered
+ * stops. It deliberately says the same things the native panel does —
+ * including that the position is the device's own and whether it has been
+ * delivered — because a web build that quietly dropped the honesty line would
+ * be worse than no map at all.
  *
  * The driver screen is a mobile surface; this exists so `npm run web` and the
  * web bundle keep working, not as a supported way to drive a bus.

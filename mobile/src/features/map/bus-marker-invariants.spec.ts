@@ -12,15 +12,21 @@ import { describe, test } from 'node:test';
  * this kind of structural rule (`theme/legibility.spec.ts`,
  * `lib/i18n-literals.spec.ts`, `features/crew/help-routing.spec.ts`).
  *
- * What is being protected is genuinely subtle and easy to regress:
+ * What is being protected is genuinely subtle and easy to regress (the
+ * MapLibre equivalents of the old provider's traps):
  *
- * - `Marker.rotation` and `Marker.icon` are documented **"iOS: Google Maps
- *   only"** in react-native-maps 1.27.2, and this app ships Google Maps on
- *   Android only. Rotating through the `rotation` prop on iOS would silently do
- *   nothing, and the bus would appear stuck pointing north — a bug no unit test
- *   on the pure modules would ever catch.
- * - Anchoring must be the vehicle **centre** on both providers, or rotation
+ * - MapLibre annotations have **no native rotation prop** — the child view IS
+ *   the marker. If the bus stopped rotating through the child's `transform`,
+ *   it would sit pointing north forever — a bug no unit test on the pure
+ *   modules would ever catch.
+ * - On Android the child is rasterised offscreen into a bitmap, and a
+ *   transform change never triggers a layout change — so the rotation must be
+ *   re-captured with the annotation's `refresh()`, or the bus would turn only
+ *   in the live (iOS) view and not in the Android bitmap.
+ * - Anchoring must be the vehicle **centre** (`anchor="center"`), or rotation
  *   swings the marker off the GPS coordinate.
+ * - The bus must draw above the stop dots: MapLibre annotations have no
+ *   zIndex, so z-order is tree order (bus after stops).
  */
 
 const read = (path: string): string => readFileSync(`${process.cwd()}/${path}`, 'utf8');
@@ -28,53 +34,69 @@ const read = (path: string): string => readFileSync(`${process.cwd()}/${path}`, 
 describe('native bus marker invariants', () => {
   const marker = read('src/features/map/BusMarker.tsx');
 
-  test('anchors at the vehicle centre on both providers', () => {
-    assert.match(marker, /anchor=\{\{\s*x:\s*0\.5,\s*y:\s*0\.5\s*\}\}/, 'Google Maps anchor');
-    assert.match(marker, /centerOffset=\{\{\s*x:\s*0,\s*y:\s*0\s*\}\}/, 'Apple Maps offset');
+  test('anchors at the vehicle centre', () => {
+    assert.match(marker, /anchor="center"/, 'rotation must happen around the GPS coordinate');
   });
 
-  test('rotates natively on Android and via transform elsewhere', () => {
-    assert.match(marker, /useNativeRotation = Platform\.OS === 'android'/);
-    // iOS must rotate the child view: `rotation` is a no-op on Apple Maps.
+  test('rotates through the child view transform (MapLibre has no native rotation prop)', () => {
     assert.match(marker, /transform: \[\{ rotate: `\$\{heading\}deg` \}\]/);
   });
 
-  test('does not rely on the Google-only `icon` prop', () => {
-    assert.doesNotMatch(marker, /\bicon=\{/, 'the bus must be a custom child view, not an image');
+  test('re-captures the Android bitmap whenever the heading changes', () => {
+    // A transform never fires a layout change, so the offscreen raster on
+    // Android must be refreshed explicitly when — and only when — the heading
+    // changes (iOS renders the child live; refresh() is a no-op there).
+    assert.match(marker, /annotationRef\.current\?\.refresh\(\)/);
+    const effect = marker.slice(marker.indexOf('hasCommittedRef'));
+    assert.match(effect, /}, \[heading\]\);/, 'the refresh must be keyed on the heading');
   });
 
-  test('stops the Android view snapshotting after the first frame', () => {
-    assert.match(marker, /tracksViewChanges=\{tracksViewChanges\}/);
-    assert.match(marker, /requestAnimationFrame\(\(\) => setTracksViewChanges\(false\)\)/);
+  test('does not rely on a static icon image', () => {
+    assert.doesNotMatch(
+      marker,
+      /\biconImage=|\bicon=\{/,
+      'the bus must be a custom child view, not an image',
+    );
+    assert.match(marker, /<BusMarkerGraphic/, 'and it must be the one shared graphic');
   });
 
-  test('gives the marker a higher z-index than the stop pins', () => {
-    const busZ = Number(/zIndex=\{(\d+)\}/.exec(marker)?.[1]);
+  test('gives the marker a higher draw order than the stop pins', () => {
+    // No zIndex in MapLibre — annotation order in the tree IS the z-order, so
+    // the bus must render after every stop.
     const map = read('src/features/map/BusMap.tsx');
-    const stopZ = Number(/zIndex=\{(\d+)\}/.exec(map)?.[1]);
-    assert.ok(Number.isFinite(busZ) && Number.isFinite(stopZ), 'z-index not found');
-    assert.ok(busZ > stopZ, `bus ${busZ} must draw above stops ${stopZ}`);
+    const stopsAt = map.indexOf('{stops.map((stop) => (');
+    const busAt = map.indexOf('<BusMarker');
+    assert.ok(stopsAt !== -1 && busAt !== -1, 'stop markers and bus marker not found');
+    assert.ok(busAt > stopsAt, 'the bus must render after the stops, or it draws below them');
   });
 });
 
 describe('native bus map invariants', () => {
   const map = read('src/features/map/BusMap.tsx');
 
-  test('never passes a controlled `region` prop', () => {
-    // The controlled `region` recomputed per fix is the bug this rewrite
-    // removes: it re-fitted the route every few seconds and stole the camera
-    // from the user. `initialRegion` is fine — the native map reads it once.
-    assert.doesNotMatch(map, /^\s*region=\{/m, 'a controlled region prop re-appeared');
-    assert.match(map, /initialRegion=\{initialRegion \?\? undefined\}/);
+  test('never drives the camera from props (the controlled-region bug stays dead)', () => {
+    // MapLibre's `Map` takes no region prop; the camera is a `<Camera>` child
+    // read once for its initial state, then moved only imperatively.
+    assert.match(map, /initialViewState=\{initialCamera \?\? undefined\}/);
+    assert.doesNotMatch(
+      map,
+      /flyTo\(|jumpTo\(|easeTo\(|setStop\(/,
+      'no imperative camera call in the map component',
+    );
+  });
+
+  test('keeps a single style URL, resolved by the policy module', () => {
+    assert.match(map, /resolveMapStyleUrl\(/, 'the style URL must come from map-style.ts');
+    assert.match(map, /mapStyle=\{MAP_STYLE_URL\}/);
   });
 
   /**
-   * The camera *wiring* moved into `follow-camera-controller.ts` (pure) and
-   * `useFollowCamera.ts` (the React binding) in Session 2, so both native maps —
-   * the observer map here and the Driver Trip map — run one implementation.
-   * These guards follow the code to its new home; what they protect is
-   * unchanged, and `follow-camera-controller.spec.ts` now asserts the same
-   * behaviours against a fake camera as well.
+   * The camera *wiring* lives in `follow-camera-controller.ts` (pure) and
+   * `useFollowCamera.ts` (the React binding), so both native maps — the
+   * observer map here and the Driver Trip map — run one implementation.
+   * These guards follow the code to its home; what they protect is unchanged,
+   * and `follow-camera-controller.spec.ts` asserts the same behaviours against
+   * a fake camera as well.
    */
   test('moves the camera without changing zoom', () => {
     const controller = read('src/features/map/follow-camera-controller.ts');
@@ -86,13 +108,23 @@ describe('native bus map invariants', () => {
     assert.doesNotMatch(pan, /zoom:/, 'a follow pan must never touch zoom');
     // A zoom may only be *added* when one was asked for explicitly.
     const hook = read('src/features/map/useFollowCamera.ts');
-    assert.match(hook, /if \(options\.zoom !== undefined\) camera\.zoom = options\.zoom;/);
+    assert.match(hook, /if \(options\.zoom !== undefined\) stop\.zoom = options\.zoom;/);
   });
 
-  test('detects user gestures through gesture attribution, pan drag and zoom delta', () => {
-    assert.match(map, /onPanDrag=\{onUserGesture\}/, 'Apple Maps has no isGesture');
+  test('detects user gestures through the engine attribution, kept fallback and all', () => {
+    // MapLibre reports `userInteraction` on its region events on both
+    // platforms; the binding reads it, and the pure controller still carries
+    // the provider-independent zoom-delta fallback.
+    const hook = read('src/features/map/useFollowCamera.ts');
+    assert.match(hook, /view\.userInteraction === true/, 'gesture attribution from the engine');
+    assert.match(map, /onRegionIsChanging=\{onRegionChange\}/, 'region change wired');
+    assert.match(
+      map,
+      /onRegionDidChange=\{onRegionChangeComplete\}/,
+      'region change complete wired',
+    );
     const controller = read('src/features/map/follow-camera-controller.ts');
-    assert.match(controller, /details\.isGesture === true/, 'Google Maps attribution');
+    assert.match(controller, /details\.isGesture === true/, 'attribution path');
     assert.match(
       controller,
       /isZoomGesture\(expectedDelta, region\.latitudeDelta\)/,
@@ -113,11 +145,16 @@ describe('native bus map invariants', () => {
   });
 
   test('keeps map controls clear of provider attribution', () => {
-    // Google's logo/attribution is bottom-left, Apple's legal button and
-    // Leaflet's attribution are bottom-right — so nothing may sit at the bottom.
+    // MapLibre renders the attribution and logo in the bottom corners, so
+    // nothing may sit at the bottom.
     assert.match(map, /top: spacing\.sm,\s*\n\s*left: spacing\.sm,/, 'status panel top-left');
     assert.match(map, /top: spacing\.sm,\s*\n\s*right: spacing\.sm,/, 'follow control top-right');
     assert.doesNotMatch(map, /bottom:\s*spacing/, 'no control anchored to the bottom edge');
+  });
+
+  test('keeps the attribution and the logo visible (the OSM-derived tiles require it)', () => {
+    assert.match(map, /\battribution\b/, 'attribution ornament on');
+    assert.match(map, /\blogo\b/, 'logo ornament on');
   });
 
   test('keeps a real touch target on the follow control', () => {
@@ -138,6 +175,11 @@ describe('native bus map invariants', () => {
 
   test('keeps the stop connectors honest about not being a route', () => {
     assert.match(map, /t\('map\.routeNotice'\)/);
+  });
+
+  test('draws the accuracy ring centred on the reported fix', () => {
+    assert.match(map, /accuracyCirclePolygon\(/, 'the ring is the measurement, not the tween');
+    assert.match(map, /latitude: fix\.latitude, longitude: fix\.longitude/);
   });
 });
 

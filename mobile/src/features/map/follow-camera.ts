@@ -125,16 +125,18 @@ export function reduceFollowCamera(
  *
  * 2 % is far above the rounding noise of a platform region report and far
  * below one pinch-zoom step, so a genuine zoom is never missed and a reported
- * region that merely wobbles is never mistaken for one.
+ * region that merely wobbles is never mistaken for one. (MapLibre reports
+ * gesture attribution on both platforms, so this stays the belt-and-braces
+ * half of the detection — sound by construction: see below.)
  */
 export const ZOOM_GESTURE_TOLERANCE = 0.02;
 
 /**
  * Detects a user **zoom** on providers that do not report gesture attribution.
  *
- * Android (Google Maps) and iOS-with-Google set `isGesture` on the region
- * events, but Apple Maps — the default iOS provider here — does not. This is
- * the provider-independent half of gesture detection, and it is sound by
+ * MapLibre reports `userInteraction` on its region events on both platforms
+ * (the binding maps it to `isGesture`), but this fallback is the
+ * provider-independent half of gesture detection and stays sound by
  * construction: follow mode only ever *pans*, so any zoom change the map did
  * not just report back to us must have come from the user.
  *
