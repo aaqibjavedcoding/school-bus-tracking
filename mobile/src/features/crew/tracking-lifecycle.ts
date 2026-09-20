@@ -16,6 +16,12 @@ import {
 // independent of the UI tree.
 import '../../services/api-env.ts';
 
+// Side-effect import: registers the runtime facts (Expo Go vs development
+// build vs standalone) for the same reason — the headless task must know
+// whether the OS background-location task can exist here **before** it asks
+// the SDK, because in Expo Go those calls warn (LogBox) instead of answering.
+import '../../lib/runtime-env.ts';
+
 import { apiClient } from '../../services/api.ts';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket.ts';
 import { getAccessToken } from '../../services/session.ts';
@@ -34,6 +40,7 @@ import { buildLocationPayload, type DeviceLocationFix } from '../../lib/geo.ts';
 import { generateIdempotencyKey } from '../../lib/idempotency.ts';
 import { getApiErrorMessage } from '../../lib/errors.ts';
 import { t } from '../../lib/i18n.ts';
+import { backgroundUnavailableReasonFor, getRuntime } from '../../lib/runtime-environment.ts';
 import {
   CREW_TRACKING_CONTEXT_KEY,
   LEGACY_CREW_ACTIVE_TRIP_KEY,
@@ -219,11 +226,22 @@ export interface CrewTrackingState {
   foregroundPermission: PermissionState;
   backgroundPermission: PermissionState;
   servicesEnabled: boolean | null;
+  /**
+   * Why the OS background-location task cannot run on this runtime —
+   * `'expo-go'` (fixable: use a development build), `'platform'` (nothing the
+   * user can do), or `null` when background location is available. Set by the
+   * permission read and hydration, which skip the SDK call when it is set.
+   */
+  backgroundUnavailableReason: 'expo-go' | 'platform' | null;
   accuracy: LocationAccuracyAuthorization;
   busy: boolean;
   message: string | null;
+  /** When the current `message` was set (`null` while there is no message). */
+  messageAt: string | null;
   /** Diagnostics: why tracking last stopped (`null` while it is running). */
   lastStopReason: string | null;
+  /** The server trip status recorded with a `trip-not-eligible` stop, if any. */
+  lastStopTripStatus: string | null;
   stats: CrewLocationStats;
   recovery: CrewTrackingRecoveryState;
 }
@@ -239,10 +257,13 @@ const initialState: CrewTrackingState = {
   foregroundPermission: 'undetermined',
   backgroundPermission: 'undetermined',
   servicesEnabled: null,
+  backgroundUnavailableReason: null,
   accuracy: 'unknown',
   busy: false,
   message: null,
+  messageAt: null,
   lastStopReason: null,
+  lastStopTripStatus: null,
   stats: { ...initialStats },
   recovery: {
     attempts: 0,
@@ -333,7 +354,12 @@ function patch(next: Partial<CrewTrackingState>): void {
   if (isNoopPatch(state, next)) {
     return;
   }
-  state = { ...state, ...next };
+  // Timestamp a message the moment it becomes visible (the diagnostics
+  // readout shows *when* the last error happened); a cleared message is
+  // always "none right now".
+  const messageAt =
+    next.message !== undefined ? (next.message ? new Date().toISOString() : null) : state.messageAt;
+  state = { ...state, ...next, messageAt };
   publish();
 }
 
@@ -441,18 +467,33 @@ export async function refreshCrewPermissions(): Promise<{
   } catch {
     foreground = null;
   }
+
+  // The OS background-location task cannot exist on every runtime (Expo Go).
+  // There, calling `getBackgroundPermissionsAsync()` is a LogBox warning at
+  // best and a confusing error at worst — so the read itself is skipped, the
+  // mapped state comes out `unavailable`, and *why* is carried on the state
+  // (`backgroundUnavailableReason`) for the UI to say specifically.
+  const backgroundUnavailableReason = backgroundUnavailableReasonFor(getRuntime());
   let background: Location.LocationPermissionResponse | null = null;
-  try {
-    background = await Location.getBackgroundPermissionsAsync();
-  } catch {
-    background = null;
+  if (backgroundUnavailableReason === null) {
+    try {
+      background = await Location.getBackgroundPermissionsAsync();
+    } catch {
+      background = null;
+    }
   }
 
   const foregroundPermission = mapPermissionState(foreground);
   const backgroundPermission = mapPermissionState(background);
   const accuracy = locationAccuracyAuthorization(foreground);
 
-  patch({ foregroundPermission, backgroundPermission, servicesEnabled, accuracy });
+  patch({
+    foregroundPermission,
+    backgroundPermission,
+    servicesEnabled,
+    accuracy,
+    backgroundUnavailableReason,
+  });
   return { foregroundPermission, backgroundPermission, servicesEnabled, accuracy };
 }
 
@@ -697,8 +738,8 @@ async function recoverConnectivity(startedIn: number, trigger: string): Promise<
   if (epoch !== startedIn || !state.tripId) {
     return false;
   }
-  if (eligible === 'refused') {
-    await stopCrewTracking('trip-not-eligible');
+  if (eligible.verdict === 'refused') {
+    await stopCrewTracking('trip-not-eligible', { tripStatus: eligible.tripStatus });
     return false;
   }
 
@@ -729,27 +770,31 @@ function connectAuthenticatedSocketGuarded(): boolean {
  * `unverified` (network/API failure) deliberately does **not** stop tracking:
  * the socket handshake and every `trip:location:update` are authorized
  * server-side anyway, so a failed extra GET must not kill a working stream.
+ *
+ * `tripStatus` carries the server's status when the verdict is based on one,
+ * so a `refused` stop can be diagnosed with *which* status ended sharing.
  */
 async function verifyTripEligibility(
   startedIn: number,
   tripId: string,
-): Promise<'eligible' | 'refused' | 'unverified'> {
+): Promise<{ verdict: 'eligible' | 'refused' | 'unverified'; tripStatus: string | null }> {
   try {
     const envelope = await withBound(apiClient.getTrip(tripId), timeouts.eligibility);
     if (epoch !== startedIn) {
-      return 'unverified';
+      return { verdict: 'unverified', tripStatus: null };
     }
     if (!envelope) {
-      return 'unverified';
+      return { verdict: 'unverified', tripStatus: null };
     }
+    const tripStatus = typeof envelope.data?.status === 'string' ? envelope.data.status : null;
     if (envelope.success === false) {
       // The server refused the read: not found, forbidden, or a closed trip.
       // Every one of them means this account may not keep sending fixes.
-      return 'refused';
+      return { verdict: 'refused', tripStatus };
     }
-    return isTripStatusShareable(envelope.data?.status ?? null) ? 'eligible' : 'refused';
+    return { verdict: isTripStatusShareable(tripStatus) ? 'eligible' : 'refused', tripStatus };
   } catch {
-    return 'unverified';
+    return { verdict: 'unverified', tripStatus: null };
   }
 }
 
@@ -1006,16 +1051,32 @@ export async function setBackgroundTrackingEnabled(
   enabled: boolean,
 ): Promise<{ ok: boolean; message: string | null }> {
   const startedIn = epoch;
-  patch({ busy: true, message: null });
+  const backgroundUnavailableReason = backgroundUnavailableReasonFor(getRuntime());
+  patch({ busy: true, message: null, backgroundUnavailableReason });
   try {
     if (!enabled) {
-      try {
-        await Location.stopLocationUpdatesAsync(CREW_LOCATION_TASK);
-      } catch {
-        // Never started, or the OS already stopped it.
+      // Where the task cannot exist there is nothing to stop — the SDK call
+      // would only warn.
+      if (backgroundUnavailableReason === null) {
+        try {
+          await Location.stopLocationUpdatesAsync(CREW_LOCATION_TASK);
+        } catch {
+          // Never started, or the OS already stopped it.
+        }
       }
       patch({ backgroundActive: false, backgroundConsent: false });
       return { ok: true, message: null };
+    }
+
+    if (backgroundUnavailableReason !== null) {
+      // Say specifically what is missing instead of letting the SDK fail in a
+      // way the driver cannot act on (and never attempt the task start).
+      const message =
+        backgroundUnavailableReason === 'expo-go'
+          ? t('gps.message.backgroundNeedsDevBuild')
+          : t('gps.message.backgroundUnavailable');
+      patch({ message });
+      return { ok: false, message };
     }
 
     const permissions = await refreshCrewPermissions();
@@ -1173,11 +1234,13 @@ export async function requestCrewTrackingRecovery(): Promise<void> {
  * Stops tracking and cancels every pending/in-flight recovery.
  *
  * `reason` is recorded for diagnostics; `clearMessage: false` keeps a message
- * the caller just set (e.g. the revocation notice).
+ * the caller just set (e.g. the revocation notice); `tripStatus` records the
+ * server trip status when the stop is a closed/foreign-trip refusal, so the
+ * status line can say *which* status ended sharing.
  */
 export async function stopCrewTracking(
   reason: string = 'user',
-  options: { clearMessage?: boolean } = {},
+  options: { clearMessage?: boolean; tripStatus?: string | null } = {},
 ): Promise<void> {
   epoch += 1; // invalidates late async completions of the previous run
   clearRecoveryTimer();
@@ -1186,12 +1249,16 @@ export async function stopCrewTracking(
   policy.reset();
 
   await clearForegroundWatch();
-  try {
-    if (await Location.hasStartedLocationUpdatesAsync(CREW_LOCATION_TASK)) {
-      await Location.stopLocationUpdatesAsync(CREW_LOCATION_TASK);
+  // The OS background task cannot exist on every runtime (Expo Go) — there is
+  // nothing to probe or stop, and the SDK calls would only warn.
+  if (backgroundUnavailableReasonFor(getRuntime()) === null) {
+    try {
+      if (await Location.hasStartedLocationUpdatesAsync(CREW_LOCATION_TASK)) {
+        await Location.stopLocationUpdatesAsync(CREW_LOCATION_TASK);
+      }
+    } catch {
+      // Never started (or the OS already stopped it).
     }
-  } catch {
-    // Never started (or the OS already stopped it).
   }
   await clearPersistedContext();
 
@@ -1204,9 +1271,11 @@ export async function stopCrewTracking(
     accuracy: state.accuracy,
     connection: state.connection === 'revoked' ? 'revoked' : 'idle',
     message: options.clearMessage === false ? state.message : null,
+    messageAt: options.clearMessage === false ? state.messageAt : null,
     // Diagnostics only: why tracking stopped (user, trip closed, revoked,
     // account changed, permanent server rejection). Never shown as prose.
     lastStopReason: reason,
+    lastStopTripStatus: options.tripStatus ?? null,
     stats: { ...initialStats, activeTripId: null },
   };
   publish();
@@ -1343,7 +1412,8 @@ export async function runHeadlessCrewLocationTask(
   attachSocketListeners();
 
   // 3. Eligibility re-check (bounded, non-fatal on network failure).
-  result.eligibility = await verifyTripEligibility(startedIn, state.tripId);
+  const eligible = await verifyTripEligibility(startedIn, state.tripId);
+  result.eligibility = eligible.verdict;
   if (epoch !== startedIn) {
     result.reason = 'cancelled';
     return result;
@@ -1351,7 +1421,7 @@ export async function runHeadlessCrewLocationTask(
   if (result.eligibility === 'refused') {
     result.reason = 'trip-not-eligible';
     result.dropped += 1;
-    await stopCrewTracking('headless-not-eligible');
+    await stopCrewTracking('headless-not-eligible', { tripStatus: eligible.tripStatus });
     return result;
   }
 
@@ -1500,11 +1570,16 @@ export async function hydrateCrewTracking(identity: {
 }): Promise<void> {
   await refreshCrewPermissions();
 
+  // The OS task state can only be read where the task can exist; in Expo Go
+  // the answer is known up front and `hasStartedLocationUpdatesAsync` would
+  // warn (LogBox) instead of answering.
   let backgroundActive = false;
-  try {
-    backgroundActive = await Location.hasStartedLocationUpdatesAsync(CREW_LOCATION_TASK);
-  } catch {
-    backgroundActive = false;
+  if (backgroundUnavailableReasonFor(getRuntime()) === null) {
+    try {
+      backgroundActive = await Location.hasStartedLocationUpdatesAsync(CREW_LOCATION_TASK);
+    } catch {
+      backgroundActive = false;
+    }
   }
   patch({ backgroundActive });
 

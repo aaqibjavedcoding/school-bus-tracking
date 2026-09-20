@@ -246,6 +246,8 @@ export const en = {
   'gps.message.backgroundDenied':
     'Allow “Always” location access to keep sharing with the screen off.',
   'gps.message.backgroundUnavailable': 'Background location is not available on this device.',
+  'gps.message.backgroundNeedsDevBuild':
+    'Background sharing needs a development build — Expo Go cannot run the background GPS task.',
   'gps.message.backgroundNeedsTrip': 'Background sharing needs an active trip.',
   'gps.message.backgroundFailed': 'Could not enable background sharing.',
   'gps.message.revoked': 'Access to live tracking was revoked — sharing has stopped.',

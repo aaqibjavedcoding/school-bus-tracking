@@ -76,6 +76,10 @@ const location = {
   stopCalls: 0,
   taskStarted: false,
   lastTaskOptions: null as Record<string, unknown> | null,
+  /** `getBackgroundPermissionsAsync` probes (Expo Go must never do these). */
+  backgroundPermissionReads: 0,
+  /** `hasStartedLocationUpdatesAsync` probes (Expo Go must never do these). */
+  hasStartedCalls: 0,
 };
 
 mock.module('expo-location', {
@@ -83,7 +87,10 @@ mock.module('expo-location', {
     Accuracy: { BestForNavigation: 6 },
     hasServicesEnabledAsync: async () => location.servicesEnabled,
     getForegroundPermissionsAsync: async () => location.foreground,
-    getBackgroundPermissionsAsync: async () => location.background,
+    getBackgroundPermissionsAsync: async () => {
+      location.backgroundPermissionReads += 1;
+      return location.background;
+    },
     requestForegroundPermissionsAsync: async () => location.foreground,
     requestBackgroundPermissionsAsync: async () => location.background,
     watchPositionAsync: async (_options: unknown, callback: (fix: unknown) => void) => {
@@ -105,7 +112,10 @@ mock.module('expo-location', {
       location.stopCalls += 1;
       location.taskStarted = false;
     },
-    hasStartedLocationUpdatesAsync: async () => location.taskStarted,
+    hasStartedLocationUpdatesAsync: async () => {
+      location.hasStartedCalls += 1;
+      return location.taskStarted;
+    },
   },
 });
 
@@ -287,6 +297,12 @@ const statusModule = (await import(
 const mapModule = (await import(
   moduleUrl('src/features/crew/crew-map-presentation.ts')
 )) as typeof import('./crew-map-presentation.ts');
+const runtimeModule = (await import(
+  moduleUrl('src/lib/runtime-environment.ts')
+)) as typeof import('../../lib/runtime-environment.ts');
+const i18nModule = (await import(
+  moduleUrl('src/lib/i18n.ts')
+)) as typeof import('../../lib/i18n.ts');
 
 // Shrink every bounded wait so a scenario is milliseconds, not seconds.
 lifecycle.__setTrackingTimeoutsForTests({ connect: 40, ack: 40, eligibility: 40, session: 60 });
@@ -343,6 +359,16 @@ beforeEach(async () => {
   location.servicesEnabled = true;
   location.foreground = grantedPermission;
   location.background = grantedPermission;
+  location.backgroundPermissionReads = 0;
+  location.hasStartedCalls = 0;
+  // Every scenario starts on a development build (SDK 57 reports
+  // executionEnvironment 'storeClient' for dev builds too — the Expo Go
+  // scenarios below set appOwnership 'expo' to be inside the Go app shell).
+  runtimeModule.registerRuntimeFacts({
+    executionEnvironment: 'storeClient',
+    appOwnership: null,
+    platform: 'android',
+  });
   api.refreshCalls = 0;
   api.getTripCalls = 0;
   api.refreshSucceeds = true;
@@ -988,4 +1014,95 @@ test('29. an unchanged permission refresh publishes nothing (render-loop regress
   } finally {
     unsubscribe();
   }
+});
+
+// ── Runtime-aware background gating (Expo Go vs development build) ────────
+//
+// From SDK 53 on, the Expo Go shell cannot run the OS background-location
+// task (expo-location's own LogBox says "not available at all" on Android),
+// so the lifecycle must not call the SDK's task APIs inside Expo Go — and
+// must explain WHY instead of failing with a confusing error. A development
+// build (appOwnership null) keeps the full path bit-for-bit.
+
+test('30. Expo Go (Android): foreground sharing works, the background task APIs are never called', async () => {
+  runtimeModule.registerRuntimeFacts({
+    executionEnvironment: 'storeClient',
+    appOwnership: 'expo',
+    platform: 'android',
+  });
+
+  const result = await lifecycle.startCrewTracking({ tripId: TRIP, ...DRIVER });
+  assert.equal(result.ok, true, 'the foreground watch still works inside Expo Go');
+
+  const state = lifecycle.getCrewTrackingState();
+  assert.equal(state.foregroundActive, true);
+  assert.equal(state.backgroundUnavailableReason, 'expo-go', 'the state carries the reason');
+  assert.equal(state.backgroundPermission, 'unavailable');
+  assert.equal(
+    location.backgroundPermissionReads,
+    0,
+    'Expo Go never reads a background permission that cannot be granted',
+  );
+
+  const enabled = await lifecycle.setBackgroundTrackingEnabled(true);
+  assert.equal(enabled.ok, false);
+  assert.equal(
+    enabled.message,
+    i18nModule.t('gps.message.backgroundNeedsDevBuild'),
+    'the failure names the missing development build, not an SDK error',
+  );
+  assert.equal(lifecycle.getCrewTrackingState().backgroundActive, false);
+  assert.equal(location.startCalls, 0, 'the background task is never started');
+
+  await lifecycle.stopCrewTracking('user');
+  assert.equal(location.hasStartedCalls, 0, 'stop never probes a task that cannot exist');
+  assert.equal(location.stopCalls, 0);
+});
+
+test('31. Development build (Android): the full background path is unchanged', async () => {
+  // beforeEach registered the dev-client facts (executionEnvironment
+  // 'storeClient', appOwnership null — SDK 57 reads dev builds like this).
+  await lifecycle.startCrewTracking({ tripId: TRIP, ...DRIVER });
+  assert.equal(lifecycle.getCrewTrackingState().backgroundUnavailableReason, null);
+
+  const enabled = await lifecycle.setBackgroundTrackingEnabled(true);
+  assert.equal(enabled.ok, true);
+  assert.equal(location.startCalls, 1, 'the OS task is started through the SDK as before');
+  assert.equal(lifecycle.getCrewTrackingState().backgroundActive, true);
+
+  await lifecycle.setBackgroundTrackingEnabled(false);
+  assert.equal(location.stopCalls, 1, '…and stopped through the same API');
+  assert.equal(lifecycle.getCrewTrackingState().backgroundConsent, false);
+});
+
+test('32. hydrate: Expo Go never probes the task, a development build reflects it', async () => {
+  persistContext();
+
+  runtimeModule.registerRuntimeFacts({
+    executionEnvironment: 'storeClient',
+    appOwnership: 'expo',
+    platform: 'android',
+  });
+  location.taskStarted = true; // a leftover belief that an OS task is running
+  await lifecycle.hydrateCrewTracking(DRIVER);
+  assert.equal(
+    lifecycle.getCrewTrackingState().backgroundActive,
+    false,
+    'Expo Go cannot have a running task — no probe, no claim',
+  );
+  assert.equal(location.hasStartedCalls, 0);
+
+  await lifecycle.__resetCrewTrackingForTests();
+  runtimeModule.registerRuntimeFacts({
+    executionEnvironment: 'storeClient',
+    appOwnership: null,
+    platform: 'ios',
+  });
+  await lifecycle.hydrateCrewTracking(DRIVER);
+  assert.equal(
+    lifecycle.getCrewTrackingState().backgroundActive,
+    true,
+    'a development build reflects the real OS task state',
+  );
+  assert.equal(location.hasStartedCalls, 1);
 });

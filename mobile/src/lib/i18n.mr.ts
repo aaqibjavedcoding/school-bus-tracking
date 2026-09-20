@@ -242,6 +242,8 @@ export const mr: Dictionary = {
   'gps.message.startFailed': 'GPS शेअरिंग सुरू होऊ शकले नाही.',
   'gps.message.backgroundDenied': 'स्क्रीन बंद असतानाही पाठवण्यासाठी “Always” लोकेशन परवानगी द्या.',
   'gps.message.backgroundUnavailable': 'या डिव्हाइसवर बॅकग्राउंड लोकेशन उपलब्ध नाही.',
+  'gps.message.backgroundNeedsDevBuild':
+    'बॅकग्राउंड शेअरिंगसाठी development build आवश्यक आहे — Expo Go बॅकग्राउंड GPS task चालवू शकत नाही.',
   'gps.message.backgroundNeedsTrip': 'बॅकग्राउंड शेअरिंगसाठी सुरू असलेली ट्रिप आवश्यक आहे.',
   'gps.message.backgroundFailed': 'बॅकग्राउंड शेअरिंग चालू होऊ शकले नाही.',
   'gps.message.revoked': 'लाइव्ह ट्रॅकिंगचा प्रवेश रद्द झाला — शेअरिंग थांबवले आहे.',
