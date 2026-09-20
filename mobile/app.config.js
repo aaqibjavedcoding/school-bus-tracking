@@ -20,7 +20,9 @@
  * signing-certificate SHA-1, so a copied key is useless elsewhere.
  *
  * When the variable is unset (e.g. Expo Go, where Maps runs on its own key),
- * no key is injected and `react-native-maps` keeps its default behaviour.
+ * no key is injected and `react-native-maps` keeps its default behaviour; a
+ * warning names the variable (never its value) so a dev-client/APK made
+ * without it is not later debugged as "the map is blank" on the phone.
  *
  * ### Firebase (Android push) — required for a native build, not for Expo Go
  *
@@ -85,8 +87,30 @@ function resolveGoogleServicesFile() {
   return null;
 }
 
+/**
+ * Reads the Android Maps key without ever logging it. Mirrors the Firebase
+ * warning above: a missing key is harmless in Expo Go but turns every map in
+ * a native build (dev client, APK, AAB) into a blank canvas — markers, stops
+ * and the "last known" banner still draw, only the tiles are missing — which
+ * is regularly reported as a tracking bug rather than a build-config gap.
+ */
+function resolveGoogleMapsApiKey() {
+  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+  if (key) {
+    return key;
+  }
+  console.warn(
+    '[app.config] EXPO_PUBLIC_GOOGLE_MAPS_API_KEY is not set, so android.config.googleMaps.apiKey is not injected. ' +
+      'Expo Go is unaffected (Maps runs on its own key there), but a native Android build made now shows ' +
+      'blank map tiles behind the bus marker on the Trip and Track screens. ' +
+      'Set it in mobile/.env or the EAS profile env before `expo prebuild` / `eas build`. ' +
+      'See docs/mobile-operations.md.',
+  );
+  return null;
+}
+
 module.exports = ({ config }) => {
-  const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const googleMapsApiKey = resolveGoogleMapsApiKey();
   const googleServicesFile = resolveGoogleServicesFile();
 
   const android = { ...config.android };

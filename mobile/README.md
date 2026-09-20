@@ -85,6 +85,19 @@ isolation, different networks), use the tunnel instead and scan that QR:
 npm --prefix mobile run start:tunnel   # launcher + --tunnel
 ```
 
+The tunnel forwards **only Metro (port 8081)** — the API on port 3001 is not
+behind it, so the automatic API detection cannot work in this mode and the
+sign-in screen says so ("Metro is served through a tunnel…", the button stays
+disabled). Tell the app where the API is with `EXPO_PUBLIC_API_URL`:
+
+```bash
+# phone and computer DO share a network (the tunnel was only needed for the QR):
+npx cross-env EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api/v1 npm --prefix mobile run start:tunnel
+# they do NOT: expose the API through its own tunnel and use that URL
+ngrok http 3001    # → https://<something>.ngrok-free.app
+npx cross-env EXPO_PUBLIC_API_URL=https://<something>.ngrok-free.app/api/v1 npm --prefix mobile run start:tunnel
+```
+
 A **development build** (`expo-dev-client`, still installed) is only needed for
 things Expo Go cannot do — chiefly remote push notifications:
 
@@ -196,10 +209,44 @@ Scan the QR code above to open in Expo Go.
    with AP isolation, phone on mobile data, corporate network, host firewall
    blocking inbound 8081, …) — the scan succeeds and the load never finishes.
    Fix: `npm --prefix mobile run start:tunnel` (uses `@expo/ngrok`, already a
-   devDependency here) and scan the `https://…ngrok…` QR instead. On Windows
-   also allow Node.js through the firewall for **private** networks, and keep
-   phone and machine on the same subnet (a router "guest" SSID isolates
-   clients from each other).
+   devDependency here) and scan the `https://…ngrok…` QR instead — and set
+   `EXPO_PUBLIC_API_URL` as described above, because the tunnel does not carry
+   the API. On Windows also allow Node.js through the firewall for **private**
+   networks, and keep phone and machine on the same subnet (a router "guest"
+   SSID isolates clients from each other).
+
+### "Unable to connect" / "Network request failed" on a physical phone
+
+The app loaded (so Metro on 8081 is reachable) but the API on 3001 is not.
+Check, in this order:
+
+1. **Is the server running and listening on all interfaces?** On start,
+   `npm --prefix web run dev` logs the API address with host `0.0.0.0`. A
+   `HOST=127.0.0.1` override would make it invisible to the phone.
+2. **Can the phone reach it?** Open `http://<your-lan-ip>:3001/api/v1/health`
+   in the phone's browser. No answer ⇒ firewall or network, not the app: on
+   Windows allow Node.js for **private** networks (Windows Defender Firewall →
+   Allow an app), and make sure the WiFi profile of the PC is "Private", not
+   "Public". A router "guest" SSID or AP isolation blocks phone↔PC traffic
+   entirely.
+3. **Which URL is the app using?** In dev the API URL is derived from the Metro
+   host the phone connected to, so it always points at the machine that
+   served the bundle. If Metro was started with `--tunnel` the sign-in screen
+   shows a configuration error instead (see above) — set `EXPO_PUBLIC_API_URL`.
+   Both variables are read when Metro starts: change them, then restart Metro
+   and reload the app.
+4. **Intermittent, only the first time a screen opens?** The dev server
+   compiles each API route on its first hit; on a slow machine that takes a
+   few seconds while the phone waits, and a WiFi hiccup in that window shows
+   as a connection error. Retry once; a production build of the server
+   (`npm --prefix web run build && npm --prefix web start`) compiles nothing
+   at request time.
+
+The wording "fetch failed" never comes from the phone UI (network errors are
+shown as "Unable to connect…"); it is what the **server** logs when _it_
+cannot reach something (Node's `fetch`), and what a dev-only console warning
+prints when a background cache refresh fails. Both point at the machine
+running the API, not at the app.
 
 ### `TypeError: Cannot read property 'useId' of null` at startup
 

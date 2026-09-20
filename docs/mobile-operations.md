@@ -346,6 +346,14 @@ All major management screens support:
   dev-server host (physical devices on the same WiFi), `10.0.2.2` on the
   Android emulator, and `localhost` on the iOS simulator/web. The port can
   be overridden with `EXPO_PUBLIC_API_PORT` (default 3001).
+  - **Tunnelled Metro is the exception.** `expo start --tunnel` (and manual
+    ngrok / cloudflared / localtunnel hosts) forwards the dev-server port
+    only, so a derived `http://<tunnel>:3001/…` can never answer. The resolver
+    (`isTunnelHost` in `services/api.ts`) refuses to derive it and the sign-in
+    screen shows the configuration error naming the tunnel host and the fix
+    (set `EXPO_PUBLIC_API_URL` to the LAN address, or to a second tunnel in
+    front of port 3001). `mobile/README.md` → "Unable to connect" walks
+    through the LAN/firewall checks for the non-tunnel case.
 - **Standalone builds (EAS preview/production)**: **mandatory** — a release
   build without it surfaces a configuration error on the sign-in screen
   instead of silently targeting localhost. The value must include the
@@ -359,6 +367,16 @@ Read by `app.config.js` and injected into `android.config.googleMaps.apiKey`
 at prebuild/build time. Required for standalone Android builds that show the
 live map; omit for Expo Go. Restrict the key in Google Cloud to "Maps SDK
 for Android" + this package name + the signing-certificate SHA-1.
+
+Symptom when it is missing from a dev-client / APK / AAB build: the map area
+on the parent Track screen and the driver Trip screen renders as a blank
+(beige or grey) canvas while the bus marker, stops and the freshness banner
+still draw — the position data is fine, only the tiles are absent. It looks
+like a tracking bug but is a build-configuration gap; `app.config.js` prints a
+warning naming the variable at `expo start` / `expo prebuild` / `eas build`
+so it is caught before the build ships. The key is read at build time only:
+adding it to `.env` afterwards needs a new native build, a JS reload is not
+enough.
 
 Both variables can be set via a local `.env`, the shell environment, or the
 `env` block of an `eas.json` build profile. See `mobile/.env.example`.
