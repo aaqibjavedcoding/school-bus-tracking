@@ -432,6 +432,11 @@ export const en = {
    */
   'map.routeNotice': 'Straight lines between stops — not the driven route.',
   'map.noCoordinates': 'This route has no mapped stops yet.',
+  // The map provider is missing from this runtime itself (Expo Go on Android
+  // since Expo SDK 53) — a labelled panel says so instead of a blank box.
+  'map.needsDevBuildTitle': 'Map preview needs a development build',
+  'map.needsDevBuildBody':
+    'Expo Go on Android no longer includes Google Maps (Expo SDK 53 and later), so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
   'map.busA11y': 'School bus',
   'map.stopA11y': 'Stop {number}',
 

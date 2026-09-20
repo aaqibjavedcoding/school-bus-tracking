@@ -401,6 +401,9 @@ export const mr: Dictionary = {
   'map.offlineNote': 'ऑफलाइन — शेवटची ज्ञात स्थिती दाखवत आहे।',
   'map.routeNotice': 'थांब्यांमधील सरळ रेषा — प्रत्यक्ष मार्ग नाही।',
   'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
+  'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
+  'map.needsDevBuildBody':
+    'Expo Go (Android) मध्ये आता Google Maps समाविष्ट नाहीत (Expo SDK 53 नंतर), म्हणून या build मध्ये मॅप दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — मॅप पाहण्यासाठी development build वापरा।',
   'map.busA11y': 'शाळेची बस',
   'map.stopA11y': 'थांबा {number}',
 

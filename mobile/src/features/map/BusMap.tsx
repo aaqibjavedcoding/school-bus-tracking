@@ -7,9 +7,13 @@ import { fixAgeMs } from '../../lib/geo';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
+import '../../lib/runtime-env.ts';
+import { getRuntime } from '../../lib/runtime-environment.ts';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import type { ConnectionState, LiveFix } from '../tracking/useLiveTripTracking';
 import { BusMarker } from './BusMarker';
+import { mapSurfaceMode } from './map-surface-mode';
+import { NeedsDevBuildPanel } from './needs-dev-build-panel';
 import type { RenderedMarker } from './useBusMarkerMotion';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
@@ -359,7 +363,12 @@ export const BusMap: React.FC<BusMapProps> = ({
     // recomputing it per fix would be a controlled camera in disguise.
   }, [routeCoordinates]);
 
-  if (routeCoordinates.length === 0 && !fix) {
+  // Which surface fills the map's box: tiles, the labelled development-build
+  // panel, or the empty-route state. Precedence and rationale live in
+  // `map-surface-mode.ts` (Expo Go on Android cannot render Google Maps).
+  const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
+
+  if (surfaceMode === 'no-coordinates') {
     return (
       <View style={[styles.placeholder, { height }]}>
         <Text style={styles.placeholderText}>{t('map.noCoordinates')}</Text>
@@ -370,31 +379,38 @@ export const BusMap: React.FC<BusMapProps> = ({
   return (
     <View>
       <View style={[styles.wrap, { height }]}>
-        <MapSurface
-          stops={locatedStops}
-          routeCoordinates={routeCoordinates}
-          initialRegion={initialRegion}
-          fix={fix}
-          tripId={tripId}
-          reducedMotion={reducedMotion}
-          animate={presentation.animate}
-          accuracyCircleMeters={presentation.accuracyCircleMeters}
-          busTitle={busTitle ?? t('map.busA11y')}
-          busDescription={busDescription}
-          locale={locale}
-          onFrame={handleFrame}
-          onUserGesture={onUserGesture}
-          onRegionChange={handleRegionChange}
-          onRegionChangeComplete={handleRegionChangeComplete}
-          onMapReady={handleMapReady}
-          mapRef={mapRef}
-        />
+        {surfaceMode === 'needs-dev-build' ? (
+          // No map provider exists in this runtime — a labelled panel says so
+          // instead of the blank grey box drivers used to get.
+          <NeedsDevBuildPanel />
+        ) : (
+          <MapSurface
+            stops={locatedStops}
+            routeCoordinates={routeCoordinates}
+            initialRegion={initialRegion}
+            fix={fix}
+            tripId={tripId}
+            reducedMotion={reducedMotion}
+            animate={presentation.animate}
+            accuracyCircleMeters={presentation.accuracyCircleMeters}
+            busTitle={busTitle ?? t('map.busA11y')}
+            busDescription={busDescription}
+            locale={locale}
+            onFrame={handleFrame}
+            onUserGesture={onUserGesture}
+            onRegionChange={handleRegionChange}
+            onRegionChangeComplete={handleRegionChangeComplete}
+            onMapReady={handleMapReady}
+            mapRef={mapRef}
+          />
+        )}
 
         {/* Top-left: clear of the Google Maps attribution (bottom-left) and the
-          Apple Maps legal button (bottom-right). */}
+          Apple Maps legal button (bottom-right). Kept on every surface: the
+          freshness of the position is true even when the tiles are not. */}
         <MapStatusPanel presentation={presentation} fix={fix} now={now} />
 
-        {exploring ? (
+        {surfaceMode === 'map' && exploring ? (
           <Pressable
             onPress={handleRecenter}
             accessibilityRole="button"
@@ -415,7 +431,7 @@ export const BusMap: React.FC<BusMapProps> = ({
         </Text>
       </View>
 
-      {routeCoordinates.length > 1 ? (
+      {surfaceMode === 'map' && routeCoordinates.length > 1 ? (
         /* Below the map, never over it: the bottom corners belong to the
            provider's attribution and legal links. */
         <Text style={styles.routeNotice}>{t('map.routeNotice')}</Text>
