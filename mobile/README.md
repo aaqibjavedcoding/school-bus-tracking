@@ -103,23 +103,30 @@ two things Expo Go cannot do:
 
 - **Remote push notifications** — FCM needs the native wiring an APK/AAB
   carries; the Expo Go app has no FCM token of its own;
-- **Google Maps on Android** — Expo Go cannot render Google Maps at all since
-  Expo SDK 53 (Apple Maps only, and only on iOS). The app knows this at
-  runtime and shows a labelled "the map needs a development build" panel
-  instead of a blank canvas (`src/features/map/map-surface-mode.ts`); nothing
-  is misconfigured, there is simply no Google Maps to configure in the Go app.
+- **The map** — the map engine is MapLibre
+  (`@maplibre/maplibre-react-native`), a **custom native module the Expo Go
+  shell does not carry on any platform**. The app knows this at runtime and
+  shows a labelled "the map needs a development build" panel instead of a
+  blank canvas (`src/features/map/map-surface-mode.ts`); nothing is
+  misconfigured — there is no key to configure and no engine in the Go app.
+  The tiles are OpenFreeMap's public OpenStreetMap instance: no key, no
+  account, no billing (`docs/live-tracking-map.md` → "Map provider policy").
 
 Expo Go is still fine for everyday driving work — foreground GPS sharing,
 manifest, SOS, everything — but the background location task does not run in
 the Go app, so background sharing is gated there with a one-line explanation
 (a development build gets foreground **and** background).
 
-For a development build:
+For a development build — **no paid account of any kind is needed** (the map
+needs no key; see `docs/live-tracking-map.md` → "Map provider policy"):
 
 ```bash
-# ONE-TIME per device/emulator (see docs/mobile-expo-sdk.md)
-cd mobile && npx expo run:android   # or: npx expo run:ios
-npm run start:dev-client            # expo start --dev-client
+# ONE-TIME per machine + device (see docs/mobile-expo-sdk.md):
+#   Android Studio (any recent version) + JDK 17 come with it, and the phone
+#   needs USB debugging enabled (Settings → Developer options).
+cd mobile && npx expo run:android   # builds the native shell (MapLibre included) and installs it
+# or: npx expo run:ios              # Xcode + a simulator/iPhone
+npm run start:dev-client            # expo start --dev-client, then scan the QR
 ```
 
 The app auto-detects the API host from the Metro dev server, so a physical
@@ -338,7 +345,7 @@ src/
     crew/               today-trip loader, manifest, status actions, GPS
     parent/             notifications provider + pure state machine
     tracking/           live-trip observer hook, ETA views, connection chip
-    map/                react-native-maps bus map
+    map/                MapLibre + OpenFreeMap bus map
   hooks/                useLoad, useNetworkStatus
   lib/                  errors, format, geo (GPS mapping), roles
   services/             api client + base-URL/env resolution, session, socket

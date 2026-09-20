@@ -120,11 +120,13 @@ The app detects at runtime whether it runs in **Expo Go** or a **development
 build** (`src/lib/runtime-environment.ts`, pure + spec-pinned) and gates the
 capabilities accordingly:
 
-- **Maps.** Expo Go cannot render Google Maps on Android at all since Expo
-  SDK 53 (Apple Maps only, and only on iOS). Instead of a blank canvas the map
+- **Maps.** The map engine is MapLibre
+  (`@maplibre/maplibre-react-native`), a custom native module the Expo Go
+  shell does not carry **on any platform**. Instead of a blank canvas the map
   surfaces show a labelled "the map needs a development build" panel
-  (`src/features/map/map-surface-mode.ts`). Nothing to configure: a native
-  Android build with `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` renders Google Maps.
+  (`src/features/map/map-surface-mode.ts`). Nothing to configure — there is no
+  key: a development build renders OpenFreeMap's public OpenStreetMap tiles
+  (`docs/live-tracking-map.md` → "Map provider policy").
 - **Background sharing.** The OS background-location task
   (`startLocationUpdatesAsync`) does not run in the Expo Go app, so background
   sharing is unavailable there: the enable toggle fails with a one-line
@@ -134,13 +136,14 @@ capabilities accordingly:
 - **Push** (unchanged rule): FCM needs the native wiring an APK/AAB carries.
 
 Build-time, the inverse boundary applies: `app.config.js` prints its
-missing-Maps-key / missing-`google-services.json` warnings **only for native
-Android builds** (`isNativeAndroidBuild`: `expo prebuild` / `expo run:android`
-without an iOS target, or a non-iOS EAS build), and each **exactly once**
-(`warnOnce` — a module set plus an environment marker, so "once" survives the
-require-cache clears Expo's reloads cause). `expo start --go` / `expo export` /
-iOS builds stay silent — they generate no Android project, and in the Expo Go
-case the app already says the honest thing at runtime.
+missing-`google-services.json` warning **only for native Android builds**
+(`isNativeAndroidBuild`: `expo prebuild` / `expo run:android` without an iOS
+target, or a non-iOS EAS build), and **exactly once** (`warnOnce` — a module
+set plus an environment marker, so "once" survives the require-cache clears
+Expo's reloads cause). `expo start --go` / `expo export` / iOS builds stay
+silent — they generate no Android project, and in the Expo Go case the app
+already says the honest thing at runtime. (The old missing-Maps-key warning is
+gone with the key itself: the map needs no key at all.)
 
 ### GPS Permission Recovery
 
@@ -423,35 +426,36 @@ All major management screens support:
   running with `NODE_ENV=production` it must be `https://…` (the production
   refresh cookie is `Secure; SameSite=None`).
 
-### Google Maps (`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`)
+### Map tiles (no key, no account, no billing)
 
-Read by `app.config.js` and injected into `android.config.googleMaps.apiKey`
-at prebuild/build time. Required for **every native Android build**
-(development build, APK, AAB) that shows the live map. Restrict the key in
-Google Cloud to "Maps SDK for Android" + this package name + the
-signing-certificate SHA-1.
+The map runs on **MapLibre** (`@maplibre/maplibre-react-native`) over
+**OpenFreeMap's public OpenStreetMap instance**
+(`https://tiles.openfreemap.org/styles/liberty`). There is **nothing to
+configure and no key to set** — this is a product rule, not an accident: the
+map must never depend on an API key, a credit card, billing or a metered tier
+(`docs/live-tracking-map.md` → "Map provider policy" states the rule and names
+the providers it rules out; `scripts/map-provider-policy.spec.ts` enforces it
+in the test suite).
 
-**Expo Go is not "unaffected" — it cannot show Google Maps at all on Android
-since Expo SDK 53** (Apple Maps only, and only on iOS). So there is no key to
-configure there; the map surfaces show a labelled "needs a development build"
-panel instead (`src/features/map/map-surface-mode.ts`). The key is only news
-where a native Android project is actually generated, which is also where the
-warning fires.
+The only map variable that exists is optional:
 
-Symptom when the key is missing from a dev-client / APK / AAB build: the map
-area on the parent Track screen and the driver Trip screen renders as a blank
-(beige or grey) canvas while the bus marker, stops and the freshness banner
-still draw — the position data is fine, only the tiles are absent. It looks
-like a tracking bug but is a build-configuration gap; `app.config.js` prints a
-warning naming the variable for the native Android build commands (`expo
-prebuild` / `expo run:android` without an iOS target, or a non-iOS EAS build) —
-exactly once per process — so it is caught before the build ships. `expo start`
-/ `expo export` / iOS builds print nothing because they generate no Android
-project. The key is read at build time only: adding it to `.env` afterwards
-needs a new native build, a JS reload is not enough.
+- `EXPO_PUBLIC_MAP_STYLE_URL` — an **https-only** override for the style URL.
+  Used for the documented scale path: self-host
+  [OpenFreeMap](https://github.com/hyperknot/openfreemap) and point this one
+  variable at the self-hosted style — **no app code changes**. A non-https
+  value is rejected with one warning and the public default is used
+  (`map-style.ts`, pure and spec-pinned).
 
-Both variables can be set via a local `.env`, the shell environment, or the
-`env` block of an `eas.json` build profile. See `mobile/.env.example`.
+Because the engine is a custom native module, the map renders only in a
+development build or an EAS build; Expo Go shows the labelled "needs a
+development build" panel on **every platform** (`map-surface-mode.ts`). If a
+native build shows no tiles, check network first (tiles are a network
+dependency — markers, stops and the freshness text still render without them),
+then the `EXPO_PUBLIC_MAP_STYLE_URL` value if one is set.
+
+`EXPO_PUBLIC_API_URL` / `EXPO_PUBLIC_API_PORT` and this variable can all be
+set via a local `.env`, the shell environment, or the `env` block of an
+`eas.json` build profile. See `mobile/.env.example`.
 
 ### EAS profiles
 

@@ -57,7 +57,8 @@ truth is `expo/bundledNativeModules.json`, which ships inside the installed
 | `react` / `react-dom`                    | `19.2.3`       |
 | `react-native`                           | `0.86.3`       |
 | `react-native-web`                       | `~0.21.0`      |
-| `react-native-maps`                      | `1.27.2`       |
+| `@maplibre/maplibre-react-native`        | `11.4.0` (third-party, see note below the table) |
+| `@types/geojson` (dev)                   | `^7946.0.16` (peer of the map engine) |
 | `react-native-safe-area-context`         | `~5.7.0`       |
 | `react-native-screens`                   | `~4.26.0`      |
 | `@react-native-async-storage/async-storage` | `2.2.0`     |
@@ -65,6 +66,16 @@ truth is `expo/bundledNativeModules.json`, which ships inside the installed
 | `@react-native/virtualized-lists` (dev)  | `0.86.3`       |
 | `babel-preset-expo` (dev)                | `~57.0.11`     |
 | `metro-runtime` (dev)                    | `~0.84.5`      |
+
+**Note on `@maplibre/maplibre-react-native`:** it is a third-party module, so
+it is **not** in Expo's `bundledNativeModules.json` and `npm run verify:sdk`
+does not (and cannot) check it — its peer ranges (expo ≥54, react ≥19.1,
+react-native ≥0.80, `@types/geojson` ^7946) are what this SDK line satisfies,
+and the version is pinned explicitly in `mobile/package.json`. It is a custom
+native module: the Expo Go shell does not carry it, so the map needs a
+development build on **every platform**, and its config plugin (which adds the
+MapLibre Native SDK to the generated projects) lives in `mobile/app.config.js`
+— a plain string in `plugins`, idempotent per evaluation.
 
 ## Guardrail: `npm run verify:sdk`
 
@@ -180,7 +191,10 @@ scannable tunnel URL instead.
 `expo-dev-client` is still installed (`~57.0.18`). Use a development build when
 you need something Expo Go cannot provide — most importantly **remote push
 notifications** (they need your own FCM/APNs credentials, see
-`docs/notifications.md`), or a native module that is not part of Expo Go:
+`docs/notifications.md`), **the map** (MapLibre is a custom native module the
+Expo Go shell does not carry on any platform — see the note above the
+guardrail section and `docs/live-tracking-map.md` → "Map provider policy"), or
+any native module that is not part of Expo Go:
 
 ```bash
 cd mobile

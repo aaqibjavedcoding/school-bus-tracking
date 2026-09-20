@@ -47,7 +47,7 @@ bind to it and render.
 | `src/features/crew/tracking-status.ts`             | Pure status derivation from facts (device fix vs server ack), plus the status **line** (`crewTrackingStatusLine`) and `apiHost()` — the host:port-only URL projection that keeps a token out of driver-facing text. |
 | `src/features/crew/gps-permission-state.ts`        | Pure permission/accuracy/services decision + settings-action mapping.                                                                                                                                               |
 | `src/features/crew/gps-strip-action.ts`            | The strip's single tap, decided from lifecycle facts (Share GPS / Stop / Retry / Open location settings / Ask for location permission).                                                                             |
-| `src/lib/runtime-environment.ts`                   | Pure Expo Go / development-build capability facts (can the background task run? can Android show Google Maps?) from the installed SDK. No native modules — testable in Node.                                        |
+| `src/lib/runtime-environment.ts`                   | Pure Expo Go / development-build capability facts (can the background task run? is the MapLibre map engine present?) from the installed SDK. No native modules — testable in Node.                                  |
 | `src/features/map/map-surface-mode.ts`             | Decides, per map surface, between rendering the map and showing the labelled development-build panel.                                                                                                               |
 | `src/features/crew/crew-diagnostics.ts`            | The Help screen's "Diagnostics (for support)" rows, built from the lifecycle snapshot (a spec pins that no JWT-shaped string or secret can reach any row).                                                          |
 | `src/features/crew/battery-guidance.ts`            | Honest battery guidance (never claims to detect OEM restrictions).                                                                                                                                                  |
@@ -271,33 +271,39 @@ plus the settings action, and a copy key (`gps.battery.honesty`) that states the
 app cannot verify the setting. Guidance is shown only when it can still help
 (`shouldShowBatteryGuidance`), not as permanent noise.
 
-## 5. Android Firebase wiring
+## 5. Android Firebase wiring + the MapLibre plugin
 
-`mobile/app.config.js` (a thin layer over the pinned `app.json`) now wires
-**two** build-time facts and nothing else:
+`mobile/app.config.js` (a thin layer over the pinned `app.json`) now wires the
+**MapLibre config plugin** and **one** build-time fact:
 
-- `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` → `android.config.googleMaps.apiKey`
-  (unchanged behaviour).
+- The **`@maplibre/maplibre-react-native` plugin** is appended to `plugins`
+  (an includes-guard makes it idempotent per evaluation — Expo evaluates this
+  file several times per command, and the base plugins array is fresh from
+  `app.json` each time). It adds the MapLibre Native SDK to the generated
+  native projects. No key, no account, no billing — the map's product rule,
+  stated in `docs/live-tracking-map.md` → "Map provider policy" and enforced by
+  `scripts/map-provider-policy.spec.ts`.
 - `ANDROID_GOOGLE_SERVICES_FILE` → `android.googleServicesFile`, falling back to
   `./google-services.json` when that file exists. The env var is a **build-time**
   variable, so it deliberately does _not_ use the `EXPO_PUBLIC_` prefix (which
   would inline it into the JS bundle). A path that does not exist produces a
   warning and no wiring, never a crash.
-- **The warnings are aimed and one-shot.** A missing fact is only news where a
-  **native Android project is actually being generated**, so every warning goes
+- **The warning is aimed and one-shot.** A missing file is only news where a
+  **native Android project is actually being generated**, so the warning goes
   through `isNativeAndroidBuild(process.argv, env)` (the exact command tokens
   `prebuild` / `run:android`, minus an explicit iOS target — `--platform ios`,
   `-p ios`, `--platform=ios` — or a non-iOS EAS build) **and** `warnOnce()`
   (a module-level set _and_ an `SBT_APP_CONFIG_*` environment marker, so
   "exactly once per process" survives the require-cache clears that Expo's
   re-evaluations and tooling reloads cause). `expo start --go`, `expo export`
-  and iOS builds print nothing — correctly: since SDK 53 Expo Go cannot render
-  Google Maps on Android at all, so a missing key is not a problem there, and
-  the app shows the labelled development-build panel at runtime instead.
-  `scripts/app-config-warnings.spec.ts` evaluates the real config nine
-  cache-cleared times per scenario and pins exactly that: one warning per
-  missing fact for native Android builds, zero for the silent commands, and a
-  set key injected yet never logged.
+  and iOS builds print nothing — correctly: they generate no Android project,
+  and in the Expo Go case the app shows the labelled development-build panel at
+  runtime instead (the map engine is a custom native module the Go shell does
+  not carry on any platform).
+  `scripts/app-config-warnings.spec.ts` evaluates the real config cache-cleared
+  across every scenario and pins exactly that: the plugin present exactly once
+  per evaluation, one missing-file warning for native Android builds, zero for
+  the silent commands.
 
 Rules:
 
@@ -410,13 +416,14 @@ milliseconds instead of ~51 s. Production never calls it.
   or signing workaround is implied anywhere in this patch.
 - **No offline GPS history.** At most one fix is held, for at most 90 s and 3
   attempts. A long tunnel produces a visible gap, not a fabricated track.
-- **Expo Go is foreground-only for location, and has no Android Google Maps.**
-  The background-location task does not run in the Expo Go app, and since Expo
-  SDK 53 Expo Go cannot render Google Maps on Android at all (Apple Maps, iOS
-  only). The app detects the runtime, gates background sharing with a one-line
-  explanation, and shows a labelled development-build panel on the map surfaces
-  instead of a blank map — but a crew phone that needs background coverage or
-  Android map tiles needs a development build.
+- **Expo Go is foreground-only for location, and does not carry the map
+  engine.** The background-location task does not run in the Expo Go app, and
+  the MapLibre engine is a custom native module the Expo Go shell does not
+  include on any platform. The app detects the runtime, gates background
+  sharing with a one-line explanation, and shows a labelled development-build
+  panel on the map surfaces instead of a blank map — but a crew phone that
+  needs background coverage or map tiles needs a development build (no key is
+  involved: the tiles are OpenFreeMap's public OpenStreetMap instance).
 - **Simulations ≠ devices.** Everything above is verified in Node with doubles;
   the device checklist below is the human half of the verification.
 

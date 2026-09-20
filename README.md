@@ -187,12 +187,14 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   admin transitions and the offline-queued path never start GPS; a permission granted on the Help
   screen never does either. A trip that is only `SCHEDULED` cannot share (the server rejects fixes
   with `trip_not_open`).
-- Maps: **Leaflet/react-leaflet** on web (`web/src/features/map`), **react-native-maps** on mobile
-  (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading. **Expo Go cannot render
-  Google Maps on Android since SDK 53** (Apple Maps only, and only on iOS), so the mobile map
-  surfaces there show a labelled "needs a development build" panel instead of a blank canvas
-  (`src/features/map/map-surface-mode.ts`); a native Android build with the Maps key renders
-  Google Maps.
+- Maps: **Leaflet/react-leaflet** on web (`web/src/features/map`), **MapLibre**
+  (`@maplibre/maplibre-react-native`) over **OpenFreeMap**'s public OpenStreetMap
+  tiles on mobile (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading.
+  The mobile map is open source with **no key, no account, no billing** (product rule —
+  `docs/live-tracking-map.md` → "Map provider policy"). **The map engine is a custom native
+  module the Expo Go shell does not carry on any platform**, so the mobile map surfaces in
+  Expo Go show a labelled "needs a development build" panel instead of a blank canvas
+  (`src/features/map/map-surface-mode.ts`); a development build renders it everywhere.
 
 ### 3.8 ETA & geofence stop arrivals
 
@@ -370,9 +372,10 @@ dotenv, cross-env, sequelize-cli, ts-node.
 
 **Mobile (`mobile/`)**: expo ~57.0.21, react-native 0.86.3, react 19.2.3, expo-router ~57.0.20,
 expo-location, expo-task-manager, expo-notifications, expo-dev-client, expo-constants, expo-linking,
-expo-status-bar, react-native-maps 1.27.2, react-native-safe-area-context, react-native-screens,
-react-native-web, @react-native-async-storage/async-storage, @react-native-community/netinfo,
-@expo/vector-icons, socket.io-client, @expo/ngrok (dev), babel-preset-expo.
+expo-status-bar, @maplibre/maplibre-react-native 11.4.0 (+ @types/geojson), react-native-safe-area-context,
+react-native-screens, react-native-web, @react-native-async-storage/async-storage,
+@react-native-community/netinfo, @expo/vector-icons, socket.io-client, @expo/ngrok (dev),
+babel-preset-expo.
 
 **Shared**: zod (validation), typescript build per package with `declaration` + `declarationMap`.
 
@@ -481,13 +484,14 @@ school-bus-tracking/
 │           └── workers/               # retention.worker.ts + retention.scheduler.ts
 │
 ├── mobile/                           # Expo app for DRIVER, CONDUCTOR, PARENT, SCHOOL_ADMIN
-│   ├── app.json / app.config.js      # plugins (expo-location, expo-notifications), permissions,
-│   │                                 # Google Maps key injection
+│   ├── app.json / app.config.js      # plugins (expo-location, expo-notifications, plus the
+│   │                                 # MapLibre plugin appended by app.config.js), permissions,
+│   │                                 # google-services.json wiring
 │   ├── eas.json                      # development / preview / production build profiles
 │   ├── google-services.json          # Firebase (Android) config
 │   ├── metro.config.js               # monorepo resolver: watchFolders = repo root
 │   ├── babel.config.js               # babel-preset-expo + reanimated-free config
-│   ├── .env.example                  # EXPO_PUBLIC_API_URL, EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+│   ├── .env.example                  # EXPO_PUBLIC_API_URL, optional EXPO_PUBLIC_MAP_STYLE_URL
 │   ├── scripts/
 │   │   ├── expo-start.mjs            # runs `expo start --go` with EXPO_NO_REDIRECT_PAGE=1
 │   │   ├── expo-start.spec.ts        # …and its unit test
@@ -520,7 +524,8 @@ school-bus-tracking/
 │       │   ├── parent/               # NotificationsProvider, notifications-state, run-summary
 │       │   ├── admin/                # documents (form sheet, compliance card, helpers),
 │       │   │                         # emergencies helpers, reports StatGrid
-│       │   ├── map/                  # BusMap (native) + BusMap.web (Leaflet)
+│       │   ├── map/                  # BusMap (native, MapLibre) + BusMap.web (list fallback),
+│       │   │                         # follow-camera, bus-motion, map-style
 │       │   ├── notifications/        # push-registration (pure), push-notifications(.native),
 │       │   │                         # push-routing, push lifecycle simulation
 │       │   └── tracking/             # useLiveTripTracking, EtaViews, ConnectionIndicator
@@ -839,10 +844,10 @@ adding one needs no migration.
   otherwise changes what the QR code encodes). Policy + verified matrix: `docs/mobile-expo-sdk.md`.
   Expo Go's other limits are runtime facts the app detects
   (`src/lib/runtime-environment.ts`): it cannot run the background location task (background
-  sharing is gated with a one-line explanation) and, since SDK 53, cannot render Google Maps on
-  Android at all (the map surfaces show a labelled development-build panel instead of a blank
-  map). The build-time warnings for the Maps key / `google-services.json` are aimed at the same
-  boundary — they print only for native Android builds, exactly once (`app.config.js` →
+  sharing is gated with a one-line explanation) and it does not carry the custom MapLibre map
+  engine on any platform (the map surfaces show a labelled development-build panel instead of a
+  blank map). The build-time warning for `google-services.json` is aimed at the same boundary —
+  it prints only for native Android builds, exactly once (`app.config.js` →
   `isNativeAndroidBuild` / `warnOnce`, spec-pinned).
 - **UX contracts**: `loading` vs `refreshing` are separate signals — background revalidation and
   token refresh must **never** show a spinner over a working screen; safe-area-aware bottom bar
@@ -1026,7 +1031,7 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 | Push                   | `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (both empty ⇒ no-op provider; never logged)                                                                                                                                                                                              |
 | Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
 | Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
-| Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`                                                                                                                                                                                                                |
+| Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_MAP_STYLE_URL` (optional, https-only — a self-hosted OpenFreeMap style; the map needs no key)                                                                                                                                       |
 
 Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.
@@ -1186,8 +1191,9 @@ The workflow file says this inline — do not "streamline" it away.
   multi-stop students (join table) and a service calendar (holidays/half-days) are open questions.
 - **GPS table growth**: no partitioning/cold-storage archival yet.
 - **Mobile**: no device-farm E2E; Expo Go cannot receive remote push, cannot run the background
-  location task, and (since SDK 53) cannot render Google Maps on Android — the app detects the
-  runtime and says so (gated background sharing, a labelled development-build map panel).
+  location task, and does not carry the custom MapLibre map engine on any platform — the app
+  detects the runtime and says so (gated background sharing, a labelled development-build map
+  panel).
 - **Security headers/CSP** are tuned for this app's exact needs; adding a third-party origin means
   updating `CSP_EXTRA_*`.
 
