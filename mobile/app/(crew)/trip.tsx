@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { UserRole, type StopResponse } from '@school-bus-tracking/shared-types';
+import { UserRole, type StopResponse, type TripResponse } from '@school-bus-tracking/shared-types';
 import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { useAuth } from '../../src/features/auth';
 import {
@@ -10,6 +10,7 @@ import {
   StatusCard,
   TripStatusActions,
   TripNavigationCard,
+  isTripShareable,
   useCrewLocationSharing,
   useCrewToday,
 } from '../../src/features/crew';
@@ -54,7 +55,7 @@ export default function CrewTripScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const t = useTranslation();
-  const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
+  const { data, loading, refreshing, error, reload, refresh, applyTrip } = useCrewToday();
   const trip = data?.trip ?? null;
   /**
    * The tracking lifecycle is shared with the Help screen, so it is scoped to
@@ -69,6 +70,36 @@ export default function CrewTripScreen() {
   );
   const live = useLiveTripTracking(trip?.id ?? null);
   const isDriver = user?.role === UserRole.DRIVER;
+
+  /**
+   * A **server-confirmed** lifecycle transition (never the offline-queued
+   * path — `TripStatusActions` reports that through `onQueued` instead).
+   *
+   * 1. The confirmed row is reflected into the screen data at once, so the
+   *    status card and the GPS lifecycle read the new status before the list
+   *    reloads (the reload then reconciles with the server).
+   * 2. **Driver only:** "Start boarding" and "Depart & drive" are the crew's
+   *    explicit action to put the bus on the school's map, so GPS sharing
+   *    starts on that confirmed trip right here — including the OS permission
+   *    prompt when it has not been granted yet. Before this, sharing was a
+   *    separate tap on the strip's button and a trip that was started without
+   *    it was invisible to parents and the school. A refused start (permission
+   *    denied, services off) is reported honestly on the strip; nothing is
+   *    faked. The conductor's lifecycle taps never start GPS: sharing is the
+   *    driver's job. A completed trip stops sharing through the lifecycle's own
+   *    trip-closed rule.
+   */
+  const { startSharing } = sharing;
+  const onTransitionApplied = useCallback(
+    (applied: TripResponse) => {
+      applyTrip(applied);
+      void reload();
+      if (isDriver && isTripShareable(applied)) {
+        void startSharing(applied);
+      }
+    },
+    [applyTrip, reload, isDriver, startSharing],
+  );
 
   /**
    * The Driver Trip map's honesty rules, derived — not decided here.
@@ -180,7 +211,7 @@ export default function CrewTripScreen() {
           // Exactly one forward action (spec-pinned) on a white sheet so the
           // coloured button always sits on the measured white surface.
           <View style={styles.actionSheet}>
-            <TripStatusActions trip={trip} offlineCapable onApplied={() => void reload()} />
+            <TripStatusActions trip={trip} offlineCapable onApplied={onTransitionApplied} />
           </View>
         }
       />

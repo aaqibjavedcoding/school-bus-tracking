@@ -102,6 +102,10 @@ export const crewCopy = {
     get retry(): string {
       return t('gps.retry');
     },
+    /** First start on a trip (nothing running, nothing failed): "Share GPS". */
+    get share(): string {
+      return t('gps.share');
+    },
     get stop(): string {
       return t('gps.stop');
     },

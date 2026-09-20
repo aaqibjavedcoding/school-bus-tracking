@@ -10,6 +10,7 @@ import {
   groupManifestByStop,
   isTripOpen,
   manifestCounts,
+  mergeTripUpdate,
   nextCrewTransitions,
   pickCrewTrip,
   transitionLabel,
@@ -98,6 +99,46 @@ describe('pickCrewTrip', () => {
 
   it('returns null without trips', () => {
     assert.equal(pickCrewTrip([]), null);
+  });
+});
+
+describe('mergeTripUpdate', () => {
+  const listed = [
+    trip({ id: 'a', status: TripStatus.SCHEDULED, route_name: 'North Loop', route_code: 'R-01' }),
+    trip({ id: 'b', status: TripStatus.SCHEDULED, scheduled_start_at: '2026-08-29T13:00:00.000Z' }),
+  ];
+
+  it('replaces the confirmed row in place and leaves the others untouched', () => {
+    const confirmed = trip({
+      id: 'a',
+      status: TripStatus.BOARDING,
+      actual_start_at: '2026-08-29T07:02:00.000Z',
+      route_name: 'North Loop',
+      route_code: 'R-01',
+    });
+    const merged = mergeTripUpdate(listed, confirmed);
+    assert.equal(merged.length, 2);
+    assert.equal(merged[0].status, TripStatus.BOARDING);
+    assert.equal(merged[0].actual_start_at, '2026-08-29T07:02:00.000Z');
+    assert.equal(merged[1], listed[1], 'unrelated rows keep their identity');
+    // The confirmed active trip is now what the screen picks — immediately.
+    assert.equal(pickCrewTrip(merged)?.id, 'a');
+  });
+
+  it('keeps the list enrichment the confirmed row does not carry', () => {
+    const bare = { ...trip({ id: 'a', status: TripStatus.IN_PROGRESS }) } as TripResponse;
+    delete (bare as Partial<TripResponse>).route_name;
+    const merged = mergeTripUpdate(listed, bare);
+    assert.equal(merged[0].status, TripStatus.IN_PROGRESS);
+    assert.equal(merged[0].route_name, 'North Loop', 'labels survive a leaner row');
+  });
+
+  it('appends a row the list did not contain and never mutates the input', () => {
+    const snapshot = JSON.stringify(listed);
+    const merged = mergeTripUpdate(listed, trip({ id: 'c', status: TripStatus.BOARDING }));
+    assert.equal(merged.length, 3);
+    assert.equal(merged[2].id, 'c');
+    assert.equal(JSON.stringify(listed), snapshot);
   });
 });
 

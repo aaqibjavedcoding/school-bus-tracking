@@ -13,6 +13,7 @@
  */
 export {
   pickCrewTrip,
+  mergeTripUpdate,
   nextCrewTransitions,
   transitionLabel,
   manifestCounts,
@@ -20,7 +21,7 @@ export {
   isTripOpen,
 } from './crew-trip';
 export type { ManifestStopGroup } from './crew-trip';
-export { useCrewToday } from './useCrewToday';
+export { useCrewToday, buildCrewTodayData } from './useCrewToday';
 export type { CrewTodayData } from './useCrewToday';
 export { useCrewLocationSharing, isTripShareable } from './useCrewLocationSharing';
 export type {

@@ -28,6 +28,10 @@ import { useTranslation } from '../../src/lib/i18n-provider';
  * Guarded by `src/features/crew/help-routing.spec.ts`: the trip screen must
  * NOT render `GpsSharePanel`, this screen must.
  */
+
+/** Stable no-op: a granted permission on Help never starts sharing. */
+const noopPermissionGranted = (): void => undefined;
+
 export default function CrewHelpScreen() {
   const { user } = useAuth();
   const t = useTranslation();
@@ -94,13 +98,16 @@ export default function CrewHelpScreen() {
            * Recovery only: granting a permission here repairs the OS side.
            * It deliberately does NOT auto-start sharing — `GpsPermissionRecovery`
            * fires `onPermissionGranted` on every mount when all is well, and
-           * sharing must only ever start from an explicit crew tap
-           * (the trip screen's Retry button).
+           * sharing must only ever start from an explicit crew action (the
+           * driver's own lifecycle tap on the trip screen, or its Share GPS
+           * button). The callback is a module-level constant on purpose: an
+           * inline arrow here is a new function every render, and this panel's
+           * OS check must not be re-armed by ordinary re-renders.
            */}
           <GpsPermissionRecovery
             sharing={sharing}
             lastSuccessfulUpdate={sharing.stats.lastAckAt}
-            onPermissionGranted={() => undefined}
+            onPermissionGranted={noopPermissionGranted}
           />
           {/**
            * Battery / background-restriction guidance. Honest by construction:

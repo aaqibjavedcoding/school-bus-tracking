@@ -62,8 +62,20 @@ Attendance and GPS are different systems. The offline queue only handles attenda
 #### Where each state is visible (Phase 2)
 
 The crew trip screen deliberately shows only three things while driving —
-`Sharing ✅ / ❌`, the last-update time, and one **Retry** tap
-(`GpsShareStrip`). The **diagnostic counters moved to the Help/Support screen
+`Sharing ✅ / ❌`, the last-update time, and one tap (`GpsShareStrip`). The tap
+says what it does (`gps-strip-action.ts`, spec-pinned): **Share GPS** when
+nothing is running yet, **Retry** when the last run failed (permanent rejection,
+revoked session, refused permission), **Stop** while running — plus a Retry
+beside Stop when the bounded reconnect budget has given up (`gave-up`).
+
+**Sharing starts from the driver's own lifecycle tap.** A server-confirmed
+"Start boarding" / "Depart & drive" on the trip screen starts GPS sharing for
+that trip at once (the OS permission prompt appears there when needed), so a
+trip that was started is never invisible to parents and the school by
+default. The offline-queued path (no server confirmation), the conductor's
+taps and a permission granted on the Help screen never start sharing.
+
+The **diagnostic counters moved to the Help/Support screen
 (`app/(crew)/help.tsx`) — moved, not deleted**: "Sent", "Rejected",
 "Dropped (offline)", "Invalid fix", the last fix accuracy/age and the server's
 last reason render there in the full `GpsSharePanel`, framed for the support

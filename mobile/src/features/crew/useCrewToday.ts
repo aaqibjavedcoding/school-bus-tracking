@@ -4,7 +4,7 @@ import { apiClient } from '../../services/api';
 import { unwrapEnvelope } from '../../lib/errors';
 import { utcDateOnly } from '../../lib/format';
 import { useLoad } from '../../hooks/useLoad';
-import { pickCrewTrip } from './crew-trip';
+import { mergeTripUpdate, pickCrewTrip } from './crew-trip';
 
 /**
  * Today's-trip loader for the shared DRIVER/CONDUCTOR experience.
@@ -42,27 +42,54 @@ export interface CrewTodayData {
   bus: CrewTodayBus | null;
 }
 
+/**
+ * Derives the screen data from today's (server-scoped) trip list — the one
+ * place that picks the trip of the day and reads its labels, shared by the
+ * network load and the optimistic update after a lifecycle tap.
+ */
+export function buildCrewTodayData(date: string, trips: TripResponse[]): CrewTodayData {
+  const trip = pickCrewTrip(trips);
+  return {
+    date,
+    trips,
+    trip,
+    // Labels are resolved server-side on the trip row; fall back to a blank
+    // label rather than a second, role-incompatible request.
+    route: trip && trip.route_name ? { code: trip.route_code ?? '', name: trip.route_name } : null,
+    bus:
+      trip && trip.registration_number
+        ? { registration_number: trip.registration_number, bus_number: trip.bus_number ?? null }
+        : null,
+  };
+}
+
 export function useCrewToday() {
   const load = useCallback(async (): Promise<CrewTodayData> => {
-    const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 25, date: utcDateOnly() });
-
-    const trips = unwrapEnvelope(tripsEnvelope).items;
-    const trip = pickCrewTrip(trips);
-
-    return {
-      date: utcDateOnly(),
-      trips,
-      trip,
-      // Labels are resolved server-side on the trip row; fall back to a blank
-      // label rather than a second, role-incompatible request.
-      route:
-        trip && trip.route_name ? { code: trip.route_code ?? '', name: trip.route_name } : null,
-      bus:
-        trip && trip.registration_number
-          ? { registration_number: trip.registration_number, bus_number: trip.bus_number ?? null }
-          : null,
-    };
+    const date = utcDateOnly();
+    const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 25, date });
+    return buildCrewTodayData(date, unwrapEnvelope(tripsEnvelope).items);
   }, []);
 
-  return useLoad<CrewTodayData>(load, []);
+  const state = useLoad<CrewTodayData>(load, []);
+  const { setData } = state;
+
+  /**
+   * Reflects a **server-confirmed** trip row (the response of the crew's own
+   * `PATCH /trips/:id/status`) into the loaded data at once, so the status card
+   * and the GPS lifecycle see the confirmed status without waiting for the
+   * list to reload. Callers still `reload()` afterwards to reconcile with the
+   * server; a screen that has not loaded yet has nothing to update.
+   */
+  const applyTrip = useCallback(
+    (applied: TripResponse) => {
+      setData((current) =>
+        current
+          ? buildCrewTodayData(current.date, mergeTripUpdate(current.trips, applied))
+          : current,
+      );
+    },
+    [setData],
+  );
+
+  return { ...state, applyTrip };
 }

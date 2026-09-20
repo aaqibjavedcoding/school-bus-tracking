@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Linking, AppState, type AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import { colors } from '@school-bus-tracking/design-tokens';
@@ -42,6 +42,19 @@ import type { CrewLocationSharing } from './useCrewLocationSharing.ts';
  * the OS side only, and starting to share stays an explicit crew action.
  *
  * Does NOT trap the user in a dead-end screen.
+ *
+ * ### Render-loop guard (regression: "Maximum update depth exceeded")
+ *
+ * The mount / foreground check calls `refreshCrewPermissions()`, which
+ * publishes to the shared lifecycle, which re-renders every subscribed screen —
+ * including the one rendering this panel. The check must therefore depend only
+ * on the **primitive facts** it reads (`Boolean(sharing)` and
+ * `sharing.backgroundConsent`), never on the `sharing` object or on an inline
+ * `onPermissionGranted` callback: both get a new identity on every render of
+ * the parent, and a `useCallback`/`useEffect` keyed on them re-ran the OS check
+ * on every render, forever. The callback is kept in a ref (latest-callback
+ * pattern) so a parent may pass an inline arrow without re-arming the effect.
+ * `src/features/crew/gps-permission-recovery-wiring.spec.ts` pins this.
  */
 
 export type { GpsIssue };
@@ -73,15 +86,22 @@ export function GpsPermissionRecovery({
   const [issue, setIssue] = useState<GpsIssue>('none');
   const [isChecking, setIsChecking] = useState(false);
 
-  const applyIssue = useCallback(
-    (next: GpsIssue) => {
-      setIssue(next);
-      if (next === 'none') {
-        onPermissionGranted();
-      }
-    },
-    [onPermissionGranted],
-  );
+  // The only two facts read from the lifecycle binding — as primitives, so the
+  // callbacks below are stable across parent re-renders (see the header note).
+  const hasLifecycle = sharing !== null && sharing !== undefined;
+  const backgroundRequired = sharing?.backgroundConsent === true;
+
+  // Latest-callback ref: the parent may pass an inline arrow; it must never
+  // re-arm the mount effect.
+  const onPermissionGrantedRef = useRef(onPermissionGranted);
+  onPermissionGrantedRef.current = onPermissionGranted;
+
+  const applyIssue = useCallback((next: GpsIssue) => {
+    setIssue(next);
+    if (next === 'none') {
+      onPermissionGrantedRef.current();
+    }
+  }, []);
 
   /**
    * Reads the real OS state (services, foreground, background, accuracy) and
@@ -90,9 +110,7 @@ export function GpsPermissionRecovery({
   const checkPermission = useCallback(async () => {
     setIsChecking(true);
     try {
-      const backgroundRequired = sharing?.backgroundConsent === true;
-
-      if (sharing) {
+      if (hasLifecycle) {
         const permissions = await refreshCrewPermissions();
         const evaluation = evaluateGpsPermissions({
           servicesEnabled: permissions.servicesEnabled,
@@ -117,10 +135,12 @@ export function GpsPermissionRecovery({
     } finally {
       setIsChecking(false);
     }
-  }, [applyIssue, sharing]);
+  }, [applyIssue, hasLifecycle, backgroundRequired]);
 
   // Check on mount and whenever the app returns to the foreground — that is how
-  // a grant (or a revocation) made in OS settings is observed.
+  // a grant (or a revocation) made in OS settings is observed. `checkPermission`
+  // only changes identity when the lifecycle wiring or the background consent
+  // changes, so this effect does not re-run on ordinary parent re-renders.
   useEffect(() => {
     void checkPermission();
 
@@ -145,11 +165,11 @@ export function GpsPermissionRecovery({
       // Background access is asked for only when it is required — an issue
       // about background location, or an explicit prior consent. Otherwise a
       // foreground grant is reported as exactly that, and nothing more.
-      const backgroundRequired =
-        sharing?.backgroundConsent === true ||
+      const backgroundNeeded =
+        backgroundRequired ||
         issue === 'background_permission_denied' ||
         issue === 'background_permission_unavailable';
-      const backgroundResult: LocationPermissionSnapshot | null = backgroundRequired
+      const backgroundResult: LocationPermissionSnapshot | null = backgroundNeeded
         ? await Location.requestBackgroundPermissionsAsync().catch(() => null)
         : null;
 
@@ -157,11 +177,11 @@ export function GpsPermissionRecovery({
         servicesEnabled,
         foregroundResult,
         backgroundResult,
-        backgroundRequested: backgroundRequired,
-        backgroundRequired,
+        backgroundRequested: backgroundNeeded,
+        backgroundRequired: backgroundNeeded,
       });
 
-      if (sharing) {
+      if (hasLifecycle) {
         // Keep the shared lifecycle in step with what the OS just told us.
         await refreshCrewPermissions();
       }
@@ -169,7 +189,7 @@ export function GpsPermissionRecovery({
     } finally {
       setIsChecking(false);
     }
-  }, [applyIssue, issue, sharing]);
+  }, [applyIssue, issue, hasLifecycle, backgroundRequired]);
 
   const handleOpenSettings = useCallback(() => {
     void Linking.openSettings().catch(() => undefined);
