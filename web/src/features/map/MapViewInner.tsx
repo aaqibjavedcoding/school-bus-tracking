@@ -1,14 +1,13 @@
 'use client';
 
-import L from 'leaflet';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import type { LiveFix } from '../tracking/useLiveTripTracking';
 import type { MapViewProps } from './types';
-import { busIconOptions, setBusIconHeading } from './bus-marker-icon';
+import { BUS_MARKER_SVG, busIconOptions, setBusIconHeading } from './bus-marker-icon';
 import { FRAME_MIN_INTERVAL_MS, createBusMotion } from './bus-motion';
 import { haversineMeters } from './geo';
 import {
@@ -21,62 +20,31 @@ import {
 } from './follow-camera';
 import { deriveTrackingPresentation } from './tracking-presentation';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
+import { resolveMapStyleUrl } from './map-style';
+import { accuracyCirclePolygon } from './accuracy-circle';
 
 /**
- * Web live-tracking map (Leaflet + OpenStreetMap).
+ * Web live-tracking map — MapLibre GL JS + OpenFreeMap (vector tiles).
  *
- * ### Where positions come from, and where they do not
+ * This is a full engine port from previous raster engine (raster tiles from the former OSM raster host) to MapLibre GL JS (vector tiles from
+ * tiles.openfreemap.org/styles/liberty). The pure policy modules remain
+ * untouched: bus-motion, follow-camera, tracking-presentation, bus-marker-icon
+ * geometry.
  *
- * The only coordinates drawn are the route's stops and GPS fixes from the
- * existing Socket.IO namespace. Between fixes the marker is interpolated —
- * presentation only. Interpolated values never leave the marker: ETA, stop
- * progress, attendance and notifications all keep reading the raw fix.
- *
- * **Interpolation is not road matching.** Two sparse points are joined by a
- * straight line, so on a bend the bus cuts the corner. The dashed line between
- * stops is the same kind of straight line, and the console says so rather than
- * implying a routing engine.
- *
- * ### What changed here
- *
- * - The `🚌` emoji became a top-view SVG that actually points where the heading
- *   says it does (`bus-marker-icon.ts`), matching the native marker.
- * - The hardcoded 900 ms tween — a third of the real ~4 s cadence, which made
- *   the bus lurch and then sit — is replaced by a cadence-derived tween from the
- *   same pure state machine the native map uses (`bus-motion.ts`), with
- *   duplicate/out-of-order, jitter, gap, implausible-jump and stale handling.
- * - The camera is no longer re-fitted on every fix: it fits once per trip, then
- *   only pans while following, and a user gesture hands it to the user.
- * - Rotation and position are applied imperatively to the Leaflet marker, so no
- *   React state changes per frame and the icon DOM is never rebuilt.
+ * Responsibilities:
+ * - One map instance per mount, style resolved by map-style.ts (https-only).
+ * - Fit-to-route once per trip, centre-only follow, gesture suspension via
+ *   MapLibre's `originalEvent` on move events.
+ * - Foreground resume reconciles with current position.
+ * - Bus marker as maplibregl.Marker with existing SVG and imperative heading.
+ * - Stops as markers, route as GeoJSON line layer, accuracy ring as GeoJSON
+ *   polygon fill+line layer (mirrors mobile's accuracy-circle.ts).
+ * - Attribution control visible, WebGL-missing browsers get labelled empty state.
  */
-
-// Pinned to the single canonical tile host (no `{s}` subdomains) so the CSP
-// `img-src` allowlist in `security-headers.js` stays exact:
-// `https://tile.openstreetmap.org`. OpenStreetMap serves this host directly.
-//
-// Note on cost: this is OpenStreetMap's public tile server, used under its
-// tile-usage policy — it is free but **not** unlimited, and heavy traffic from
-// a production console is expected to move to a self-hosted or contracted tile
-// provider. Nothing in this change alters the tile source.
-const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const OSM_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
 const SINGLE_POINT_ZOOM = 15;
 const MAX_FIT_ZOOM = 16;
-const FIT_PADDING: [number, number] = [36, 36];
-
-/**
- * How long gesture detection is suspended after we change the zoom ourselves.
- *
- * `fitBounds` dispatches `zoomstart` from inside a `requestAnimFrame`
- * (`Map.js` `_tryAnimatedZoom`), so it lands *after* the call returns — a flag
- * set and cleared synchronously around the call would miss it. 1500 ms covers
- * Leaflet's default 250 ms zoom animation plus a frame, and the window only
- * ever opens once per trip, right after the fit.
- */
-const SELF_ZOOM_SUPPRESSION_MS = 1_500;
+const FIT_PADDING = 36;
 
 function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -86,33 +54,115 @@ function nowMs(): number {
 
 type LatLngTuple = [number, number];
 
-// ── The bus marker ─────────────────────────────────────────────────────────
-
 interface RenderedMarker {
   latitude: number;
   longitude: number;
   headingDeg: number | null;
 }
 
-const SmoothBusMarker: React.FC<{
-  fix: LiveFix;
-  reducedMotion: boolean;
-  animate: boolean;
-  /** Imperative per-frame hook for the follow camera. Not a React callback. */
-  onFrame: (marker: RenderedMarker) => void;
-}> = ({ fix, reducedMotion, animate, onFrame }) => {
-  const markerRef = useRef<L.Marker | null>(null);
+function createBusMarkerElement(): HTMLDivElement {
+  const options = busIconOptions();
+  const container = document.createElement('div');
+  container.className = options.className;
+  // options.html is `<div class="bus-marker-rotor">SVG</div>`
+  container.innerHTML = options.html;
+  return container;
+}
+
+function createStopMarkerElement(
+  sequence: number,
+  kind: 'plain' | 'next' | 'current',
+): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = `stop-marker ${kind}`;
+  el.textContent = String(sequence);
+  return el;
+}
+
+export const MapViewInner: React.FC<MapViewProps> = ({
+  fix,
+  stops = [],
+  highlightStopId = null,
+  connection = 'offline',
+}) => {
+  const reducedMotion = usePrefersReducedMotion();
+  const [exploring, setExploring] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const busMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const busElementRef = useRef<HTMLDivElement | null>(null);
+  const busPopupRef = useRef<maplibregl.Popup | null>(null);
+  const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
   const motionRef = useRef(createBusMotion({ reducedMotion }));
   const frameRef = useRef<number | null>(null);
   const lastFrameAtRef = useRef(0);
-  const onFrameRef = useRef(onFrame);
-  onFrameRef.current = onFrame;
+  const renderedRef = useRef<RenderedMarker | null>(null);
+  const followRef = useRef<FollowCameraState>(INITIAL_FOLLOW_CAMERA);
+  const lastCenterRef = useRef<LatLngTuple | null>(null);
+  const lastCameraAtRef = useRef(0);
+  const fixRef = useRef(fix);
+  fixRef.current = fix;
+  const recenterRef = useRef<(() => void) | null>(null);
+  const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
 
-  // Read once. react-leaflet calls `setLatLng` whenever this prop *changes*, so
-  // keeping it constant is what stops React from yanking the marker to the
-  // tween's destination while the animation is still travelling there.
-  const mountPosition = useRef<LatLngTuple>([fix.latitude, fix.longitude]);
-  const iconRef = useRef<L.DivIcon>(L.divIcon(busIconOptions()));
+  const mappedStops = useMemo(
+    () =>
+      stops.filter(
+        (stop): stop is StopResponse & { latitude: number; longitude: number } =>
+          stop.latitude != null && stop.longitude != null,
+      ),
+    [stops],
+  );
+
+  const lineCoords = useMemo(
+    () =>
+      mappedStops
+        .slice()
+        .sort((a, b) => a.sequence_number - b.sequence_number)
+        .map((stop) => [stop.longitude, stop.latitude] as [number, number]),
+    [mappedStops],
+  );
+
+  const presentation = useMemo(
+    () =>
+      deriveTrackingPresentation({
+        fixAgeMs: fix ? Date.now() - new Date(fix.received_at).getTime() : null,
+        accuracyMeters: fix?.accuracy ?? null,
+        socketOffline: connection === 'offline',
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fix, connection, tick],
+  );
+
+  // Freshness aging tick
+  useEffect(() => {
+    const id = setInterval(() => setTick((v) => v + 1), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Reduced motion live update
+  useEffect(() => {
+    motionRef.current.setReducedMotion(reducedMotion);
+  }, [reducedMotion]);
+
+  // WebGL2 support check (MapLibre GL JS v5+ requires WebGL2; supported() was removed)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const canvas = document.createElement('canvas');
+        const gl =
+          canvas.getContext('webgl2') ||
+          // fallback to webgl for older checks, but MapLibre v5 needs webgl2
+          canvas.getContext('webgl');
+        setWebglSupported(!!gl);
+      } catch {
+        setWebglSupported(false);
+      }
+    }
+  }, []);
 
   const stopLoop = useCallback(() => {
     if (frameRef.current !== null) {
@@ -121,55 +171,377 @@ const SmoothBusMarker: React.FC<{
     }
   }, []);
 
-  const apply = useCallback((now: number) => {
+  const applyFrame = useCallback((now: number) => {
     const rendered = motionRef.current.sample(now);
     if (!rendered) return;
-    markerRef.current?.setLatLng([rendered.latitude, rendered.longitude]);
-    setBusIconHeading(markerRef.current, rendered.headingDeg);
-    onFrameRef.current?.({
+    const lngLat: [number, number] = [rendered.longitude, rendered.latitude];
+    busMarkerRef.current?.setLngLat(lngLat);
+    if (busElementRef.current) {
+      setBusIconHeading(busElementRef.current, rendered.headingDeg);
+    }
+    renderedRef.current = {
       latitude: rendered.latitude,
       longitude: rendered.longitude,
       headingDeg: rendered.headingDeg,
-    });
+    };
+    // Imperative camera follow hook
+    if (followRef.current.mode === 'following') {
+      panRef.current?.(FOLLOW_CAMERA_THROTTLE_MS + 50, false);
+    }
   }, []);
 
   const startLoop = useCallback(() => {
     if (frameRef.current !== null) return;
-    const tick = (now: number) => {
+    const tickFrame = (now: number) => {
       frameRef.current = null;
-      // Frame cap shared with the native map: ~20 fps, at which a bus at
-      // 40 km/h moves about half a metre per frame — sub-pixel at this zoom.
       if (now - lastFrameAtRef.current >= FRAME_MIN_INTERVAL_MS) {
         lastFrameAtRef.current = now;
-        apply(now);
+        applyFrame(now);
       }
       if (motionRef.current.isAnimating()) {
-        frameRef.current = requestAnimationFrame(tick);
+        frameRef.current = requestAnimationFrame(tickFrame);
       }
     };
-    frameRef.current = requestAnimationFrame(tick);
-  }, [apply]);
+    frameRef.current = requestAnimationFrame(tickFrame);
+  }, [applyFrame]);
 
-  // Reduced motion can change while the page is open.
-  useEffect(() => {
-    motionRef.current.setReducedMotion(reducedMotion);
-    stopLoop();
-    apply(nowMs());
-  }, [reducedMotion, apply, stopLoop]);
+  // Pan helper (centre-only, preserves zoom)
+  const panTo = useCallback((target: LatLngTuple, durationSeconds: number) => {
+    const map = mapRef.current;
+    if (!map) return;
+    lastCenterRef.current = target;
+    lastCameraAtRef.current = nowMs();
+    map.panTo([target[1], target[0]], {
+      animate: true,
+      duration: durationSeconds * 1000,
+    });
+  }, []);
 
-  // Freshness: a stale position must stop travelling and stay where it is.
-  useEffect(() => {
-    if (animate) {
-      motionRef.current.resume();
-    } else {
-      motionRef.current.halt();
-      stopLoop();
-      apply(nowMs());
+  const maybeFollowPan = useCallback(
+    (durationMs: number, force: boolean) => {
+      const target = renderedRef.current;
+      if (!target) return;
+      if (!force && nowMs() - lastCameraAtRef.current < FOLLOW_CAMERA_THROTTLE_MS) return;
+      const previous = lastCenterRef.current;
+      if (previous) {
+        const dist = haversineMeters(
+          { latitude: previous[0], longitude: previous[1] },
+          { latitude: target.latitude, longitude: target.longitude },
+        );
+        if (dist < FOLLOW_CAMERA_MIN_SHIFT_METERS) return;
+      }
+      panTo([target.latitude, target.longitude], durationMs / 1000);
+    },
+    [panTo],
+  );
+
+  const fitToData = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const points: LatLngTuple[] = mappedStops.map((s) => [s.latitude, s.longitude]);
+    const current = fixRef.current;
+    if (current) points.push([current.latitude, current.longitude]);
+    if (points.length === 0) return;
+
+    lastCenterRef.current = null;
+    if (points.length === 1) {
+      map.setCenter([points[0][1], points[0][0]]);
+      map.setZoom(SINGLE_POINT_ZOOM);
+      return;
     }
-  }, [animate, apply, stopLoop]);
+    const bounds = new maplibregl.LngLatBounds();
+    for (const p of points) {
+      bounds.extend([p[1], p[0]]);
+    }
+    map.fitBounds(bounds, {
+      padding: FIT_PADDING,
+      maxZoom: MAX_FIT_ZOOM,
+      animate: false,
+    });
+  }, [mappedStops]);
 
-  // A new fix.
+  const dispatch = useCallback(
+    (event: FollowCameraEvent) => {
+      const previous = followRef.current;
+      const next = reduceFollowCamera(previous, event);
+      followRef.current = next;
+      if (next.mode !== previous.mode) {
+        setExploring(next.mode === 'exploring');
+      }
+      if (next.intent === 'fit') fitToData();
+      else if (next.intent === 'pan') maybeFollowPan(FOLLOW_CAMERA_THROTTLE_MS, true);
+    },
+    [fitToData, maybeFollowPan],
+  );
+
+  // Expose recenter and pan for button and frame loop
   useEffect(() => {
+    recenterRef.current = () => dispatch({ type: 'recenter' });
+    return () => {
+      recenterRef.current = null;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    panRef.current = maybeFollowPan;
+    return () => {
+      panRef.current = null;
+    };
+  }, [maybeFollowPan]);
+
+  // Map initialization
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (mapRef.current) return;
+    if (webglSupported === false) return;
+    if (webglSupported === null) return; // wait for check
+
+    const styleUrl = resolveMapStyleUrl({
+      NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
+    });
+
+    const initialCenter: [number, number] = fix
+      ? [fix.longitude, fix.latitude]
+      : mappedStops.length > 0
+        ? [mappedStops[0].longitude, mappedStops[0].latitude]
+        : [0, 0];
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: styleUrl,
+      center: initialCenter,
+      zoom: SINGLE_POINT_ZOOM - 1,
+      attributionControl: { compact: false },
+    });
+
+    mapRef.current = map;
+
+    // Gesture detection via originalEvent (MapLibre's documented signal)
+    const onMoveStart = (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
+      // originalEvent is present only for user gestures
+      if ((e as { originalEvent?: unknown }).originalEvent) {
+        dispatch({ type: 'user-gesture' });
+      }
+    };
+
+    map.on('movestart', onMoveStart as never);
+    map.on('dragstart', () => dispatch({ type: 'user-gesture' }));
+    map.on('zoomstart', (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
+      if ((e as { originalEvent?: unknown }).originalEvent) {
+        dispatch({ type: 'user-gesture' });
+      }
+    });
+    map.on('rotatestart', (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
+      if ((e as { originalEvent?: unknown }).originalEvent) {
+        dispatch({ type: 'user-gesture' });
+      }
+    });
+    map.on('pitchstart', (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
+      if ((e as { originalEvent?: unknown }).originalEvent) {
+        dispatch({ type: 'user-gesture' });
+      }
+    });
+
+    map.on('load', () => {
+      // Route line source + layer
+      if (!map.getSource('sbt-route')) {
+        map.addSource('sbt-route', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: lineCoords.length >= 2 ? lineCoords : [],
+            },
+          },
+        });
+      }
+      if (!map.getLayer('sbt-route-line')) {
+        map.addLayer({
+          id: 'sbt-route-line',
+          type: 'line',
+          source: 'sbt-route',
+          paint: {
+            'line-color': '#2563eb',
+            'line-width': 4,
+            'line-opacity': 0.55,
+          },
+        });
+      }
+
+      // Accuracy circle source + layers
+      if (!map.getSource('sbt-accuracy')) {
+        map.addSource('sbt-accuracy', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [],
+          },
+        });
+      }
+      if (!map.getLayer('sbt-accuracy-fill')) {
+        map.addLayer({
+          id: 'sbt-accuracy-fill',
+          type: 'fill',
+          source: 'sbt-accuracy',
+          paint: {
+            'fill-color': '#f59e0b',
+            'fill-opacity': 0.13,
+          },
+        });
+      }
+      if (!map.getLayer('sbt-accuracy-stroke')) {
+        map.addLayer({
+          id: 'sbt-accuracy-stroke',
+          type: 'line',
+          source: 'sbt-accuracy',
+          paint: {
+            'line-color': '#f59e0b',
+            'line-width': 1,
+          },
+        });
+      }
+
+      // Initial fit once per trip
+      if (mappedStops.length > 0 || fixRef.current) {
+        dispatch({ type: 'data-available' });
+      }
+    });
+
+    return () => {
+      map.off('movestart', onMoveStart as never);
+      stopLoop();
+      map.remove();
+      mapRef.current = null;
+      busMarkerRef.current = null;
+      busElementRef.current = null;
+      busPopupRef.current = null;
+      stopMarkersRef.current = [];
+    };
+    // We want to run once when webglSupported becomes true; lineCoords/mappedStops
+    // are read inside load handler via dispatch/fitToData which captures them,
+    // but re-creating the map on every stop change would be wrong.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webglSupported]);
+
+  // Update route line when stops change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource('sbt-route') as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: lineCoords.length >= 2 ? lineCoords : [],
+      },
+    });
+  }, [lineCoords]);
+
+  // Update accuracy circle when fix or presentation changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource('sbt-accuracy') as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+
+    if (fix && presentation.accuracyCircleMeters !== null) {
+      const polygon = accuracyCirclePolygon(
+        { latitude: fix.latitude, longitude: fix.longitude },
+        presentation.accuracyCircleMeters,
+      );
+      source.setData({
+        type: 'FeatureCollection',
+        features: [polygon],
+      });
+    } else {
+      source.setData({
+        type: 'FeatureCollection',
+        features: [],
+      });
+    }
+  }, [fix, presentation.accuracyCircleMeters]);
+
+  // Stop markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear old
+    for (const m of stopMarkersRef.current) {
+      m.remove();
+    }
+    stopMarkersRef.current = [];
+
+    for (const stop of mappedStops) {
+      const kind = highlightStopId === stop.id ? 'current' : 'plain';
+      const el = createStopMarkerElement(stop.sequence_number, kind as 'plain' | 'current');
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([stop.longitude, stop.latitude])
+        .addTo(map);
+
+      const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(
+        `<strong>Stop ${stop.sequence_number}: ${escapeHtml(stop.name)}</strong>${
+          stop.address ? `<div>${escapeHtml(stop.address)}</div>` : ''
+        }`,
+      );
+      marker.setPopup(popup);
+
+      stopMarkersRef.current.push(marker);
+    }
+
+    return () => {
+      for (const m of stopMarkersRef.current) {
+        m.remove();
+      }
+      stopMarkersRef.current = [];
+    };
+  }, [mappedStops, highlightStopId]);
+
+  // Bus marker creation / fix handling (motion machine)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!fix) {
+      // Remove bus marker if fix disappears
+      busMarkerRef.current?.remove();
+      busMarkerRef.current = null;
+      busElementRef.current = null;
+      busPopupRef.current = null;
+      motionRef.current.reset();
+      renderedRef.current = null;
+      return;
+    }
+
+    if (!busMarkerRef.current) {
+      const el = createBusMarkerElement();
+      busElementRef.current = el;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([fix.longitude, fix.latitude])
+        .addTo(map);
+      busMarkerRef.current = marker;
+
+      const popup = new maplibregl.Popup({ offset: 24, closeButton: true });
+      busPopupRef.current = popup;
+      marker.setPopup(popup);
+    }
+
+    // Update popup content
+    if (busPopupRef.current) {
+      const showSpeed = presentation.animate && fix.speed !== null;
+      const html = `
+        <strong>School bus</strong>
+        <div>${presentation.animate ? `Updated ${escapeHtml(formatRelative(fix.received_at))}` : `Last known ${escapeHtml(formatTime(fix.recorded_at))}`}</div>
+        <div>${showSpeed ? escapeHtml(formatSpeedKmh(fix.speed)) : 'Speed not reported'}</div>
+        ${fix.accuracy !== null && fix.accuracy > 50 ? `<div>Position approximate (±${Math.round(fix.accuracy)} m)</div>` : ''}
+      `;
+      busPopupRef.current.setHTML(html);
+    }
+
+    // Push into motion machine
     const now = nowMs();
     const outcome = motionRef.current.push(
       {
@@ -183,288 +555,57 @@ const SmoothBusMarker: React.FC<{
       now,
     );
     lastFrameAtRef.current = now;
-    apply(now);
-    // A duplicate / out-of-order / invalid fix must not restart a tween that is
-    // already correctly in flight.
+    applyFrame(now);
     if (outcome.action === 'animated') startLoop();
-  }, [fix, apply, startLoop]);
+  }, [fix, presentation.animate, applyFrame, startLoop]);
 
-  // Background/foreground: reconcile with the current fix on return; never
-  // replay the movement that happened while the tab was hidden.
+  // Freshness handling: halt/resume animation
+  useEffect(() => {
+    if (presentation.animate) {
+      motionRef.current.resume();
+      if (motionRef.current.isAnimating()) startLoop();
+    } else {
+      motionRef.current.halt();
+      stopLoop();
+      applyFrame(nowMs());
+    }
+  }, [presentation.animate, applyFrame, startLoop, stopLoop]);
+
+  // Foreground resume + background pause
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        apply(nowMs());
+        dispatch({ type: 'resumed' });
+        applyFrame(nowMs());
         if (motionRef.current.isAnimating()) startLoop();
         return;
       }
       motionRef.current.cancelAnimation();
       stopLoop();
-      apply(nowMs());
+      applyFrame(nowMs());
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [apply, startLoop, stopLoop]);
+  }, [dispatch, applyFrame, startLoop, stopLoop]);
 
-  // Unmount / trip switch: nothing may keep requesting frames.
-  useEffect(
-    () => () => {
-      motionRef.current.cancelAnimation();
-      stopLoop();
-    },
-    [stopLoop],
-  );
-
-  const showSpeed = animate && fix.speed !== null;
-
-  return (
-    <Marker
-      position={mountPosition.current}
-      icon={iconRef.current}
-      zIndexOffset={800}
-      ref={(marker) => {
-        markerRef.current = marker;
-        if (marker) {
-          // Place the marker at the first real fix before the first frame runs,
-          // so it never flashes at the mount coordinate.
-          marker.setLatLng([fix.latitude, fix.longitude]);
-          setBusIconHeading(marker, fix.heading);
-        }
-      }}
-      eventHandlers={{
-        add: () => {
-          // Re-apply after Leaflet attaches the element to the DOM; `setLatLng`
-          // in the ref callback can run before the icon element exists.
-          apply(nowMs());
-        },
-      }}
-    >
-      <Popup>
-        <strong>School bus</strong>
-        <div>
-          {animate
-            ? `Updated ${formatRelative(fix.received_at)}`
-            : `Last known ${formatTime(fix.recorded_at)}`}
-        </div>
-        <div>{showSpeed ? formatSpeedKmh(fix.speed) : 'Speed not reported'}</div>
-        {fix.accuracy !== null && fix.accuracy > 50 ? (
-          <div>Position approximate (±{Math.round(fix.accuracy)} m)</div>
-        ) : null}
-      </Popup>
-    </Marker>
-  );
-};
-
-// ── Camera controller ──────────────────────────────────────────────────────
-
-const MapController: React.FC<{
-  fix: LiveFix | null;
-  stops: Array<{ latitude: number; longitude: number }>;
-  renderedRef: React.MutableRefObject<RenderedMarker | null>;
-  followRef: React.MutableRefObject<FollowCameraState>;
-  onModeChange: (exploring: boolean) => void;
-  recenterRef: React.MutableRefObject<(() => void) | null>;
-  panRef: React.MutableRefObject<((durationMs: number, force: boolean) => void) | null>;
-}> = ({ fix, stops, renderedRef, followRef, onModeChange, recenterRef, panRef }) => {
-  const map = useMap();
-  const fixRef = useRef(fix);
-  fixRef.current = fix;
-  const lastCenterRef = useRef<LatLngTuple | null>(null);
-  const lastCameraAtRef = useRef(0);
-  const selfZoomUntilRef = useRef(0);
-
-  const panTo = useCallback(
-    (target: LatLngTuple, durationSeconds: number) => {
-      lastCenterRef.current = target;
-      lastCameraAtRef.current = nowMs();
-      // `panTo` never changes zoom, so a GPS update can never change how far the
-      // user has zoomed — and it never fires `dragstart` or `zoomstart`, which
-      // is what keeps our own camera moves from knocking the user out of follow
-      // mode.
-      map.panTo(target, { animate: true, duration: durationSeconds });
-    },
-    [map],
-  );
-
-  const maybeFollowPan = useCallback(
-    (durationSeconds: number, force: boolean) => {
-      const target = renderedRef.current;
-      if (!target) return;
-      if (!force && nowMs() - lastCameraAtRef.current < FOLLOW_CAMERA_THROTTLE_MS) return;
-      const previous = lastCenterRef.current;
-      const asCoordinate = { latitude: target.latitude, longitude: target.longitude };
-      if (
-        previous &&
-        haversineMeters({ latitude: previous[0], longitude: previous[1] }, asCoordinate) <
-          FOLLOW_CAMERA_MIN_SHIFT_METERS
-      ) {
-        return;
-      }
-      // Slightly longer than the throttle so consecutive pans overlap instead of
-      // stepping — that overlap is what a smooth trailing camera is.
-      panTo([target.latitude, target.longitude], durationSeconds / 1000);
-    },
-    [panTo, renderedRef],
-  );
-
-  const fitToData = useCallback(() => {
-    const points: LatLngTuple[] = stops.map((stop) => [stop.latitude, stop.longitude]);
-    const current = fixRef.current;
-    if (current) points.push([current.latitude, current.longitude]);
-    if (points.length === 0) return;
-
-    // We are about to change the zoom ourselves; `zoomstart` lands on the next
-    // animation frame, so suppress gesture detection for a short window.
-    selfZoomUntilRef.current = Date.now() + SELF_ZOOM_SUPPRESSION_MS;
-    lastCenterRef.current = null;
-    if (points.length === 1) {
-      map.setView(points[0], SINGLE_POINT_ZOOM, { animate: false });
-      return;
-    }
-    map.fitBounds(L.latLngBounds(points), {
-      padding: FIT_PADDING,
-      maxZoom: MAX_FIT_ZOOM,
-      animate: false,
-    });
-  }, [map, stops]);
-
-  const dispatch = useCallback(
-    (event: FollowCameraEvent) => {
-      const previous = followRef.current;
-      const next = reduceFollowCamera(previous, event);
-      followRef.current = next;
-      if (next.mode !== previous.mode) onModeChange(next.mode === 'exploring');
-      if (next.intent === 'fit') fitToData();
-      else if (next.intent === 'pan') maybeFollowPan(FOLLOW_CAMERA_THROTTLE_MS, true);
-    },
-    [fitToData, followRef, maybeFollowPan, onModeChange],
-  );
-
-  // Fit once per trip. The reducer makes this idempotent: later calls return
-  // `intent: 'none'`, so a GPS update can never force-fit the route back.
+  // Fit once per trip when data becomes available (stops or fix)
   useEffect(() => {
-    if (stops.length > 0 || fix) dispatch({ type: 'data-available' });
-  }, [dispatch, fix, stops.length]);
+    if (mappedStops.length > 0 || fix) {
+      dispatch({ type: 'data-available' });
+    }
+  }, [dispatch, mappedStops.length, fix]);
 
   useEffect(() => {
     if (fix) dispatch({ type: 'fix-arrived' });
   }, [dispatch, fix]);
 
-  // Foreground resume: reconcile with the current position, replay nothing.
+  // Trip switch cleanup (when fix is null or component unmounts)
   useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') dispatch({ type: 'resumed' });
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [dispatch]);
-
-  // Gesture detection. `dragstart` and `boxzoomstart` only ever come from the
-  // user, and `panTo` fires neither — so a programmatic follow pan cannot knock
-  // the user out of follow mode. `zoomstart` needs the self-zoom window above,
-  // because `fitBounds` is the one zoom change we do make.
-  useEffect(() => {
-    const onUserGesture = () => dispatch({ type: 'user-gesture' });
-    const onZoomStart = () => {
-      if (Date.now() >= selfZoomUntilRef.current) onUserGesture();
-    };
-    map.on('dragstart', onUserGesture);
-    map.on('boxzoomstart', onUserGesture);
-    map.on('zoomstart', onZoomStart);
     return () => {
-      map.off('dragstart', onUserGesture);
-      map.off('boxzoomstart', onUserGesture);
-      map.off('zoomstart', onZoomStart);
+      motionRef.current.cancelAnimation();
+      stopLoop();
     };
-  }, [dispatch, map]);
-
-  // Expose "Follow bus" to the button rendered outside the map container, and
-  // the throttled follow-pan to the marker's per-frame loop.
-  useEffect(() => {
-    recenterRef.current = () => dispatch({ type: 'recenter' });
-    return () => {
-      recenterRef.current = null;
-    };
-  }, [dispatch, recenterRef]);
-
-  useEffect(() => {
-    panRef.current = maybeFollowPan;
-    return () => {
-      panRef.current = null;
-    };
-  }, [maybeFollowPan, panRef]);
-
-  return null;
-};
-
-/** Wraps the frame callback so the camera controller can consume it. */
-function useFrameHandler(
-  followRef: React.MutableRefObject<FollowCameraState>,
-  renderedRef: React.MutableRefObject<RenderedMarker | null>,
-  panRef: React.MutableRefObject<((duration: number, force: boolean) => void) | null>,
-) {
-  return useCallback(
-    (rendered: RenderedMarker) => {
-      renderedRef.current = rendered;
-      if (followRef.current.mode !== 'following') return;
-      panRef.current?.(FOLLOW_CAMERA_THROTTLE_MS + 50, false);
-    },
-    [followRef, panRef, renderedRef],
-  );
-}
-
-// ── The map ────────────────────────────────────────────────────────────────
-
-export const MapViewInner: React.FC<MapViewProps> = ({
-  fix,
-  stops = [],
-  highlightStopId = null,
-  connection = 'offline',
-}) => {
-  const reducedMotion = usePrefersReducedMotion();
-  const [exploring, setExploring] = useState(false);
-  const [tick, setTick] = useState(0);
-
-  // So freshness labels age without new data: a connected socket with a
-  // four-minute-old fix must stop reading as live.
-  useEffect(() => {
-    const id = setInterval(() => setTick((value) => value + 1), 5_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const mappedStops = useMemo(
-    () =>
-      stops.filter(
-        (stop): stop is StopResponse & { latitude: number; longitude: number } =>
-          stop.latitude != null && stop.longitude != null,
-      ),
-    [stops],
-  );
-  const line = useMemo(
-    () =>
-      mappedStops
-        .slice()
-        .sort((a, b) => a.sequence_number - b.sequence_number)
-        .map((stop) => [stop.latitude, stop.longitude] as LatLngTuple),
-    [mappedStops],
-  );
-
-  const presentation = useMemo(
-    () =>
-      deriveTrackingPresentation({
-        fixAgeMs: fix ? Date.now() - new Date(fix.received_at).getTime() : null,
-        accuracyMeters: fix?.accuracy ?? null,
-        socketOffline: connection === 'offline',
-      }),
-    // `tick` is what makes this recompute on the ageing interval.
-    [fix, connection, tick],
-  );
-
-  const renderedRef = useRef<RenderedMarker | null>(null);
-  const followRef = useRef<FollowCameraState>(INITIAL_FOLLOW_CAMERA);
-  const recenterRef = useRef<(() => void) | null>(null);
-  const panRef = useRef<((duration: number, force: boolean) => void) | null>(null);
-  const handleFrame = useFrameHandler(followRef, renderedRef, panRef);
+  }, [stopLoop]);
 
   const hasAnything = mappedStops.length > 0 || fix !== null;
 
@@ -478,63 +619,30 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     );
   }
 
-  const center: LatLngTuple = fix
-    ? [fix.latitude, fix.longitude]
-    : [mappedStops[0].latitude, mappedStops[0].longitude];
+  if (webglSupported === false) {
+    return (
+      <div className="map-shell">
+        <div className="empty">
+          <p className="muted">
+            Map unavailable — your browser does not support WebGL, which MapLibre needs to render
+            vector tiles. Markers and status are still available below.
+          </p>
+          <p className="muted" style={{ marginTop: '0.5rem' }}>
+            Attribution: OpenFreeMap © OpenMapTiles, Data from OpenStreetMap
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="map-shell">
-      <MapContainer center={center} zoom={SINGLE_POINT_ZOOM - 1} scrollWheelZoom attributionControl>
-        <TileLayer url={OSM_URL} attribution={OSM_ATTRIBUTION} />
-        <MapController
-          fix={fix}
-          stops={mappedStops}
-          renderedRef={renderedRef}
-          followRef={followRef}
-          onModeChange={setExploring}
-          recenterRef={recenterRef}
-          panRef={panRef}
-        />
-
-        {line.length > 1 ? (
-          <Polyline positions={line} pathOptions={{ color: '#2563eb', weight: 4, opacity: 0.55 }} />
-        ) : null}
-
-        {mappedStops.map((stop) => (
-          <Marker
-            key={stop.id}
-            position={[stop.latitude, stop.longitude]}
-            icon={stopIcon(stop.sequence_number, highlightStopId === stop.id ? 'current' : 'plain')}
-          >
-            <Popup>
-              <strong>
-                Stop {stop.sequence_number}: {stop.name}
-              </strong>
-              {stop.address ? <div>{stop.address}</div> : null}
-            </Popup>
-          </Marker>
-        ))}
-
-        {fix && presentation.accuracyCircleMeters !== null ? (
-          <Circle
-            center={[fix.latitude, fix.longitude]}
-            radius={presentation.accuracyCircleMeters}
-            pathOptions={{ color: '#f59e0b', weight: 1, fillColor: '#f59e0b', fillOpacity: 0.13 }}
-          />
-        ) : null}
-
-        {fix ? (
-          <SmoothBusMarker
-            fix={fix}
-            reducedMotion={reducedMotion}
-            animate={presentation.animate}
-            onFrame={handleFrame}
-          />
-        ) : null}
-      </MapContainer>
-
-      {/* Top-right: clear of Leaflet's zoom control (top-left), its attribution
-          control (bottom-right) and the console's own overlay card. */}
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', minHeight: '420px' }}
+        role="region"
+        aria-label="Live bus map"
+      />
       {exploring ? (
         <button
           type="button"
@@ -552,12 +660,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   );
 };
 
-function stopIcon(sequence: number, kind: 'plain' | 'next' | 'current'): L.DivIcon {
-  return L.divIcon({
-    className: '',
-    html: `<div class="stop-marker ${kind}">${sequence}</div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-    popupAnchor: [0, -10],
-  });
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

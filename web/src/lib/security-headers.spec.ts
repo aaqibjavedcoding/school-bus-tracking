@@ -38,7 +38,7 @@ describe('web security headers', () => {
     const production = buildContentSecurityPolicy({ isProduction: true });
     // Next.js inlines its bootstrap and flight payload scripts.
     assert.match(production, /script-src [^;]*'unsafe-inline'/);
-    // React and Leaflet set inline styles.
+    // React and MapLibre set inline styles.
     assert.match(production, /style-src [^;]*'unsafe-inline'/);
     // Map tiles, blob previews and the proxied Socket.IO connection.
     assert.match(production, /img-src [^;]*data:/);
@@ -48,17 +48,33 @@ describe('web security headers', () => {
     assert.match(buildContentSecurityPolicy({ isProduction: false }), /'unsafe-eval'/);
   });
 
-  it('allows exactly the OpenStreetMap tile origin the map fetches from', () => {
+  it('allows exactly the OpenFreeMap tile origin the map fetches from (vector tiles need connect-src + img-src)', () => {
     for (const isProduction of [true, false]) {
       const csp = buildContentSecurityPolicy({ isProduction });
       const imgSrc = String(
         csp.split(';').find((directive) => directive.trim().startsWith('img-src')),
       );
-      // The one trusted tile origin is present…
-      assert.match(imgSrc, /https:\/\/tile\.openstreetmap\.org/);
+      const connectSrc = String(
+        csp.split(';').find((directive) => directive.trim().startsWith('connect-src')),
+      );
+      // The one trusted tile origin is present in both…
+      assert.match(imgSrc, /https:\/\/tiles\.openfreemap\.org/);
+      assert.match(connectSrc, /https:\/\/tiles\.openfreemap\.org/);
       // …and the policy never opens img-src to arbitrary hosts.
       assert.ok(!imgSrc.includes('*'), `img-src must not use a wildcard: ${imgSrc}`);
+      assert.ok(!connectSrc.includes('*'), `connect-src must not use a wildcard: ${connectSrc}`);
+      // Old OSM raster host must be gone
+      assert.doesNotMatch(imgSrc, /tile\.openstreetmap\.org/);
+      assert.doesNotMatch(connectSrc, /tile\.openstreetmap\.org/);
     }
+  });
+
+  it('keeps worker-src blob: for MapLibre GL JS workers', () => {
+    const csp = buildContentSecurityPolicy({ isProduction: true });
+    const workerSrc = String(
+      csp.split(';').find((directive) => directive.trim().startsWith('worker-src')),
+    );
+    assert.match(workerSrc, /blob:/);
   });
 
   it('upgrades insecure requests in production only', () => {

@@ -15,23 +15,29 @@
  *   every route; that is a larger change than this phase allows.
  * - `'unsafe-eval'` is added **only** in development, where React Refresh and
  *   the webpack dev runtime rely on it.
- * - `style-src` allows inline styles: React and Leaflet both set element
+ * - `style-src` allows inline styles: React and MapLibre both set element
  *   styles directly.
- * - `connect-src` covers same-origin XHR/fetch and the Socket.IO websocket,
- *   both of which are proxied through this origin by `rewrites()`.
+ * - `connect-src` covers same-origin XHR/fetch, the Socket.IO websocket, and
+ *   the vector-tile/style/glyph/sprite fetches performed by MapLibre GL JS
+ *   against https://tiles.openfreemap.org (no key, no billing).
  * - `img-src` allows `data:`/`blob:` for map tiles and generated previews.
+ * - `worker-src` includes `blob:` because MapLibre GL JS uses a Web Worker
+ *   backed by a blob URL.
  */
 
 const SELF = "'self'";
 
 /**
- * The only external image origin the app needs out of the box: the
- * OpenStreetMap tile server used by the live-tracking map. The app pins
- * `TileLayer` to this exact host (no `{s}` subdomains) so the CSP can stay
- * narrow — a wildcard `https://*.tile.openstreetmap.org` would also trust
- * unrelated subdomains.
+ * The only external tile origin the app needs out of the box: OpenFreeMap's
+ * public instance serving OpenStreetMap-derived vector tiles. The web console
+ * uses MapLibre GL JS (`maplibre-gl`) with style
+ * `https://tiles.openfreemap.org/styles/liberty` — no key, no account, no
+ * billing. The engine fetches style JSON, vector tiles, glyphs and sprites via
+ * `connect-src`, and may load raster fallbacks via `img-src`, so the host must
+ * appear in both directives. Pinned to this exact host (no wildcard) so the
+ * CSP stays narrow.
  */
-const MAP_TILE_IMG_SRC = 'https://tile.openstreetmap.org';
+const MAP_TILE_HOST = 'https://tiles.openfreemap.org';
 
 /** Builds the CSP directive list for the web app. */
 function buildContentSecurityPolicy(options = {}) {
@@ -45,7 +51,7 @@ function buildContentSecurityPolicy(options = {}) {
     scriptSrc.push("'unsafe-eval'");
   }
 
-  const connectSrc = [SELF, 'ws:', 'wss:', ...extraConnectSrc];
+  const connectSrc = [SELF, 'ws:', 'wss:', MAP_TILE_HOST, ...extraConnectSrc];
 
   const directives = [
     `default-src ${SELF}`,
@@ -55,7 +61,7 @@ function buildContentSecurityPolicy(options = {}) {
     `object-src 'none'`,
     `script-src ${scriptSrc.join(' ')}`,
     `style-src ${SELF} 'unsafe-inline'`,
-    `img-src ${SELF} data: blob: ${MAP_TILE_IMG_SRC} ${extraImgSrc.join(' ')}`.trim(),
+    `img-src ${SELF} data: blob: ${MAP_TILE_HOST} ${extraImgSrc.join(' ')}`.trim(),
     `font-src ${SELF} data:`,
     `connect-src ${connectSrc.join(' ')}`,
     `manifest-src ${SELF}`,

@@ -44,32 +44,38 @@ Stadia, Geoapify and Mapbox, and what makes a tile URL that carries a `key=`
 credential a metered provider in disguise. The map runs on open source over
 OpenStreetMap data:
 
-- **Engine** — `@maplibre/maplibre-react-native` v11 (open source; the native
-  MapLibre GL SDK is added to the generated projects by the config plugin in
-  `mobile/app.config.js`).
+- **Engine** — mobile `@maplibre/maplibre-react-native` v11 (open source; the
+  native MapLibre GL SDK is added to the generated projects by the config
+  plugin in `mobile/app.config.js`) and web `maplibre-gl` v5
+  (`web/package.json`), same vector engine on both surfaces.
 - **Tiles** — **OpenFreeMap's public instance**, OpenStreetMap data:
   `https://tiles.openfreemap.org/styles/liberty` (`DEFAULT_MAP_STYLE_URL` in
-  `mobile/src/features/map/map-style.ts`). No registration, no key, no card.
+  `mobile/src/features/map/map-style.ts` and `web/src/features/map/map-style.ts`).
+  No registration, no key, no card.
 - **Attribution** — `OpenFreeMap © OpenMapTiles, Data from OpenStreetMap`,
-  rendered by the engine itself: the `attribution` and `logo` props are on and
-  stay on (OSM-derived tiles legally require both).
+  rendered by the engine itself: the `attribution` and `logo` props / control
+  are on and stay on (OSM-derived tiles legally require both).
 
 **The scale path changes ONE variable.** When traffic outgrows the public
 instance, self-host OpenFreeMap
 ([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
 same OSM-derived tiles from your own infrastructure) and set
-`EXPO_PUBLIC_MAP_STYLE_URL` to the self-hosted style URL. That variable is
-https-only — `map-style.ts` (pure, spec-pinned) rejects anything else with one
-warning and falls back to the public default — and **no app code changes**:
-the engine, the markers, the camera policy and this document's rules all work
-unchanged.
+`EXPO_PUBLIC_MAP_STYLE_URL` (mobile) and `NEXT_PUBLIC_MAP_STYLE_URL` (web) to
+the self-hosted style URL. Those variables are https-only —
+`map-style.ts` (pure, spec-pinned, `resolveMapStyleUrl(env)`) rejects anything
+else with one warning and falls back to the public default — and **no app code
+changes**: the engine, the markers, the camera policy and this document's rules
+all work unchanged.
 
 **Enforcement** — `mobile/scripts/map-provider-policy.spec.ts` (part of
-`npm --prefix mobile test`) fails if a banned provider name or a keyed tile
-URL reappears in `mobile/package.json`, `mobile/app.config.js`,
-`mobile/app.json` or anywhere under `mobile/src/`. The web console is not part
-of this swap yet (see Known limitations #8) and is scanned separately by its
-own CSP pin.
+`npm --prefix mobile test`) and `web/scripts/map-provider-policy.spec.ts`
+(part of `npm --prefix web run test:web`) fail if a banned provider name
+(`leaflet`, `react-leaflet`, `tile.openstreetmap.org`, Google Maps, Mapbox,
+MapTiler, Stadia, Geoapify) or a keyed tile URL (`key=` / `api_key=`) reappears
+in `package.json`, `next.config.js` / `app.config.js`, `security-headers.js` or
+anywhere under `src/`. The scanner allows a casual "no Leaflet" comment in
+pure modules and allows `maps.google.com` deep links (navigate) while banning
+`maps.googleapis.com` / `google.maps`.
 
 ## Architecture
 
@@ -89,8 +95,8 @@ One **pure state machine** decides what to draw; each platform only renders it.
 | `mobile/src/features/map/BusMap.tsx`                                                                  | Native observer map: status panel, follow control, stop pins, accuracy circle.                                                                                                                                  |
 | `mobile/src/features/crew/crew-map-presentation.ts`                                                   | What the driver's map may say about a device-local position, under crew freshness windows. Pure.                                                                                                                |
 | `mobile/src/features/crew/DriverTripMap.tsx`<br>`…/DriverTripMap.web.tsx`                             | The Driver Trip card: stops, this device's own position, one honest status line. The `.web` file is the dependency-free `react-native-web` fallback.                                                            |
-| `web/src/features/map/bus-marker-icon.ts`                                                             | The top-view bus as inline SVG, plus the `divIcon` geometry as plain data. Runtime-free, so its geometry is directly testable (`leaflet` dereferences `window` at module scope).                                |
-| `web/src/features/map/MapViewInner.tsx`                                                               | Web map: same policy over Leaflet.                                                                                                                                                                              |
+| `web/src/features/map/bus-marker-icon.ts`                                                             | The top-view bus as inline SVG, plus the icon geometry as plain data (`BUS_MARKER_WIDTH/HEIGHT`, `BUS_MARKER_SVG`). Runtime-free, so its geometry is directly testable; no `DivIconOptions` import.               |
+| `web/src/features/map/MapViewInner.tsx`                                                               | Web map: same policy over MapLibre GL JS (`maplibre-gl` Marker, GeoJSON route + accuracy ring).                                                                                                                 |
 | `mobile/src/hooks/useReducedMotion.ts`<br>`web/src/features/map/usePrefersReducedMotion.ts`           | OS reduce-motion preference, live.                                                                                                                                                                              |
 
 `bus-motion.ts` and `follow-camera.ts` are **mirrored** between `mobile/` and
@@ -103,9 +109,9 @@ differently.
 
 The pure/adapter split is deliberate: everything that decides _what to draw_ is
 runtime-free and unit-tested; only the thin platform adapters touch
-MapLibre (`@maplibre/maplibre-react-native`) or `leaflet`. That is also why
-`bus-marker-icon.ts` exports `busIconOptions()` as plain data and leaves the
-one-line `L.divIcon(...)` call to `MapViewInner.tsx`.
+MapLibre (`@maplibre/maplibre-react-native` on mobile, `maplibre-gl` on web).
+That is also why `bus-marker-icon.ts` exports `busIconOptions()` as plain data
+and leaves the one-line marker creation to `MapViewInner.tsx` (`maplibregl.Marker`).
 
 The **one genuinely shared** piece is the definition of "live":
 `GPS_LIVE_WINDOW_MS` / `GPS_STALE_WINDOW_MS` live in
@@ -145,7 +151,8 @@ Two properties matter:
   keeps the vehicle centre on the GPS coordinate.
 
 Both map surfaces anchor at the vehicle centre: `anchor="center"` on the
-MapLibre `ViewAnnotation` (native), `iconAnchor [13, 21]` on Leaflet (web).
+MapLibre `ViewAnnotation` (native), `anchor: 'center'` / CSS translate on the
+MapLibre `Marker` (web, `maplibregl.Marker` with centred element).
 
 ### One implementation on both platforms
 
@@ -174,8 +181,10 @@ Two runtime boundaries remain, and both are handled the same way as before:
   panel instead of a blank canvas. Nothing is misconfigured — there is simply
   no engine in the Go app — and a development build renders the map everywhere
   (see [Map provider policy](#map-provider-policy): no key is involved).
-- **Web** — inline SVG in a `divIcon`; rotation is a `style.transform` on an
-  inner `.bus-marker-rotor` element.
+- **Web** — MapLibre `Marker` carrying inline SVG (`BUS_MARKER_SVG`); rotation
+  is a `style.transform` on an inner `.bus-marker-rotor` element, applied via
+  `setBusIconHeading(host, heading)` which accepts the marker host or its
+  element (guarded for `HTMLElement` absence in tests).
 
 The graphic is drawn with views/SVG rather than shipped as an image so there is
 **one** design, no asset pipeline, no network request and no new dependency
@@ -183,14 +192,18 @@ The graphic is drawn with views/SVG rather than shipped as an image so there is
 
 ### Content-Security-Policy
 
-No change to `web/security-headers.js` was required, and this was verified rather
-than assumed. `buildContentSecurityPolicy()` emits
-`style-src 'self' 'unsafe-inline'` and
-`img-src 'self' data: blob: https://tile.openstreetmap.org`, which covers the
-marker three ways over:
+`web/security-headers.js` now pins **OpenFreeMap** — `https://tiles.openfreemap.org`
+in both `img-src` and `connect-src` (the MapLibre engine fetches style JSON,
+vector tiles, glyphs and sprites via `connect-src`) and `worker-src blob:` for
+the MapLibre worker. `buildContentSecurityPolicy()` emits
+`style-src 'self' 'unsafe-inline'` (required by `maplibre-gl.css`) and
+`img-src 'self' data: blob: https://tiles.openfreemap.org` plus
+`connect-src ... https://tiles.openfreemap.org`. `tile.openstreetmap.org` is
+no longer allowed — OSMF's policy forbids heavy production use and the console
+now uses vector tiles. This covers the marker three ways over:
 
-- The SVG is **markup inside the `divIcon` container**, not an `<img src>` or an
-  external file, so `img-src` does not govern it at all.
+- The SVG is **markup inside the MapLibre Marker container**, not an `<img src>`
+  or an external file, so `img-src` does not govern it at all.
 - It contains no `<script>`, no `on*` handler, no `url(...)`, no `<image href>`,
   no `foreignObject` and no `xlink:href` — nothing `script-src` would block.
 - Rotation is applied through the CSSOM (`rotor.style.transform = ...`), which
@@ -199,12 +212,12 @@ marker three ways over:
   (`'unsafe-inline'` is present anyway, but the CSSOM route stays correct if that
   is ever tightened.)
 
-**Watch this if the tile host ever changes.** `OSM_URL` is pinned to
-`https://tile.openstreetmap.org/{z}/{x}/{y}.png` with **no `{s}` subdomain
-placeholder** specifically so `img-src` can name one exact origin. Reintroducing
-`{s}.tile.openstreetmap.org` for load spreading silently produces blank tiles
-behind a CSP violation, because the subdomains are not in the allow-list. The two
-must be changed together.
+**If the tile host ever changes** (self-host), `NEXT_PUBLIC_MAP_STYLE_URL` and
+the CSP pin must change together: `CSP_EXTRA_IMG_SRC` / `CSP_EXTRA_CONNECT_SRC`
+can add a self-hosted origin without a wildcard, but the default
+`tiles.openfreemap.org` entry stays as the documented public fallback.
+`resolveMapStyleUrl(env)` in `map-style.ts` is the single place that reads the
+style URL and enforces https-only with a warn-once fallback.
 
 Stops are a deliberately different species from the bus: MapLibre has no
 teardrop pin of its own, so a stop is a **flat, slate, un-rotating dot**
@@ -257,10 +270,10 @@ sub-pixel at tracking-card zoom.
   the stop markers never see it. `MapSurface` is `React.memo`'d so the 5 s
   status tick cannot reach the native map either.
 - **Web** — there is no React state per frame at all: position and rotation are
-  applied imperatively (`setLatLng`, one `style.transform`). The React
-  `position` prop is fixed at the mount coordinate on purpose, because
-  react-leaflet calls `setLatLng` whenever that prop _changes_, which would
-  yank the marker to the tween's destination mid-flight.
+  applied imperatively (`marker.setLngLat`, one `style.transform` via
+  `setBusIconHeading`). The marker is created once (`new maplibregl.Marker`) and
+  moved via `setLngLat` from the frame callback, so no React prop change yanks it
+  mid-flight.
 - **Camera** — moved imperatively from the frame callback on both platforms, so
   following the bus re-renders nothing.
 
@@ -325,8 +338,8 @@ GPS stream.**
 - **Pan** — while following, centre only. Zoom is never changed by a GPS update,
   on either platform (a partial camera is merged with the current one:
   `MKMapCameraWithDefaults:existingCamera:` on iOS,
-  `CameraPosition.Builder(map.getCameraPosition())` on Android, and Leaflet's
-  `panTo` does not touch zoom).
+  `CameraPosition.Builder(map.getCameraPosition())` on Android, and MapLibre's
+  `panTo` / `easeTo({center})` on web does not touch zoom unless asked).
 - **Explore** — any genuine user gesture suspends following immediately, and it
   stays suspended until the user presses **Follow bus**. It never snaps back on
   its own.
@@ -351,15 +364,18 @@ This is the part that is easy to get wrong:
   `360 / 2^zoom`, the world's latitude span at that zoom — which is monotonic
   in zoom, so its relative change is exactly the relative zoom change the
   fallback compares.
-- **Leaflet (web, unchanged)** — `dragstart` and `boxzoomstart` come only from
-  the user, and `panTo` fires neither. `zoomstart` needs care because
-  `fitBounds` dispatches it from inside a `requestAnimFrame` (`Map.js`
-  `_tryAnimatedZoom`), i.e. _after_ the call returns, so gesture detection is
-  suppressed for a short window after the one zoom change we make per trip.
+- **MapLibre GL JS (web)** — gesture detection uses `originalEvent` on
+  `movestart` / `zoomstart` / `rotatestart` / `pitchstart` / `dragstart`:
+  a truthy `originalEvent` is a genuine user gesture, a falsy one is our own
+  `fitBounds` / `panTo` / `easeTo`. `fitBounds` still animates, so the check is
+  synchronous (no `requestAnimFrame` window). While following, the camera is
+  moved via `easeTo({center, duration})` with `isInternalCameraUpdate` guard
+  so our own pans do not suspend follow. Pinch-zoom, drag, rotate and pitch all
+  suspend follow immediately.
 
-**Known trade-off:** on web, a user who pinch-zooms within ~1.5 s of the initial
-fit can be missed, because that window is open. Follow mode then keeps panning
-for one fix until the next gesture is seen. Native has no equivalent window.
+**Previous Leaflet trade-off removed:** the old ~1.5 s suppression window
+  after `fitBounds` (Leaflet dispatches `zoomstart` from `requestAnimFrame`)
+is gone — MapLibre reports `originalEvent` synchronously.
 
 ## Honest status
 
@@ -514,7 +530,8 @@ app-wide floor.
 - Map controls sit top-left (status) and top-right (follow) on native because
   MapLibre renders the OSM attribution line and its logo in the bottom corners
   (legally required for OSM-derived tiles, always on via the `attribution` and
-  `logo` props); the web console keeps its Leaflet attribution bottom-right.
+  `logo` props); the web console keeps its MapLibre attribution bottom-right
+  (`attributionControl: {compact:false}`) with the same legal requirement.
 - The route notice renders **below** the map, not over it, for the same reason.
 
 ## Known limitations
@@ -554,21 +571,17 @@ app-wide floor.
 7. **The attribution line and the logo are legally required and cannot be
    removed** to gain corner space — which is why the map's own controls live
    top-corner on native and the route notice renders below the map.
-8. **The web console still uses `https://tile.openstreetmap.org` — follow-up
-   noted, separate task.** The mobile map moved to OpenFreeMap
-   ([Map provider policy](#map-provider-policy)): OSM data, no key, no account,
-   no billing, and a documented self-host path that changes one variable. The
-   web console was **not** part of that swap: OSMF's tile-usage policy for
-   `tile.openstreetmap.org` is for low-volume use and does not permit
-   unrestricted production traffic, so before the console scales it must move
-   to OpenFreeMap's public instance or self-hosted tiles (both are keyless),
-   plus the matching `img-src` entry in `web/security-headers.js` (`OSM_URL`
-   and the CSP pin change together). Until then the console stays one screen
-   with browser-cached tiles, and no billing is enabled anywhere.
+8. **Web console tile host — now resolved.** The web console previously used
+   `https://tile.openstreetmap.org` (raster, OSMF low-volume only). It now uses
+   the same OpenFreeMap public instance as mobile (`maplibre-gl` v5 +
+   `https://tiles.openfreemap.org/styles/liberty`, no key, no billing), with
+   `img-src` + `connect-src` + `worker-src blob:` pinned in
+   `web/security-headers.js` and `resolveMapStyleUrl(env)` reading
+   `NEXT_PUBLIC_MAP_STYLE_URL` (https-only). No wildcard, no billing anywhere.
 9. **No paid routing, Directions, Roads, traffic, map-matching or tracking API
-   was added.** The engine swap to MapLibre + OpenFreeMap introduced no
-   account, key or billing — the policy section above pins that — and
-   attribution is rendered by the engine on native and by Leaflet on web.
+   was added.** The engine swap to MapLibre + OpenFreeMap on both surfaces
+   introduced no account, key or billing — the policy section above pins that —
+   and attribution is rendered by the engine on both mobile and web.
 
 ## Manual verification checklist
 
@@ -580,11 +593,11 @@ What was available in the environment this change was prepared in: Node 22 and
 npm, and nothing else that can render or run the app. There is **no** Android
 SDK, no `adb`, no emulator, no Xcode or simulator, no browser engine and no
 Playwright — and the sandbox's network reaches the npm registry but not
-`tile.openstreetmap.org`, so even a headless browser could not have drawn the
-web tiles. Nothing here is being reported from a device, an emulator or a
-browser, and **an `expo export` bundle is not a device test**: it exercises the
-bundler, not background location, the MapLibre tile renderer, a
-low-end GPU or an OS permission dialog.
+`tiles.openfreemap.org`, so even a headless browser could not have drawn the
+web tiles without extra config. Nothing here is being reported from a device,
+an emulator or a browser, and **an `expo export` bundle is not a device test**:
+it exercises the bundler, not background location, the MapLibre tile renderer,
+a low-end GPU or an OS permission dialog.
 
 Run it in a **development build** (Expo Go has no map engine on any platform —
 the map surfaces show the labelled panel instead), on a low-end Android and on
@@ -784,10 +797,9 @@ still binds or a task someone still has to do.
    [Native marker updates we did not adopt](#native-marker-updates-we-did-not-adopt).
    `setCoordinates` (the one cross-platform imperative command) is held in
    reserve pending measured evidence.
-7. **Tile provider decision** — **mobile: resolved by the engine swap**;
-   **web: still deferred**. The mobile map now runs on MapLibre over
-   OpenFreeMap — no key, no account, no billing, and a self-host path that
-   changes one variable ([Map provider
-   policy](#map-provider-policy)). The web console still uses
-   `tile.openstreetmap.org` and must move to OpenFreeMap or self-hosted tiles
-   before it scales — a separate task; see Known limitations #8.
+7. **Tile provider decision** — **mobile + web: resolved by the engine swap**.
+   Both surfaces now run on MapLibre (mobile v11, web v5) over OpenFreeMap —
+   no key, no account, no billing, and a self-host path that changes one
+   variable (`EXPO_PUBLIC_MAP_STYLE_URL` / `NEXT_PUBLIC_MAP_STYLE_URL`) ([Map
+   provider policy](#map-provider-policy)). See Known limitations #8 (now
+   resolved).
