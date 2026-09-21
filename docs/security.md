@@ -122,9 +122,11 @@ Comprehensive E2E tests verify:
 - CSP (configurable)
 - Permissions-Policy
 - Referrer-Policy
-- The web CSP allows exactly one external image origin by default:
-  `https://tile.openstreetmap.org` — the OpenStreetMap tile host the live
-  tracking map is pinned to. Extra origins can be added per deployment via
+- The web CSP allows exactly one external map origin by default:
+  `https://tiles.openfreemap.org` — OpenFreeMap's public instance (OpenStreetMap
+  data, no key, no billing) that the live tracking map (`maplibre-gl` v5) is
+  pinned to, in both `img-src` and `connect-src` plus `worker-src blob:` for the
+  MapLibre worker. Extra origins can be added per deployment via
   `CSP_EXTRA_IMG_SRC` / `CSP_EXTRA_CONNECT_SRC` (comma-separated, no wildcards).
 
 ## Dependency Security (Phase 2)

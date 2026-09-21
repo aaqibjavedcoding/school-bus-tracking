@@ -187,14 +187,17 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   admin transitions and the offline-queued path never start GPS; a permission granted on the Help
   screen never does either. A trip that is only `SCHEDULED` cannot share (the server rejects fixes
   with `trip_not_open`).
-- Maps: **Leaflet/react-leaflet** on web (`web/src/features/map`), **MapLibre**
-  (`@maplibre/maplibre-react-native`) over **OpenFreeMap**'s public OpenStreetMap
-  tiles on mobile (`BusMap.tsx` + `BusMap.web.tsx`), breadcrumbs + marker + heading.
-  The mobile map is open source with **no key, no account, no billing** (product rule —
-  `docs/live-tracking-map.md` → "Map provider policy"). **The map engine is a custom native
-  module the Expo Go shell does not carry on any platform**, so the mobile map surfaces in
-  Expo Go show a labelled "needs a development build" panel instead of a blank canvas
+- Maps: **MapLibre** on both surfaces — **web** `maplibre-gl` v5 (`web/src/features/map`)
+  and **mobile** `@maplibre/maplibre-react-native` (`BusMap.tsx` + `BusMap.web.tsx`) —
+  over **OpenFreeMap**'s public instance (`https://tiles.openfreemap.org/styles/liberty`,
+  OpenStreetMap data), breadcrumbs + marker + heading. Both maps are open source with
+  **no key, no account, no billing** (product rule — `docs/live-tracking-map.md` →
+  "Map provider policy"). The mobile map engine is a custom native module the Expo Go
+  shell does not carry on any platform, so the mobile map surfaces in Expo Go show a
+  labelled "needs a development build" panel instead of a blank canvas
   (`src/features/map/map-surface-mode.ts`); a development build renders it everywhere.
+  Web self-host path: set `NEXT_PUBLIC_MAP_STYLE_URL` / `EXPO_PUBLIC_MAP_STYLE_URL` to a
+  self-hosted OpenFreeMap style URL (https-only, one variable, no code change).
 
 ### 3.8 ETA & geofence stop arrivals
 
@@ -367,7 +370,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 **Web + API (`web/`)**: next 14.2.35, react/react-dom 18.3.1, typescript 5.7.3,
 sequelize 6.37.5 + sequelize-typescript 2.1.6, pg + pg-hstore, reflect-metadata, socket.io 4.8.3,
 socket.io-client, class-validator + class-transformer, zod (via `packages/validation`), bcryptjs,
-cookie-parser, cors, compression, helmet, exceljs, firebase-admin, leaflet + react-leaflet 4,
+cookie-parser, cors, compression, helmet, exceljs, firebase-admin, maplibre-gl 5 (+ @types/geojson),
 dotenv, cross-env, sequelize-cli, ts-node.
 
 **Mobile (`mobile/`)**: expo ~57.0.21, react-native 0.86.3, react 19.2.3, expo-router ~57.0.20,
@@ -741,7 +744,9 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   applies to `/:path*` in production (layered, never weakened).
 - **CSP & maps**: `next/image` is switched **off** (`images.unoptimized`) because the app renders
   none — that removes the whole `/_next/image` attack surface (Next 14.2.x cannot take the 15.5.21+/
-  16.x image fixes without a React 19 migration). Extra tile/origin hosts go through
+  16.x image fixes without a React 19 migration). The map CSP pins `https://tiles.openfreemap.org`
+  in both `img-src` and `connect-src` plus `worker-src blob:` for the MapLibre worker (see
+  `web/security-headers.js` and `docs/deployment.md` → CSP). Extra origins go through
   `CSP_EXTRA_IMG_SRC` / `CSP_EXTRA_CONNECT_SRC`.
 - **Data protection**: audit payloads and logs redact secrets; medical notes are treated as
   sensitive and excluded from exports; document files are served through the API (no public dir)
@@ -1032,6 +1037,7 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 | Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
 | Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
 | Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_MAP_STYLE_URL` (optional, https-only — a self-hosted OpenFreeMap style; the map needs no key)                                                                                                                                       |
+| Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/liberty`) |
 
 Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.

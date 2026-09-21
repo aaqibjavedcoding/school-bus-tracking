@@ -1,5 +1,3 @@
-import type { DivIconOptions } from 'leaflet';
-
 /**
  * The top-view school-bus marker, drawn as inline SVG.
  *
@@ -18,16 +16,27 @@ import type { DivIconOptions } from 'leaflet';
  *
  * ### No network, no asset pack
  *
- * The SVG is inlined into a Leaflet `divIcon`, so there is no tile request, no
- * CDN, no `img-src` entry to add to the CSP allowlist in
- * `web/src/lib/security-headers.js`, and nothing paid.
+ * The SVG is inlined into a MapLibre `Marker` element, so there is no tile
+ * request, no CDN, no extra `img-src` entry, and nothing paid.
  *
  * ### Geometry
  *
  * Nose-up, so heading 0° is north with no rotation applied, and symmetric about
  * its own centre so rotating it keeps the vehicle centre on the GPS coordinate.
- * `iconAnchor` is the exact centre for the same reason.
+ * Anchor is the exact centre for the same reason.
  */
+
+/**
+ * Plain-data replacement for Leaflet's DivIconOptions — no leaflet dependency.
+ * Keeps the marker geometry testable under `node --test`.
+ */
+export interface BusIconOptions {
+  className: string;
+  html: string;
+  iconSize: [number, number];
+  iconAnchor: [number, number];
+  popupAnchor: [number, number];
+}
 
 export const BUS_MARKER_WIDTH = 26;
 export const BUS_MARKER_HEIGHT = 42;
@@ -47,22 +56,14 @@ export const BUS_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 </svg>`;
 
 /**
- * The `divIcon` options, as plain data.
+ * The marker options, as plain data.
  *
- * Kept free of the `leaflet` runtime import on purpose: `leaflet` dereferences
- * `window` at module scope, so anything that imports it cannot be loaded under
- * `node --test`. Splitting the numbers out means the marker's geometry — the
- * part that is easy to break by editing the SVG — is directly testable, and the
- * one-line `L.divIcon(...)` wrapper stays in `MapViewInner.tsx` where Leaflet is
- * already loaded.
- *
- * Deliberately heading-independent: the rotation is applied to the inner
+ * Kept free of any map runtime import on purpose so geometry is directly
+ * testable. Deliberately heading-independent: rotation is applied to the inner
  * `.bus-marker-rotor` element by the animation loop, so a heading change never
- * rebuilds the icon or its DOM subtree. The previous implementation recreated
- * the `divIcon` on every heading value, which threw away and re-created the
- * element twenty times a second.
+ * rebuilds the icon DOM.
  */
-export function busIconOptions(): DivIconOptions {
+export function busIconOptions(): BusIconOptions {
   return {
     className: 'bus-marker',
     html: `<div class="bus-marker-rotor">${BUS_MARKER_SVG}</div>`,
@@ -72,22 +73,49 @@ export function busIconOptions(): DivIconOptions {
   };
 }
 
-/** The minimum of `L.Marker` this module needs — `L.Marker` satisfies it. */
+/** The minimum host this module needs — MapLibre Marker element or legacy host. */
 export interface IconHost {
-  getElement(): HTMLElement | undefined | null;
+  getElement():
+    { querySelector: (sel: string) => { style: { transform: string } } | null } | null | undefined;
 }
 
 /**
  * Rotates the icon's inner element in place.
  *
- * Mutating one `style.transform` is what keeps rotation off React and off the
- * DOM-construction path; it is a compositor-only property, so the browser does
- * not relayout for it.
+ * Mutating one `style.transform` keeps rotation off React and off the DOM
+ * construction path; it is a compositor-only property. Works with both a direct
+ * HTMLElement (MapLibre marker element) and a host exposing `getElement()` (legacy
+ * Leaflet marker). Guarded for `node --test` where `HTMLElement` may not exist.
  */
-export function setBusIconHeading(marker: IconHost | null, headingDeg: number | null): void {
-  const element = marker?.getElement();
+export function setBusIconHeading(
+  host:
+    IconHost | { querySelector: (sel: string) => { style: { transform: string } } | null } | null,
+  headingDeg: number | null,
+): void {
+  if (!host) return;
+
+  let element:
+    { querySelector: (sel: string) => { style: { transform: string } } | null } | null | undefined;
+
+  // Direct element (MapLibre marker element or fake DOM in tests)
+  if (typeof (host as { querySelector?: unknown }).querySelector === 'function') {
+    element = host as { querySelector: (sel: string) => { style: { transform: string } } | null };
+  } else if (typeof (host as IconHost).getElement === 'function') {
+    try {
+      element = (host as IconHost).getElement() as unknown as {
+        querySelector: (sel: string) => { style: { transform: string } } | null;
+      } | null;
+    } catch {
+      return;
+    }
+  } else {
+    return;
+  }
+
   if (!element) return;
-  const rotor = element.querySelector<HTMLElement>('.bus-marker-rotor');
+  const rotor = element.querySelector('.bus-marker-rotor') as {
+    style: { transform: string };
+  } | null;
   if (!rotor) return;
   rotor.style.transform = `rotate(${headingDeg ?? 0}deg)`;
 }

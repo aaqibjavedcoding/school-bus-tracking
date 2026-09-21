@@ -75,17 +75,25 @@ SUBSCRIPTION_GRACE_PERIOD_DAYS=7
 
 ### Content-Security-Policy and map tiles
 
-The web app renders its live-tracking map with OpenStreetMap tiles. The CSP in
-`web/security-headers.js` already allows exactly one tile origin by default —
-`https://tile.openstreetmap.org` — and the map (`web/src/features/map/MapViewInner.tsx`)
-is pinned to that host, so no extra configuration is needed for the map to work
-in production. If a deployment adds further image sources (e.g. school avatars
-on a CDN), extend `img-src` with `CSP_EXTRA_IMG_SRC=https://cdn.example.com`
-(comma-separated). Do not use a wildcard. Similarly, `CSP_EXTRA_CONNECT_SRC`
-extends `connect-src` for extra API/websocket origins. All other security
-headers (HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`,
-`Referrer-Policy`, `Permissions-Policy`) are always emitted; HSTS only in
-production.
+The web app renders its live-tracking map with **MapLibre GL JS** (`maplibre-gl`
+v5, open source) over **OpenFreeMap's public instance**
+(`https://tiles.openfreemap.org/styles/liberty`, OpenStreetMap data, no key, no
+billing). The CSP in `web/security-headers.js` already allows exactly one tile
+origin by default — `https://tiles.openfreemap.org` — in **both** `img-src` and
+`connect-src` (the engine fetches style JSON, vector tiles, glyphs and sprites
+via `connect-src`) and `worker-src blob:` for the MapLibre worker. The map
+(`web/src/features/map/MapViewInner.tsx`) is pinned to that host through
+`web/src/features/map/map-style.ts` (`resolveMapStyleUrl` reads
+`NEXT_PUBLIC_MAP_STYLE_URL` when set and https, else the public default), so no
+extra configuration is needed for the map to work in production. To self-host
+OpenFreeMap later, set `NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.example.com/styles/liberty`
+(https-only, warn-once fallback). If a deployment adds further image sources
+(e.g. school avatars on a CDN), extend `img-src` with
+`CSP_EXTRA_IMG_SRC=https://cdn.example.com` (comma-separated). Do not use a
+wildcard. Similarly, `CSP_EXTRA_CONNECT_SRC` extends `connect-src` for extra
+API/websocket origins. All other security headers (HSTS,
+`X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`,
+`Permissions-Policy`) are always emitted; HSTS only in production.
 
 ## Build
 
