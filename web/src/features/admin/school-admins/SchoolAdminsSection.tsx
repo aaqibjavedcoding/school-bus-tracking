@@ -118,6 +118,9 @@ export const SchoolAdminsSection = React.memo(function SchoolAdminsSection({
         await apiClient.resetSchoolAdminPassword(schoolId, dialog.admin.id, body);
         toast.push('Password updated for ' + fullName(dialog.admin), 'success');
         setDialog(null);
+        // A reset moves the row's state (the "must change password" flag the table
+        // renders), so the table is refetched exactly as it is after a save.
+        await afterMutation();
         return null;
       } catch (caught) {
         return { message: getApiErrorMessage(caught, 'Could not reset password'), error: caught };
@@ -125,7 +128,7 @@ export const SchoolAdminsSection = React.memo(function SchoolAdminsSection({
         setBusy(false);
       }
     },
-    [dialog, schoolId, toast],
+    [afterMutation, dialog, schoolId, toast],
   );
 
   const runLifecycle = useCallback(

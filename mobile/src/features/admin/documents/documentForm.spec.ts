@@ -65,15 +65,64 @@ describe('buildDocumentRequest', () => {
   });
 
   it('turns blank optional fields into null instead of empty strings', () => {
-    const result = buildDocumentRequest(
-      'BUS',
-      form({ document_number: '   ', notes: '', file_name: '', file_url: '' }),
-      false,
-    );
+    const result = buildDocumentRequest('BUS', form({ notes: '', file_name: '', file_url: '' }), false);
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.body.document_number, null);
     assert.equal(result.body.notes, null);
+  });
+
+  /**
+   * The four inputs a document cannot exist without.
+   *
+   * The shared schemas make `document_number` optional and both dates
+   * `.nullish()`, because an existing record may legitimately have no number —
+   * which is a reason for the *form* to require them, not for it to accept their
+   * absence: an "unknown" expiry is the exact thing this screen exists to
+   * prevent. Same rules, same sentences as the web console.
+   */
+  it('blocks a submit with no document number', () => {
+    const result = buildDocumentRequest('BUS', form({ document_number: '   ' }), false);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.deepEqual(result.errors, { document_number: 'Please enter the document number.' });
+  });
+
+  it('blocks a submit with no dates and names both inputs', () => {
+    const result = buildDocumentRequest('BUS', form({ issue_date: '', expiry_date: '' }), false);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.deepEqual(result.errors, {
+      issue_date: 'Please enter the issue date.',
+      expiry_date: 'Please enter the expiry date.',
+    });
+  });
+
+  it('blocks a submit with no document type', () => {
+    const result = buildDocumentRequest('BUS', form({ document_type: '' }), false);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.errors.document_type, 'Please choose a document type.');
+  });
+
+  it('rejects a date that is not a real calendar day', () => {
+    const result = buildDocumentRequest('BUS', form({ expiry_date: '2027-02-30' }), false);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(
+      result.errors.expiry_date,
+      'Please enter the expiry date as a real date, for example 2026-04-01.',
+    );
+  });
+
+  it('requires the expiry date to be after the issue date', () => {
+    const result = buildDocumentRequest(
+      'BUS',
+      form({ issue_date: '2027-01-01', expiry_date: '2027-01-01' }),
+      false,
+    );
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.errors.expiry_date, 'Please enter an expiry date after the issue date.');
   });
 
   it('rejects an unknown document type with a field error', () => {
@@ -124,16 +173,15 @@ describe('buildDocumentRequest', () => {
    * point of the case is that every *other* field may be left alone.
    */
   it('allows an update that only changes one field', () => {
-    const result = buildDocumentRequest(
-      'BUS',
-      form({ document_number: '', issue_date: '', expiry_date: '', notes: 'Renewed' }),
-      true,
-    );
+    // The sheet pre-fills the record being edited (see `toFormValues`), so an edit
+    // that touches only the notes still carries the stored number and dates — the
+    // required checks run against the form, not against what changed.
+    const result = buildDocumentRequest('BUS', form({ notes: 'Renewed' }), true);
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.body.document_type, 'INSURANCE');
     assert.equal(result.body.notes, 'Renewed');
-    assert.equal(result.body.expiry_date, null);
+    assert.equal(result.body.expiry_date, '2027-03-31');
   });
 
   it('refuses to build an update without a document type', () => {
@@ -142,6 +190,13 @@ describe('buildDocumentRequest', () => {
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.ok(result.errors.document_type);
+    // Every blank input is reported at once, not one at a time.
+    assert.deepEqual(Object.keys(result.errors).sort(), [
+      'document_number',
+      'document_type',
+      'expiry_date',
+      'issue_date',
+    ]);
   });
 });
 

@@ -1,6 +1,13 @@
 import { ApiClientError } from '@school-bus-tracking/api-client';
 import { localizeApiError, type LocalizedApiError } from './i18n.ts';
 import {
+  FIX_HIGHLIGHTED_FIELDS,
+  fieldErrorMessage,
+  isRawValidationText,
+  mapApiValidationErrors,
+  type FieldLabelMap,
+} from './field-errors.ts';
+import {
   USER_MESSAGES,
   isNetworkFailureMessage,
   isTechnicalMessage,
@@ -67,6 +74,13 @@ export interface ApiErrorMessageOptions {
 
 function readMessage(value: unknown): string | null {
   if (typeof value === 'string') {
+    // A validator's own words are not a message. `email must be an email` passes
+    // every technical check (it is plain prose) and still tells a driver nothing,
+    // so it is dropped here and the caller falls back to its own sentence — the
+    // per-field path in `field-errors.ts` is what turns it into guidance.
+    if (isRawValidationText(value)) {
+      return null;
+    }
     return sanitizeUserFacingMessage(value);
   }
   if (Array.isArray(value)) {
@@ -177,8 +191,16 @@ export interface ZodErrorLike {
 /**
  * Maps a Zod error to the `field -> message` keys the login form renders.
  * Paths are joined with dots, so nested schemas behave like on the web.
+ *
+ * The schema's own wording is *never* what gets rendered: each issue is turned
+ * into a sentence naming the field as this form labels it (`field-errors.ts`),
+ * because a driver at the school gate cannot act on
+ * `String must contain at least 8 character(s)`.
  */
-export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> {
+export function fieldErrorsFromZod(
+  error: ZodErrorLike,
+  labels?: FieldLabelMap,
+): Record<string, string> {
   const result: Record<string, string> = {};
   for (const issue of error.issues) {
     if (issue.path.length === 0) {
@@ -186,7 +208,7 @@ export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> 
     }
     const key = issue.path.join('.');
     if (!result[key]) {
-      result[key] = issue.message;
+      result[key] = fieldErrorMessage(issue.message, key, labels);
     }
   }
   return result;
@@ -194,7 +216,12 @@ export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> 
 
 /** Object-level Zod messages that belong to no single field. */
 export function formErrorsFromZod(error: ZodErrorLike): string[] {
-  return error.issues.filter((issue) => issue.path.length === 0).map((issue) => issue.message);
+  return error.issues
+    .filter((issue) => issue.path.length === 0)
+    .map((issue) => issue.message)
+    // Schema jargon is not a sentence to show above a form; a superRefine that
+    // says "Expiry must be after the issue date." survives.
+    .filter((message) => !isRawValidationText(message));
 }
 
 export function unwrapEnvelope<T>(
@@ -222,32 +249,32 @@ export function emptyToNull(value: string): string | null {
 }
 
 /**
- * Maps server-side field validation errors (the `error.details` map returned
- * by the API on a 422) to the `field -> message` shape the mobile forms
- * render — mirrors the web `fieldErrorsFromUnknown` helper.
+ * Per-field guidance for any API failure, keyed by the screen's own field names.
  *
- * A field whose server message is a diagnostic (or a raw document) is dropped
- * rather than rendered under an input: the form then falls back to its own
- * validation copy instead of printing `Request failed with status 422` next to
- * a text box.
+ * The API returns either a per-field map or (for the DTO validation pipe) a flat
+ * array of friendly sentences, and both arrive here. A message that is a
+ * diagnostic — `Request failed with status 422`, a raw document — is dropped
+ * rather than rendered under an input, so the form falls back to its own copy.
+ *
+ * `fields` is the form's label map (`pickFieldLabels([...])`): the API names what
+ * it rejected in prose, so prose-to-input attribution is done by label, and only
+ * the screen knows what its inputs are called.
  */
-export function fieldErrorsFromUnknown(error: unknown): Record<string, string> {
-  if (!(error instanceof ApiClientError) || !error.details || typeof error.details !== 'object') {
-    return {};
-  }
-  const details = error.details as Record<string, unknown>;
-  const nested =
-    details.error && typeof details.error === 'object'
-      ? (details.error as Record<string, unknown>)
-      : details;
-  const raw = nested.details;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return {};
-  }
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const message = readMessage(value);
-    if (message) result[key] = message;
-  }
-  return result;
+export function fieldErrorsFromUnknown(
+  error: unknown,
+  fields?: string[] | FieldLabelMap,
+): Record<string, string> {
+  return mapApiValidationErrors(error, fields).fieldErrors;
+}
+
+/**
+ * The sentence for a form's own error line after a rejected submission: the
+ * server's guidance that belongs to no single input, or the "highlighted
+ * fields" line when every problem did land on an input.
+ */
+export function submitErrorMessage(error: unknown, fields?: string[] | FieldLabelMap): string {
+  const mapping = mapApiValidationErrors(error, fields);
+  const line = mapping.formErrors.join(' ');
+  if (line.length > 0) return line;
+  return Object.keys(mapping.fieldErrors).length > 0 ? FIX_HIGHLIGHTED_FIELDS : '';
 }

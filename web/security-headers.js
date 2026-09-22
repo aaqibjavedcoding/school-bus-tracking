@@ -31,7 +31,7 @@ const SELF = "'self'";
  * The only external tile origin the app needs out of the box: OpenFreeMap's
  * public instance serving OpenStreetMap-derived vector tiles. The web console
  * uses MapLibre GL JS (`maplibre-gl`) with style
- * `https://tiles.openfreemap.org/styles/liberty` — no key, no account, no
+ * `https://tiles.openfreemap.org/styles/bright` — no key, no account, no
  * billing. The engine fetches style JSON, vector tiles, glyphs and sprites via
  * `connect-src`, and may load raster fallbacks via `img-src`, so the host must
  * appear in both directives. Pinned to this exact host (no wildcard) so the

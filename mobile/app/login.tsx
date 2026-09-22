@@ -11,11 +11,14 @@ import { Button, Field, KeyboardForm, LanguageMenu, PasswordField } from '../src
 import { useTranslation } from '../src/lib/i18n-provider';
 import {
   emptyToNull,
+  fieldErrorsFromUnknown,
   fieldErrorsFromZod,
   formErrorsFromZod,
   getApiErrorMessage,
   isNetworkFailureError,
+  submitErrorMessage,
 } from '../src/lib/errors';
+import { pickFieldLabels } from '../src/lib/field-errors';
 import { homeRoute } from '../src/lib/roles';
 import { getApiConfigurationError } from '../src/services/api';
 import { CrewLoginErrorPresentation, localizeCrewLoginError } from '../src/lib/i18n.ts';
@@ -78,6 +81,13 @@ interface LockoutState {
   /** Monotonic clock value (epoch seconds) when the lockout started. */
   startedAt: number;
 }
+
+/**
+ * What this form's inputs are called, so a message naming one of them lands
+ * under it. `school_code` is the school's login code — the same value under two
+ * names, which is exactly why the form states its own labels.
+ */
+const LOGIN_FIELD_LABELS = pickFieldLabels(['school_code', 'school_id', 'email', 'password']);
 
 export default function LoginScreen() {
   const { status, user, login, crewLogin } = useAuth();
@@ -186,10 +196,17 @@ export default function LoginScreen() {
         setFormError(t('login.offline'));
         return;
       }
+      // A rejection that names a field belongs under that input, not only in the
+      // line above the form: the API's validation copy is already friendly, so it
+      // is attributed rather than rewritten.
+      setFieldErrors(fieldErrorsFromUnknown(error, LOGIN_FIELD_LABELS));
       // `context: 'login'` — a 401 here means the credentials were wrong, not
       // that a session expired: "Invalid email or password…", never
       // "Request failed with status 401".
-      setFormError(getApiErrorMessage(error, t('login.failed'), { context: 'login' }));
+      const line = submitErrorMessage(error, LOGIN_FIELD_LABELS);
+      setFormError(
+        line.length > 0 ? line : getApiErrorMessage(error, t('login.failed'), { context: 'login' }),
+      );
     } finally {
       setBusy(false);
     }

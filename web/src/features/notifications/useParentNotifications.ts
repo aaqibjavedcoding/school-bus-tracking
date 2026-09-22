@@ -129,8 +129,13 @@ export function useParentNotifications(
         ),
       );
     }
+    // The optimistic patch above is what makes the tap feel instant; this is what
+    // makes the panel honest again (the badge count, the ordering). A
+    // notification list is not covered by the app-wide invalidation broadcast
+    // because it does not load through the shared list hooks.
+    void refresh();
     return envelope.data ?? null;
-  }, []);
+  }, [refresh]);
 
   const markAllRead = useCallback(async () => {
     const envelope = await apiClient.markAllParentNotificationsRead();
@@ -140,8 +145,9 @@ export function useParentNotifications(
         item.is_read ? item : { ...item, is_read: true, read_at: new Date().toISOString() },
       ),
     );
+    void refresh();
     return envelope.data?.updated_count ?? 0;
-  }, []);
+  }, [refresh]);
 
   const onNew = useCallback((handler: (notification: NotificationResponse) => void) => {
     onNewRef.current = handler;

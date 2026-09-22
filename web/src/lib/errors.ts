@@ -1,4 +1,11 @@
 import { ApiClientError } from '@school-bus-tracking/api-client';
+import {
+  fieldErrorMessage,
+  formMessageForInvalidSubmission,
+  isRawValidationText,
+  mapApiValidationErrors,
+  type FieldLabelMap,
+} from './field-errors.ts';
 
 /**
  * True for a response body that is a *document*, not a message.
@@ -49,8 +56,11 @@ export function statusFallbackMessage(status: number, fallback: string): string 
 
 function readMessage(value: unknown): string | null {
   if (typeof value === 'string' && value.trim().length > 0) {
-    // A whole HTML/XML document is never a message worth showing.
-    return isRawDocumentBody(value) ? null : value;
+    // A whole HTML/XML document is never a message worth showing, and neither is
+    // validator text (`capacity must be an integer number`,
+    // `String must contain at least 1 character(s)`): it names a DTO property,
+    // not something the user can do.
+    return isRawDocumentBody(value) || isRawValidationText(value) ? null : value;
   }
   if (Array.isArray(value)) {
     const parts = value
@@ -83,11 +93,15 @@ export function getApiErrorMessage(error: unknown, fallback = 'Something went wr
     if (error.status === 0 || error.status === 401 || error.status === 403) {
       return statusFallbackMessage(error.status, fallback);
     }
-    // No envelope message: the body was empty, or a raw document (HTML 500 /
-    // proxy page). `error.message` would embed a slice of that document
-    // ("Request failed with status 500: <!DOCTYPE html>…"), so fall back to a
-    // status-based sentence instead of leaking markup into the UI.
-    if (isRawDocumentBody(error.details) || error.status >= 500) {
+    // No envelope message: the body was empty, a raw document (HTML 500 / proxy
+    // page), or only developer text. The client's own `error.message` is built
+    // as `Request failed with status <n>` plus a slice of the body, so it is a
+    // diagnostic — never show it. Fall back to a status-based sentence.
+    if (
+      isRawDocumentBody(error.details) ||
+      error.status >= 500 ||
+      isRawValidationText(error.message)
+    ) {
       return statusFallbackMessage(error.status, fallback);
     }
     return error.message || fallback;
@@ -127,8 +141,17 @@ export interface ZodErrorLike {
  * Paths are joined with dots (`school.code`, `admin.password`), which is
  * exactly how nested forms address their fields; single-segment paths
  * (`code`) behave exactly as before.
+ *
+ * Each message is then passed through `fieldErrorMessage`, so a form always
+ * renders guidance that names the field: Zod's own sentences ("String must
+ * contain at least 1 character(s)") are developer text and are rewritten, a
+ * message already written for a person ("Password must be at least 8
+ * characters") is kept verbatim.
  */
-export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> {
+export function fieldErrorsFromZod(
+  error: ZodErrorLike,
+  labels?: FieldLabelMap,
+): Record<string, string> {
   const result: Record<string, string> = {};
   for (const issue of error.issues) {
     if (issue.path.length === 0) {
@@ -136,7 +159,7 @@ export function fieldErrorsFromZod(error: ZodErrorLike): Record<string, string> 
     }
     const key = issue.path.join('.');
     if (!result[key]) {
-      result[key] = issue.message;
+      result[key] = fieldErrorMessage(key, issue.message, labels);
     }
   }
   return result;
@@ -182,23 +205,31 @@ export function emptyToNull(value: string): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-export function fieldErrorsFromUnknown(error: unknown): Record<string, string> {
-  if (!(error instanceof ApiClientError) || !error.details || typeof error.details !== 'object') {
-    return {};
-  }
-  const details = error.details as Record<string, unknown>;
-  const nested =
-    details.error && typeof details.error === 'object'
-      ? (details.error as Record<string, unknown>)
-      : details;
-  const raw = nested.details;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return {};
-  }
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const message = readMessage(value);
-    if (message) result[key] = message;
-  }
-  return result;
+export function fieldErrorsFromUnknown(
+  error: unknown,
+  labels?: FieldLabelMap,
+): Record<string, string> {
+  return mapApiValidationErrors(error, labels).fieldErrors;
+}
+
+/**
+ * The sentences of a rejected submission that belong to **no field of this
+ * form** — the ones to show in the form-level error area.
+ *
+ * Without this half, attributing a message to an input would silently swallow
+ * it whenever the form does not render that input.
+ */
+export function formErrorsFromApiError(
+  error: unknown,
+  labels?: FieldLabelMap,
+): string[] {
+  return mapApiValidationErrors(error, labels).formErrors;
+}
+
+/**
+ * The form-level line for a rejected submission: the leftover messages, or the
+ * one instruction that says why the highlighted fields matter.
+ */
+export function submitErrorMessage(error: unknown, labels?: FieldLabelMap): string {
+  return formMessageForInvalidSubmission(mapApiValidationErrors(error, labels));
 }

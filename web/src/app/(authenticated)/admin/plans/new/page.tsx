@@ -27,6 +27,7 @@ import {
   formErrorsFromZod,
   getApiErrorMessage,
 } from '../../../../../lib/errors';
+import { pickFieldLabels } from '../../../../../lib/field-errors';
 import { PLATFORM_CURRENCY } from '../../../../../lib/format';
 import { apiClient } from '../../../../../services/api';
 import { adminPlanCreateSchema } from '@school-bus-tracking/validation';
@@ -47,6 +48,16 @@ interface FormState {
   features: Record<PlanFeature, boolean>;
   limits: Record<PlanLimitResource, LimitInput>;
 }
+
+/**
+ * What this form's inputs are called in a sentence.
+ *
+ * Attribution of an API or schema message to an input is by label, so a form has
+ * to say which fields it renders: `name` here means the route name, and a message
+ * about any other name must not light this input up (or steal the message from the
+ * form-level line).
+ */
+const PLAN_FIELD_LABELS = pickFieldLabels(['name', 'code', 'description', 'price', 'currency', 'billing_period', 'trial_start', 'trial_end', 'is_active', 'features', 'limits']);
 
 const PLAN_FEATURE_LIST: PlanFeature[] = Object.values(PlanFeature);
 const PLAN_LIMIT_LIST: PlanLimitResource[] = Object.values(PlanLimitResource);
@@ -144,7 +155,7 @@ export default function NewPlanPage() {
 
     const parsed = adminPlanCreateSchema.safeParse(payload);
     if (!parsed.success) {
-      const errors = fieldErrorsFromZod(parsed.error);
+      const errors = fieldErrorsFromZod(parsed.error, PLAN_FIELD_LABELS);
       setFieldErrors(errors);
       const objectErrors = formErrorsFromZod(parsed.error);
       setFormError(
@@ -167,7 +178,7 @@ export default function NewPlanPage() {
         router.push('/admin/plans');
       }
     } catch (error) {
-      const nested = fieldErrorsFromUnknown(error);
+      const nested = fieldErrorsFromUnknown(error, PLAN_FIELD_LABELS);
       if (Object.keys(nested).length > 0) {
         setFieldErrors(nested);
       }

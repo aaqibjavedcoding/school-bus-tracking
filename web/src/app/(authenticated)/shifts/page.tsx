@@ -31,6 +31,7 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../lib/errors';
+import { pickFieldLabels } from '../../../lib/field-errors';
 import { apiClient } from '../../../services/api';
 
 /**
@@ -39,6 +40,16 @@ import { apiClient } from '../../../services/api';
  * tiering is made possible. Deleting a shift is refused (409) while runs are
  * attached to it; the message comes from the API and is surfaced verbatim.
  */
+/**
+ * What this form's inputs are called in a sentence.
+ *
+ * Attribution of an API or schema message to an input is by label, so a form has
+ * to say which fields it renders: `name` here means the route name, and a message
+ * about any other name must not light this input up (or steal the message from the
+ * form-level line).
+ */
+const SHIFT_FIELD_LABELS = pickFieldLabels(['name', 'code', 'start_time', 'end_time']);
+
 const emptyForm = {
   name: '',
   start_time: '',
@@ -90,7 +101,7 @@ export default function ShiftsPage() {
       ? shiftUpdateSchema.safeParse(payload satisfies ShiftUpdateRequest)
       : shiftCreateSchema.safeParse(payload);
     if (!parsed.success) {
-      setFieldErrors(fieldErrorsFromZod(parsed.error));
+      setFieldErrors(fieldErrorsFromZod(parsed.error, SHIFT_FIELD_LABELS));
       return;
     }
     setBusy(true);
@@ -105,7 +116,7 @@ export default function ShiftsPage() {
       setOpen(false);
       await list.reload();
     } catch (error) {
-      setFieldErrors(fieldErrorsFromUnknown(error));
+      setFieldErrors(fieldErrorsFromUnknown(error, SHIFT_FIELD_LABELS));
       toast.push(getApiErrorMessage(error), 'danger');
     } finally {
       setBusy(false);

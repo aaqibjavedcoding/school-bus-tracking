@@ -203,7 +203,7 @@ describe('status mapping without a server message', () => {
     );
   });
 
-  it('keeps server validation arrays and field detail messages', () => {
+  it('refuses to join a validator sentence into a message for a screen', () => {
     const error = new ApiClientError('Request failed with status 422', 422, {
       success: false,
       error: {
@@ -211,10 +211,12 @@ describe('status mapping without a server message', () => {
         message: ['email must be an email', 'password is too short'],
       },
     });
-    assert.equal(getApiErrorMessage(error), 'email must be an email password is too short');
+    // Both strings are developer text, so the status gets the app's own sentence
+    // for a rejected form. The per-field path is what turns them into guidance.
+    assert.equal(getApiErrorMessage(error), USER_MESSAGES.validation);
   });
 
-  it('drops a field error that is a diagnostic instead of rendering it under an input', () => {
+  it('turns each field message into guidance and never renders the diagnostic', () => {
     const error = new ApiClientError('Request failed with status 422', 422, {
       success: false,
       error: {
@@ -223,7 +225,17 @@ describe('status mapping without a server message', () => {
         details: { email: 'email must be an email', password: ['Request failed with status 422'] },
       },
     });
-    assert.deepEqual(fieldErrorsFromUnknown(error), { email: 'email must be an email' });
+    const mapped = fieldErrorsFromUnknown(error);
+    assert.deepEqual(mapped, {
+      email: 'Please enter a valid email address, for example name@school.edu.',
+      password: 'Please check the password and try again.',
+    });
+    // The rule from the bug report, pinned for the whole map: no raw validator
+    // text, no transport diagnostic, and nothing that opens lower-case.
+    for (const message of Object.values(mapped)) {
+      assert.doesNotMatch(message, /Request failed with status/);
+      assert.doesNotMatch(message, /^[a-z]/);
+    }
   });
 });
 

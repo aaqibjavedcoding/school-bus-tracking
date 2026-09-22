@@ -27,6 +27,7 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../../../lib/errors';
+import { pickFieldLabels } from '../../../../../lib/field-errors';
 import { apiClient } from '../../../../../services/api';
 import {
   PlanBillingPeriod,
@@ -53,6 +54,16 @@ interface FormState {
   features: Record<string, boolean>;
   limits: Record<string, LimitInput>;
 }
+
+/**
+ * What this form's inputs are called in a sentence.
+ *
+ * Attribution of an API or schema message to an input is by label, so a form has
+ * to say which fields it renders: `name` here means the route name, and a message
+ * about any other name must not light this input up (or steal the message from the
+ * form-level line).
+ */
+const PLAN_FIELD_LABELS = pickFieldLabels(['name', 'code', 'description', 'price', 'currency', 'billing_period', 'trial_start', 'trial_end', 'is_active', 'features', 'limits']);
 
 const PLAN_FEATURE_LIST: PlanFeature[] = Object.values(PlanFeature);
 const PLAN_LIMIT_LIST: PlanLimitResource[] = Object.values(PlanLimitResource);
@@ -177,7 +188,7 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
 
     const parsed = adminPlanUpdateSchema.safeParse(payload);
     if (!parsed.success) {
-      const errors = fieldErrorsFromZod(parsed.error);
+      const errors = fieldErrorsFromZod(parsed.error, PLAN_FIELD_LABELS);
       setFieldErrors(errors);
       const objectErrors = formErrorsFromZod(parsed.error);
       setFormError(
@@ -198,7 +209,7 @@ export default function PlanDetailPage({ params }: { params: { id: string } }) {
       setForm(planToForm(updated));
       toast.push('Plan updated', 'success');
     } catch (caught) {
-      const nested = fieldErrorsFromUnknown(caught);
+      const nested = fieldErrorsFromUnknown(caught, PLAN_FIELD_LABELS);
       if (Object.keys(nested).length > 0) setFieldErrors(nested);
       setFormError(getApiErrorMessage(caught, 'Could not update plan'));
     } finally {

@@ -66,7 +66,11 @@ export const BUS_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 export function busIconOptions(): BusIconOptions {
   return {
     className: 'bus-marker',
-    html: `<div class="bus-marker-rotor">${BUS_MARKER_SVG}</div>`,
+    // `bus-marker-anchor` centres the graphic on the marker's origin; the rotor
+    // inside it is what the heading is written to. Splitting the two is what lets
+    // the marker box be zero-sized (so a turned bus is never clipped) without
+    // losing the centring. See `globals.css`.
+    html: `<div class="bus-marker-anchor"><div class="bus-marker-rotor">${BUS_MARKER_SVG}</div></div>`,
     iconSize: [BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT],
     iconAnchor: [BUS_MARKER_WIDTH / 2, BUS_MARKER_HEIGHT / 2],
     popupAnchor: [0, -BUS_MARKER_HEIGHT / 2],

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
 import { adminSchoolCreateSchema } from '@school-bus-tracking/validation';
-import { Button, Card, Field, Input, PageHeader, useToast } from '../../../../../components/ui';
+import { Button, Card, Field, Input, PageHeader, PasswordInput, useToast } from '../../../../../components/ui';
 import {
   fieldErrorsFromUnknown,
   fieldErrorsFromZod,
@@ -284,9 +284,8 @@ export default function NewSchoolPage() {
               error={fieldErrors['admin.password']}
               hint="Minimum 8 characters. Share it securely; it is never shown again."
             >
-              <Input
+              <PasswordInput
                 id="adminPassword"
-                type="password"
                 autoComplete="new-password"
                 value={form.adminPassword}
                 onChange={set('adminPassword')}

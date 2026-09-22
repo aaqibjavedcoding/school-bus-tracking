@@ -20,6 +20,8 @@ import {
 } from '@school-bus-tracking/validation';
 import { Button, Field, Input, Modal, Select, Textarea } from '../../components/ui';
 import { emptyToNull, fieldErrorsFromZod } from '../../lib/errors';
+import { documentRequiredFieldErrors } from './helpers';
+import { pickFieldLabels } from '../../lib/field-errors';
 
 /**
  * Create / edit form for one compliance document (Task 44).
@@ -33,6 +35,20 @@ import { emptyToNull, fieldErrorsFromZod } from '../../lib/errors';
  * "marked valid" from the UI. The client still validates with the shared Zod
  * schemas so a mistake is caught before the round trip.
  */
+
+/** The one form-level line shown once every problem has an input to sit under. */
+/** The document form's own labels — the fields both owner types share. */
+const DOCUMENT_FIELD_LABELS = pickFieldLabels([
+  'document_type',
+  'document_number',
+  'issue_date',
+  'expiry_date',
+  'notes',
+  'file_name',
+  'file_url',
+]);
+
+const FIX_HIGHLIGHTED = 'Please fix the highlighted fields and try again.';
 
 /**
  * The validated request body.
@@ -96,6 +112,16 @@ export function buildDocumentRequest(
     file_url: emptyToNull(form.file_url),
   };
 
+  // Presence and real-date checks run before the schema: the shared Zod
+  // document schema treats the dates as clearable (`null` means "unknown"
+  // elsewhere in the API), while a *compliance record* without its number and
+  // both dates is not a record at all. Each message names its own field, which
+  // is what the modal renders under the input.
+  const missing = documentRequiredFieldErrors(form);
+  if (Object.keys(missing).length > 0) {
+    return { ok: false, errors: missing };
+  }
+
   const schema = editing
     ? ownerType === 'BUS'
       ? busDocumentUpdateSchema
@@ -106,7 +132,7 @@ export function buildDocumentRequest(
 
   const parsed = schema.safeParse(payload);
   if (!parsed.success) {
-    return { ok: false, errors: fieldErrorsFromZod(parsed.error) };
+    return { ok: false, errors: fieldErrorsFromZod(parsed.error, DOCUMENT_FIELD_LABELS) };
   }
   return { ok: true, body: parsed.data as DocumentRequestBody };
 }
@@ -252,11 +278,14 @@ export const DocumentFormModal: React.FC<{
         <Button
           type="button"
           onClick={() => {
-            if (!form.document_type) {
-              setFormError('Choose a document type.');
-              return;
+            // Blocked here, not by the API: an incomplete form never reaches the
+            // network. The per-field reasons still come from the one builder the
+            // page calls, so there is no second implementation to drift.
+            if (Object.keys(documentRequiredFieldErrors(form)).length > 0) {
+              setFormError(FIX_HIGHLIGHTED);
+            } else {
+              setFormError(null);
             }
-            setFormError(null);
             onSubmit();
           }}
           disabled={busy}
