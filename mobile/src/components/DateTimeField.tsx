@@ -1,14 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import {
   isValidDateTimeLocal,
   joinDateTimeLocal,
-  maskDate,
   maskTime,
   splitDateTimeLocal,
   toDateTimeLocalValue,
 } from '../lib/datetime';
+import { useKeyboardForm } from './keyboard-form';
+import { CalendarPicker } from './date-picker-calendar';
 
 /**
  * Mobile equivalent of the web `<Input type="datetime-local" />`.
@@ -19,8 +21,11 @@ import {
  * field starts empty and the quick actions are computed from the device clock
  * at press time.
  *
- * Two segments (date + time) keep it usable without pulling in a native
- * picker dependency, and both are validated as you type.
+ * The **date** half is picked on the shared {@link CalendarPicker} — no
+ * manual date typing anywhere in the app, so an impossible date (31 February)
+ * can never be entered. The **time** half stays a masked `HH:mm` entry
+ * (time is not a date), and the quick actions ("Now", "+30 min", "+1 hour")
+ * remain the fastest way to fill both at once.
  */
 
 export interface DateTimeFieldProps {
@@ -44,10 +49,12 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
   quickActions = true,
   optional = false,
 }) => {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const keyboardForm = useKeyboardForm();
+  const timeRef = useRef<TextInput>(null);
   const { date, time } = useMemo(() => splitDateTimeLocal(value), [value]);
   const incomplete = value.length > 0 && !isValidDateTimeLocal(value);
 
-  const setDate = (next: string) => onChange(joinDateTimeLocal(maskDate(next), time));
   const setTime = (next: string) => onChange(joinDateTimeLocal(date, maskTime(next)));
 
   const shift = (minutes: number) => {
@@ -63,17 +70,19 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
         {optional ? <Text style={styles.optional}> (optional)</Text> : null}
       </Text>
       <View style={styles.row}>
-        <TextInput
-          value={date}
-          onChangeText={setDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={colors.neutral[400]}
-          keyboardType="number-pad"
-          maxLength={10}
+        <Pressable
+          onPress={() => setCalendarOpen(true)}
+          style={[styles.input, styles.dateControl, error || incomplete ? styles.inputError : null]}
+          accessibilityRole="button"
           accessibilityLabel={`${label} date`}
-          style={[styles.input, styles.dateInput, error || incomplete ? styles.inputError : null]}
-        />
+        >
+          <Ionicons name="calendar-outline" size={16} color={colors.neutral[500]} />
+          <Text style={date ? styles.controlValue : styles.controlPlaceholder} numberOfLines={1}>
+            {date || 'YYYY-MM-DD'}
+          </Text>
+        </Pressable>
         <TextInput
+          ref={timeRef}
           value={time}
           onChangeText={setTime}
           placeholder="HH:mm"
@@ -82,6 +91,9 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
           maxLength={5}
           accessibilityLabel={`${label} time`}
           style={[styles.input, styles.timeInput, error || incomplete ? styles.inputError : null]}
+          onFocus={() => {
+            if (timeRef.current) keyboardForm?.focusInput(timeRef.current);
+          }}
         />
       </View>
 
@@ -111,6 +123,14 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
       ) : hint ? (
         <Text style={styles.hint}>{hint}</Text>
       ) : null}
+
+      <CalendarPicker
+        visible={calendarOpen}
+        value={date}
+        initialDate={date || undefined}
+        onConfirm={(day) => onChange(joinDateTimeLocal(day, time))}
+        onClose={() => setCalendarOpen(false)}
+      />
     </View>
   );
 };
@@ -144,8 +164,19 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.sm,
     color: colors.neutral[900],
   },
-  dateInput: {
+  dateControl: {
     flex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  controlValue: {
+    flex: 1,
+    color: colors.neutral[900],
+  },
+  controlPlaceholder: {
+    flex: 1,
+    color: colors.neutral[400],
   },
   timeInput: {
     flex: 2,

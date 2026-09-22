@@ -37,6 +37,7 @@ import {
   ListScreen,
   LoadingView,
   Pagination,
+  PasswordField,
   SearchBar,
   SwitchRow,
   useToast,
@@ -295,11 +296,10 @@ export default function ManageGuardiansScreen() {
           autoCapitalize="none"
           error={fieldErrors.email}
         />
-        <Field
+        <PasswordField
           label={editing ? 'New password (optional)' : 'Password'}
           value={form.password}
           onChangeText={(text) => setForm({ ...form, password: text })}
-          secureTextEntry
           error={fieldErrors.password}
         />
         <Field

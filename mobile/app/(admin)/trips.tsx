@@ -38,6 +38,7 @@ import { usePagedResource } from '../../src/hooks/usePagedResource';
 import {
   Badge,
   Button,
+  CalendarPicker,
   ConfirmDialog,
   DateTimeField,
   EmptyState,
@@ -156,6 +157,7 @@ export default function AdminTripsScreen() {
       : '';
 
   const [day, setDay] = useState(today);
+  const [dayPickerOpen, setDayPickerOpen] = useState(false);
   const [status, setStatus] = useState<StatusFilter>(initialStatus);
 
   const [open, setOpen] = useState(false);
@@ -401,10 +403,16 @@ export default function AdminTripsScreen() {
               >
                 <Text style={styles.dayButtonText}>‹</Text>
               </Pressable>
-              <View style={styles.dayLabel}>
+              <Pressable
+                style={styles.dayLabel}
+                onPress={() => setDayPickerOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Change day: ${dayLabel(day)}`}
+                hitSlop={6}
+              >
                 <Text style={styles.dayLabelText}>{dayLabel(day)}</Text>
                 {isToday ? <Badge label="Today" tone="info" /> : null}
-              </View>
+              </Pressable>
               <Pressable
                 onPress={() => setDay((current) => shiftDay(current, 1))}
                 style={styles.dayButton}
@@ -475,6 +483,14 @@ export default function AdminTripsScreen() {
       />
 
       <Fab onPress={startCreate} label="Schedule" />
+
+      {/* The day label jumps to a calendar; ‹ › still step one day at a time. */}
+      <CalendarPicker
+        visible={dayPickerOpen}
+        value={day}
+        onConfirm={setDay}
+        onClose={() => setDayPickerOpen(false)}
+      />
 
       <FormSheet
         open={open}

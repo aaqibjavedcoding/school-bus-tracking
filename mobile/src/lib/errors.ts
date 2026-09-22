@@ -47,6 +47,7 @@ import {
 
 export {
   USER_MESSAGES,
+  isNetworkFailureError,
   isNetworkFailureMessage,
   isRawDocumentBody,
   isTechnicalMessage,

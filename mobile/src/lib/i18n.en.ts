@@ -415,6 +415,7 @@ export const en = {
   'login.emailTitle': 'Sign in with email',
   'login.submit': 'Sign in',
   'login.failed': 'Could not sign in',
+  'login.offline': 'No internet connection. Please check your data/Wi-Fi and try again.',
   'login.footer':
     'Drivers, conductors, parents and school admins all sign in here — the app adapts to your role.',
 
@@ -428,6 +429,8 @@ export const en = {
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'Unlock',
   'login.crewPath.pin.clearKey': 'Clear PIN',
+  'login.crewPath.pin.show': 'Show PIN',
+  'login.crewPath.pin.hide': 'Hide PIN',
   'login.crewPath.lockout.wait':
     'Too many wrong PINs. Try again in {seconds}s — or ask the admin to reset it.',
   'login.crewPath.lockout.adminHint':
@@ -513,6 +516,34 @@ export const en = {
   /** Switch state, spelled out — colour is never the only cue. */
   'common.on': 'On',
   'common.off': 'Off',
+  /** Show/hide eye on a password field — the icon state matches visibility. */
+  'common.showPassword': 'Show password',
+  'common.hidePassword': 'Hide password',
+
+  // ── Calendar date picker (no manual date typing anywhere) ─────────────
+  'datePicker.title': 'Pick a date',
+  'datePicker.today': 'Today',
+  'datePicker.clear': 'Clear',
+  'datePicker.placeholder': 'Select a date',
+  'date.month.1': 'January',
+  'date.month.2': 'February',
+  'date.month.3': 'March',
+  'date.month.4': 'April',
+  'date.month.5': 'May',
+  'date.month.6': 'June',
+  'date.month.7': 'July',
+  'date.month.8': 'August',
+  'date.month.9': 'September',
+  'date.month.10': 'October',
+  'date.month.11': 'November',
+  'date.month.12': 'December',
+  'date.weekday.0': 'Su',
+  'date.weekday.1': 'Mo',
+  'date.weekday.2': 'Tu',
+  'date.weekday.3': 'We',
+  'date.weekday.4': 'Th',
+  'date.weekday.5': 'Fr',
+  'date.weekday.6': 'Sa',
 
   // ── Time ───────────────────────────────────────────────────────────────
   'time.minutes.one': '~{count} minute',

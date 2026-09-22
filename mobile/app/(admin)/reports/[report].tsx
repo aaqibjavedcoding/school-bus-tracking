@@ -30,6 +30,7 @@ import { shiftLabel } from '../../../src/lib/runs';
 import { useLoad } from '../../../src/hooks/useLoad';
 import {
   Button,
+  DatePicker,
   EmptyState,
   ErrorState,
   Field,
@@ -359,21 +360,23 @@ export default function AdminReportDetailScreen() {
           />
         ) : null}
         {supported.includes('date_from') ? (
-          <Field
-            label="From (YYYY-MM-DD)"
+          <DatePicker
+            label="From"
             value={filters.date_from}
-            onChangeText={set('date_from')}
-            placeholder="2026-01-01"
-            autoCapitalize="none"
+            onChange={set('date_from')}
+            allowClear
+            placeholder="Start date"
+            minDate={filters.date_to === '' ? null : filters.date_to}
           />
         ) : null}
         {supported.includes('date_to') ? (
-          <Field
-            label="To (YYYY-MM-DD)"
+          <DatePicker
+            label="To"
             value={filters.date_to}
-            onChangeText={set('date_to')}
-            placeholder="2026-12-31"
-            autoCapitalize="none"
+            onChange={set('date_to')}
+            allowClear
+            placeholder="End date"
+            minDate={filters.date_from === '' ? null : filters.date_from}
           />
         ) : null}
       </FormSheet>

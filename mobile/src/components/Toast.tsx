@@ -7,6 +7,24 @@ import type { Tone } from '../lib/format';
  * Minimal, dependency-free toast layer so CRUD mutations can confirm success
  * ("Bus added.") or surface a failure the same way the web console does with
  * its toast, without pulling in an animation library.
+ *
+ * ### Rendering above modals
+ *
+ * React Native `Modal`s draw in their own window, *above* everything the app
+ * renders — a toast painted by the root provider therefore disappears behind
+ * an open `FormSheet`, which is exactly how the "Route assignments are
+ * read-only…" error went missing: pushed while the create sheet was still on
+ * screen, visible only after the user backed out.
+ *
+ * The fix splits the layer in two:
+ *
+ * - the **provider** owns the toast state (message, tone, timer, opacity) and
+ *   renders one viewport at the app root (the normal, bottom-centred toast);
+ * - every modal surface (`FormSheet`, the `Select` picker, `ConfirmDialog`)
+ *   renders an extra {@link ToastViewport} *inside* its own window, so the
+ *   same toast also appears above the sheet that caused it — no error is
+ *   ever hidden behind a form. Both viewports read the same state, so the
+ *   toast animates once and stays in sync.
  */
 
 type ToastTone = Extract<Tone, 'success' | 'danger' | 'info'>;
@@ -19,6 +37,10 @@ interface ToastMessage {
 
 interface ToastContextValue {
   push: (message: string, tone?: ToastTone) => void;
+  /** The live toast, shared by every viewport. */
+  toast: ToastMessage | null;
+  /** Shared opacity so root and in-modal viewports animate as one. */
+  opacity: Animated.Value;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -56,37 +78,68 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [opacity],
   );
 
-  const value = useMemo(() => ({ push }), [push]);
+  const value = useMemo(() => ({ push, toast, opacity }), [push, toast, opacity]);
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {toast ? (
-        <Animated.View pointerEvents="none" style={[styles.wrap, { opacity }]}>
-          <View style={[styles.toast, { backgroundColor: TONE_COLORS[toast.tone] }]}>
-            <Text style={styles.text}>{toast.message}</Text>
-          </View>
-        </Animated.View>
-      ) : null}
+      <ToastViewport />
     </ToastContext.Provider>
   );
 };
 
-export function useToast(): ToastContextValue {
+/**
+ * Renders the current toast. Mounted once by the provider (bottom-centred,
+ * the app's normal position) and again inside every modal window (`top`
+ * placement), where it sits above the sheet that produced the message.
+ *
+ * Renders nothing when no toast is live, so adding a viewport to a modal is
+ * free when there is nothing to say.
+ */
+export const ToastViewport: React.FC<{ placement?: 'top' | 'bottom' }> = ({
+  placement = 'bottom',
+}) => {
+  const ctx = useContext(ToastContext);
+  if (!ctx || !ctx.toast) return null;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[placement === 'top' ? styles.wrapTop : styles.wrapBottom, { opacity: ctx.opacity }]}
+    >
+      <View style={[styles.toast, { backgroundColor: TONE_COLORS[ctx.toast.tone] }]}>
+        <Text style={styles.text}>{ctx.toast.message}</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+export function useToast(): Pick<ToastContextValue, 'push'> {
   const ctx = useContext(ToastContext);
   if (!ctx) {
     // A no-op fallback keeps screens safe if rendered outside the provider.
     return { push: () => undefined };
   }
-  return ctx;
+  return { push: ctx.push };
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  wrapBottom: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: spacing['2xl'],
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  /**
+   * In-modal placement: near the top of the modal window, clear of the
+   * bottom sheet's content and footer buttons.
+   */
+  wrapTop: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: spacing.xl,
     alignItems: 'center',
     paddingHorizontal: spacing.lg,
   },
