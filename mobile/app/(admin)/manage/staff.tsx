@@ -33,6 +33,7 @@ import {
   ListScreen,
   LoadingView,
   Pagination,
+  PasswordField,
   SearchBar,
   SegmentedControl,
   SwitchRow,
@@ -329,11 +330,10 @@ export default function ManageStaffScreen() {
           autoCapitalize="none"
           error={fieldErrors.email}
         />
-        <Field
+        <PasswordField
           label={editing ? 'New password (optional)' : 'Password'}
           value={form.password}
           onChangeText={(text) => setForm({ ...form, password: text })}
-          secureTextEntry
           error={fieldErrors.password}
         />
         <Field

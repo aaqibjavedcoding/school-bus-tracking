@@ -40,6 +40,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DatePicker,
   EmptyState,
   ErrorState,
   Fab,
@@ -591,21 +592,21 @@ export default function ManageRouteRunsScreen() {
             />
             <View style={styles.row}>
               <View style={styles.flex}>
-                <Field
-                  label="From (YYYY-MM-DD)"
+                <DatePicker
+                  label="From"
                   value={crewForm.effective_from}
-                  onChangeText={(text) => setCrewForm({ ...crewForm, effective_from: text })}
-                  autoCapitalize="none"
+                  onChange={(value) => setCrewForm({ ...crewForm, effective_from: value })}
                   error={crewErrors.effective_from}
                 />
               </View>
               <View style={styles.flex}>
-                <Field
+                <DatePicker
                   label="To (optional)"
                   value={crewForm.effective_to}
-                  onChangeText={(text) => setCrewForm({ ...crewForm, effective_to: text })}
+                  onChange={(value) => setCrewForm({ ...crewForm, effective_to: value })}
                   placeholder="Open ended"
-                  autoCapitalize="none"
+                  allowClear
+                  minDate={crewForm.effective_from === '' ? null : crewForm.effective_from}
                   error={crewErrors.effective_to}
                 />
               </View>

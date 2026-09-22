@@ -21,10 +21,27 @@
  */
 
 import { CREW_PIN_LENGTH, crewPinSchema } from '@school-bus-tracking/validation';
+import { isNetworkFailureError } from '../../lib/error-messages.ts';
 import {
   localizeCrewLoginError as localizeCrewLoginErrorCore,
   type CrewLoginErrorPresentation,
 } from '../../lib/i18n.ts';
+
+/**
+ * True when a thrown crew-login failure is a **network / DNS error** — the
+ * request never reached the server, so there is no server message or error
+ * code to localise.
+ *
+ * The caller must show the app's own offline sentence for this case and never
+ * forward the raw error: with data switched off the transport reports a Java
+ * diagnostic (`fetch failed: java.net.UnknownHostException: Unable to resolve
+ * host …`) that must not reach the screen. A real server rejection (wrong
+ * PIN, lockout) always carries a non-zero status and a code, so it never
+ * matches here.
+ */
+export function isCrewLoginNetworkFailure(error: unknown): boolean {
+  return isNetworkFailureError(error);
+}
 
 /** What the pure part of the PIN pad hands to the network call. */
 export interface CrewPinDraft {

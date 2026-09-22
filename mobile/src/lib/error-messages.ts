@@ -133,8 +133,14 @@ const NETWORK_PATTERNS: RegExp[] = [
   /\bnetwork request failed\b/i, // React Native fetch
   /^network error$/i, // axios
   /^failed to fetch$/i, // browser fetch
-  /^fetch failed$/i, // Node 18+ fetch
+  /^fetch failed\b/i, // Node 18+ fetch — with or without a `cause` detail appended
   /^load failed$/i, // Safari
+  // Android transport / DNS failures (surfaced by React Native's Java
+  // interop, e.g. `fetch failed: java.net.UnknownHostException: Unable to
+  // resolve host 'api.school.example'`):
+  /\bunable to resolve host\b/i, // DNS resolution failed (no data / wrong host)
+  /\bunknownhostexception\b/i, // the java.net class of the failure above
+  /\bconnection refused\b/i, // port closed / app not reachable on the LAN
   /\bsocket hang up\b/i,
   /\brequest aborted\b/i,
   /^aborted$/i,
@@ -222,6 +228,34 @@ export function isNetworkFailureMessage(value: unknown): boolean {
   }
   const text = value.trim();
   return NETWORK_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * True when a **thrown error** describes a failure to reach the API at all —
+ * the request never got a server response. Two shapes cover every transport
+ * this app runs on:
+ *
+ * - `status === 0` — the API client's convention: it re-throws every fetch
+ *   rejection (offline, DNS, TLS, timeout) as `ApiClientError(message, 0)`,
+ *   so a zero status means "no response", whatever the message says;
+ * - a transport-level message on a plain `Error` (e.g. React Native's
+ *   `Network request failed` or a `fetch failed: java.net.UnknownHostException…`
+ *   detail) that {@link isNetworkFailureMessage} classifies.
+ *
+ * Callers map a `true` result to the app's own offline sentence — never to
+ * the raw message, which on Android is a Java diagnostic.
+ */
+export function isNetworkFailureError(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    const candidate = error as { status?: unknown; message?: unknown };
+    if (typeof candidate.status === 'number' && candidate.status === 0) {
+      return true;
+    }
+    if (typeof candidate.message === 'string' && isNetworkFailureMessage(candidate.message)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

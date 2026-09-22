@@ -134,16 +134,21 @@ describe('crew card asks for a school code and a PIN only', () => {
 
   it('keeps exactly one text field on the crew card — the school code', () => {
     const login = loginSource();
-    const crewCard = login.slice(
-      login.indexOf('const renderCrewPath'),
-      login.indexOf('renderEmailPath'),
-    );
+    // Both cards render inline in one <KeyboardForm>: the email card carries
+    // school code + e-mail + password (2 <Field> and the shared
+    // <PasswordField>), the crew card must add exactly one more <Field> —
+    // the school code — and nothing else.
     assert.equal(
-      crewCard.match(/<Field/g)?.length ?? 0,
-      1,
-      'the crew card is a school field plus the PIN pad, nothing else',
+      login.match(/<Field\b/g)?.length ?? 0,
+      3,
+      'two fields on the email card, one (the school code) on the crew card',
     );
-    assert.ok(crewCard.includes('id="crew-school"'), 'and that field is the school code');
+    assert.ok(login.includes('id="crew-school"'), 'and that field is the school code');
+    assert.equal(
+      login.match(/<PasswordField\b/g)?.length ?? 0,
+      1,
+      'the password input is the shared PasswordField',
+    );
   });
 
   it('has no QR tab, scanner, paste flow, or QR-only wiring', () => {

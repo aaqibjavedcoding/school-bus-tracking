@@ -383,6 +383,7 @@ export const hi: Dictionary = {
   'login.emailTitle': 'ईमेल से साइन इन करें',
   'login.submit': 'साइन इन करें',
   'login.failed': 'साइन इन नहीं हो सका',
+  'login.offline': 'इंटरनेट कनेक्शन नहीं है। कृपया अपना डेटा/वाई-फ़ी जाँचें और फिर से कोशिश करें।',
   'login.footer':
     'ड्राइवर, कंडक्टर, अभिभावक और स्कूल एडमिन — सब यहीं साइन इन करते हैं। ऐप आपकी भूमिका के अनुसार खुद बदल जाता है।',
 
@@ -395,6 +396,8 @@ export const hi: Dictionary = {
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'अनलॉक करें',
   'login.crewPath.pin.clearKey': 'PIN मिटाएँ',
+  'login.crewPath.pin.show': 'PIN दिखाएँ',
+  'login.crewPath.pin.hide': 'PIN छिपाएँ',
   'login.crewPath.lockout.wait':
     'बहुत बार ग़लत PIN डाला गया। {seconds} सेकंड बाद फिर कोशिश करें — या एडमिन से रीसेट करवाएँ।',
   'login.crewPath.lockout.adminHint':
@@ -457,6 +460,34 @@ export const hi: Dictionary = {
   'common.dismiss': 'हटाएँ',
   'common.on': 'चालू',
   'common.off': 'बंद',
+  /** Show/hide eye on a password field — the icon state matches visibility. */
+  'common.showPassword': 'पासवर्ड दिखाएँ',
+  'common.hidePassword': 'पासवर्ड छिपाएँ',
+
+  // ── Calendar date picker (no manual date typing anywhere) ─────────────
+  'datePicker.title': 'तारीख चुनें',
+  'datePicker.today': 'आज',
+  'datePicker.clear': 'हटाएँ',
+  'datePicker.placeholder': 'तारीख चुनें',
+  'date.month.1': 'जनवरी',
+  'date.month.2': 'फ़रवरी',
+  'date.month.3': 'मार्च',
+  'date.month.4': 'अप्रैल',
+  'date.month.5': 'मई',
+  'date.month.6': 'जून',
+  'date.month.7': 'जुलाई',
+  'date.month.8': 'अगस्त',
+  'date.month.9': 'सितंबर',
+  'date.month.10': 'अक्टूबर',
+  'date.month.11': 'नवंबर',
+  'date.month.12': 'दिसंबर',
+  'date.weekday.0': 'रवि',
+  'date.weekday.1': 'सोम',
+  'date.weekday.2': 'मंगल',
+  'date.weekday.3': 'बुध',
+  'date.weekday.4': 'गुरु',
+  'date.weekday.5': 'शुक्र',
+  'date.weekday.6': 'शनि',
 
   // ── Time ───────────────────────────────────────────────────────────────
   'time.minutes.one': '~{count} मिनट',

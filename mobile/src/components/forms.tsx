@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal as RNModal,
@@ -16,6 +16,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { surface, touch } from '../theme';
+import { keyboardBehavior } from '../lib/keyboard-aware';
+import { KeyboardFormContext, useKeyboardReveal } from './keyboard-form';
+import { ToastViewport } from './Toast';
 import { Button } from './ui';
 import { optionList } from './option-list';
 
@@ -27,7 +30,14 @@ import { optionList } from './option-list';
  * matching the web console's create / edit / delete flows.
  */
 
-/** Slide-up sheet used for create / edit forms. */
+/**
+ * Slide-up sheet used for create / edit forms.
+ *
+ * Keyboard-aware: the sheet's scroll view scrolls the focused field clear of
+ * the keyboard (the same mechanism as `Screen` / `KeyboardForm`), and the
+ * in-modal toast viewport keeps errors visible *while the sheet is open* —
+ * a save failure must not wait for the user to back out.
+ */
 export const FormSheet: React.FC<{
   open: boolean;
   title: string;
@@ -36,30 +46,36 @@ export const FormSheet: React.FC<{
   footer?: React.ReactNode;
 }> = ({ open, title, onClose, children, footer }) => {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const { contextValue, onScroll } = useKeyboardReveal(scrollRef);
   return (
     <RNModal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.sheetRoot}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={styles.sheetRoot} behavior={keyboardBehavior(Platform.OS)}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
-              <Ionicons name="close" size={24} color={colors.neutral[500]} />
-            </Pressable>
+        <KeyboardFormContext.Provider value={contextValue}>
+          <View style={[styles.sheet, { paddingBottom: spacing.lg + insets.bottom }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={10} accessibilityLabel="Close">
+                <Ionicons name="close" size={24} color={colors.neutral[500]} />
+              </Pressable>
+            </View>
+            <ScrollView
+              ref={scrollRef}
+              style={styles.sheetBody}
+              contentContainerStyle={styles.sheetBodyContent}
+              keyboardShouldPersistTaps="handled"
+              onScroll={onScroll}
+              scrollEventThrottle={16}
+            >
+              {children}
+            </ScrollView>
+            {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
           </View>
-          <ScrollView
-            style={styles.sheetBody}
-            contentContainerStyle={styles.sheetBodyContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {children}
-          </ScrollView>
-          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
-        </View>
+        </KeyboardFormContext.Provider>
+        {/* Errors raised while this sheet is open must render above it. */}
+        <ToastViewport placement="top" />
       </KeyboardAvoidingView>
     </RNModal>
   );
@@ -81,6 +97,10 @@ export const Select: React.FC<{
 }> = ({ label, value, options, onChange, placeholder = 'Select…', error }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const pickerScrollRef = useRef<ScrollView>(null);
+  const pickerInputRef = useRef<TextInput>(null);
+  const { contextValue: pickerContext, onScroll: pickerOnScroll } =
+    useKeyboardReveal(pickerScrollRef);
   const selected = options.find((option) => option.value === value);
 
   // Long option lists (assignments, parents, stops) get an inline filter.
@@ -110,74 +130,92 @@ export const Select: React.FC<{
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
 
       <RNModal visible={open} transparent animationType="fade" onRequestClose={close}>
-        <Pressable style={styles.pickerBackdrop} onPress={close}>
-          <Pressable style={styles.pickerCard} onPress={() => undefined}>
-            <Text style={styles.pickerTitle}>{label}</Text>
-            {searchable ? (
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Filter options…"
-                placeholderTextColor={surface.placeholder}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.pickerSearch}
-                accessibilityLabel={`Filter ${label} options`}
-              />
-            ) : null}
-            <ScrollView
-              style={styles.pickerList}
-              contentContainerStyle={styles.pickerListContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {options.length === 0 ? (
-                <Text style={styles.pickerEmpty}>No options available.</Text>
-              ) : visibleOptions.length === 0 ? (
-                <Text style={styles.pickerEmpty}>No options match “{query.trim()}”.</Text>
-              ) : (
-                visibleOptions.map((option, index) => {
-                  const active = option.value === value;
-                  // One hairline *between* rows — never under the last one, so
-                  // the list does not end on a stray rule.
-                  const divider = index < visibleOptions.length - 1;
-                  return (
-                    <View key={option.value}>
-                      <Pressable
-                        onPress={() => {
-                          onChange(option.value);
-                          close();
-                        }}
-                        accessibilityRole="menuitem"
-                        accessibilityState={{ selected: active }}
-                        accessibilityLabel={option.label}
-                        style={({ pressed }) => [
-                          styles.pickerRow,
-                          active ? styles.pickerRowActive : null,
-                          pressed ? styles.pickerRowPressed : null,
-                        ]}
-                      >
-                        <Text
-                          style={[styles.pickerRowText, active ? styles.pickerRowTextActive : null]}
-                          numberOfLines={2}
-                        >
-                          {option.label}
-                        </Text>
-                        {active ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={optionList.tickSize}
-                            color={optionList.tickColor}
-                          />
-                        ) : null}
-                      </Pressable>
-                      {divider ? <View style={styles.pickerDivider} /> : null}
-                    </View>
-                  );
-                })
-              )}
-            </ScrollView>
+        <KeyboardAvoidingView style={styles.flex} behavior={keyboardBehavior(Platform.OS)}>
+          <Pressable style={styles.pickerBackdrop} onPress={close}>
+            <KeyboardFormContext.Provider value={pickerContext}>
+              <Pressable style={styles.pickerCard} onPress={() => undefined}>
+                <Text style={styles.pickerTitle}>{label}</Text>
+                {searchable ? (
+                  <TextInput
+                    ref={pickerInputRef}
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder="Filter options…"
+                    placeholderTextColor={surface.placeholder}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.pickerSearch}
+                    accessibilityLabel={`Filter ${label} options`}
+                    onFocus={() => {
+                      if (pickerInputRef.current) {
+                        pickerContext.focusInput(pickerInputRef.current);
+                      }
+                    }}
+                  />
+                ) : null}
+                <ScrollView
+                  ref={pickerScrollRef}
+                  style={styles.pickerList}
+                  contentContainerStyle={styles.pickerListContent}
+                  keyboardShouldPersistTaps="handled"
+                  onScroll={pickerOnScroll}
+                  scrollEventThrottle={16}
+                >
+                  {options.length === 0 ? (
+                    <Text style={styles.pickerEmpty}>No options available.</Text>
+                  ) : visibleOptions.length === 0 ? (
+                    <Text style={styles.pickerEmpty}>No options match “{query.trim()}”.</Text>
+                  ) : (
+                    visibleOptions.map((option, index) => {
+                      const active = option.value === value;
+                      // One hairline *between* rows — never under the last one, so
+                      // the list does not end on a stray rule.
+                      const divider = index < visibleOptions.length - 1;
+                      return (
+                        <View key={option.value}>
+                          <Pressable
+                            onPress={() => {
+                              onChange(option.value);
+                              close();
+                            }}
+                            accessibilityRole="menuitem"
+                            accessibilityState={{ selected: active }}
+                            accessibilityLabel={option.label}
+                            style={({ pressed }) => [
+                              styles.pickerRow,
+                              active ? styles.pickerRowActive : null,
+                              pressed ? styles.pickerRowPressed : null,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.pickerRowText,
+                                active ? styles.pickerRowTextActive : null,
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {option.label}
+                            </Text>
+                            {active ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={optionList.tickSize}
+                                color={optionList.tickColor}
+                              />
+                            ) : null}
+                          </Pressable>
+                          {divider ? <View style={styles.pickerDivider} /> : null}
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </Pressable>
+            </KeyboardFormContext.Provider>
+            {/* Errors raised while this picker is open must render above it. */}
+            <ToastViewport placement="top" />
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </RNModal>
     </View>
   );
@@ -266,6 +304,8 @@ export const ConfirmDialog: React.FC<{
           />
         </View>
       </View>
+      {/* A failed confirm (e.g. a retired-write 410) must not hide behind the dialog. */}
+      <ToastViewport placement="top" />
     </View>
   </RNModal>
 );

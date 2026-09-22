@@ -1,50 +1,44 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  RouteAssignmentRole,
-  type BusMinimalListResponse,
-  type BusMinimalResponse,
+  RunCrewRole,
   type ConductorListResponse,
   type DriverListResponse,
-  type RouteAssignmentCreateRequest,
-  type RouteAssignmentResponse,
-  type RouteMinimalListResponse,
-  type RouteMinimalResponse,
-  type StaffResponse,
+  type RunCrewCreateRequest,
+  type RunCrewListResponse,
+  type RunCrewResponse,
+  type RunCrewUpdateRequest,
+  type RunListResponse,
+  type RunResponse,
   type TripResponse,
 } from '@school-bus-tracking/shared-types';
-import {
-  routeAssignmentCreateSchema,
-  routeAssignmentUpdateSchema,
-} from '@school-bus-tracking/validation';
+import { runCrewCreateSchema, runCrewUpdateSchema } from '@school-bus-tracking/validation';
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../../src/services/api';
 import {
-  emptyToNull,
   fieldErrorsFromUnknown,
   fieldErrorsFromZod,
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../src/lib/errors';
 import { fullName, utcDateOnly } from '../../../src/lib/format';
+import { runLabel } from '../../../src/lib/runs';
 import { useLoad } from '../../../src/hooks/useLoad';
-import { usePagedResource } from '../../../src/hooks/usePagedResource';
 import {
   Badge,
   Button,
   ConfirmDialog,
+  DatePicker,
   EmptyState,
   ErrorState,
   FilterChips,
   FilterSummary,
   Fab,
-  Field,
   FormSheet,
   ListCard,
   ListScreen,
   LoadingView,
-  Pagination,
   SearchBar,
   Select,
   SwitchRow,
@@ -53,82 +47,121 @@ import {
 import { ACTIVE_FILTER_OPTIONS, type ActiveFilter } from '../../../src/hooks/useActiveFilter';
 
 const EMPTY = {
-  route_id: '',
-  bus_id: '',
+  run_id: '',
   user_id: '',
-  role: RouteAssignmentRole.DRIVER as RouteAssignmentRole,
+  role: RunCrewRole.DRIVER as RunCrewRole,
   effective_from: utcDateOnly(),
   effective_to: '',
   is_active: true,
 };
 
 /**
- * School-admin route assignments — CRUD parity with the web Assignments
- * page, plus one-tap dispatch (create a trip now from an active assignment).
+ * School-admin crew roster — the mobile home of the **run-crew** rows
+ * (one person, one role, one run, one validity window), the operating model
+ * that replaced the retired route-assignment writes.
+ *
+ * The run-crew list endpoints are per-run (`GET /runs/:id/crew`), so the
+ * screen loads every run and fans out one crew request per run, then filters
+ * on the device — the roster of one school is small, and this keeps the
+ * whole screen on the live API (no deprecated `listAssignments`).
+ *
+ * Creating a row is end-to-end: pick run → role → person → dates → save, and
+ * the row is immediately dispatchable ("Dispatch now" posts `run_id`).
  */
 export default function ManageAssignmentsScreen() {
   const router = useRouter();
   const toast = useToast();
 
-  // Lookups feed the create / edit form selects only; the roster itself is
-  // paginated and filtered server-side below.
-  // The pickers only render route/bus names — the minimal projections skip
-  // the crew/trip enrichment the API would otherwise resolve.
+  // ---- Roster (runs × their crew rows) -----------------------------------
+  const [rows, setRows] = useState<RunCrewResponse[]>([]);
+  const [runs, setRuns] = useState<RunResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    setLoadError(null);
+    try {
+      const runsEnvelope = await apiClient.listRuns({ limit: 100 });
+      const runItems = unwrapEnvelope<RunListResponse>(runsEnvelope).items;
+      const crews = await Promise.all(
+        runItems.map((run) => apiClient.listRunCrew(run.id, { limit: 100 })),
+      );
+      setRuns(runItems);
+      setRows(crews.flatMap((crew) => unwrapEnvelope<RunCrewListResponse>(crew).items));
+    } catch (caught) {
+      setLoadError(getApiErrorMessage(caught));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const runById = useMemo(() => new Map(runs.map((run) => [run.id, run] as const)), [runs]);
+
+  // ---- Filters (client-side over the loaded roster) -----------------------
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RunCrewRole | 'ALL'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('ALL');
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (roleFilter !== 'ALL' && row.role !== roleFilter) return false;
+      if (activeFilter !== 'ALL' && row.is_active !== (activeFilter === 'ACTIVE')) return false;
+      if (!q) return true;
+      const run = runById.get(row.run_id);
+      const haystack = [
+        row.run_code,
+        row.route_code,
+        row.route_name,
+        row.user_name,
+        row.user_email,
+        run?.code,
+        run?.bus_number,
+        run?.bus_registration_number,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [rows, runById, roleFilter, activeFilter, search]);
+
+  const filtersActive = search !== '' || roleFilter !== 'ALL' || activeFilter !== 'ALL';
+  const resetFilters = () => {
+    setSearch('');
+    setRoleFilter('ALL');
+    setActiveFilter('ALL');
+  };
+
+  // ---- Form lookups (people pickers only) ----------------------------------
   const lookups = useLoad(async (): Promise<{
-    routes: RouteMinimalResponse[];
-    buses: BusMinimalResponse[];
-    drivers: StaffResponse[];
-    conductors: StaffResponse[];
+    drivers: DriverListResponse['items'];
+    conductors: ConductorListResponse['items'];
   }> => {
-    const [routes, buses, drivers, conductors] = await Promise.all([
-      apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
-      apiClient.listBuses({ page: 1, limit: 100, include: 'minimal' }),
+    const [drivers, conductors] = await Promise.all([
       apiClient.listDrivers({ page: 1, limit: 100 }),
       apiClient.listConductors({ page: 1, limit: 100 }),
     ]);
     return {
-      routes: unwrapEnvelope<RouteMinimalListResponse>(routes).items,
-      buses: unwrapEnvelope<BusMinimalListResponse>(buses).items,
       drivers: unwrapEnvelope<DriverListResponse>(drivers).items,
       conductors: unwrapEnvelope<ConductorListResponse>(conductors).items,
     };
   }, []);
 
-  const [roleFilter, setRoleFilter] = useState<RouteAssignmentRole | 'ALL'>('ALL');
-  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('ALL');
-
-  // Reuse the server-side search + role + is_active filters (the endpoint
-  // takes page/limit/search/role/is_active) instead of narrowing a single
-  // 100-row page on the device — same debounce and stale-response guard as
-  // every other admin list.
-  const list = usePagedResource<RouteAssignmentResponse>(
-    async (page, search) =>
-      unwrapEnvelope(
-        await apiClient.listAssignments({
-          page,
-          limit: 20,
-          search: search || undefined,
-          role: roleFilter === 'ALL' ? undefined : roleFilter,
-          is_active: activeFilter === 'ALL' ? undefined : activeFilter === 'ACTIVE',
-        }),
-      ),
-    [roleFilter, activeFilter],
-  );
-
-  const filtersActive =
-    Boolean(list.activeSearch) || roleFilter !== 'ALL' || activeFilter !== 'ALL';
-  const resetFilters = () => {
-    list.clearSearch();
-    setRoleFilter('ALL');
-    setActiveFilter('ALL');
-  };
-
+  // ---- Form state -----------------------------------------------------------
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<RouteAssignmentResponse | null>(null);
+  const [editing, setEditing] = useState<RunCrewResponse | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<RouteAssignmentResponse | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<RunCrewResponse | null>(null);
   const [dispatchingId, setDispatchingId] = useState<string | null>(null);
 
   const startCreate = () => {
@@ -138,11 +171,10 @@ export default function ManageAssignmentsScreen() {
     setOpen(true);
   };
 
-  const startEdit = (row: RouteAssignmentResponse) => {
+  const startEdit = (row: RunCrewResponse) => {
     setEditing(row);
     setForm({
-      route_id: row.route_id,
-      bus_id: row.bus_id ?? '',
+      run_id: row.run_id,
       user_id: row.user_id,
       role: row.role,
       effective_from: row.effective_from,
@@ -154,35 +186,47 @@ export default function ManageAssignmentsScreen() {
   };
 
   const save = async () => {
-    const payload: RouteAssignmentCreateRequest = {
-      route_id: form.route_id,
-      bus_id: form.bus_id,
-      user_id: form.user_id,
-      role: form.role,
-      effective_from: form.effective_from,
-      effective_to: emptyToNull(form.effective_to),
-      is_active: form.is_active,
-    };
-    const parsed = editing
-      ? routeAssignmentUpdateSchema.safeParse(payload)
-      : routeAssignmentCreateSchema.safeParse(payload);
-    if (!parsed.success) {
-      setFieldErrors(fieldErrorsFromZod(parsed.error));
+    if (form.run_id === '') {
+      setFieldErrors({ run_id: 'Select a run' });
       return;
     }
     setBusy(true);
     try {
       if (editing) {
-        unwrapEnvelope(await apiClient.updateAssignment(editing.id, parsed.data));
+        // `run_id` is immutable — a roster row moves to another run only by
+        // creating a new row (the API rejects the field on PATCH).
+        const payload: RunCrewUpdateRequest = {
+          user_id: form.user_id,
+          role: form.role,
+          effective_from: form.effective_from.trim(),
+          effective_to: form.effective_to.trim() || null,
+          is_active: form.is_active,
+        };
+        const parsed = runCrewUpdateSchema.safeParse(payload);
+        if (!parsed.success) {
+          setFieldErrors(fieldErrorsFromZod(parsed.error));
+          return;
+        }
+        unwrapEnvelope(await apiClient.updateRunCrew(editing.id, parsed.data));
         toast.push('Assignment updated.', 'success');
       } else {
-        unwrapEnvelope(
-          await apiClient.createAssignment(parsed.data as RouteAssignmentCreateRequest),
-        );
+        const payload: RunCrewCreateRequest = {
+          user_id: form.user_id,
+          role: form.role,
+          effective_from: form.effective_from.trim(),
+          effective_to: form.effective_to.trim() || null,
+          is_active: form.is_active,
+        };
+        const parsed = runCrewCreateSchema.safeParse(payload);
+        if (!parsed.success) {
+          setFieldErrors(fieldErrorsFromZod(parsed.error));
+          return;
+        }
+        unwrapEnvelope(await apiClient.createRunCrew(form.run_id, parsed.data));
         toast.push('Assignment created.', 'success');
       }
       setOpen(false);
-      await list.reload();
+      await load();
     } catch (caught) {
       setFieldErrors(fieldErrorsFromUnknown(caught));
       toast.push(getApiErrorMessage(caught), 'danger');
@@ -195,10 +239,10 @@ export default function ManageAssignmentsScreen() {
     if (!pendingDelete) return;
     setBusy(true);
     try {
-      await apiClient.deleteAssignment(pendingDelete.id);
+      await apiClient.deleteRunCrew(pendingDelete.id);
       toast.push('Assignment removed.', 'success');
       setPendingDelete(null);
-      await list.reload();
+      await load();
     } catch (caught) {
       toast.push(getApiErrorMessage(caught), 'danger');
     } finally {
@@ -206,21 +250,21 @@ export default function ManageAssignmentsScreen() {
     }
   };
 
-  const dispatch = (assignment: RouteAssignmentResponse) => {
+  const dispatch = (row: RunCrewResponse) => {
     Alert.alert(
       'Dispatch trip now',
-      `Create a trip from this assignment${assignment.route_code ? ` on route ${assignment.route_code}` : ''}? The scheduled start is set to now.`,
+      `Create a trip from this roster row${row.route_code ? ` on route ${row.route_code}` : ''}? The scheduled start is set to now.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Dispatch',
           onPress: () => {
             void (async () => {
-              setDispatchingId(assignment.id);
+              setDispatchingId(row.id);
               try {
                 const trip = unwrapEnvelope<TripResponse>(
                   await apiClient.createTrip({
-                    route_assignment_id: assignment.id,
+                    run_id: row.run_id,
                     scheduled_start_at: new Date().toISOString(),
                   }),
                 );
@@ -238,8 +282,19 @@ export default function ManageAssignmentsScreen() {
     );
   };
 
+  const runOptions = useMemo(
+    () =>
+      [...runs]
+        .sort(
+          (a, b) =>
+            (a.route_code ?? '').localeCompare(b.route_code ?? '') || a.code.localeCompare(b.code),
+        )
+        .map((run) => ({ value: run.id, label: runLabel(run) })),
+    [runs],
+  );
+
   const staffOptions = (
-    form.role === RouteAssignmentRole.CONDUCTOR
+    form.role === RunCrewRole.CONDUCTOR
       ? (lookups.data?.conductors ?? [])
       : (lookups.data?.drivers ?? [])
   ).map((person) => ({ value: person.id, label: `${fullName(person)} (${person.email})` }));
@@ -247,49 +302,55 @@ export default function ManageAssignmentsScreen() {
   return (
     <View style={styles.flex}>
       <ListScreen
-        data={list.items}
+        data={filtered}
         keyExtractor={(row) => row.id}
-        renderItem={({ item: row }) => (
-          <ListCard
-            title={row.route_code ? `${row.route_code} · ${row.route_name ?? ''}`.trim() : 'Route'}
-            subtitle={`${row.role === RouteAssignmentRole.DRIVER ? 'Driver' : 'Conductor'}: ${row.user_name ?? '—'}`}
-            meta={`${row.bus_registration_number ?? row.bus_number ?? 'No bus'} · ${row.effective_from}${row.effective_to ? ` → ${row.effective_to}` : ' → open'}`}
-            right={
-              <Badge
-                label={row.is_active ? 'Active' : 'Inactive'}
-                tone={row.is_active ? 'success' : 'neutral'}
-              />
-            }
-            onEdit={() => startEdit(row)}
-            onDelete={() => setPendingDelete(row)}
-          >
-            {row.is_active ? (
-              <View style={styles.dispatchRow}>
-                <Button
-                  label="Dispatch now"
-                  small
-                  onPress={() => dispatch(row)}
-                  busy={dispatchingId === row.id}
-                  disabled={dispatchingId !== null}
+        renderItem={({ item: row }) => {
+          const run = runById.get(row.run_id);
+          return (
+            <ListCard
+              title={
+                row.route_code
+                  ? `${row.route_code} · ${row.route_name ?? ''}`.trim()
+                  : (row.run_code ?? 'Run')
+              }
+              subtitle={`${row.role === RunCrewRole.DRIVER ? 'Driver' : 'Conductor'}: ${row.user_name ?? '—'}`}
+              meta={`${run?.bus_registration_number ?? run?.bus_number ?? 'No bus'} · ${row.effective_from}${row.effective_to ? ` → ${row.effective_to}` : ' → open'}`}
+              right={
+                <Badge
+                  label={row.is_active ? 'Active' : 'Inactive'}
+                  tone={row.is_active ? 'success' : 'neutral'}
                 />
-              </View>
-            ) : null}
-          </ListCard>
-        )}
+              }
+              onEdit={() => startEdit(row)}
+              onDelete={() => setPendingDelete(row)}
+            >
+              {row.is_active ? (
+                <View style={styles.dispatchRow}>
+                  <Button
+                    label="Dispatch now"
+                    small
+                    onPress={() => dispatch(row)}
+                    busy={dispatchingId === row.id}
+                    disabled={dispatchingId !== null}
+                  />
+                </View>
+              ) : null}
+            </ListCard>
+          );
+        }}
         header={
           <>
             <SearchBar
-              value={list.search}
-              onChangeText={list.setSearch}
-              onClear={list.clearSearch}
-              searching={list.searching}
+              value={search}
+              onChangeText={setSearch}
+              onClear={() => setSearch('')}
               placeholder="Search route, crew or bus…"
             />
-            <FilterChips<RouteAssignmentRole | 'ALL'>
+            <FilterChips<RunCrewRole | 'ALL'>
               options={[
                 { value: 'ALL', label: 'All roles' },
-                { value: RouteAssignmentRole.DRIVER, label: 'Drivers' },
-                { value: RouteAssignmentRole.CONDUCTOR, label: 'Conductors' },
+                { value: RunCrewRole.DRIVER, label: 'Drivers' },
+                { value: RunCrewRole.CONDUCTOR, label: 'Conductors' },
               ]}
               value={roleFilter}
               onChange={setRoleFilter}
@@ -302,9 +363,9 @@ export default function ManageAssignmentsScreen() {
             {filtersActive ? (
               <FilterSummary
                 label={[
-                  list.activeSearch ? `“${list.activeSearch}”` : null,
+                  search ? `“${search}”` : null,
                   roleFilter !== 'ALL'
-                    ? roleFilter === RouteAssignmentRole.DRIVER
+                    ? roleFilter === RunCrewRole.DRIVER
                       ? 'Drivers'
                       : 'Conductors'
                     : null,
@@ -319,41 +380,37 @@ export default function ManageAssignmentsScreen() {
                 onClear={resetFilters}
               />
             ) : null}
-            {list.items.length > 0 ? (
+            {filtered.length > 0 ? (
               <Text style={styles.count}>
                 {filtersActive
-                  ? `${list.items.length} of ${list.meta.total} assignments`
-                  : `${list.meta.total} assignments`}
+                  ? `${filtered.length} of ${rows.length} assignments`
+                  : `${rows.length} assignments`}
               </Text>
             ) : null}
           </>
         }
-        footer={
-          list.items.length > 0 ? <Pagination meta={list.meta} onPage={list.setPage} /> : null
-        }
+        footer={null}
         empty={
-          list.loading && list.items.length === 0 ? (
+          loading ? (
             <LoadingView label="Loading assignments…" />
-          ) : list.error ? (
-            <ErrorState message={list.error} onRetry={() => void list.reload()} />
-          ) : (
+          ) : loadError ? (
+            <ErrorState message={loadError} onRetry={() => void load()} />
+          ) : rows.length === 0 ? (
             <EmptyState
-              title={filtersActive ? 'No matching assignments' : 'No assignments'}
-              description={
-                filtersActive
-                  ? 'No assignments match the current search or filters.'
-                  : 'Create a roster row before dispatching trips.'
-              }
-              action={
-                filtersActive ? (
-                  <Button label="Clear filters" variant="secondary" onPress={resetFilters} />
-                ) : null
-              }
+              title="No assignments"
+              description="Roster a driver or conductor onto a run, then dispatch trips from here."
+              action={<Button label="New assignment" onPress={startCreate} />}
             />
-          )
+          ) : filtersActive ? (
+            <EmptyState
+              title="No matching assignments"
+              description="No assignments match the current search or filters."
+              action={<Button label="Clear filters" variant="secondary" onPress={resetFilters} />}
+            />
+          ) : null
         }
-        refresh={() => void list.refresh()}
-        refreshing={list.refreshing}
+        refresh={() => void load()}
+        refreshing={refreshing}
         extraBottomSpace={72}
       />
 
@@ -376,38 +433,26 @@ export default function ManageAssignmentsScreen() {
         }
       >
         <Select
+          label="Run"
+          value={form.run_id}
+          onChange={(value) => setForm({ ...form, run_id: value })}
+          options={runOptions}
+          placeholder="Select run"
+          error={fieldErrors.run_id}
+        />
+        <Select
           label="Role"
           value={form.role}
           onChange={(value) =>
-            setForm({ ...form, role: value as RouteAssignmentRole, user_id: '' })
+            // The person picker is per-role: a driver id is meaningless on
+            // the conductor list, so the selection cannot survive the swap.
+            setForm({ ...form, role: value as RunCrewRole, user_id: '' })
           }
           options={[
-            { value: RouteAssignmentRole.DRIVER, label: 'Driver' },
-            { value: RouteAssignmentRole.CONDUCTOR, label: 'Conductor' },
+            { value: RunCrewRole.DRIVER, label: 'Driver' },
+            { value: RunCrewRole.CONDUCTOR, label: 'Conductor' },
           ]}
           error={fieldErrors.role}
-        />
-        <Select
-          label="Route"
-          value={form.route_id}
-          onChange={(value) => setForm({ ...form, route_id: value })}
-          options={(lookups.data?.routes ?? []).map((route) => ({
-            value: route.id,
-            label: `${route.name} (${route.code})`,
-          }))}
-          placeholder="Select route"
-          error={fieldErrors.route_id}
-        />
-        <Select
-          label="Bus"
-          value={form.bus_id}
-          onChange={(value) => setForm({ ...form, bus_id: value })}
-          options={(lookups.data?.buses ?? []).map((bus) => ({
-            value: bus.id,
-            label: bus.registration_number,
-          }))}
-          placeholder="Select bus"
-          error={fieldErrors.bus_id}
         />
         <Select
           label="Crew member"
@@ -419,20 +464,21 @@ export default function ManageAssignmentsScreen() {
         />
         <View style={styles.row}>
           <View style={styles.flex}>
-            <Field
-              label="From (YYYY-MM-DD)"
+            <DatePicker
+              label="From"
               value={form.effective_from}
-              onChangeText={(text) => setForm({ ...form, effective_from: text })}
-              autoCapitalize="none"
+              onChange={(value) => setForm({ ...form, effective_from: value })}
               error={fieldErrors.effective_from}
             />
           </View>
           <View style={styles.flex}>
-            <Field
+            <DatePicker
               label="To (optional)"
               value={form.effective_to}
-              onChangeText={(text) => setForm({ ...form, effective_to: text })}
-              autoCapitalize="none"
+              onChange={(value) => setForm({ ...form, effective_to: value })}
+              placeholder="Open ended"
+              allowClear
+              minDate={form.effective_from === '' ? null : form.effective_from}
               error={fieldErrors.effective_to}
             />
           </View>
@@ -442,6 +488,11 @@ export default function ManageAssignmentsScreen() {
           value={form.is_active}
           onChange={(value) => setForm({ ...form, is_active: value })}
         />
+        {runs.length === 0 ? (
+          <Text style={styles.warn}>
+            No runs yet — create one under Routes → Runs first, then roster crew onto it here.
+          </Text>
+        ) : null}
       </FormSheet>
 
       <ConfirmDialog
@@ -469,5 +520,10 @@ const styles = StyleSheet.create({
   dispatchRow: {
     marginTop: spacing.sm,
     alignItems: 'flex-start',
+  },
+  warn: {
+    color: colors.status.warning,
+    fontSize: 14,
+    marginTop: spacing.xs,
   },
 });

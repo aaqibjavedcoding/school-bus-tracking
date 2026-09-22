@@ -5,9 +5,8 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
-import type { LiveFix } from '../tracking/useLiveTripTracking';
 import type { MapViewProps } from './types';
-import { BUS_MARKER_SVG, busIconOptions, setBusIconHeading } from './bus-marker-icon';
+import { busIconOptions, setBusIconHeading } from './bus-marker-icon';
 import { FRAME_MIN_INTERVAL_MS, createBusMotion } from './bus-motion';
 import { haversineMeters } from './geo';
 import {
@@ -133,7 +132,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         accuracyMeters: fix?.accuracy ?? null,
         socketOffline: connection === 'offline',
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `tick` is in the deps so freshness ages without a new fix arriving.
     [fix, connection, tick],
   );
 
@@ -422,7 +421,6 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     // We want to run once when webglSupported becomes true; lineCoords/mappedStops
     // are read inside load handler via dispatch/fitToData which captures them,
     // but re-creating the map on every stop change would be wrong.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webglSupported]);
 
   // Update route line when stops change

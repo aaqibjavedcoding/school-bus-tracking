@@ -8,7 +8,14 @@ import {
   type DocumentOwnerType,
   type DriverDocumentResponse,
 } from '@school-bus-tracking/shared-types';
-import { Button, Field, FormSheet, Select, type SelectOption } from '../../../components';
+import {
+  Button,
+  DatePicker,
+  Field,
+  FormSheet,
+  Select,
+  type SelectOption,
+} from '../../../components';
 import type { DocumentFormValues } from './documentForm';
 
 /**
@@ -80,23 +87,23 @@ export const DocumentFormSheet: React.FC<{
         autoCapitalize="characters"
         error={fieldErrors.document_number}
       />
-      {/* Dates are plain YYYY-MM-DD text: the web console uses a native date
-          picker, and a typed ISO date keeps both clients sending exactly the
-          same payload the API validates. */}
-      <Field
-        label="Issue date (YYYY-MM-DD)"
+      {/* Both clients pick from a calendar; the value stays the API's own
+          `YYYY-MM-DD`, so the payload is identical to the web console's. */}
+      <DatePicker
+        label="Issue date"
         value={form.issue_date}
-        onChangeText={(text) => set({ issue_date: text })}
+        onChange={(value) => set({ issue_date: value })}
         hint="Leave empty if the issue date is unknown."
-        placeholder="2026-04-01"
+        allowClear
         error={fieldErrors.issue_date}
       />
-      <Field
-        label="Expiry date (YYYY-MM-DD)"
+      <DatePicker
+        label="Expiry date"
         value={form.expiry_date}
-        onChangeText={(text) => set({ expiry_date: text })}
+        onChange={(value) => set({ expiry_date: value })}
         hint="Validity is calculated from this date — leave empty if it never expires."
-        placeholder="2027-03-31"
+        allowClear
+        minDate={form.issue_date === '' ? null : form.issue_date}
         error={fieldErrors.expiry_date}
       />
       <Field
