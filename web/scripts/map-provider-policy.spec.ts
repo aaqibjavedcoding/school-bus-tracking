@@ -21,12 +21,12 @@ const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 
 const BANNED_IMPORT_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/from\s+['\"]leaflet['\"]/i, 'leaflet (use maplibre-gl instead)'],
-  [/from\s+['\"]react-leaflet['\"]/i, 'react-leaflet (use maplibre-gl instead)'],
-  [/require\s*\(\s*['\"]leaflet['\"]\s*\)/i, 'leaflet (use maplibre-gl instead)'],
-  [/require\s*\(\s*['\"]react-leaflet['\"]\s*\)/i, 'react-leaflet (use maplibre-gl instead)'],
-  [/['\"]leaflet['\"]\s*:/i, 'leaflet dependency in package.json (use maplibre-gl)'],
-  [/['\"]react-leaflet['\"]\s*:/i, 'react-leaflet dependency in package.json'],
+  [/from\s+['"]leaflet['"]/i, 'leaflet (use maplibre-gl instead)'],
+  [/from\s+['"]react-leaflet['"]/i, 'react-leaflet (use maplibre-gl instead)'],
+  [/require\s*\(\s*['"]leaflet['"]\s*\)/i, 'leaflet (use maplibre-gl instead)'],
+  [/require\s*\(\s*['"]react-leaflet['"]\s*\)/i, 'react-leaflet (use maplibre-gl instead)'],
+  [/['"]leaflet['"]\s*:/i, 'leaflet dependency in package.json (use maplibre-gl)'],
+  [/['"]react-leaflet['"]\s*:/i, 'react-leaflet dependency in package.json'],
 ];
 
 const BANNED_URL_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -95,7 +95,7 @@ function bannedProviderViolations(file: string, content: string): string[] {
 function keyedUrlViolations(file: string, content: string): string[] {
   const hits: string[] = [];
   if (file.endsWith('map-provider-policy.spec.ts')) return hits;
-  for (const match of content.matchAll(/https?:\/\/[^\s'\"`)}\]]+/g)) {
+  for (const match of content.matchAll(/https?:\/\/[^\s'"`)}\]]+/g)) {
     if (/[?&](api_)?key=/i.test(match[0])) {
       hits.push(`${file}  a URL carries a key credential: ${match[0]}`);
     }
@@ -119,9 +119,9 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
   });
 
   it('the scanner still detects a banned provider (self-test)', () => {
-    assert.ok(bannedProviderViolations('x.ts', 'import L from \"leaflet\";').length === 1);
+    assert.ok(bannedProviderViolations('x.ts', 'import L from "leaflet";').length === 1);
     assert.ok(
-      bannedProviderViolations('x.ts', 'import { MapContainer } from \"react-leaflet\";').length,
+      bannedProviderViolations('x.ts', 'import { MapContainer } from "react-leaflet";').length,
     );
     assert.ok(
       bannedProviderViolations('x.ts', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png').length,
@@ -129,10 +129,7 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
     assert.ok(
       bannedProviderViolations('x.ts', 'https://api.maptiler.com/maps/basic/style.json').length,
     );
-    assert.equal(
-      bannedProviderViolations('x.ts', 'const ok = \"tiles.openfreemap.org\";').length,
-      0,
-    );
+    assert.equal(bannedProviderViolations('x.ts', 'const ok = "tiles.openfreemap.org";').length, 0);
     assert.equal(
       bannedProviderViolations('x.ts', "'https://maps.google.com/maps?daddr=' + dest").length,
       0,
