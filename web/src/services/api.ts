@@ -3,6 +3,7 @@ import type { ApiResponse } from '@school-bus-tracking/shared-types';
 import { getAccessToken, setAccessToken, notifyUnauthorized } from './session';
 import { readManagedSchoolId } from '../features/managed/managed-school-store';
 import { apiCache, cacheKey, isCacheableGet } from '../lib/api-cache';
+import { notifyDataUpdated } from '../lib/data-updated';
 
 /**
  * Browser calls go to a same-origin `/api/v1` prefix. Next.js rewrites that
@@ -108,7 +109,13 @@ export function applyResponseCache(client: ApiClient): ApiClient {
     run: () => Promise<ApiResponse<T>>,
   ): Promise<ApiResponse<T>> => {
     try {
-      return await run();
+      const response = await run();
+      // Every mounted list is told to ask again, so a save on one screen shows up
+      // on every screen that renders that row — no browser reload needed. Only a
+      // response that actually arrived counts: a rejected save changed no rows,
+      // and refetching on every 400 would turn a typo into a stampede.
+      notifyDataUpdated();
+      return response;
     } finally {
       // Even a failed mutation clears the cache: an extra refetch is cheap,
       // a stale row after a retried write is not.

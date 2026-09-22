@@ -146,3 +146,79 @@ export function documentOwnerPath(ownerType: DocumentOwnerType, ownerId: string)
 export function ownerTypeLabel(ownerType: DocumentOwnerType): string {
   return ownerType === 'BUS' ? 'Bus' : 'Crew';
 }
+
+/**
+ * The three fields a compliance record is made of: what the paper is, when it
+ * was issued, when it stops being valid.
+ *
+ * The API requires all three on a create and refuses an explicit `null` for any
+ * of them on an update — a document without them can never be verified, and it
+ * would silently count as valid because there is no expiry to compare against.
+ * The shared Zod schema is deliberately permissive about the dates (a bare
+ * `null` is a legitimate *clear* on other payloads), so presence is checked
+ * here, on the client, before a round trip: this is the list's "blocked" path,
+ * and each message names the field it belongs to.
+ */
+export interface DocumentRequiredFields {
+  document_type: string;
+  document_number: string;
+  issue_date: string;
+  expiry_date: string;
+}
+
+/** Wording shared with `lib/field-errors.ts`, kept local so this module stays import-free. */
+const REQUIRED = (label: string): string => `Please enter the ${label}.`;
+
+/** True for `YYYY-MM-DD` or a full date-time whose date part is a real day. */
+function isRealDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}([T ][0-9:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(value)) return false;
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  const parsed = new Date(Date.UTC(year as number, (month as number) - 1, day as number));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === (month as number) - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+/**
+ * Per-field errors for an incomplete document form — empty required fields and
+ * impossible dates, each naming its own input.
+ *
+ * Returns `{}` when the form is complete enough to send; the API then owns
+ * every remaining verdict.
+ */
+export function documentRequiredFieldErrors(
+  form: DocumentRequiredFields,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!form.document_type) {
+    errors.document_type = 'Please choose a document type.';
+  }
+  if (form.document_number.trim().length === 0) {
+    errors.document_number = REQUIRED('document number');
+  }
+  for (const [field, label] of [
+    ['issue_date', 'issue date'],
+    ['expiry_date', 'expiry date'],
+  ] as const) {
+    const value = form[field].trim();
+    if (value.length === 0) {
+      errors[field] = REQUIRED(label);
+    } else if (!isRealDate(value)) {
+      errors[field] = `Please enter the ${label} as a real date, for example 2026-04-01.`;
+    }
+  }
+  const issue = form.issue_date.trim();
+  const expiry = form.expiry_date.trim();
+  if (
+    !errors.issue_date &&
+    !errors.expiry_date &&
+    isRealDate(issue) &&
+    isRealDate(expiry) &&
+    Date.parse(expiry) <= Date.parse(issue)
+  ) {
+    errors.expiry_date = 'Please enter an expiry date after the issue date.';
+  }
+  return errors;
+}

@@ -430,7 +430,7 @@ All major management screens support:
 
 The map runs on **MapLibre** (`@maplibre/maplibre-react-native`) over
 **OpenFreeMap's public OpenStreetMap instance**
-(`https://tiles.openfreemap.org/styles/liberty`). There is **nothing to
+(`https://tiles.openfreemap.org/styles/bright`). There is **nothing to
 configure and no key to set** — this is a product rule, not an accident: the
 map must never depend on an API key, a credit card, billing or a metered tier
 (`docs/live-tracking-map.md` → "Map provider policy" states the rule and names

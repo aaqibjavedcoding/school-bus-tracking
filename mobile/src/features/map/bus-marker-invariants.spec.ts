@@ -200,3 +200,28 @@ describe('frame updates stay off the screen render loop', () => {
     assert.match(hook, /motion\.reset\(\)/);
   });
 });
+
+describe('the marker has room to turn', () => {
+  const marker = read('src/features/map/BusMarker.tsx');
+  const graphic = read('src/features/map/BusMarkerGraphic.tsx');
+
+  /**
+   * A 26 × 42 bus rotated 45° occupies about 48 × 48 dp. React Native clips a
+   * child at its parent's bounds, and on Android the annotation *is* a bitmap of
+   * the child's measured frame — so a box sized to the unrotated footprint shaves
+   * the corners off the bus on every diagonal heading. The marker view is
+   * therefore sized to the footprint's diagonal, and the rotation lives on an
+   * inner view so the measured frame stays axis-aligned.
+   */
+  test('sizes the marker box to the rotated footprint, not the straight one', () => {
+    assert.match(
+      graphic,
+      /BUS_MARKER_ROTATION_BOX = Math\.ceil\(\s*Math\.hypot\(BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT\)/,
+      'the box must be derived from the footprint, never hard-coded to 26 × 42',
+    );
+    assert.match(marker, /width: BUS_MARKER_ROTATION_BOX/);
+    assert.match(marker, /height: BUS_MARKER_ROTATION_BOX/);
+    assert.match(marker, /overflow: 'visible'/);
+    assert.match(marker, /transform: \[\{ rotate: `\$\{heading\}deg` \}\]/);
+  });
+});

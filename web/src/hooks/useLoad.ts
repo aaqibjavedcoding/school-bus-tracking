@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiErrorMessage } from '../lib/errors';
+import { createDebouncedReload, subscribeDataUpdated } from '../lib/data-updated';
 
 export interface UseLoadOptions {
   /**
@@ -69,6 +70,21 @@ export function useLoad<T>(
     }
     void reload();
   }, [reload, options.enabled, ...deps]);
+
+  // Any successful write anywhere in the app refreshes this screen too, so the
+  // row a user just saved is current even when the form that saved it lives on
+  // another page (see `lib/data-updated`).
+  useEffect(() => {
+    const debounced = createDebouncedReload(() => {
+      if (enabledRef.current === false) return;
+      return reload();
+    });
+    const unsubscribe = subscribeDataUpdated(debounced.request);
+    return () => {
+      unsubscribe();
+      debounced.cancel();
+    };
+  }, [reload]);
 
   return { data, setData, loading, error, reload };
 }

@@ -10,7 +10,7 @@ import {
   adminSchoolAdminCreateSchema,
   adminSchoolAdminUpdateSchema,
 } from '@school-bus-tracking/validation';
-import { Button, Field, Input, Modal, Select } from '../../../components/ui';
+import { Button, Field, Input, Modal, PasswordInput, Select } from '../../../components/ui';
 import {
   emptyToNull,
   fieldErrorsFromUnknown,
@@ -193,9 +193,8 @@ export const SchoolAdminFormDialog: React.FC<{
               hint="At least 8 characters."
               error={fieldErrors.password}
             >
-              <Input
+              <PasswordInput
                 id="school-admin-password"
-                type="password"
                 value={form.password}
                 disabled={busy}
                 error={Boolean(fieldErrors.password)}

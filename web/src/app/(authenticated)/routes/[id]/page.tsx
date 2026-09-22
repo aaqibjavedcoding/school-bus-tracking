@@ -34,8 +34,19 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../../lib/errors';
+import { pickFieldLabels } from '../../../../lib/field-errors';
 import { stopCode } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
+
+/**
+ * What this form's inputs are called in a sentence.
+ *
+ * Attribution of an API or schema message to an input is by label, so a form has
+ * to say which fields it renders: `name` here means the route name, and a message
+ * about any other name must not light this input up (or steal the message from the
+ * form-level line).
+ */
+const STOP_FIELD_LABELS = pickFieldLabels(['name', 'route_id', 'latitude', 'longitude', 'geofence_radius_meters', 'address']);
 
 const emptyStop = {
   name: '',
@@ -119,7 +130,7 @@ export default function RouteDetailPage() {
       ? stopUpdateSchema.safeParse(payload)
       : stopCreateSchema.safeParse(payload);
     if (!parsed.success) {
-      setFieldErrors(fieldErrorsFromZod(parsed.error));
+      setFieldErrors(fieldErrorsFromZod(parsed.error, STOP_FIELD_LABELS));
       return;
     }
     setBusy(true);
@@ -134,7 +145,7 @@ export default function RouteDetailPage() {
       setOpen(false);
       await reload();
     } catch (caught) {
-      setFieldErrors(fieldErrorsFromUnknown(caught));
+      setFieldErrors(fieldErrorsFromUnknown(caught, STOP_FIELD_LABELS));
       toast.push(getApiErrorMessage(caught), 'danger');
     } finally {
       setBusy(false);

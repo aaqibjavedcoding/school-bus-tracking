@@ -9,21 +9,7 @@ import {
   type ParentUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 import { parentCreateSchema, parentUpdateSchema } from '@school-bus-tracking/validation';
-import {
-  Badge,
-  Button,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Pagination,
-  SearchInput,
-  Skeleton,
-  useToast,
-} from '../../../components/ui';
+import { Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Pagination, PasswordInput, SearchInput, Skeleton, useToast } from '../../../components/ui';
 import { ListActions } from '../../../features/data-transfer';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import {
@@ -294,9 +280,8 @@ export default function ParentsPage() {
             hint={editing ? 'Leave blank to keep the current password.' : undefined}
             error={fieldErrors.password}
           >
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}

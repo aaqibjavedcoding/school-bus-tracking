@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PaginationMeta } from '@school-bus-tracking/shared-types';
 import { getApiErrorMessage } from '../lib/errors';
+import { createDebouncedReload, subscribeDataUpdated } from '../lib/data-updated';
 
 const EMPTY_META: PaginationMeta = {
   page: 1,
@@ -86,6 +87,18 @@ export function usePagedResource<T>(
   useEffect(() => {
     void reload();
   }, [reload, ...deps]);
+
+  // A write on any screen (this one or another) refreshes this list, so "Add
+  // bus" is visible on the route screen without a browser reload. Debounced so
+  // a multi-step save reloads once. See `lib/data-updated`.
+  useEffect(() => {
+    const debounced = createDebouncedReload(reload);
+    const unsubscribe = subscribeDataUpdated(debounced.request);
+    return () => {
+      unsubscribe();
+      debounced.cancel();
+    };
+  }, [reload]);
 
   return {
     items,

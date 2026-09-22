@@ -189,7 +189,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   with `trip_not_open`).
 - Maps: **MapLibre** on both surfaces — **web** `maplibre-gl` v5 (`web/src/features/map`)
   and **mobile** `@maplibre/maplibre-react-native` (`BusMap.tsx` + `BusMap.web.tsx`) —
-  over **OpenFreeMap**'s public instance (`https://tiles.openfreemap.org/styles/liberty`,
+  over **OpenFreeMap**'s public instance (`https://tiles.openfreemap.org/styles/bright`,
   OpenStreetMap data), breadcrumbs + marker + heading. Both maps are open source with
   **no key, no account, no billing** (product rule — `docs/live-tracking-map.md` →
   "Map provider policy"). The mobile map engine is a custom native module the Expo Go
@@ -1037,7 +1037,7 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 | Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
 | Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
 | Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_MAP_STYLE_URL` (optional, https-only — a self-hosted OpenFreeMap style; the map needs no key)                                                                                                                                       |
-| Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/liberty`) |
+| Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/bright`) |
 
 Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.

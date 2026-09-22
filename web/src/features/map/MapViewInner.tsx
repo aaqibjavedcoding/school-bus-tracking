@@ -26,7 +26,7 @@ import { accuracyCirclePolygon } from './accuracy-circle';
  * Web live-tracking map — MapLibre GL JS + OpenFreeMap (vector tiles).
  *
  * This is a full engine port from previous raster engine (raster tiles from the former OSM raster host) to MapLibre GL JS (vector tiles from
- * tiles.openfreemap.org/styles/liberty). The pure policy modules remain
+ * tiles.openfreemap.org/styles/bright). The pure policy modules remain
  * untouched: bus-motion, follow-camera, tracking-presentation, bus-marker-icon
  * geometry.
  *
@@ -44,6 +44,18 @@ import { accuracyCirclePolygon } from './accuracy-circle';
 const SINGLE_POINT_ZOOM = 15;
 const MAX_FIT_ZOOM = 16;
 const FIT_PADDING = 36;
+
+/**
+ * The lowest zoom a fit may settle at.
+ *
+ * `fitBounds` settles on the **lowest** zoom that contains every stop, and a
+ * route spans several kilometres, so an unfloored fit lands around z10–z11 — the
+ * zoom at which a street map has no reason to draw road, area or place names,
+ * which made the tracking map look like an unlabeled outline. Holding the fit at
+ * a readable zoom is half of "show labels like a normal map"; the style choice in
+ * `map-style.ts` is the other half.
+ */
+const MIN_FIT_ZOOM = 13;
 
 function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -63,8 +75,13 @@ function createBusMarkerElement(): HTMLDivElement {
   const options = busIconOptions();
   const container = document.createElement('div');
   container.className = options.className;
-  // options.html is `<div class="bus-marker-rotor">SVG</div>`
+  // options.html is `<div class="bus-marker-anchor"><div class="bus-marker-rotor">SVG</div></div>`
   container.innerHTML = options.html;
+  // The box stays zero-sized on purpose (see `.bus-marker` in `globals.css`):
+  // MapLibre positions and sizes this element itself, so the graphic must live in
+  // an absolutely positioned child, or a rotated bus is clipped to its own
+  // unrotated footprint and loses its corners on a diagonal heading.
+  container.style.cssText = 'width:0;height:0;overflow:visible;';
   return container;
 }
 
@@ -254,6 +271,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
     map.fitBounds(bounds, {
       padding: FIT_PADDING,
+      minZoom: MIN_FIT_ZOOM,
       maxZoom: MAX_FIT_ZOOM,
       animate: false,
     });
