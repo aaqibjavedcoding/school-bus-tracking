@@ -62,7 +62,7 @@ export const getConductorsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     return container().staff().findOne(schoolId, UserRole.CONDUCTOR, id);
   },
 };
@@ -74,7 +74,7 @@ export const patchConductorsById: EndpointDefinition<UpdateStaffDto> = {
   bodyType: UpdateStaffDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     const dto = body;
     const member = await container().staff().update(schoolId, UserRole.CONDUCTOR, id, dto);
     await container()
@@ -98,7 +98,7 @@ export const deleteConductorsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     const result = await container().staff().remove(schoolId, UserRole.CONDUCTOR, id);
     await container()
       .audit()
@@ -157,7 +157,7 @@ export const getDriversById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['driverId']);
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     return container().staff().findOne(schoolId, UserRole.DRIVER, id);
   },
 };
@@ -169,7 +169,7 @@ export const patchDriversById: EndpointDefinition<UpdateStaffDto> = {
   bodyType: UpdateStaffDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['driverId']);
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     const dto = body;
     const member = await container().staff().update(schoolId, UserRole.DRIVER, id, dto);
     await container()
@@ -193,7 +193,7 @@ export const deleteDriversById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['driverId']);
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     const result = await container().staff().remove(schoolId, UserRole.DRIVER, id);
     await container()
       .audit()
@@ -209,7 +209,6 @@ export const deleteDriversById: EndpointDefinition = {
     return result;
   },
 };
-
 
 // ── Crew mobile login administration (Mobile-UX Phase 4) ─────────────────────
 //
@@ -266,7 +265,7 @@ export const putDriversByIdPin: EndpointDefinition<SetCrewPinDto> = {
   bodyType: SetCrewPinDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['driverId']);
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     const result: CrewPinSetResponse = await container()
       .crewAuth()
       .setPin(schoolId, UserRole.DRIVER, id, body.pin ?? null);
@@ -293,7 +292,7 @@ export const putConductorsByIdPin: EndpointDefinition<SetCrewPinDto> = {
   bodyType: SetCrewPinDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     const result: CrewPinSetResponse = await container()
       .crewAuth()
       .setPin(schoolId, UserRole.CONDUCTOR, id, body.pin ?? null);
@@ -324,7 +323,7 @@ export const postDriversByIdPairingQr: EndpointDefinition = {
   status: HttpStatus.CREATED,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['driverId']);
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     const result: CrewPairingResponse = await container()
       .crewAuth()
       .createPairingCode(schoolId, UserRole.DRIVER, id);
@@ -349,7 +348,7 @@ export const postConductorsByIdPairingQr: EndpointDefinition = {
   status: HttpStatus.CREATED,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     const result: CrewPairingResponse = await container()
       .crewAuth()
       .createPairingCode(schoolId, UserRole.CONDUCTOR, id);

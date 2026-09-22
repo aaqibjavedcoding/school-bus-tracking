@@ -268,7 +268,7 @@ export class RouteAssignmentsService {
     assertDateRange(effectiveFrom, effectiveTo);
 
     if (!dto.route_id || !dto.bus_id || !dto.user_id) {
-      throw new BadRequestException('route_id, bus_id and user_id are required');
+      throw new BadRequestException('Please select a route, a bus and a crew member.');
     }
 
     return {
@@ -297,7 +297,7 @@ export class RouteAssignmentsService {
     const isActive = dto.is_active ?? assignment.is_active;
 
     if (!routeId || !userId) {
-      throw new BadRequestException('route_id and user_id are required');
+      throw new BadRequestException('Please select a route and a crew member.');
     }
     if (!isRouteAssignmentRole(role)) {
       throw new BadRequestException(ROUTE_ASSIGNMENT_ROLE_INVALID_MESSAGE);

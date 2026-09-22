@@ -22,7 +22,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Route parameter of `GET /api/v1/reports/:report`. */
 export class ReportParamDto {
-  @IsEnum(ReportType, { message: 'Unknown report' })
+  @IsEnum(ReportType, { message: 'Please select a valid report.' })
   report!: ReportType;
 }
 
@@ -36,68 +36,68 @@ export class ReportParamDto {
 export class ReportQueryDto {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(200, { message: 'limit must be at most 200' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(200, { message: 'Please enter a value of at most 200 for the page size.' })
   limit: number = 50;
 
   @IsOptional()
-  @IsString({ message: 'search must be a string' })
-  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid search text.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the search text.' })
   search?: string;
 
   @IsOptional()
-  @IsString({ message: 'status must be a string' })
-  @MaxLength(32, { message: 'status must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid status.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the status.' })
   status?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'route_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid route.' })
   route_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'bus_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid bus.' })
   bus_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'shift_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid shift.' })
   shift_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'stop_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid stop.' })
   stop_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'driver_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid driver.' })
   driver_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'student_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid student.' })
   student_id?: string;
 
   @IsOptional()
-  @IsEnum(TripStatus, { message: 'Unknown trip status' })
+  @IsEnum(TripStatus, { message: 'Please select a valid trip status.' })
   trip_status?: TripStatus;
 
   @IsOptional()
-  @IsEnum(TripAttendanceStatus, { message: 'Unknown attendance status' })
+  @IsEnum(TripAttendanceStatus, { message: 'Please select a valid attendance status.' })
   attendance_status?: TripAttendanceStatus;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_from must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the start date as YYYY-MM-DD.' })
   date_from?: string;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_to must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the end date as YYYY-MM-DD.' })
   date_to?: string;
 
   @IsOptional()
-  @IsEnum(DataFileFormat, { message: 'format must be xlsx or csv' })
+  @IsEnum(DataFileFormat, { message: 'Please select a valid file format (one of: xlsx, csv).' })
   format?: DataFileFormat;
 }

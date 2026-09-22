@@ -273,7 +273,7 @@ export const postAuthCrewLogin: EndpointDefinition<CrewLoginDto> = {
         // Names the declared method and nothing else. The message must not echo
         // any submitted field back, because on the PIN branch one of those
         // fields is the PIN.
-        message: `body does not match method "${body.method}"`,
+        message: `Please send only the fields the "${body.method}" sign-in method uses.`,
         error: 'Bad Request',
       });
     }

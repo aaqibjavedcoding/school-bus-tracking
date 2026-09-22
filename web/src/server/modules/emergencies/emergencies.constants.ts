@@ -38,4 +38,4 @@ export const EMERGENCY_STATUS_FORBIDDEN_MESSAGE =
 
 /** Raised when a half coordinate pair is supplied. */
 export const EMERGENCY_COORDINATES_PAIR_MESSAGE =
-  'latitude and longitude must be supplied together';
+  'Please provide the latitude and longitude together.';

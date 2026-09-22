@@ -27,63 +27,63 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export class ListTripsQueryDto implements TripListQuery {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
-  @IsString({ message: 'search must be a string' })
-  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid search text.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the search text.' })
   search?: string;
 
   @IsOptional()
   @IsEnum(TripStatus, {
-    message: `status must be one of ${Object.values(TripStatus).join(', ')}`,
+    message: `Please select a valid status (one of: ${Object.values(TripStatus).join(', ')}).`,
   })
   status?: TripStatus;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'route_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route.' })
   route_id?: string;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid run.' })
   run_id?: string;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'bus_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid bus.' })
   bus_id?: string;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'driver_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid driver.' })
   driver_id?: string;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'conductor_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid conductor.' })
   conductor_id?: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('trip date')
   date?: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('start date')
   date_from?: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('end date')
   date_to?: string;
 
   @IsOptional()
   @IsIn(['full', 'minimal'] satisfies ListInclude[], {
-    message: 'include must be either full or minimal',
+    message: 'Please select a valid detail level (one of: full, minimal).',
   })
   include?: ListInclude;
 }
@@ -93,15 +93,15 @@ export class ListTripsQueryDto implements TripListQuery {
  * local makes the API reject timestamps and malformed month/day values while
  * the service performs the final range check.
  */
-function IsStringDateOnly(): PropertyDecorator {
+function IsStringDateOnly(label: string): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {
     Matches(DATE_ONLY_PATTERN, {
-      message: `${String(propertyKey)} must be in YYYY-MM-DD format`,
+      message: `Please enter the ${label} as YYYY-MM-DD.`,
     })(target, propertyKey);
     IsDateString(
       { strict: true },
       {
-        message: `${String(propertyKey)} must be a valid calendar date`,
+        message: `Please enter a real calendar date for the ${label}.`,
       },
     )(target, propertyKey);
   };

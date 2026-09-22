@@ -33,23 +33,23 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
 export class UpdateRunDto implements RunUpdateRequest {
   @IsOptional()
   @ValidateIf((_object, value) => value !== null)
-  @IsUUID(undefined, { message: 'shift_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid shift.' })
   declare shift_id?: string | null;
 
   @IsOptional()
   @ValidateIf((_object, value) => value !== null)
-  @IsUUID(undefined, { message: 'bus_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid bus.' })
   declare bus_id?: string | null;
 
   @IsOptional()
-  @IsString({ message: 'code must be a string' })
-  @IsNotEmpty({ message: 'code cannot be empty' })
-  @MaxLength(32, { message: 'code must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid code.' })
+  @IsNotEmpty({ message: 'Please enter the code.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the code.' })
   @Transform(trimValue)
   declare code?: string;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

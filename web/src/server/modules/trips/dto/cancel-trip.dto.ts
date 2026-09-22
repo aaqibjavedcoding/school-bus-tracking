@@ -14,8 +14,8 @@ const trimmed = ({ value }: { value: unknown }): unknown =>
 export class CancelTripDto implements TripCancelRequest {
   @IsOptional()
   @Transform(trimmed)
-  @IsString({ message: 'cancellation_reason must be a string' })
-  @MinLength(1, { message: 'cancellation_reason cannot be empty' })
-  @MaxLength(500, { message: 'cancellation_reason must be at most 500 characters' })
+  @IsString({ message: 'Please enter a valid cancellation reason.' })
+  @MinLength(1, { message: 'Please enter a value for the cancellation reason.' })
+  @MaxLength(500, { message: 'Please enter at most 500 characters for the cancellation reason.' })
   declare cancellation_reason?: string | null;
 }

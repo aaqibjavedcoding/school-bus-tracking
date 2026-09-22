@@ -128,7 +128,7 @@ export const getAdminSchoolsBySchoolIdManageRouteassignments: EndpointDefinition
   status: HttpStatus.OK,
   queryType: ListRouteAssignmentsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().routeAssignments().findAll(schoolId, query);
   },
 };
@@ -140,8 +140,8 @@ export const getAdminSchoolsBySchoolIdManageRouteassignmentsById: EndpointDefini
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route assignment' });
     return container().routeAssignments().findOne(schoolId, id);
   },
 };
@@ -184,7 +184,7 @@ export const postAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<CreateSh
   status: HttpStatus.CREATED,
   bodyType: CreateShiftDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().shifts().create(schoolId, body);
   },
 };
@@ -200,7 +200,7 @@ export const getAdminSchoolsBySchoolIdManageShifts: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListShiftsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().shifts().findAll(schoolId, query);
   },
 };
@@ -211,8 +211,8 @@ export const getAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().findOne(schoolId, id);
   },
 };
@@ -224,8 +224,8 @@ export const patchAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition<Upd
   status: HttpStatus.OK,
   bodyType: UpdateShiftDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().update(schoolId, id, body);
   },
 };
@@ -236,8 +236,8 @@ export const deleteAdminSchoolsBySchoolIdManageShiftsById: EndpointDefinition = 
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().remove(schoolId, id);
   },
 };
@@ -249,7 +249,7 @@ export const postAdminSchoolsBySchoolIdManageRuns: EndpointDefinition<CreateRunD
   status: HttpStatus.CREATED,
   bodyType: CreateRunDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().runs().create(schoolId, body);
   },
 };
@@ -262,7 +262,7 @@ export const getAdminSchoolsBySchoolIdManageRuns: EndpointDefinition<unknown, Li
   status: HttpStatus.OK,
   queryType: ListRunsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().runs().findAll(schoolId, query);
   },
 };
@@ -273,8 +273,8 @@ export const getAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().findOne(schoolId, id);
   },
 };
@@ -286,8 +286,8 @@ export const patchAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition<Updat
   status: HttpStatus.OK,
   bodyType: UpdateRunDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().update(schoolId, id, body);
   },
 };
@@ -298,8 +298,8 @@ export const deleteAdminSchoolsBySchoolIdManageRunsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().remove(schoolId, id);
   },
 };
@@ -320,8 +320,8 @@ export const getAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListRunCrewQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runCrew().findAllForRun(schoolId, id, query);
   },
 };
@@ -333,8 +333,8 @@ export const postAdminSchoolsBySchoolIdManageRunsByIdCrew: EndpointDefinition<Cr
   status: HttpStatus.CREATED,
   bodyType: CreateRunCrewDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runCrew().create(schoolId, id, body);
   },
 };
@@ -345,8 +345,8 @@ export const getAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().findOne(schoolId, id);
   },
 };
@@ -358,8 +358,8 @@ export const patchAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition<Up
   status: HttpStatus.OK,
   bodyType: UpdateRunCrewDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().update(schoolId, id, body);
   },
 };
@@ -370,8 +370,8 @@ export const deleteAdminSchoolsBySchoolIdManageRuncrewById: EndpointDefinition =
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().remove(schoolId, id);
   },
 };
@@ -383,7 +383,7 @@ export const postAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<CreateBus
   status: HttpStatus.CREATED,
   bodyType: CreateBusDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().buses().create(schoolId, dto);
   },
@@ -398,7 +398,7 @@ export const getAdminSchoolsBySchoolIdManageBuses: EndpointDefinition<unknown, L
     status: HttpStatus.OK,
     queryType: ListBusesQueryDto,
     handler: async ({ query, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
       return container().buses().findAll(schoolId, query);
     },
   };
@@ -409,8 +409,8 @@ export const getAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['busId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     return container().buses().findOne(schoolId, id);
   },
 };
@@ -422,8 +422,8 @@ export const patchAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition<Upda
   status: HttpStatus.OK,
   bodyType: UpdateBusDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['busId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     const dto = body;
     return container().buses().update(schoolId, id, dto);
   },
@@ -435,8 +435,8 @@ export const deleteAdminSchoolsBySchoolIdManageBusesById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['busId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     return container().buses().remove(schoolId, id);
   },
 };
@@ -477,7 +477,7 @@ export const getAdminSchoolsBySchoolIdManageImportsHistory: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListImportJobsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().importHistory().list(schoolId, query);
   },
 };
@@ -488,8 +488,8 @@ export const getAdminSchoolsBySchoolIdManageImportsHistoryById: EndpointDefiniti
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'import' });
     return container().importHistory().findOne(schoolId, id);
   },
 };
@@ -501,7 +501,7 @@ export const postAdminSchoolsBySchoolIdManageParents: EndpointDefinition<CreateP
   status: HttpStatus.CREATED,
   bodyType: CreateParentDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().parents().create(schoolId, dto);
   },
@@ -518,7 +518,7 @@ export const getAdminSchoolsBySchoolIdManageParents: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListParentsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().parents().findAll(schoolId, query);
   },
 };
@@ -529,8 +529,8 @@ export const getAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinitio
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
     return container().parents().findOne(schoolId, parentId);
   },
 };
@@ -543,8 +543,8 @@ export const patchAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefinit
     status: HttpStatus.OK,
     bodyType: UpdateParentDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const parentId = parseUuidParam(params['parentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       const dto = body;
       return container().parents().update(schoolId, parentId, dto);
     },
@@ -556,8 +556,8 @@ export const deleteAdminSchoolsBySchoolIdManageParentsByParentId: EndpointDefini
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
     return container().parents().remove(schoolId, parentId);
   },
 };
@@ -570,8 +570,8 @@ export const postAdminSchoolsBySchoolIdManageParentsByParentIdStudents: Endpoint
     status: HttpStatus.CREATED,
     bodyType: CreateParentStudentRelationshipDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const parentId = parseUuidParam(params['parentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       const dto = body;
       return container().parentGuardians().createForParent(schoolId, parentId, dto);
     },
@@ -583,8 +583,8 @@ export const getAdminSchoolsBySchoolIdManageParentsByParentIdStudents: EndpointD
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const parentId = parseUuidParam(params['parentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
     return container().parentGuardians().listForParent(schoolId, parentId);
   },
 };
@@ -597,9 +597,9 @@ export const patchAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStudent
     status: HttpStatus.OK,
     bodyType: UpdateParentStudentRelationshipDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const parentId = parseUuidParam(params['parentId']);
-      const studentId = parseUuidParam(params['studentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
       const dto = body;
       return container().parentGuardians().updateForParent(schoolId, parentId, studentId, dto);
     },
@@ -612,9 +612,9 @@ export const deleteAdminSchoolsBySchoolIdManageParentsByParentIdStudentsByStuden
     roles: [UserRole.SUPER_ADMIN],
     status: HttpStatus.OK,
     handler: async ({ params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const parentId = parseUuidParam(params['parentId']);
-      const studentId = parseUuidParam(params['studentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
       return container().parentGuardians().removeForParent(schoolId, parentId, studentId);
     },
   };
@@ -665,7 +665,7 @@ export const postAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<CreateRo
   status: HttpStatus.CREATED,
   bodyType: CreateRouteDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().routes().create(schoolId, dto);
   },
@@ -682,7 +682,7 @@ export const getAdminSchoolsBySchoolIdManageRoutes: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListRoutesQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().routes().findAll(schoolId, query);
   },
 };
@@ -693,8 +693,8 @@ export const getAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().findOne(schoolId, id);
   },
 };
@@ -705,8 +705,8 @@ export const getAdminSchoolsBySchoolIdManageRoutesByIdDetails: EndpointDefinitio
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().getDetails(schoolId, id);
   },
 };
@@ -718,8 +718,8 @@ export const patchAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition<Upd
   status: HttpStatus.OK,
   bodyType: UpdateRouteDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route' });
     const dto = body;
     return container().routes().update(schoolId, id, dto);
   },
@@ -731,8 +731,8 @@ export const deleteAdminSchoolsBySchoolIdManageRoutesById: EndpointDefinition = 
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().remove(schoolId, id);
   },
 };
@@ -743,8 +743,8 @@ export const getAdminSchoolsBySchoolIdManageRoutesByIdStops: EndpointDefinition 
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().findRouteStops(schoolId, id);
   },
 };
@@ -757,8 +757,8 @@ export const putAdminSchoolsBySchoolIdManageRoutesByIdStops: EndpointDefinition<
     status: HttpStatus.OK,
     bodyType: ReorderRouteStopsDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const id = parseUuidParam(params['id']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const id = parseUuidParam(params['id'], { label: 'route' });
       const dto = body;
       return container().routes().reorderRouteStops(schoolId, id, dto);
     },
@@ -771,7 +771,7 @@ export const postAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<CreateS
   status: HttpStatus.CREATED,
   bodyType: CreateStaffDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().staff().create(schoolId, UserRole.DRIVER, dto);
   },
@@ -788,7 +788,7 @@ export const getAdminSchoolsBySchoolIdManageDrivers: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListStaffQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().staff().findAll(schoolId, UserRole.DRIVER, query);
   },
 };
@@ -799,8 +799,8 @@ export const getAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['driverId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     return container().staff().findOne(schoolId, UserRole.DRIVER, id);
   },
 };
@@ -812,8 +812,8 @@ export const patchAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition<Up
   status: HttpStatus.OK,
   bodyType: UpdateStaffDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['driverId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     const dto = body;
     return container().staff().update(schoolId, UserRole.DRIVER, id, dto);
   },
@@ -825,8 +825,8 @@ export const deleteAdminSchoolsBySchoolIdManageDriversById: EndpointDefinition =
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['driverId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['driverId'], { label: 'driver' });
     return container().staff().remove(schoolId, UserRole.DRIVER, id);
   },
 };
@@ -838,7 +838,7 @@ export const postAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<Crea
   status: HttpStatus.CREATED,
   bodyType: CreateStaffDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().staff().create(schoolId, UserRole.CONDUCTOR, dto);
   },
@@ -855,7 +855,7 @@ export const getAdminSchoolsBySchoolIdManageConductors: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListStaffQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().staff().findAll(schoolId, UserRole.CONDUCTOR, query);
   },
 };
@@ -866,8 +866,8 @@ export const getAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinition =
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     return container().staff().findOne(schoolId, UserRole.CONDUCTOR, id);
   },
 };
@@ -879,8 +879,8 @@ export const patchAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinition
   status: HttpStatus.OK,
   bodyType: UpdateStaffDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     const dto = body;
     return container().staff().update(schoolId, UserRole.CONDUCTOR, id, dto);
   },
@@ -892,8 +892,8 @@ export const deleteAdminSchoolsBySchoolIdManageConductorsById: EndpointDefinitio
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'conductor' });
     return container().staff().remove(schoolId, UserRole.CONDUCTOR, id);
   },
 };
@@ -905,7 +905,7 @@ export const postAdminSchoolsBySchoolIdManageStops: EndpointDefinition<CreateSto
   status: HttpStatus.CREATED,
   bodyType: CreateStopDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().stops().create(schoolId, dto);
   },
@@ -920,7 +920,7 @@ export const getAdminSchoolsBySchoolIdManageStops: EndpointDefinition<unknown, L
     status: HttpStatus.OK,
     queryType: ListStopsQueryDto,
     handler: async ({ query, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
       return container().stops().findAll(schoolId, query);
     },
   };
@@ -931,8 +931,8 @@ export const getAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     return container().stops().findOne(schoolId, id);
   },
 };
@@ -944,8 +944,8 @@ export const patchAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition<Upda
   status: HttpStatus.OK,
   bodyType: UpdateStopDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     const dto = body;
     return container().stops().update(schoolId, id, dto);
   },
@@ -957,8 +957,8 @@ export const deleteAdminSchoolsBySchoolIdManageStopsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['id']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     return container().stops().remove(schoolId, id);
   },
 };
@@ -971,8 +971,8 @@ export const postAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: Endpo
     status: HttpStatus.CREATED,
     bodyType: CreateStudentGuardianDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const studentId = parseUuidParam(params['studentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
       const dto = body;
       return container().parentGuardians().createForStudent(schoolId, studentId, dto);
     },
@@ -984,8 +984,8 @@ export const getAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardians: Endpoi
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const studentId = parseUuidParam(params['studentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     return container().parentGuardians().listForStudent(schoolId, studentId);
   },
 };
@@ -998,9 +998,9 @@ export const patchAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByPare
     status: HttpStatus.OK,
     bodyType: UpdateParentStudentRelationshipDto,
     handler: async ({ body, params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const studentId = parseUuidParam(params['studentId']);
-      const parentId = parseUuidParam(params['parentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       const dto = body;
       return container().parentGuardians().updateForStudent(schoolId, studentId, parentId, dto);
     },
@@ -1013,9 +1013,9 @@ export const deleteAdminSchoolsBySchoolIdManageStudentsByStudentIdGuardiansByPar
     roles: [UserRole.SUPER_ADMIN],
     status: HttpStatus.OK,
     handler: async ({ params }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const studentId = parseUuidParam(params['studentId']);
-      const parentId = parseUuidParam(params['parentId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       return container().parentGuardians().removeForStudent(schoolId, studentId, parentId);
     },
   };
@@ -1027,7 +1027,7 @@ export const postAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<Create
   status: HttpStatus.CREATED,
   bodyType: CreateStudentDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     return container().students().create(schoolId, dto);
   },
@@ -1044,7 +1044,7 @@ export const getAdminSchoolsBySchoolIdManageStudents: EndpointDefinition<
   status: HttpStatus.OK,
   queryType: ListStudentsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().students().findAll(schoolId, query);
   },
 };
@@ -1055,8 +1055,8 @@ export const getAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['studentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     return container().students().findOne(schoolId, id);
   },
 };
@@ -1068,8 +1068,8 @@ export const patchAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition<U
   status: HttpStatus.OK,
   bodyType: UpdateStudentDto,
   handler: async ({ body, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['studentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     const dto = body;
     return container().students().update(schoolId, id, dto);
   },
@@ -1081,8 +1081,8 @@ export const deleteAdminSchoolsBySchoolIdManageStudentsById: EndpointDefinition 
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const id = parseUuidParam(params['studentId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     return container().students().remove(schoolId, id);
   },
 };
@@ -1165,8 +1165,11 @@ export const getAdminSchoolsBySchoolIdManageImportsHistoryByIdErrorfile: Endpoin
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
-    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
-    const id = parseUuidParam(params['id'], '4');
+    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], {
+      version: '4',
+      label: 'school',
+    });
+    const id = parseUuidParam(params['id'], { version: '4', label: 'import' });
     const context = await assistedContext(schoolId, user.id);
     const file = await container().importHistory().buildErrorFile(schoolId, user.id, id, context);
     return bufferFileResponse(
@@ -1187,7 +1190,10 @@ export const getAdminSchoolsBySchoolIdManageImportsByModuleTemplate: EndpointDef
   status: HttpStatus.OK,
   queryType: ImportTemplateQueryDto,
   handler: async ({ user, query, params }) => {
-    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], {
+      version: '4',
+      label: 'school',
+    });
     const routeParams = await validateDto(AdminManageImportModuleParamDto, params, 'param');
     const typedQuery = query;
     const context = await assistedContext(schoolId, user.id);
@@ -1231,7 +1237,10 @@ export const postAdminSchoolsBySchoolIdManageImportsByModuleValidate: EndpointDe
   status: HttpStatus.OK,
   queryType: ImportUploadDto,
   handler: async ({ user, query, params, raw }) => {
-    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], {
+      version: '4',
+      label: 'school',
+    });
     const routeParams = await validateDto(AdminManageImportModuleParamDto, params, 'param');
     const typedQuery = query;
     const file = await parseUploadedSpreadsheet(raw, 'file', MAX_IMPORT_FILE_BYTES);
@@ -1259,7 +1268,10 @@ export const postAdminSchoolsBySchoolIdManageImportsByModuleCommit: EndpointDefi
   status: HttpStatus.OK,
   queryType: ImportUploadDto,
   handler: async ({ user, query, params, raw }) => {
-    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    const schoolId = parseUuidParam(params[MANAGED_SCHOOL_PARAM], {
+      version: '4',
+      label: 'school',
+    });
     const routeParams = await validateDto(AdminManageImportModuleParamDto, params, 'param');
     const typedQuery = query;
     const file = await parseUploadedSpreadsheet(raw, 'file', MAX_IMPORT_FILE_BYTES);
@@ -1345,7 +1357,7 @@ export const postAdminSchoolsBySchoolIdManageSession: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   handler: async ({ user, params, request }) => {
-    parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    parseUuidParam(params[MANAGED_SCHOOL_PARAM], { version: '4', label: 'school' });
     const school = requireManaged(request);
     const session = await container()
       .assistedSession()
@@ -1365,7 +1377,7 @@ export const getAdminSchoolsBySchoolIdManageSessionCurrent: EndpointDefinition =
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    parseUuidParam(params[MANAGED_SCHOOL_PARAM], { version: '4', label: 'school' });
     const school = requireManaged(request);
     const session = await container().assistedSession().findOpen(school.id, user.id);
     return {
@@ -1382,7 +1394,7 @@ export const postAdminSchoolsBySchoolIdManageSessionEnd: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    parseUuidParam(params[MANAGED_SCHOOL_PARAM], '4');
+    parseUuidParam(params[MANAGED_SCHOOL_PARAM], { version: '4', label: 'school' });
     const school = requireManaged(request);
     const session = await container().assistedSession().end(school, { userId: user.id });
     return {

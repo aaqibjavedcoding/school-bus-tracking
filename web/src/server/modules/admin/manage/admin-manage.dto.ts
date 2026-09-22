@@ -17,16 +17,16 @@ import { ReportParamDto } from '../../../modules/reports/dto/report-query.dto';
  * whitelist matches the path.
  */
 export class AdminManageImportModuleParamDto extends ImportModuleParamDto {
-  @IsUUID(4, { message: 'schoolId must be a uuid' })
+  @IsUUID(4, { message: 'Please select a valid school.' })
   declare schoolId: string;
 }
 
 export class AdminManageExportDatasetParamDto extends ExportDatasetParamDto {
-  @IsUUID(4, { message: 'schoolId must be a uuid' })
+  @IsUUID(4, { message: 'Please select a valid school.' })
   declare schoolId: string;
 }
 
 export class AdminManageReportParamDto extends ReportParamDto {
-  @IsUUID(4, { message: 'schoolId must be a uuid' })
+  @IsUUID(4, { message: 'Please select a valid school.' })
   declare schoolId: string;
 }

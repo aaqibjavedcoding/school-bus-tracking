@@ -31,7 +31,7 @@ export const IMPORT_ERROR_FILE_UNAVAILABLE_MESSAGE =
   'This import run has no error file to download';
 
 /** Returned when the multipart request carried no file part. */
-export const IMPORT_FILE_REQUIRED_MESSAGE = 'A spreadsheet file is required';
+export const IMPORT_FILE_REQUIRED_MESSAGE = 'Please attach a spreadsheet file (.xlsx or .csv).';
 
 /** Returned for an unsupported extension / content type. */
 export const IMPORT_FILE_TYPE_MESSAGE =

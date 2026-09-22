@@ -235,7 +235,7 @@ export class AdminSchoolsService {
     if (dto.timezone !== undefined) updates.timezone = dto.timezone.trim();
 
     if (Object.keys(updates).length === 0) {
-      throw new BadRequestException('No valid school profile fields provided');
+      throw new BadRequestException('Please provide at least one school profile field to update.');
     }
 
     if (updates.email !== undefined && updates.email !== null) {

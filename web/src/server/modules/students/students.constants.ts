@@ -33,8 +33,7 @@ export const STUDENT_HOME_STOP_INVALID_MESSAGE =
  * authenticated school (or has been deleted). Generic on purpose — a run of
  * another tenant must be indistinguishable from one that does not exist.
  */
-export const STUDENT_RUN_INVALID_MESSAGE =
-  'Referenced run does not belong to this school';
+export const STUDENT_RUN_INVALID_MESSAGE = 'Referenced run does not belong to this school';
 
 /**
  * Message returned when the allocated run's route does not serve the
@@ -42,18 +41,18 @@ export const STUDENT_RUN_INVALID_MESSAGE =
  * route actually serves the student's home stop").
  */
 export const STUDENT_RUN_ROUTE_MISMATCH_MESSAGE =
-  'The assigned run does not serve the student\'s home stop route';
+  "The assigned run does not serve the student's home stop route";
 
 /** Message returned when a referenced run exists but is inactive. */
-export const STUDENT_RUN_INACTIVE_MESSAGE =
-  'The assigned run is not active';
+export const STUDENT_RUN_INACTIVE_MESSAGE = 'The assigned run is not active';
 
 /** Message returned on an admission-number conflict inside the same school. */
 export const STUDENT_ADMISSION_NUMBER_TAKEN_MESSAGE =
   'A student with this admission number already exists in this school';
 
 /** Message returned when a calendar-valid shape is not a real date. */
-export const STUDENT_DATE_OF_BIRTH_INVALID_MESSAGE = 'date_of_birth must be a valid calendar date';
+export const STUDENT_DATE_OF_BIRTH_INVALID_MESSAGE =
+  'Please enter a real date of birth (for example 2015-04-01).';
 
 /** Confirmation message returned by soft delete. */
 export const STUDENT_DELETED_MESSAGE = 'Student deleted successfully';

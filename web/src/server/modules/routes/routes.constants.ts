@@ -36,7 +36,8 @@ export const ROUTE_STOPS_ORDER_DUPLICATE_MESSAGE =
   'Each stop id must appear exactly once in stop_ids';
 
 /** Message returned when the order payload does not list every route stop. */
-export const ROUTE_STOPS_ORDER_INCOMPLETE_MESSAGE = 'stop_ids must contain every stop of the route';
+export const ROUTE_STOPS_ORDER_INCOMPLETE_MESSAGE =
+  'Please list every stop of the route in stop_ids.';
 
 /** Message returned when a stop id in the payload is not on this route. */
 export const ROUTE_STOPS_ORDER_UNKNOWN_STOP_MESSAGE =

@@ -1,4 +1,13 @@
-export { DocumentFieldsDto } from './document-fields.dto';
+export {
+  DocumentCreateFieldsDto,
+  DocumentFileFieldsDto,
+  DocumentFieldsDto,
+  ExpiryAfterIssue,
+  IsDocumentDate,
+  IsDocumentNumber,
+  IsFileUrl,
+  nullableTrim,
+} from './document-fields.dto';
 export { CreateBusDocumentDto } from './create-bus-document.dto';
 export { UpdateBusDocumentDto } from './update-bus-document.dto';
 export { CreateDriverDocumentDto } from './create-driver-document.dto';

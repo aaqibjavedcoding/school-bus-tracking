@@ -15,23 +15,23 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
 export class ListRunCrewQueryDto implements RunCrewListQuery {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
-  @IsEnum(RunCrewRole, { message: 'role must be DRIVER or CONDUCTOR' })
+  @IsEnum(RunCrewRole, { message: 'Please select a valid role (one of: DRIVER, CONDUCTOR).' })
   role?: RunCrewRole;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   is_active?: boolean;
 }

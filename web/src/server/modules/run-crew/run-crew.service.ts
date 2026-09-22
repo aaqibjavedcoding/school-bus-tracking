@@ -530,7 +530,7 @@ export class RunCrewService {
       throw new BadRequestException(RUN_CREW_ROLE_INVALID_MESSAGE);
     }
     if (!dto.user_id) {
-      throw new BadRequestException('user_id is required');
+      throw new BadRequestException('Please select a crew member.');
     }
     const effectiveFrom = normalizeDateOnly(dto.effective_from);
     const effectiveTo = normalizeNullableDateOnly(dto.effective_to);

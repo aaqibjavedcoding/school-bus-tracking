@@ -27,57 +27,61 @@ const trimValue = ({ value }: { value: unknown }): unknown =>
  * `route_id` is validated against the authenticated school by the service.
  */
 export class CreateStopDto implements StopCreateRequest {
-  @IsUUID(undefined, { message: 'route_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route.' })
   route_id!: string;
 
-  @IsString({ message: 'name must be a string' })
-  @IsNotEmpty({ message: 'name is required' })
-  @MaxLength(150, { message: 'name must be at most 150 characters' })
+  @IsString({ message: 'Please enter a valid name.' })
+  @IsNotEmpty({ message: 'Please enter the name.' })
+  @MaxLength(150, { message: 'Please enter at most 150 characters for the name.' })
   @Transform(trimValue)
   name!: string;
 
   @IsOptional()
-  @IsString({ message: 'address must be a string' })
-  @MaxLength(500, { message: 'address must be at most 500 characters' })
+  @IsString({ message: 'Please enter a valid address.' })
+  @MaxLength(500, { message: 'Please enter at most 500 characters for the address.' })
   @Transform(trimValue)
   declare address?: string | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'latitude must be a number' })
-  @Min(-90, { message: 'latitude must be between -90 and 90' })
-  @Max(90, { message: 'latitude must be between -90 and 90' })
+  @IsNumber({}, { message: 'Please enter a valid number for the latitude.' })
+  @Min(-90, { message: 'Please enter a value between -90 and 90 for the latitude.' })
+  @Max(90, { message: 'Please enter a value between -90 and 90 for the latitude.' })
   declare latitude?: number | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'longitude must be a number' })
-  @Min(-180, { message: 'longitude must be between -180 and 180' })
-  @Max(180, { message: 'longitude must be between -180 and 180' })
+  @IsNumber({}, { message: 'Please enter a valid number for the longitude.' })
+  @Min(-180, { message: 'Please enter a value between -180 and 180 for the longitude.' })
+  @Max(180, { message: 'Please enter a value between -180 and 180 for the longitude.' })
   declare longitude?: number | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'geofence_radius_meters must be an integer' })
-  @Min(10, { message: 'geofence_radius_meters must be between 10 and 2000' })
-  @Max(2000, { message: 'geofence_radius_meters must be between 10 and 2000' })
+  @IsInt({ message: 'Please enter a whole number for the geofence radius in metres.' })
+  @Min(10, {
+    message: 'Please enter a value between 10 and 2000 for the geofence radius in metres.',
+  })
+  @Max(2000, {
+    message: 'Please enter a value between 10 and 2000 for the geofence radius in metres.',
+  })
   declare geofence_radius_meters?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'sequence_number must be an integer' })
-  @Min(1, { message: 'sequence_number must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the stop order.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the stop order.' })
   declare sequence_number?: number;
 
   @IsOptional()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/, {
-    message: 'estimated_arrival_time must be in HH:MM or HH:MM:SS format',
+    message: 'Please enter the estimated arrival time as HH:MM or HH:MM:SS.',
   })
   @Transform(trimValue)
   declare estimated_arrival_time?: string | null;
 
   @IsOptional()
   @Type(() => Boolean)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

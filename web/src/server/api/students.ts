@@ -60,7 +60,7 @@ export const getStudentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['studentId']);
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     return container().students().findOneForActor(actor, id);
   },
 };
@@ -72,7 +72,7 @@ export const patchStudentsById: EndpointDefinition<UpdateStudentDto> = {
   bodyType: UpdateStudentDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['studentId']);
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     const dto = body;
     const student = await container().students().update(schoolId, id, dto);
     await container()
@@ -95,7 +95,7 @@ export const deleteStudentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['studentId']);
+    const id = parseUuidParam(params['studentId'], { label: 'student' });
     const result = await container().students().remove(schoolId, id);
     await container()
       .audit()

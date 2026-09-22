@@ -32,8 +32,9 @@ import {
  * hex digits — so a seeder can happily write ids the rest of the stack then
  * refuses. That is exactly how `00000000-0000-4000-0101-000000000001` (variant
  * nibble `0` instead of `8`–`b`) got into the four-dummy-schools seeder and
- * made Super Admin → Schools → "Manage data" fail with
- * `Validation failed (uuid is expected)`.
+ * made Super Admin → Schools → "Manage data" fail: the managed-school guard
+ * refused the id with its plain-language message instead of ever reaching the
+ * school.
  *
  * These tests are the guard rail against reintroducing it.
  */
@@ -191,9 +192,9 @@ describe('Manage data entry point accepts the seeded school ids', () => {
       guard.canActivate(context),
       (error: { status?: number; message?: string }) => {
         assert.equal(error.status, 400);
-        // Not the opaque `Validation failed (uuid is expected)` the handler
-        // used to raise after the school had already been loaded.
-        assert.match(String(error.message), /School id must be a UUID/);
+        // An actionable message naming the resource, not a parser complaint:
+        // the guard rejects the id before the school is ever loaded.
+        assert.match(String(error.message), /Please select a valid school/);
         return true;
       },
     );

@@ -21,7 +21,7 @@ export const SHIFT_NOT_FOUND_MESSAGE = 'Shift not found';
 export const SHIFT_NAME_TAKEN_MESSAGE = 'A shift with this name already exists in this school';
 
 /** Message returned when `end_time` is not later than `start_time`. */
-export const SHIFT_WINDOW_INVALID_MESSAGE = 'end_time must be later than start_time';
+export const SHIFT_WINDOW_INVALID_MESSAGE = 'Please enter an end time later than the start time.';
 
 /**
  * `DELETE /shifts/:id` refuses (409) while the shift still has live runs —

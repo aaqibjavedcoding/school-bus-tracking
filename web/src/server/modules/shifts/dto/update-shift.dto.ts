@@ -23,26 +23,26 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  */
 export class UpdateShiftDto implements ShiftUpdateRequest {
   @IsOptional()
-  @IsString({ message: 'name must be a string' })
-  @IsNotEmpty({ message: 'name cannot be empty' })
-  @MaxLength(80, { message: 'name must be at most 80 characters' })
+  @IsString({ message: 'Please enter a valid name.' })
+  @IsNotEmpty({ message: 'Please enter the name.' })
+  @MaxLength(80, { message: 'Please enter at most 80 characters for the name.' })
   @Transform(trimValue)
   declare name?: string;
 
   @IsOptional()
-  @IsString({ message: 'start_time must be a string' })
-  @Matches(SHIFT_TIME_PATTERN, { message: 'start_time must be in HH:MM or HH:MM:SS format' })
+  @IsString({ message: 'Please enter a valid start time.' })
+  @Matches(SHIFT_TIME_PATTERN, { message: 'Please enter the start time as HH:MM or HH:MM:SS.' })
   @Transform(trimValue)
   declare start_time?: string;
 
   @IsOptional()
-  @IsString({ message: 'end_time must be a string' })
-  @Matches(SHIFT_TIME_PATTERN, { message: 'end_time must be in HH:MM or HH:MM:SS format' })
+  @IsString({ message: 'Please enter a valid end time.' })
+  @Matches(SHIFT_TIME_PATTERN, { message: 'Please enter the end time as HH:MM or HH:MM:SS.' })
   @Transform(trimValue)
   declare end_time?: string;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

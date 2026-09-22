@@ -13,54 +13,54 @@ import { AdminSchoolUpdateRequest } from '@school-bus-tracking/shared-types';
  */
 export class UpdateAdminSchoolDto implements AdminSchoolUpdateRequest {
   @IsOptional()
-  @IsString({ message: 'name must be a string' })
-  @IsNotEmpty({ message: 'name is required' })
-  @MaxLength(150, { message: 'name must be at most 150 characters' })
+  @IsString({ message: 'Please enter a valid name.' })
+  @IsNotEmpty({ message: 'Please enter the name.' })
+  @MaxLength(150, { message: 'Please enter at most 150 characters for the name.' })
   name?: string;
 
   @IsOptional()
-  @IsEmail({}, { message: 'email must be a valid email address' })
-  @MaxLength(255, { message: 'email must be at most 255 characters' })
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
+  @MaxLength(255, { message: 'Please enter at most 255 characters for the email address.' })
   email?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(32, { message: 'phone must be at most 32 characters' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the phone number.' })
   phone?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(255, { message: 'address_line1 must be at most 255 characters' })
+  @MaxLength(255, { message: 'Please enter at most 255 characters for the address line 1.' })
   address_line1?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(255, { message: 'address_line2 must be at most 255 characters' })
+  @MaxLength(255, { message: 'Please enter at most 255 characters for the address line 2.' })
   address_line2?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(100, { message: 'city must be at most 100 characters' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the city.' })
   city?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(100, { message: 'state must be at most 100 characters' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the state.' })
   state?: string | null;
 
   @IsOptional()
   @IsString()
-  @MaxLength(20, { message: 'postal_code must be at most 20 characters' })
+  @MaxLength(20, { message: 'Please enter at most 20 characters for the postal code.' })
   postal_code?: string | null;
 
   @IsOptional()
   @IsString()
-  @Matches(/^[A-Za-z]{2}$/, { message: 'country must be a 2-letter ISO country code' })
+  @Matches(/^[A-Za-z]{2}$/, { message: 'Please enter a valid 2-letter country code.' })
   country?: string | null;
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'timezone is required' })
-  @MaxLength(64, { message: 'timezone must be at most 64 characters' })
+  @IsNotEmpty({ message: 'Please enter the timezone.' })
+  @MaxLength(64, { message: 'Please enter at most 64 characters for the timezone.' })
   timezone?: string;
 }

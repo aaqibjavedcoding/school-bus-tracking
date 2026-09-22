@@ -83,7 +83,7 @@ export const patchEmergenciesByIdCancel: EndpointDefinition<CancelEmergencyDto> 
   status: HttpStatus.OK,
   bodyType: CancelEmergencyDto,
   handler: async ({ user, body, params, request }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'emergency' });
     const dto = body;
     const actor = tenantUser(user);
     const event = await container()
@@ -136,7 +136,7 @@ export const getEmergenciesById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'emergency' });
     return container().emergencies().findOne(schoolId, id);
   },
 };
@@ -148,7 +148,7 @@ export const patchEmergenciesByIdStatus: EndpointDefinition<UpdateEmergencyStatu
   status: HttpStatus.OK,
   bodyType: UpdateEmergencyStatusDto,
   handler: async ({ user, body, params, request }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'emergency' });
     const dto = body;
     const actor = tenantUser(user);
     const event = await container().emergencies().updateStatus(actor, id, dto);

@@ -11,21 +11,33 @@ import { TripUpdateRequest } from '@school-bus-tracking/shared-types';
 export class UpdateTripDto implements TripUpdateRequest {
   /** Re-dispatch onto this run (preferred over the deprecated assignment id). */
   @IsOptional()
-  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid run.' })
   run_id?: string;
 
   /**
    * @deprecated Prefer `run_id`; kept for pre-refactor callers.
    */
   @IsOptional()
-  @IsUUID(undefined, { message: 'route_assignment_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route assignment.' })
   route_assignment_id?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true }, { message: 'scheduled_start_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the scheduled start time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   scheduled_start_at?: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true }, { message: 'scheduled_end_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the scheduled end time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   declare scheduled_end_at?: string | null;
 }

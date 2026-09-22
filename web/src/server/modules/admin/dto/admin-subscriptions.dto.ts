@@ -34,16 +34,17 @@ import {
  * projection for "this school has no subscription", never a stored state.
  */
 
-const ISO_MESSAGE = (field: string): string => `${field} must be a valid ISO-8601 date-time`;
+const ISO_MESSAGE = (field: string): string =>
+  `Please enter the ${field.replace(/_/g, ' ')} as a date and time, for example 2026-04-01T08:30:00Z.`;
 
 /** Body of `POST /api/v1/admin/schools/:schoolId/subscription`. */
 export class CreateSchoolSubscriptionDto implements AdminSchoolSubscriptionCreateRequest {
-  @IsUUID('4', { message: 'plan_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid plan.' })
   plan_id!: string;
 
   @IsOptional()
   @IsIn(ASSIGNABLE_SUBSCRIPTION_STATUS_VALUES, {
-    message: 'status must be one of trialing, active, past_due',
+    message: 'Please select a valid subscription status (one of: trialing, active, past_due).',
   })
   status?: SubscriptionStatus;
 
@@ -73,12 +74,13 @@ export class CreateSchoolSubscriptionDto implements AdminSchoolSubscriptionCreat
  */
 export class UpdateSchoolSubscriptionDto implements AdminSchoolSubscriptionUpdateRequest {
   @IsOptional()
-  @IsUUID('4', { message: 'plan_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid plan.' })
   plan_id?: string;
 
   @IsOptional()
   @IsIn(PERSISTED_SUBSCRIPTION_STATUS_VALUES, {
-    message: 'status must be one of trialing, active, past_due, cancelled, expired',
+    message:
+      'Please select a valid subscription status (one of: trialing, active, past_due, cancelled, expired).',
   })
   status?: SubscriptionStatus;
 
@@ -116,32 +118,33 @@ export class CancelSchoolSubscriptionDto implements AdminSchoolSubscriptionCance
 export class ListAdminSubscriptionsQueryDto {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
-  @IsString({ message: 'search must be a string' })
+  @IsString({ message: 'Please enter a valid search text.' })
   // `MaxLength` (not `Max`, which only constrains numbers) is what actually
   // bounds a free-text query — the same guard the schools/plans list DTOs use.
-  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the search text.' })
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   search?: string;
 
   @IsOptional()
   @IsIn(SUBSCRIPTION_STATUS_VALUES, {
-    message: 'status must be one of none, trialing, active, past_due, cancelled, expired',
+    message:
+      'Please select a valid subscription status (one of: none, trialing, active, past_due, cancelled, expired).',
   })
   status?: SubscriptionStatus;
 
   @IsOptional()
-  @IsUUID('4', { message: 'plan_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid plan.' })
   plan_id?: string;
 }

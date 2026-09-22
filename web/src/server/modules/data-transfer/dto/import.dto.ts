@@ -22,14 +22,14 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Route parameter of the module-scoped import endpoints. */
 export class ImportModuleParamDto {
-  @IsEnum(ImportModule, { message: 'Unknown import module' })
+  @IsEnum(ImportModule, { message: 'Please select a valid import module.' })
   module!: ImportModule;
 }
 
 /** Query of `GET /api/v1/imports/:module/template`. */
 export class ImportTemplateQueryDto {
   @IsOptional()
-  @IsEnum(DataFileFormat, { message: 'format must be xlsx or csv' })
+  @IsEnum(DataFileFormat, { message: 'Please select a valid file format (one of: xlsx, csv).' })
   format: DataFileFormat = DataFileFormat.XLSX;
 }
 
@@ -40,7 +40,7 @@ export class ImportTemplateQueryDto {
  */
 export class ImportUploadDto {
   @IsOptional()
-  @IsEnum(ImportMode, { message: 'mode must be create or upsert' })
+  @IsEnum(ImportMode, { message: 'Please select a valid import mode (one of: create, upsert).' })
   mode: ImportMode = ImportMode.CREATE;
 }
 
@@ -48,30 +48,30 @@ export class ImportUploadDto {
 export class ListImportJobsQueryDto {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
-  @IsEnum(ImportModule, { message: 'Unknown import module' })
+  @IsEnum(ImportModule, { message: 'Please select a valid import module.' })
   module?: ImportModule;
 
   @IsOptional()
-  @IsEnum(ImportJobStatus, { message: 'Unknown import status' })
+  @IsEnum(ImportJobStatus, { message: 'Please select a valid import status.' })
   status?: ImportJobStatus;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_from must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the start date as YYYY-MM-DD.' })
   date_from?: string;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_to must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the end date as YYYY-MM-DD.' })
   date_to?: string;
 }

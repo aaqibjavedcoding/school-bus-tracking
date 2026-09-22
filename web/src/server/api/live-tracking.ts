@@ -20,7 +20,7 @@ export const getTripsByTripIdLocation: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     return container().liveTracking().getLatestLocation(actor, tripId);
   },
 };
@@ -36,7 +36,7 @@ export const getTripsByTripIdLocationHistory: EndpointDefinition<
   queryType: ListTripLocationHistoryQueryDto,
   handler: async ({ user, query, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     return container().liveTracking().getLocationHistory(actor, tripId, query);
   },
 };

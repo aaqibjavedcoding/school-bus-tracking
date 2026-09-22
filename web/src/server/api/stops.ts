@@ -44,7 +44,7 @@ export const getStopsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     return container().stops().findOne(schoolId, id);
   },
 };
@@ -56,7 +56,7 @@ export const patchStopsById: EndpointDefinition<UpdateStopDto> = {
   bodyType: UpdateStopDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     const dto = body;
     return container().stops().update(schoolId, id, dto);
   },
@@ -68,7 +68,7 @@ export const deleteStopsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'stop' });
     return container().stops().remove(schoolId, id);
   },
 };

@@ -37,7 +37,7 @@ export const getParentChildrenById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'child' });
     return container().parentPortal().getChild(actor, id);
   },
 };
@@ -48,7 +48,7 @@ export const getParentChildrenByIdToday: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'child' });
     return container().parentPortal().getChildToday(actor, id);
   },
 };
@@ -59,7 +59,7 @@ export const getParentChildrenByIdTracking: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'child' });
     return container().parentPortal().getChildTracking(actor, id);
   },
 };

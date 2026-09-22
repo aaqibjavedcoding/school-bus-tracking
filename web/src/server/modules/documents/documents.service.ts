@@ -317,7 +317,10 @@ export class DocumentsService {
    *
    * `current` is supplied on update so a partial payload can be range-checked
    * against the values already stored (moving only `expiry_date` must still
-   * honour the stored `issue_date`).
+   * honour the stored `issue_date`). Presence, blank-text and calendar-date
+   * mistakes are already rejected by the request DTOs before a handler runs;
+   * this is the one rule that needs the whole record, so it lives here as well
+   * as in the DTOs.
    */
   private toValues(
     dto: Partial<DocumentValues> & { document_type?: string },
@@ -330,7 +333,9 @@ export class DocumentsService {
     const expiryDate =
       dto.expiry_date !== undefined ? dto.expiry_date : (current?.expiry_date ?? null);
 
-    if (issueDate && expiryDate && new Date(expiryDate) < new Date(issueDate)) {
+    // Strictly after: an expiry equal to the issue date is a typo too, and the
+    // request DTOs apply the same rule to a payload that carries both dates.
+    if (issueDate && expiryDate && new Date(expiryDate) <= new Date(issueDate)) {
       throw new BadRequestException(DOCUMENT_DATE_RANGE_MESSAGE);
     }
 

@@ -80,7 +80,7 @@ export const getTripsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['tripId']);
+    const id = parseUuidParam(params['tripId'], { label: 'trip' });
     return container().trips().findOneForActor(actor, id);
   },
 };
@@ -92,7 +92,7 @@ export const patchTripsById: EndpointDefinition<UpdateTripDto> = {
   bodyType: UpdateTripDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['tripId']);
+    const id = parseUuidParam(params['tripId'], { label: 'trip' });
     const dto = body;
     const trip = await container().trips().update(schoolId, id, dto);
     await container()
@@ -117,7 +117,7 @@ export const patchTripsByIdStatus: EndpointDefinition<UpdateTripStatusDto> = {
   bodyType: UpdateTripStatusDto,
   handler: async ({ user, body, params, request }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['tripId']);
+    const id = parseUuidParam(params['tripId'], { label: 'trip' });
     const dto = body;
     const from = await currentTripStatus(actor, id);
     const trip = await container().trips().updateStatusForActor(actor, id, dto);
@@ -147,7 +147,7 @@ export const postTripsByIdCancel: EndpointDefinition<CancelTripDto> = {
   bodyType: CancelTripDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['tripId']);
+    const id = parseUuidParam(params['tripId'], { label: 'trip' });
     const dto = body;
     const from = await currentTripStatus(tenantUser(user), id);
     const trip = await container().trips().cancel(schoolId, id, dto);
@@ -172,7 +172,7 @@ export const deleteTripsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['tripId']);
+    const id = parseUuidParam(params['tripId'], { label: 'trip' });
     const result = await container().trips().remove(schoolId, id);
     await container()
       .audit()

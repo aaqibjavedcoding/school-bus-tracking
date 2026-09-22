@@ -16,17 +16,29 @@ import { TripCreateRequest } from '@school-bus-tracking/shared-types';
  */
 export class CreateTripDto implements TripCreateRequest {
   @IsOptional()
-  @IsUUID(undefined, { message: 'run_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid run.' })
   declare run_id?: string;
 
   @ValidateIf((dto: CreateTripDto) => dto.run_id === undefined)
-  @IsUUID(undefined, { message: 'route_assignment_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route assignment.' })
   declare route_assignment_id?: string;
 
-  @IsISO8601({ strict: true }, { message: 'scheduled_start_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the scheduled start time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   scheduled_start_at!: string;
 
   @IsOptional()
-  @IsISO8601({ strict: true }, { message: 'scheduled_end_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the scheduled end time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   declare scheduled_end_at?: string | null;
 }
