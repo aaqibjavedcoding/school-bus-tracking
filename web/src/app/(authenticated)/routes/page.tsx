@@ -34,7 +34,18 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../lib/errors';
+import { pickFieldLabels } from '../../../lib/field-errors';
 import { apiClient } from '../../../services/api';
+
+/**
+ * What this form's inputs are called in a sentence.
+ *
+ * Attribution of an API or schema message to an input is by label, so a form has
+ * to say which fields it renders: `name` here means the route name, and a message
+ * about any other name must not light this input up (or steal the message from the
+ * form-level line).
+ */
+const ROUTE_FIELD_LABELS = pickFieldLabels(['name', 'code', 'description']);
 
 const emptyForm = { name: '', code: '', description: '', is_active: true };
 
@@ -82,7 +93,7 @@ export default function RoutesPage() {
       ? routeUpdateSchema.safeParse(payload)
       : routeCreateSchema.safeParse(payload);
     if (!parsed.success) {
-      setFieldErrors(fieldErrorsFromZod(parsed.error));
+      setFieldErrors(fieldErrorsFromZod(parsed.error, ROUTE_FIELD_LABELS));
       return;
     }
     setBusy(true);
@@ -97,7 +108,7 @@ export default function RoutesPage() {
       setOpen(false);
       await list.reload();
     } catch (error) {
-      setFieldErrors(fieldErrorsFromUnknown(error));
+      setFieldErrors(fieldErrorsFromUnknown(error, ROUTE_FIELD_LABELS));
       toast.push(getApiErrorMessage(error), 'danger');
     } finally {
       setBusy(false);

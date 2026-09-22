@@ -180,7 +180,7 @@ async function readJsonBody(request: Request): Promise<unknown> {
   } catch {
     // Express' json parser rejects malformed JSON with a 400 before the
     // handler ever runs; the same happens here.
-    throw new BadRequestException('Unexpected token in JSON payload');
+    throw new BadRequestException('Please send a valid JSON request body.');
   }
 }
 
@@ -461,7 +461,9 @@ function resolveIdempotencyRequest(
     return null;
   }
   if (key.length > 255) {
-    throw new BadRequestException('x-idempotency-key must be at most 255 characters long');
+    throw new BadRequestException(
+      'Please send an x-idempotency-key header of at most 255 characters.',
+    );
   }
   const user = adapted.user;
   const schoolId = user?.school_id;

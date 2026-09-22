@@ -838,49 +838,48 @@ table.data tbody tr:hover {
 /*
  * Top-view school-bus marker.
  *
- * The `divIcon` is exactly the SVG's size (26x42) and anchored at its centre, so
- * no centring wrapper is needed — the rotor rotates the graphic about the GPS
- * coordinate itself. `transform` is compositor-only, so rotating it 20x a second
- * causes no relayout, and `will-change` keeps it on its own layer.
+ * The box MapLibre owns is forced to **zero size** by `MapViewInner`, because a
+ * marker element that is exactly the graphic's size clips the graphic the moment
+ * it turns: a 26 × 42 bus rotated 45° needs about 48 × 48 dp, and the corners
+ * were cut off along the box edge. Zero area leaves nothing to clip.
+ *
+ * The centring that size used to imply moves into `.bus-marker-anchor`: it is
+ * absolutely positioned at the marker's origin (the GPS coordinate itself) and
+ * pulled back by half of its own size. The rotor inside it then only rotates —
+ * `setBusIconHeading` writes that transform at frame rate, and a transform
+ * applied to a box already centred on the coordinate keeps the vehicle centre on
+ * the fix at every heading. `transform` is compositor-only, so 20 updates a
+ * second cause no relayout, and `will-change` keeps it on its own layer.
  */
 .bus-marker {
   background: transparent;
   border: 0;
+  overflow: visible;
   filter: drop-shadow(0 3px 6px rgb(15 23 42 / 0.35));
+}
+
+.bus-marker-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  overflow: visible;
 }
 
 .bus-marker-rotor {
   display: block;
   width: 26px;
   height: 42px;
+  overflow: visible;
   transform-origin: 50% 50%;
+  /* The rotation itself is written by `setBusIconHeading`, never here, so the
+     animation loop and the stylesheet can never fight over one property. */
   will-change: transform;
 }
 
 .bus-marker-rotor svg {
   display: block;
-}
-
-/*
- * "Follow bus" control. Top-right of the map shell: Leaflet's zoom control is
- * top-left, its attribution is bottom-right, and the console's own overlay card
- * is top-left, so this is the one corner that covers none of them.
- */
-.map-follow-control {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 1000;
-  min-height: 40px;
-  padding: 0.5rem 0.95rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-slate-300);
-  background: #fff;
-  color: var(--color-navy);
-  font-size: 0.875rem;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  overflow: visible;
 }
 
 .map-follow-control:hover {

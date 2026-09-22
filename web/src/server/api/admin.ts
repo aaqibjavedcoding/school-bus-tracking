@@ -100,7 +100,7 @@ export const getAdminPlansById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'plan' });
     return container().adminPlans().findOneOrThrow(id);
   },
 };
@@ -111,7 +111,7 @@ export const patchAdminPlansById: EndpointDefinition<UpdateAdminPlanDto> = {
   status: HttpStatus.OK,
   bodyType: UpdateAdminPlanDto,
   handler: async ({ user, body, params, request }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'plan' });
     const dto = body;
     const plan = await container()
       .adminPlans()
@@ -135,7 +135,7 @@ export const postAdminPlansByIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'plan' });
     const result = await container().adminPlans().activate(id);
     await container()
       .audit()
@@ -156,7 +156,7 @@ export const postAdminPlansByIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'plan' });
     const result = await container().adminPlans().deactivate(id);
     await container()
       .audit()
@@ -178,7 +178,7 @@ export const getAdminSchoolsByIdAdmins: EndpointDefinition<unknown, ListSchoolAd
   status: HttpStatus.OK,
   queryType: ListSchoolAdminsQueryDto,
   handler: async ({ query, params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().adminSchoolAdmins().list(schoolId, query);
   },
 };
@@ -189,7 +189,7 @@ export const postAdminSchoolsByIdAdmins: EndpointDefinition<CreateSchoolAdminDto
   status: HttpStatus.CREATED,
   bodyType: CreateSchoolAdminDto,
   handler: async ({ user, body, params, request }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     const admin = await container().adminSchoolAdmins().create(schoolId, dto);
     await container()
@@ -212,8 +212,8 @@ export const patchAdminSchoolsByIdAdminsByAdminId: EndpointDefinition<UpdateScho
   status: HttpStatus.OK,
   bodyType: UpdateSchoolAdminDto,
   handler: async ({ user, body, params, request }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const adminId = parseUuidParam(params['adminId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const adminId = parseUuidParam(params['adminId'], { label: 'school admin' });
     const dto = body;
     const admin = await container().adminSchoolAdmins().update(schoolId, adminId, dto);
     await container()
@@ -235,8 +235,8 @@ export const postAdminSchoolsByIdAdminsByAdminIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const adminId = parseUuidParam(params['adminId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const adminId = parseUuidParam(params['adminId'], { label: 'school admin' });
     const admin = await container().adminSchoolAdmins().setActive(schoolId, adminId, true);
     await container()
       .audit()
@@ -257,8 +257,8 @@ export const postAdminSchoolsByIdAdminsByAdminIdDeactivate: EndpointDefinition =
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
-    const adminId = parseUuidParam(params['adminId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+    const adminId = parseUuidParam(params['adminId'], { label: 'school admin' });
     const admin = await container().adminSchoolAdmins().setActive(schoolId, adminId, false);
     await container()
       .audit()
@@ -282,8 +282,8 @@ export const postAdminSchoolsByIdAdminsByAdminIdResetpassword: EndpointDefinitio
     status: HttpStatus.OK,
     bodyType: ResetSchoolAdminPasswordDto,
     handler: async ({ user, body, params, request }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
-      const adminId = parseUuidParam(params['adminId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
+      const adminId = parseUuidParam(params['adminId'], { label: 'school admin' });
       const dto = body;
       const result = await container().adminSchoolAdmins().resetPassword(schoolId, adminId, dto);
       // The new password (or its hash) must never appear in the audit trail —
@@ -342,7 +342,7 @@ export const getAdminSchoolsById: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const id = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().adminSchools().findOneOrThrow(id);
   },
 };
@@ -353,7 +353,7 @@ export const patchAdminSchoolsById: EndpointDefinition<UpdateAdminSchoolDto> = {
   status: HttpStatus.OK,
   bodyType: UpdateAdminSchoolDto,
   handler: async ({ user, body, params, request }) => {
-    const id = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['schoolId'], { label: 'school' });
     const dto = body;
     const school = await container()
       .adminSchools()
@@ -377,7 +377,7 @@ export const postAdminSchoolsByIdActivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const id = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['schoolId'], { label: 'school' });
     const result = await container().adminSchools().activate(id);
     await container()
       .audit()
@@ -398,7 +398,7 @@ export const postAdminSchoolsByIdDeactivate: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
-    const id = parseUuidParam(params['schoolId']);
+    const id = parseUuidParam(params['schoolId'], { label: 'school' });
     const result = await container().adminSchools().deactivate(id);
     await container()
       .audit()
@@ -419,7 +419,7 @@ export const getAdminSchoolsBySchoolIdSubscription: EndpointDefinition = {
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().adminSubscriptions().getSubscription(schoolId);
   },
 };
@@ -429,7 +429,7 @@ export const getAdminSchoolsBySchoolIdSubscriptionHistory: EndpointDefinition = 
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ params }) => {
-    const schoolId = parseUuidParam(params['schoolId']);
+    const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
     return container().adminSubscriptions().getSubscriptionHistory(schoolId);
   },
 };
@@ -441,7 +441,7 @@ export const postAdminSchoolsBySchoolIdSubscription: EndpointDefinition<CreateSc
     status: HttpStatus.CREATED,
     bodyType: CreateSchoolSubscriptionDto,
     handler: async ({ user, body, params, request }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
       const dto = body;
       const subscription = await container()
         .adminSubscriptions()
@@ -468,7 +468,7 @@ export const patchAdminSchoolsBySchoolIdSubscription: EndpointDefinition<UpdateS
     status: HttpStatus.OK,
     bodyType: UpdateSchoolSubscriptionDto,
     handler: async ({ user, body, params, request }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
       const dto = body;
       const subscription = await container()
         .adminSubscriptions()
@@ -495,7 +495,7 @@ export const postAdminSchoolsBySchoolIdSubscriptionCancel: EndpointDefinition<Ca
     status: HttpStatus.OK,
     bodyType: CancelSchoolSubscriptionDto,
     handler: async ({ user, body, params, request }) => {
-      const schoolId = parseUuidParam(params['schoolId']);
+      const schoolId = parseUuidParam(params['schoolId'], { label: 'school' });
       const dto = body;
       const subscription = await container()
         .adminSubscriptions()

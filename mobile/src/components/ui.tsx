@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
@@ -10,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  type FocusEvent,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
@@ -19,6 +21,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { fontScaleCaps, surface, text as textScale, touch } from '../theme';
 import type { Tone } from '../lib/format';
+import { keyboardBehavior } from '../lib/keyboard-aware';
+import { useKeyboardForm, useKeyboardReveal, KeyboardFormContext } from './keyboard-form';
+import { useTranslation } from '../lib/i18n-provider';
 
 /**
  * Mobile UI kit — the small set of primitives every screen is built from.
@@ -253,6 +258,12 @@ export interface FieldProps extends TextInputProps {
   hint?: string | null;
   /** Extra style for the label + input + message wrapper. */
   containerStyle?: StyleProp<ViewStyle>;
+  /**
+   * Right-aligned accessory rendered over the input row (the show/hide eye of
+   * {@link PasswordField}). The input gains extra right padding so its text
+   * never slides under it.
+   */
+  trailing?: React.ReactNode;
 }
 
 /**
@@ -260,29 +271,103 @@ export interface FieldProps extends TextInputProps {
  *
  * Forwards its ref to the underlying `TextInput` so forms can implement
  * `Next`-key focus chaining (`ref.current?.focus()`) and keyboard-aware
- * scrolling (`ref.current?.measureInWindow(...)`). `onLayout` on the wrapper
- * is likewise forwarded via `containerProps` for screens that need the row's
- * position inside a scroll view.
+ * scrolling (`ref.current?.measureInWindow(...)`).
+ *
+ * Keyboard-aware by construction: when a field renders inside a
+ * keyboard-aware scroll form (see `keyboard-form.tsx`), it registers itself
+ * on focus so the form scrolls it clear of the keyboard — every screen gets
+ * the behaviour without wiring its own listeners.
  */
 export const Field = React.forwardRef<TextInput, FieldProps>(function Field(
-  { label, error, hint, containerStyle, ...inputProps },
+  { label, error, hint, containerStyle, trailing, onFocus, ...inputProps },
   ref,
 ) {
+  const keyboardForm = useKeyboardForm();
+  const internalRef = useRef<TextInput>(null);
+  const setNode = useCallback(
+    (node: TextInput | null) => {
+      internalRef.current = node;
+      if (typeof ref === 'function') {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    },
+    [ref],
+  );
+  const handleFocus = useCallback(
+    (event: FocusEvent) => {
+      if (internalRef.current) keyboardForm?.focusInput(internalRef.current);
+      onFocus?.(event);
+    },
+    [keyboardForm, onFocus],
+  );
   return (
     <View style={[styles.field, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        ref={ref}
-        placeholderTextColor={surface.placeholder}
-        autoCapitalize="none"
-        {...inputProps}
-        style={[styles.fieldInput, error ? styles.fieldInputError : null, inputProps.style]}
-      />
+      <View style={styles.fieldInputShell}>
+        <TextInput
+          ref={setNode}
+          placeholderTextColor={surface.placeholder}
+          autoCapitalize="none"
+          {...inputProps}
+          onFocus={handleFocus}
+          style={[
+            styles.fieldInput,
+            trailing ? styles.fieldInputWithAccessory : null,
+            error ? styles.fieldInputError : null,
+            inputProps.style,
+          ]}
+        />
+        {trailing ? <View style={styles.fieldTrailing}>{trailing}</View> : null}
+      </View>
       {hint && !error ? <Text style={styles.fieldHint}>{hint}</Text> : null}
       {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 });
+
+export type PasswordFieldProps = Omit<FieldProps, 'secureTextEntry' | 'trailing'>;
+
+/**
+ * Password field with the show/hide eye built in — the one password input for
+ * the app (login, staff, guardians).
+ *
+ * Tapping the eye toggles `secureTextEntry`; the glyph always matches the
+ * visibility state (`eye-outline` while hidden, `eye-off-outline` while
+ * visible), and the button's accessibility label says what the next tap will
+ * do. A `secureTextEntry` passed by a caller is ignored — the field *is*
+ * secure, the eye is the only switch.
+ */
+export const PasswordField = React.forwardRef<TextInput, PasswordFieldProps>(
+  function PasswordField(props, ref) {
+    const [visible, setVisible] = useState(false);
+    const t = useTranslation();
+    return (
+      <Field
+        ref={ref}
+        {...props}
+        secureTextEntry={!visible}
+        trailing={
+          <Pressable
+            onPress={() => setVisible((value) => !value)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={visible ? t('common.hidePassword') : t('common.showPassword')}
+            accessibilityState={{ selected: visible }}
+            style={styles.passwordEye}
+          >
+            <Ionicons
+              name={visible ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color={colors.neutral[500]}
+            />
+          </Pressable>
+        }
+      />
+    );
+  },
+);
 
 /**
  * Search input with a leading icon, an inline "searching" spinner while the
@@ -307,45 +392,53 @@ export const SearchBar: React.FC<{
   onClear,
   autoFocus,
   size = 'md',
-}) => (
-  <View style={styles.searchBar}>
-    <View
-      style={[
-        styles.searchInputWrap,
-        size === 'field' ? { minHeight: touch.field } : { minHeight: touch.target },
-      ]}
-    >
-      <Ionicons name="search" size={20} color={colors.neutral[500]} />
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={surface.placeholder}
-        style={styles.searchInput}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="search"
-        clearButtonMode="never"
-        autoFocus={autoFocus}
-        accessibilityLabel={placeholder}
-      />
-      {searching && value.length > 0 ? (
-        <ActivityIndicator size="small" color={colors.neutral[500]} />
-      ) : null}
-      {value.length > 0 ? (
-        <Pressable
-          onPress={() => (onClear ? onClear() : onChangeText(''))}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel="Clear search"
-          style={styles.searchClear}
-        >
-          <Ionicons name="close-circle" size={20} color={colors.neutral[500]} />
-        </Pressable>
-      ) : null}
+}) => {
+  const keyboardForm = useKeyboardForm();
+  const inputRef = useRef<TextInput>(null);
+  return (
+    <View style={styles.searchBar}>
+      <View
+        style={[
+          styles.searchInputWrap,
+          size === 'field' ? { minHeight: touch.field } : { minHeight: touch.target },
+        ]}
+      >
+        <Ionicons name="search" size={20} color={colors.neutral[500]} />
+        <TextInput
+          ref={inputRef}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={surface.placeholder}
+          style={styles.searchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          clearButtonMode="never"
+          autoFocus={autoFocus}
+          accessibilityLabel={placeholder}
+          onFocus={() => {
+            if (inputRef.current) keyboardForm?.focusInput(inputRef.current);
+          }}
+        />
+        {searching && value.length > 0 ? (
+          <ActivityIndicator size="small" color={colors.neutral[500]} />
+        ) : null}
+        {value.length > 0 ? (
+          <Pressable
+            onPress={() => (onClear ? onClear() : onChangeText(''))}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            style={styles.searchClear}
+          >
+            <Ionicons name="close-circle" size={20} color={colors.neutral[500]} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 /** Horizontally scrollable row of filter chips with an optional reset button. */
 export const FilterChips = <T,>({
@@ -461,6 +554,10 @@ export function screenRefreshControl(
  * navigation bar / gesture pill, iOS home indicator) plus the tab-bar height,
  * so the last row of any list can be scrolled clear of the native navigation
  * area and stays tappable.
+ *
+ * Keyboard-aware like every other scroll form here: full-screen forms built
+ * on `Screen` (e.g. the document-requirements editor) get the KAV plus
+ * scroll-the-focused-input-into-view behaviour for free.
  */
 export const Screen: React.FC<{
   children: React.ReactNode;
@@ -472,19 +569,28 @@ export const Screen: React.FC<{
 }> = ({ children, refresh, refreshing = false, padded = true, extraBottomSpace = 0 }) => {
   const insets = useSafeAreaInsets();
   const bottomPadding = spacing.xl + insets.bottom + extraBottomSpace;
+  const scrollRef = useRef<ScrollView>(null);
+  const { contextValue, onScroll } = useKeyboardReveal(scrollRef);
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        padded ? { padding: spacing.md } : null,
-        { paddingBottom: bottomPadding },
-      ]}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      refreshControl={screenRefreshControl(refresh, refreshing)}
-    >
-      {children}
-    </ScrollView>
+    <KeyboardFormContext.Provider value={contextValue}>
+      <KeyboardAvoidingView style={styles.screen} behavior={keyboardBehavior(Platform.OS)}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.screen}
+          contentContainerStyle={[
+            padded ? { padding: spacing.md } : null,
+            { paddingBottom: bottomPadding },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={screenRefreshControl(refresh, refreshing)}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+        >
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </KeyboardFormContext.Provider>
   );
 };
 
@@ -684,6 +790,28 @@ const styles = StyleSheet.create({
   },
   fieldInputError: {
     borderColor: colors.status.danger,
+  },
+  /**
+   * Row the input lives in so a `trailing` accessory (the password eye) can
+   * sit over the input's right edge. With no accessory it is an invisible
+   * pass-through: the input keeps its own size and layout.
+   */
+  fieldInputShell: {},
+  /** Right pad so typed text never slides under the eye. */
+  fieldInputWithAccessory: {
+    paddingRight: 44,
+  },
+  fieldTrailing: {
+    position: 'absolute',
+    right: spacing.xs,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  passwordEye: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
   },
   fieldHint: {
     fontSize: typography.fontSizes.sm,

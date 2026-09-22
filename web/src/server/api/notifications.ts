@@ -67,7 +67,7 @@ export const patchParentNotificationsByIdRead: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'notification' });
     return container().notifications().markRead(actor, id);
   },
 };

@@ -48,9 +48,11 @@ export interface ManagedSchoolLookup {
 /**
  * Rejection message for a `:schoolId` segment that is not a UUID.
  *
- * Exported so the assisted-management specs can assert the exact contract.
+ * Exported so the assisted-management specs can assert the exact contract. The
+ * wording matches the framework's parameter messages: it names the resource the
+ * caller was reaching for rather than the wire format that failed.
  */
-export const MANAGED_SCHOOL_ID_INVALID_MESSAGE = 'School id must be a UUID';
+export const MANAGED_SCHOOL_ID_INVALID_MESSAGE = 'Please select a valid school.';
 
 /**
  * Resolves and validates the managed school for an assisted-management route.
@@ -89,9 +91,9 @@ export class ManagedSchoolGuard implements CanActivate {
     // one `parseUuidParam()` applies inside the handlers and `BaseModel`'s
     // `@IsUUID(4)` applies to every persisted primary key. Keeping the guard
     // in step matters: a laxer guard would load the school, hand it to the
-    // handler and only then fail deep inside it with the opaque
-    // `Validation failed (uuid is expected)`, instead of rejecting the
-    // request up front with a message that names the offending segment.
+    // handler and only then fail deep inside `parseUuidParam()`, instead of
+    // rejecting the request up front with one clear message naming the
+    // resource.
     if (!isUuid(schoolId, '4')) {
       throw new HttpException(MANAGED_SCHOOL_ID_INVALID_MESSAGE, HttpStatus.BAD_REQUEST);
     }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View } from 'react-native';
 import { ViewAnnotation, type ViewAnnotationRef } from '@maplibre/maplibre-react-native';
-import { BusMarkerGraphic } from './BusMarkerGraphic';
+import { BUS_MARKER_ROTATION_BOX, BusMarkerGraphic } from './BusMarkerGraphic';
 import { useBusMarkerMotion, type RenderedMarker } from './useBusMarkerMotion';
 import type { BusMotionFix } from './bus-motion.ts';
 
@@ -90,8 +90,25 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
       title={title}
       snippet={description}
     >
-      <View style={{ transform: [{ rotate: `${heading}deg` }] }}>
-        <BusMarkerGraphic />
+      {/*
+        Two views, and the split is the whole point: the outer box is square and
+        *unrotated*, so the frame Android measures (and rasterises) already
+        contains the marker at any heading, while the inner view carries the
+        rotation. Rotating the only view would clip the bus to its own unrotated
+        26 × 42 footprint and cut the corners off on a diagonal heading.
+      */}
+      <View
+        style={{
+          width: BUS_MARKER_ROTATION_BOX,
+          height: BUS_MARKER_ROTATION_BOX,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'visible',
+        }}
+      >
+        <View style={{ transform: [{ rotate: `${heading}deg` }], overflow: 'visible' }}>
+          <BusMarkerGraphic />
+        </View>
       </View>
     </ViewAnnotation>
   );

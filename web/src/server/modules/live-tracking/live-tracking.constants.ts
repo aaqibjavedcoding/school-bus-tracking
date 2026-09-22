@@ -46,7 +46,7 @@ export const LIVE_TRACKING_INVALID_PAYLOAD_MESSAGE = 'Location update payload is
 
 /** Raised when the history query is out of bounds. */
 export const LIVE_TRACKING_HISTORY_QUERY_MESSAGE =
-  'Location history query is malformed: from and to must be valid ISO-8601 date-times with to on or after from, and limit between 1 and 500';
+  'Please provide the from and to dates as real dates and times (to on or after from) and a limit between 1 and 500.';
 
 /** Raised when the repository layer is not backed by a Sequelize instance. */
 export const LIVE_TRACKING_NO_SEQUELIZE_MESSAGE =

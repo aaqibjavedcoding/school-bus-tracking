@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { buildCrewPinDraft, lockoutCountdown } from './crew-login-flow.ts';
+import {
+  buildCrewPinDraft,
+  isCrewLoginNetworkFailure,
+  lockoutCountdown,
+} from './crew-login-flow.ts';
 
 /**
  * The thin React surfaces (PIN pad) sit on top of these
@@ -46,6 +50,47 @@ describe('buildCrewPinDraft', () => {
     assert.deepEqual(buildCrewPinDraft({ schoolId: 'lincoln-high', pin: '12' }), {
       error: 'pin',
     });
+  });
+});
+
+describe('isCrewLoginNetworkFailure', () => {
+  it('flags the offline / no-data shapes the login screen must map to its own copy', () => {
+    // The api-client re-throws every transport rejection as status 0.
+    assert.equal(isCrewLoginNetworkFailure({ status: 0, message: 'fetch failed' }), true);
+    // Android's raw DNS diagnostic must be recognised from the message alone
+    // — this is the string the crew PIN path used to surface verbatim.
+    assert.equal(
+      isCrewLoginNetworkFailure(
+        new Error(
+          'fetch failed: java.net.UnknownHostException: Unable to resolve host "api.school.example"',
+        ),
+      ),
+      true,
+    );
+    assert.equal(isCrewLoginNetworkFailure(new Error('Network request failed')), true);
+    assert.equal(isCrewLoginNetworkFailure(new Error('connection refused')), true);
+  });
+
+  it('leaves real rejections (wrong PIN, lockout) to the normal error path', () => {
+    assert.equal(
+      isCrewLoginNetworkFailure({
+        status: 401,
+        code: 'CREW_PIN_INVALID',
+        message: 'That PIN did not work. Please try again.',
+      }),
+      false,
+    );
+    assert.equal(
+      isCrewLoginNetworkFailure({
+        status: 429,
+        code: 'CREW_PIN_LOCKED',
+        message: 'Too many attempts',
+        details: { lockedForSeconds: 300 },
+      }),
+      false,
+    );
+    assert.equal(isCrewLoginNetworkFailure(new Error('CREW_PIN_LOCKED')), false);
+    assert.equal(isCrewLoginNetworkFailure(null), false);
   });
 });
 

@@ -43,7 +43,7 @@ export const getShiftsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().findOne(schoolId, id);
   },
 };
@@ -55,7 +55,7 @@ export const patchShiftsById: EndpointDefinition<UpdateShiftDto> = {
   bodyType: UpdateShiftDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().update(schoolId, id, body);
   },
 };
@@ -66,7 +66,7 @@ export const deleteShiftsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'shift' });
     return container().shifts().remove(schoolId, id);
   },
 };

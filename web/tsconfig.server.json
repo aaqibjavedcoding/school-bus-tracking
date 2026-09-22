@@ -8,10 +8,7 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "target": "ES2022",
-    "lib": [
-      "ES2022",
-      "dom"
-    ],
+    "lib": ["ES2022", "dom"],
     "sourceMap": true,
     "noEmit": true,
     "baseUrl": ".",
@@ -23,14 +20,12 @@
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "src/server/**/*",
-    "test/**/*",
-    "scripts/**/*"
-  ]
+  "include": ["src/server/**/*", "test/**/*", "scripts/**/*"],
+  // The policy guard spec runs under node strip-types as ESM (`import.meta`)
+  // and is typechecked by the web tsconfig — exclude it from the CommonJS
+  // server program, which cannot parse `import.meta`.
+  "exclude": ["scripts/**/*.spec.ts"]
 }

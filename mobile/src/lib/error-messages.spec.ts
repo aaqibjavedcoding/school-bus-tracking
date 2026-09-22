@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 
 import {
   USER_MESSAGES,
+  isNetworkFailureError,
   isNetworkFailureMessage,
   isRawDocumentBody,
   isTechnicalMessage,
@@ -175,6 +176,55 @@ describe('technical text detection', () => {
     assert.equal(isRawDocumentBody('{"success":false}'), false);
     assert.equal(isNetworkFailureMessage('Network request failed'), true);
     assert.equal(isNetworkFailureMessage('Invalid transition'), false);
+  });
+
+  it('classifies the Android transport diagnostics as network failures', () => {
+    // These are the raw strings the login screen used to leak on Android with
+    // data off — each one must now be mapped to the app's own offline line.
+    const networkTexts = [
+      'fetch failed',
+      'fetch failed: java.net.UnknownHostException: Unable to resolve host "api.school.example"',
+      'Unable to resolve host "api.school.example": No address associated with hostname',
+      'Network request failed',
+      'connection refused',
+    ];
+    for (const value of networkTexts) {
+      assert.equal(isNetworkFailureMessage(value), true, `should be network: ${value}`);
+      assert.equal(isTechnicalMessage(value), true, `should stay technical: ${value}`);
+    }
+    // A business message that merely mentions connectivity must not match.
+    assert.equal(isNetworkFailureMessage('That PIN did not work. Please try again.'), false);
+  });
+});
+
+describe('isNetworkFailureError — thrown errors', () => {
+  it('treats the api-client "status 0" envelope as offline regardless of message', () => {
+    assert.equal(
+      isNetworkFailureError({ status: 0, message: 'Request failed with status 0' }),
+      true,
+      'status 0 is the client’s “no response” convention',
+    );
+    assert.equal(isNetworkFailureError({ status: 0 }), true);
+  });
+
+  it('classifies a plain transport Error by its message', () => {
+    assert.equal(isNetworkFailureError(new Error('Network request failed')), true);
+    assert.equal(
+      isNetworkFailureError(
+        new Error('fetch failed: java.net.UnknownHostException: Unable to resolve host'),
+      ),
+      true,
+      'the Android diagnostic must be recognised from the message alone',
+    );
+  });
+
+  it('leaves server responses and other failures alone', () => {
+    assert.equal(isNetworkFailureError({ status: 401, message: 'Unauthorized' }), false);
+    assert.equal(isNetworkFailureError({ status: 500, message: 'Internal server error' }), false);
+    assert.equal(isNetworkFailureError(new Error('Invalid transition')), false);
+    assert.equal(isNetworkFailureError('a string, not an error object'), false);
+    assert.equal(isNetworkFailureError(null), false);
+    assert.equal(isNetworkFailureError(undefined), false);
   });
 });
 

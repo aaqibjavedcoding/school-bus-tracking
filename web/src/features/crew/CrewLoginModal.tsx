@@ -29,14 +29,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CrewPairingResponse, CrewPinSetResponse, StaffResponse } from '@school-bus-tracking/shared-types';
 import { CREW_PIN_LENGTH } from '@school-bus-tracking/validation';
-import {
-  Badge,
-  Button,
-  ConfirmDialog,
-  Field,
-  Input,
-  Modal,
-} from '../../components/ui';
+import { Badge, Button, ConfirmDialog, Field, Modal, PasswordInput } from '../../components/ui';
 import { formatDateTime } from '../../lib/format';
 import { getApiErrorMessage } from '../../lib/errors';
 import {
@@ -277,10 +270,9 @@ export const CrewLoginModal: React.FC<CrewLoginModalProps> = ({
                 hint={`Must be exactly ${CREW_PIN_LENGTH} digits. The PIN is never stored in plain text and never returned by the API.`}
                 error={state.pinTouched && state.pin.length > 0 ? validatePinDraft(state.pin) ?? undefined : undefined}
               >
-                <Input
+                <PasswordInput
                   ref={pinInputRef}
                   id="crew-pin"
-                  type="password"
                   inputMode="numeric"
                   autoComplete="off"
                   maxLength={CREW_PIN_LENGTH}
@@ -298,9 +290,8 @@ export const CrewLoginModal: React.FC<CrewLoginModalProps> = ({
                     : undefined
                 }
               >
-                <Input
+                <PasswordInput
                   id="crew-pin-confirm"
-                  type="password"
                   inputMode="numeric"
                   autoComplete="off"
                   maxLength={CREW_PIN_LENGTH}

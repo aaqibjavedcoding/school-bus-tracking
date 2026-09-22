@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/ui';
 import { useTranslation } from '../../lib/i18n-provider';
 import { loginText, loginTouch } from '../../theme';
-import { borderRadius, colors, spacing } from '@school-bus-tracking/design-tokens';
+import { borderRadius, colors, spacing, typography } from '@school-bus-tracking/design-tokens';
 import { CREW_PIN_LENGTH } from '@school-bus-tracking/validation';
 
 /**
@@ -59,16 +59,38 @@ export interface CrewPinPadProps {
   disabled?: boolean;
 }
 
-const KEYS: ReadonlyArray<ReadonlyArray<{ kind: 'digit'; value: string } | { kind: 'action'; action: 'back' | 'clear' }>> = [
-  [{ kind: 'digit', value: '1' }, { kind: 'digit', value: '2' }, { kind: 'digit', value: '3' }],
-  [{ kind: 'digit', value: '4' }, { kind: 'digit', value: '5' }, { kind: 'digit', value: '6' }],
-  [{ kind: 'digit', value: '7' }, { kind: 'digit', value: '8' }, { kind: 'digit', value: '9' }],
-  [{ kind: 'action', action: 'back' }, { kind: 'digit', value: '0' }, { kind: 'action', action: 'clear' }],
+const KEYS: ReadonlyArray<
+  ReadonlyArray<{ kind: 'digit'; value: string } | { kind: 'action'; action: 'back' | 'clear' }>
+> = [
+  [
+    { kind: 'digit', value: '1' },
+    { kind: 'digit', value: '2' },
+    { kind: 'digit', value: '3' },
+  ],
+  [
+    { kind: 'digit', value: '4' },
+    { kind: 'digit', value: '5' },
+    { kind: 'digit', value: '6' },
+  ],
+  [
+    { kind: 'digit', value: '7' },
+    { kind: 'digit', value: '8' },
+    { kind: 'digit', value: '9' },
+  ],
+  [
+    { kind: 'action', action: 'back' },
+    { kind: 'digit', value: '0' },
+    { kind: 'action', action: 'clear' },
+  ],
 ];
 
 export const CrewPinPad: React.FC<CrewPinPadProps> = ({ value, onChange, onSubmit, disabled }) => {
   const t = useTranslation();
   const firedRef = useRef(false);
+  // Whether the typed digits are shown in the four cells instead of blank
+  // dots. Defaults hidden — the safe default is the same as `secureTextEntry`
+  // on a password field; the driver can flip it to re-check a digit.
+  const [showPin, setShowPin] = useState(false);
 
   /**
    * One keystroke handler. The action buttons exist so the user does not
@@ -109,27 +131,46 @@ export const CrewPinPad: React.FC<CrewPinPadProps> = ({ value, onChange, onSubmi
 
   return (
     <View style={styles.root}>
-      <View style={styles.dotsRow} accessible accessibilityLabel={t('login.crewPath.pin.padLabel')}>
-        {Array.from({ length: CREW_PIN_LENGTH }, (_, index) => {
-          const filled = index < value.length;
-          return (
-            <View
-              key={index}
-              style={[styles.dot, filled ? styles.dotFilled : null]}
-            />
-          );
-        })}
+      <View style={styles.dotsRow}>
+        <View style={styles.dots} accessible accessibilityLabel={t('login.crewPath.pin.padLabel')}>
+          {Array.from({ length: CREW_PIN_LENGTH }, (_, index) => {
+            const filled = index < value.length;
+            // The digits are visual-only: `no-hide-descendants` keeps a
+            // screen reader from reading the PIN aloud, and the row itself
+            // is described by the pad label instead.
+            return (
+              <View
+                key={index}
+                style={[styles.dot, filled ? styles.dotFilled : null]}
+                importantForAccessibility="no-hide-descendants"
+              >
+                {filled && showPin ? <Text style={styles.dotDigit}>{value[index]}</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={showPin ? t('login.crewPath.pin.hide') : t('login.crewPath.pin.show')}
+          onPress={() => setShowPin((current) => !current)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.toggle, pressed ? styles.togglePressed : null]}
+        >
+          <Ionicons
+            name={showPin ? 'eye-off-outline' : 'eye-outline'}
+            size={18}
+            color={colors.neutral[700]}
+          />
+          <Text style={styles.toggleLabel}>
+            {showPin ? t('login.crewPath.pin.hide') : t('login.crewPath.pin.show')}
+          </Text>
+        </Pressable>
       </View>
       <View style={styles.grid}>
         {KEYS.map((row, rowIndex) => (
           <View key={rowIndex} style={styles.row}>
             {row.map((key, colIndex) => (
-              <PadKey
-                key={`${rowIndex}-${colIndex}`}
-                k={key}
-                onPress={press}
-                disabled={disabled}
-              />
+              <PadKey key={`${rowIndex}-${colIndex}`} k={key} onPress={press} disabled={disabled} />
             ))}
           </View>
         ))}
@@ -153,7 +194,9 @@ export const CrewPinPad: React.FC<CrewPinPadProps> = ({ value, onChange, onSubmi
 
 const PadKey: React.FC<{
   k: { kind: 'digit'; value: string } | { kind: 'action'; action: 'back' | 'clear' };
-  onPress: (key: { kind: 'digit'; value: string } | { kind: 'action'; action: 'back' | 'clear' }) => void;
+  onPress: (
+    key: { kind: 'digit'; value: string } | { kind: 'action'; action: 'back' | 'clear' },
+  ) => void;
   disabled?: boolean;
 }> = ({ k, onPress, disabled }) => {
   const t = useTranslation();
@@ -195,18 +238,51 @@ const styles = StyleSheet.create({
   },
   dotsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: spacing.md,
-    justifyContent: 'center',
     paddingVertical: spacing.sm,
   },
+  dots: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    flex: 1,
+  },
   dot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: colors.neutral[300],
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dotFilled: {
     backgroundColor: colors.secondary[700],
+  },
+  // White on secondary-700: 5.54:1 — passes AA. 14px keeps the revealed digit
+  // on the crew legibility floor (the hidden state is a plain dot, so the
+  // smaller dot was never a readability surface).
+  dotDigit: {
+    color: '#ffffff',
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  togglePressed: {
+    backgroundColor: colors.neutral[100],
+  },
+  toggleLabel: {
+    color: colors.neutral[700],
+    fontSize: loginText.label,
+    fontWeight: '600',
   },
   grid: {
     gap: spacing.sm,

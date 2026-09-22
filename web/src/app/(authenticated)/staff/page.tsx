@@ -10,20 +10,7 @@ import type {
 } from '@school-bus-tracking/shared-types';
 import { ExportDataset, ImportModule, UserRole } from '@school-bus-tracking/shared-types';
 import { staffCreateSchema, staffUpdateSchema } from '@school-bus-tracking/validation';
-import {
-  Badge,
-  Button,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Pagination,
-  Skeleton,
-  useToast,
-} from '../../../components/ui';
+import { Badge, Button, ConfirmDialog, EmptyState, ErrorState, Field, Input, Modal, PageHeader, Pagination, PasswordInput, Skeleton, useToast } from '../../../components/ui';
 import { ListActions } from '../../../features/data-transfer';
 import { CrewLoginModal, type CrewLoginModalMode } from '../../../features/crew/CrewLoginModal';
 import { usePagedResource } from '../../../hooks/usePagedResource';
@@ -399,9 +386,8 @@ export default function StaffPage() {
             label={editing ? 'New password (optional)' : 'Password'}
             error={fieldErrors.password}
           >
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
             />

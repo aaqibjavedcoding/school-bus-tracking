@@ -47,7 +47,7 @@ export const getRunsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().findOne(schoolId, id);
   },
 };
@@ -59,7 +59,7 @@ export const patchRunsById: EndpointDefinition<UpdateRunDto> = {
   bodyType: UpdateRunDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().update(schoolId, id, body);
   },
 };
@@ -70,7 +70,7 @@ export const deleteRunsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run' });
     return container().runs().remove(schoolId, id);
   },
 };
@@ -83,7 +83,7 @@ export const getRoutesByIdRuns: EndpointDefinition<unknown, ListRunsQueryDto> = 
   queryType: ListRunsQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const routeId = parseUuidParam(params['id']);
+    const routeId = parseUuidParam(params['id'], { label: 'route' });
     return container().runs().findAllForRoute(schoolId, routeId, query);
   },
 };
@@ -95,7 +95,7 @@ export const postRoutesByIdRuns: EndpointDefinition<CreateRouteRunDto> = {
   bodyType: CreateRouteRunDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const routeId = parseUuidParam(params['id']);
+    const routeId = parseUuidParam(params['id'], { label: 'route' });
     return container().runs().createForRoute(schoolId, routeId, body);
   },
 };
@@ -108,7 +108,7 @@ export const getBusesByIdRuns: EndpointDefinition<unknown, ListRunsQueryDto> = {
   queryType: ListRunsQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
     return container().runs().findAllForBus(schoolId, busId, query);
   },
 };

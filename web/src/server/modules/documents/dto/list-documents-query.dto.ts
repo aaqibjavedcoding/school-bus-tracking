@@ -13,25 +13,25 @@ import { DocumentStatus } from '@school-bus-tracking/shared-types';
 export class ListDocumentsQueryDto {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
-  @IsString({ message: 'document_type must be a string' })
-  @MaxLength(64, { message: 'document_type must be at most 64 characters' })
+  @IsString({ message: 'Please enter a valid document type.' })
+  @MaxLength(64, { message: 'Please enter at most 64 characters for the document type.' })
   document_type?: string;
 
   @IsOptional()
   @IsEnum(DocumentStatus, {
-    message: 'status must be VALID, EXPIRING_SOON or EXPIRED',
+    message: 'Please select a valid status (one of: VALID, EXPIRING_SOON, EXPIRED).',
   })
   status?: DocumentStatus;
 }

@@ -387,6 +387,7 @@ export const mr: Dictionary = {
   'login.emailTitle': 'ईमेलने लॉगिन करा',
   'login.submit': 'लॉगिन करा',
   'login.failed': 'लॉगिन करता आले नाही',
+  'login.offline': 'इंटरनेट कनेक्शन नाही. कृपया तुमचा डेटा/वाई-फाई तपासा आणि पुन्हा प्रयत्न करा.',
   'login.footer':
     'ड्रायव्हर, कंडक्टर, अभिभावक आणि शाळेचे अ‍ॅडमिन — सर्वजण इथे लॉगिन करतात. अ‍ॅप तुमच्या भूमिकेनुसार आपोआप बदलतो.',
 
@@ -399,6 +400,8 @@ export const mr: Dictionary = {
   'login.crewPath.pin.padLabel': 'PIN',
   'login.crewPath.pin.submit': 'अनलॉक करा',
   'login.crewPath.pin.clearKey': 'PIN साफ करा',
+  'login.crewPath.pin.show': 'PIN दाखवा',
+  'login.crewPath.pin.hide': 'PIN लपवा',
   'login.crewPath.lockout.wait':
     'बऱ्याच वेळा चुकीचे PIN. {seconds} सेकंदांनंतर पुन्हा करा — किंवा अ‍ॅडमिनला रीसेट करा.',
   'login.crewPath.lockout.adminHint':
@@ -462,6 +465,34 @@ export const mr: Dictionary = {
   'common.dismiss': 'काढा',
   'common.on': 'सुरू',
   'common.off': 'बंद',
+  /** Show/hide eye on a password field — the icon state matches visibility. */
+  'common.showPassword': 'पासवर्ड दाखवा',
+  'common.hidePassword': 'पासवर्ड लपवा',
+
+  // ── Calendar date picker (no manual date typing anywhere) ─────────────
+  'datePicker.title': 'तारीख निवडा',
+  'datePicker.today': 'आज',
+  'datePicker.clear': 'साफ करा',
+  'datePicker.placeholder': 'तारीख निवडा',
+  'date.month.1': 'जानेवारी',
+  'date.month.2': 'फेब्रुवारी',
+  'date.month.3': 'मार्च',
+  'date.month.4': 'एप्रिल',
+  'date.month.5': 'मे',
+  'date.month.6': 'जून',
+  'date.month.7': 'जुलै',
+  'date.month.8': 'ऑगस्ट',
+  'date.month.9': 'सप्टेंबर',
+  'date.month.10': 'ऑक्टोबर',
+  'date.month.11': 'नोव्हेंबर',
+  'date.month.12': 'डिसेंबर',
+  'date.weekday.0': 'रवि',
+  'date.weekday.1': 'सोम',
+  'date.weekday.2': 'मंगळ',
+  'date.weekday.3': 'बुध',
+  'date.weekday.4': 'गुरु',
+  'date.weekday.5': 'शुक्र',
+  'date.weekday.6': 'शनि',
 
   // ── Time ───────────────────────────────────────────────────────────────
   'time.minutes.one': '~{count} मिनिट',

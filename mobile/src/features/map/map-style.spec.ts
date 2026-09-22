@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe('the default', () => {
   it('is the OpenFreeMap public style over OpenStreetMap data', () => {
-    assert.equal(DEFAULT_MAP_STYLE_URL, 'https://tiles.openfreemap.org/styles/liberty');
+    assert.equal(DEFAULT_MAP_STYLE_URL, 'https://tiles.openfreemap.org/styles/bright');
   });
 
   it('is https (the fallback must never be a plaintext downgrade)', () => {
@@ -63,25 +63,25 @@ describe('resolveMapStyleUrl', () => {
   });
 
   it('returns an https override verbatim (self-hosted style switch)', () => {
-    const selfHosted = 'https://tiles.schoolbustracking.example/styles/liberty';
+    const selfHosted = 'https://tiles.schoolbustracking.example/styles/bright';
     assert.equal(resolveMapStyleUrl(env(selfHosted)), selfHosted);
     assert.equal(warnings.length, 0);
   });
 
   it('trims surrounding whitespace from a valid override', () => {
-    const selfHosted = 'https://tiles.schoolbustracking.example/styles/liberty';
+    const selfHosted = 'https://tiles.schoolbustracking.example/styles/bright';
     assert.equal(resolveMapStyleUrl(env(`  ${selfHosted}\n`)), selfHosted);
   });
 
   it('accepts an https override that carries a query (some hosts version the style)', () => {
-    const url = 'https://tiles.example.org/styles/liberty?variant=2';
+    const url = 'https://tiles.example.org/styles/bright?variant=2';
     assert.equal(resolveMapStyleUrl(env(url)), url);
     assert.equal(warnings.length, 0);
   });
 
   it('refuses an http override: default + exactly one warning', () => {
     assert.equal(
-      resolveMapStyleUrl(env('http://tiles.example.org/styles/liberty')),
+      resolveMapStyleUrl(env('http://tiles.example.org/styles/bright')),
       DEFAULT_MAP_STYLE_URL,
     );
     assert.equal(warnings.length, 1, 'a misconfigured override must be said, not shipped');

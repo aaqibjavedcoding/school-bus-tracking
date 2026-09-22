@@ -158,7 +158,7 @@ export class AdminPlansService {
     if (validated.limits !== undefined) updates.limits = sanitizeLimits(validated.limits);
 
     if (Object.keys(updates).length === 0) {
-      throw new BadRequestException('No valid plan fields provided');
+      throw new BadRequestException('Please provide at least one plan field to update.');
     }
 
     try {
@@ -294,8 +294,8 @@ function sanitizeFeatures(input: PlanFeaturesConfig | undefined): PlanFeaturesCo
     if (value === undefined) continue;
     if (!PLAN_FEATURE_VALUES.includes(key as PlanFeature)) {
       throw new BadRequestException({
-        message: 'Unknown plan feature key',
-        details: { features: { [key]: 'Unknown feature' } },
+        message: 'Please choose a supported plan feature.',
+        details: { features: { [key]: 'Please choose a supported feature.' } },
       });
     }
     out[key as PlanFeature] = Boolean(value);
@@ -315,14 +315,14 @@ function sanitizeLimits(input: PlanLimitsConfig | undefined): PlanLimitsConfig {
     if (value === undefined) continue;
     if (!PLAN_LIMIT_RESOURCE_VALUES.includes(key as PlanLimitResource)) {
       throw new BadRequestException({
-        message: 'Unknown plan limit resource',
-        details: { limits: { [key]: 'Unknown resource' } },
+        message: 'Please choose a supported plan limit.',
+        details: { limits: { [key]: 'Please choose a supported limit.' } },
       });
     }
     if (!value || typeof value !== 'object') {
       throw new BadRequestException({
-        message: 'Invalid plan limit entry',
-        details: { limits: { [key]: 'Must be an object with unlimited/value' } },
+        message: 'Please provide each plan limit as an object with unlimited and value.',
+        details: { limits: { [key]: 'Please provide unlimited and value.' } },
       });
     }
     const entry: PlanLimitValue = {
@@ -334,9 +334,9 @@ function sanitizeLimits(input: PlanLimitsConfig | undefined): PlanLimitsConfig {
       (entry.value === null || !Number.isInteger(entry.value) || entry.value < 0)
     ) {
       throw new BadRequestException({
-        message: 'Plan limit value must be a non-negative integer when unlimited is false',
+        message: 'Please enter a plan limit of zero or more, or mark it unlimited.',
         details: {
-          limits: { [key]: 'value is required and must be >= 0 when unlimited is false' },
+          limits: { [key]: 'Please provide a value of zero or more when unlimited is false.' },
         },
       });
     }
@@ -367,7 +367,10 @@ function validationException(error: ZodError): BadRequestException {
     if (!details[key]) details[key] = issue.message;
   }
   return new BadRequestException({
-    message: formMessages.length > 0 ? formMessages.join(' ') : 'Validation failed',
+    message:
+      formMessages.length > 0
+        ? formMessages.join(' ')
+        : 'Please check the submitted fields and try again.',
     details,
   });
 }

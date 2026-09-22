@@ -19,16 +19,16 @@ const trimToken = ({ value }: { value: unknown }): unknown =>
  * — the only identity a caller could "forge" is its own device.
  */
 export class RegisterDeviceTokenDto implements DeviceTokenRegisterRequest {
-  @IsString({ message: 'token must be a string' })
-  @IsNotEmpty({ message: 'token is required' })
+  @IsString({ message: 'Please enter a valid device token.' })
+  @IsNotEmpty({ message: 'Please enter the device token.' })
   @MaxLength(DEVICE_TOKEN_MAX_LENGTH, {
-    message: `token must be at most ${DEVICE_TOKEN_MAX_LENGTH} characters`,
+    message: `Please enter at most ${DEVICE_TOKEN_MAX_LENGTH} characters for the device token.`,
   })
   @Transform(trimToken)
   token!: string;
 
   @IsIn(DEVICE_PLATFORM_VALUES, {
-    message: `platform must be one of: ${DEVICE_PLATFORM_VALUES.join(', ')}`,
+    message: `Please select a valid device platform (one of: ${DEVICE_PLATFORM_VALUES.join(', ')}).`,
   })
   platform!: DevicePlatform;
 }

@@ -45,10 +45,7 @@ describe('CrewLoginDto validation', () => {
   });
 
   it('accepts a school tenant code as school_id on the PIN branch', async () => {
-    assert.deepEqual(
-      properties(await errorsFor({ ...PIN_BODY, school_id: 'lincoln-high' })),
-      [],
-    );
+    assert.deepEqual(properties(await errorsFor({ ...PIN_BODY, school_id: 'lincoln-high' })), []);
   });
 
   it('accepts a well-formed QR body', async () => {
@@ -96,7 +93,9 @@ describe('CrewLoginDto validation', () => {
       () => throughPipe({ ...PIN_BODY, user_id: '22222222-2222-4222-8222-222222222222' }),
       (error: unknown) => {
         const response = (error as BadRequestException).getResponse() as { message: string[] };
-        assert.deepEqual(response.message, ['property user_id should not exist']);
+        assert.deepEqual(response.message, [
+          'Please remove the unsupported field "user_id" from the request.',
+        ]);
         return true;
       },
     );
@@ -118,10 +117,14 @@ describe('CrewLoginDto validation', () => {
     ]);
     // A scanned string of arbitrary length (a URL, a document barcode) must not
     // reach a database lookup.
-    assert.deepEqual(properties(await errorsFor({ method: 'qr', pairing_token: 'b'.repeat(513) })), [
-      'pairing_token',
-    ]);
-    assert.deepEqual(properties(await errorsFor({ method: 'qr', pairing_token: 'b'.repeat(512) })), []);
+    assert.deepEqual(
+      properties(await errorsFor({ method: 'qr', pairing_token: 'b'.repeat(513) })),
+      ['pairing_token'],
+    );
+    assert.deepEqual(
+      properties(await errorsFor({ method: 'qr', pairing_token: 'b'.repeat(512) })),
+      [],
+    );
   });
 
   it('rejects unknown fields, as every DTO in this API does', async () => {
@@ -134,8 +137,8 @@ describe('CrewLoginDto validation', () => {
     assert.ok(error instanceof BadRequestException, 'unknown fields must be a 400');
     const response = error.getResponse() as { message: string[] };
     assert.deepEqual(response.message.sort(), [
-      'property password should not exist',
-      'property role should not exist',
+      'Please remove the unsupported field "password" from the request.',
+      'Please remove the unsupported field "role" from the request.',
     ]);
   });
 
@@ -161,7 +164,10 @@ describe('narrowCrewLoginDto — the compile-time link to the shared contract', 
 
   it('narrows a QR body onto the shared union', async () => {
     const dto = await throughPipe(QR_BODY);
-    assert.deepEqual(narrowCrewLoginDto(dto), { method: 'qr', pairing_token: QR_BODY.pairing_token });
+    assert.deepEqual(narrowCrewLoginDto(dto), {
+      method: 'qr',
+      pairing_token: QR_BODY.pairing_token,
+    });
   });
 
   it('tolerates the undefined keys plainToInstance adds for every declared field', async () => {

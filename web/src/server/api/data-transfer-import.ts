@@ -65,7 +65,7 @@ export const getImportsHistoryById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id'], '4');
+    const id = parseUuidParam(params['id'], { version: '4', label: 'import' });
     return container().importHistory().findOne(schoolId, id);
   },
 };
@@ -106,7 +106,7 @@ export const getImportsHistoryByIdErrorfile: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id'], '4');
+    const id = parseUuidParam(params['id'], { version: '4', label: 'import' });
     const file = await container().importHistory().buildErrorFile(schoolId, user.id, id);
     return bufferFileResponse(
       file.buffer,

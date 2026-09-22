@@ -55,9 +55,13 @@ describe('web zod error mapping', () => {
     assert.equal(result.success, false);
     if (result.success) return;
 
+    // Two of the three sentences are already guidance and are kept verbatim.
+    // `String must contain at least 1 character(s)` is Zod talking about a
+    // type, not a person talking about a field, so it is rewritten into
+    // guidance that names the input it belongs to.
     assert.deepEqual(fieldErrorsFromZod(result.error), {
       'school.code': 'School code must be lowercase alphanumeric segments separated by hyphens',
-      'admin.last_name': 'String must contain at least 1 character(s)',
+      'admin.last_name': 'Please enter a longer last name.',
       'admin.password': 'Password must be at least 8 characters',
     });
   });

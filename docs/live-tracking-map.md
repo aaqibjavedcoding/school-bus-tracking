@@ -49,13 +49,33 @@ OpenStreetMap data:
   plugin in `mobile/app.config.js`) and web `maplibre-gl` v5
   (`web/package.json`), same vector engine on both surfaces.
 - **Tiles** — **OpenFreeMap's public instance**, OpenStreetMap data:
-  `https://tiles.openfreemap.org/styles/liberty` (`DEFAULT_MAP_STYLE_URL` in
+  `https://tiles.openfreemap.org/styles/bright` (`DEFAULT_MAP_STYLE_URL` in
   `mobile/src/features/map/map-style.ts` and `web/src/features/map/map-style.ts`).
   No registration, no key, no card.
 - **Attribution** — `OpenFreeMap © OpenMapTiles, Data from OpenStreetMap`,
   rendered by the engine itself: the `attribution` and `logo` props / control
   are on and stay on (OSM-derived tiles legally require both).
 
+- **Labels** — the style has to show road names, area/place names and landmark
+  labels, not just shapes, or a parent cannot tell which road the bus is on.
+  Labels were never blocked by the provider: both public OpenFreeMap styles
+  declare label layers and serve their `glyphs`
+  (`https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf`) and `sprite`
+  from the **same host** as the tiles, so glyph PBFs arrive over `connect-src`,
+  which already allows it, and **no CSP change was needed** — nothing is fetched
+  through `font-src`. Two things were wrong in our own code, and both are fixed:
+
+  1. **The camera.** `fitBounds` settles on the lowest zoom that contains every
+     stop, which for a several-kilometre route is z10–z12 — where a street map
+     omits minor roads and area names. The web map now floors its fit at
+     `MIN_FIT_ZOOM` (`web/src/features/map/MapViewInner.tsx`).
+  2. **The style.** The default moved from `liberty` to **`bright`**, the variant
+     of the same free style family that keeps road, shield, neighbourhood, park
+     and water labels across the mid zooms a tracking screen sits at. Same host,
+     same attribution, still no key and no billing.
+
+  The rule when choosing a style is unchanged: same free host, no key, no
+  billing. A style that needs a token is not an option, label-rich or not.
 **The scale path changes ONE variable.** When traffic outgrows the public
 instance, self-host OpenFreeMap
 ([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
@@ -574,7 +594,7 @@ app-wide floor.
 8. **Web console tile host — now resolved.** The web console previously used
    `https://tile.openstreetmap.org` (raster, OSMF low-volume only). It now uses
    the same OpenFreeMap public instance as mobile (`maplibre-gl` v5 +
-   `https://tiles.openfreemap.org/styles/liberty`, no key, no billing), with
+   `https://tiles.openfreemap.org/styles/bright`, no key, no billing), with
    `img-src` + `connect-src` + `worker-src blob:` pinned in
    `web/security-headers.js` and `resolveMapStyleUrl(env)` reading
    `NEXT_PUBLIC_MAP_STYLE_URL` (https-only). No wildcard, no billing anywhere.

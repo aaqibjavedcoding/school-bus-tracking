@@ -1,6 +1,6 @@
 import { IsEnum, IsNotEmpty } from 'class-validator';
 import { DriverDocumentCreateRequest, DriverDocumentType } from '@school-bus-tracking/shared-types';
-import { DocumentFieldsDto } from './document-fields.dto';
+import { DocumentCreateFieldsDto } from './document-fields.dto';
 
 /**
  * Body of `POST /api/v1/drivers/:driverId/documents`.
@@ -10,15 +10,19 @@ import { DocumentFieldsDto } from './document-fields.dto';
  * the same endpoint records every other document the school requires.
  *
  * No `school_id`, no `driver_id` and no `status` are accepted — the tenant and
- * the owner come from the JWT / route and validity is always derived.
+ * the owner come from the JWT / route and validity is always derived. The
+ * document number and both dates are required, which is what makes a licence
+ * (or a conductor's police verification) a verifiable record rather than a
+ * bare type: conductors share this resource, exactly as they share the
+ * `DRIVING_LICENSE` / verification paperwork rules.
  */
 export class CreateDriverDocumentDto
-  extends DocumentFieldsDto
+  extends DocumentCreateFieldsDto
   implements DriverDocumentCreateRequest
 {
   @IsEnum(DriverDocumentType, {
-    message: `document_type must be one of: ${Object.values(DriverDocumentType).join(', ')}`,
+    message: `Please select a valid document type (one of: ${Object.values(DriverDocumentType).join(', ')}).`,
   })
-  @IsNotEmpty({ message: 'document_type is required' })
+  @IsNotEmpty({ message: 'Please select the document type.' })
   document_type!: DriverDocumentType;
 }

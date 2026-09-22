@@ -11,12 +11,32 @@
  */
 
 /**
- * The default style: OpenFreeMap's public "liberty" style.
+ * The default style: OpenFreeMap's public **"bright"** style.
  *
- * No key, no registration, no billing — https://openfreemap.org.
- * Attribution is rendered by MapLibre from the style JSON itself.
+ * No key, no registration, no limits advertised by the provider
+ * (https://openfreemap.org); attribution "OpenFreeMap © OpenMapTiles, Data from
+ * OpenStreetMap" is carried by MapLibre from the style JSON itself.
+ *
+ * ### Why this style and not the other one on the same host
+
+ * Labels were never a provider problem: both public OpenFreeMap styles declare
+ * road, place and area label layers and carry their `glyphs` and `sprite` on the
+ * **same host** as the tiles, so nothing extra had to be allowed by the CSP for
+ * text to draw. Two things made the map look unlabeled, and both are fixed:
+ *
+ * 1. the camera policy (`fitBounds` in `MapViewInner`) settles on the **lowest**
+ *    zoom that contains the whole route — z10–z12 for a several-kilometre run,
+ *    where a street map has every reason to omit minor roads and area names. The
+ *    web fit is now floored at `MIN_FIT_ZOOM`;
+ * 2. `"bright"` is the variant of the same free style family that keeps its
+ *    road, shield, neighbourhood, park and water labels across the mid zooms a
+ *    tracking screen actually sits at, which is what the fix asks for: a map that
+ *    reads like a normal map.
+ *
+ * The swap is a style id inside one URL: same host, no key, no billing, no CSP
+ * change.
  */
-export const DEFAULT_MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+export const DEFAULT_MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/bright';
 
 /**
  * The attribution the style is known for. Kept in sync with mobile.

@@ -32,47 +32,47 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  */
 export class UpdateRouteAssignmentDto implements RouteAssignmentUpdateRequest {
   @IsOptional()
-  @IsUUID(undefined, { message: 'route_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route.' })
   declare route_id?: string;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'bus_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid bus.' })
   declare bus_id?: string | null;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'user_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid user.' })
   declare user_id?: string;
 
   @IsOptional()
   @IsEnum(RouteAssignmentRole, {
-    message: 'role must be DRIVER or CONDUCTOR',
+    message: 'Please select a valid role (one of: DRIVER, CONDUCTOR).',
   })
   declare role?: RouteAssignmentRole;
 
   @IsOptional()
-  @IsStringDateOnly()
-  @IsNotEmpty({ message: 'effective_from cannot be empty' })
+  @IsStringDateOnly('effective date')
+  @IsNotEmpty({ message: 'Please enter the effective date.' })
   declare effective_from?: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('end date')
   declare effective_to?: string | null;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }
 
-function IsStringDateOnly(): PropertyDecorator {
+function IsStringDateOnly(label: string): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {
     Matches(DATE_ONLY_PATTERN, {
-      message: `${String(propertyKey)} must be in YYYY-MM-DD format`,
+      message: `Please enter the ${label} as YYYY-MM-DD.`,
     })(target, propertyKey);
     IsDateString(
       { strict: true },
       {
-        message: `${String(propertyKey)} must be a valid calendar date`,
+        message: `Please enter a real calendar date for the ${label}.`,
       },
     )(target, propertyKey);
   };

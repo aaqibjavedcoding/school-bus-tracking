@@ -37,8 +37,7 @@ export function contentDisposition(safeName: string): string {
 /** Content types for the two supported spreadsheet formats. */
 export const FILE_CONTENT_TYPE: Record<DataFileFormat, string> = {
   [DataFileFormat.CSV]: 'text/csv; charset=utf-8',
-  [DataFileFormat.XLSX]:
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  [DataFileFormat.XLSX]: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 /**
@@ -134,7 +133,7 @@ export async function parseUploadedSpreadsheet(
   try {
     formData = await request.formData();
   } catch {
-    throw new BadRequestException('Malformed multipart/form-data payload');
+    throw new BadRequestException('Please send the file as a valid multipart/form-data upload.');
   }
 
   const entry = formData.get(field);

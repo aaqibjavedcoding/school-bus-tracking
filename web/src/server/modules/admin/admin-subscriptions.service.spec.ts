@@ -604,7 +604,7 @@ describe('AdminSubscriptionsService — cancel', () => {
         const body = (error as BadRequestException).getResponse() as {
           details?: Record<string, string>;
         };
-        assert.match(String(body.details?.cancelled_at), /cannot be before/);
+        assert.match(String(body.details?.cancelled_at), /on or after the start of the current period/i);
         return true;
       },
     );

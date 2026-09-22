@@ -73,7 +73,7 @@ export const postParentsByParentIdStudents: EndpointDefinition<CreateParentStude
     bodyType: CreateParentStudentRelationshipDto,
     handler: async ({ user, body, params, request }) => {
       const schoolId = user.school_id as string;
-      const parentId = parseUuidParam(params['parentId']);
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       const dto = body;
       const link = await container().parentGuardians().createForParent(schoolId, parentId, dto);
       // Guardian links decide which parent sees which child: record both ends.
@@ -98,7 +98,7 @@ export const getParentsByParentIdStudents: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const parentId = parseUuidParam(params['parentId']);
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
     return container().parentGuardians().listForParent(schoolId, parentId);
   },
 };
@@ -111,8 +111,8 @@ export const patchParentsByParentIdStudentsByStudentId: EndpointDefinition<Updat
     bodyType: UpdateParentStudentRelationshipDto,
     handler: async ({ user, body, params, request }) => {
       const schoolId = user.school_id as string;
-      const parentId = parseUuidParam(params['parentId']);
-      const studentId = parseUuidParam(params['studentId']);
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
       const dto = body;
       const link = await container()
         .parentGuardians()
@@ -138,8 +138,8 @@ export const deleteParentsByParentIdStudentsByStudentId: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const parentId = parseUuidParam(params['parentId']);
-    const studentId = parseUuidParam(params['studentId']);
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     const result = await container()
       .parentGuardians()
       .removeForParent(schoolId, parentId, studentId);
@@ -164,7 +164,7 @@ export const getParentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['parentId']);
+    const id = parseUuidParam(params['parentId'], { label: 'parent' });
     return container().parents().findOne(schoolId, id);
   },
 };
@@ -176,7 +176,7 @@ export const patchParentsById: EndpointDefinition<UpdateParentDto> = {
   bodyType: UpdateParentDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['parentId']);
+    const id = parseUuidParam(params['parentId'], { label: 'parent' });
     const dto = body;
     const parent = await container().parents().update(schoolId, id, dto);
     await container()
@@ -199,7 +199,7 @@ export const deleteParentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['parentId']);
+    const id = parseUuidParam(params['parentId'], { label: 'parent' });
     const result = await container().parents().remove(schoolId, id);
     await container()
       .audit()
@@ -222,7 +222,7 @@ export const postStudentsByStudentIdGuardians: EndpointDefinition<CreateStudentG
   bodyType: CreateStudentGuardianDto,
   handler: async ({ user, body, params, request }) => {
     const schoolId = user.school_id as string;
-    const studentId = parseUuidParam(params['studentId']);
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     const dto = body;
     const link = await container().parentGuardians().createForStudent(schoolId, studentId, dto);
     await container()
@@ -246,7 +246,7 @@ export const getStudentsByStudentIdGuardians: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const studentId = parseUuidParam(params['studentId']);
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     return container().parentGuardians().listForStudent(schoolId, studentId);
   },
 };
@@ -259,8 +259,8 @@ export const patchStudentsByStudentIdGuardiansByParentId: EndpointDefinition<Upd
     bodyType: UpdateParentStudentRelationshipDto,
     handler: async ({ user, body, params, request }) => {
       const schoolId = user.school_id as string;
-      const studentId = parseUuidParam(params['studentId']);
-      const parentId = parseUuidParam(params['parentId']);
+      const studentId = parseUuidParam(params['studentId'], { label: 'student' });
+      const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
       const dto = body;
       const link = await container()
         .parentGuardians()
@@ -286,8 +286,8 @@ export const deleteStudentsByStudentIdGuardiansByParentId: EndpointDefinition = 
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const schoolId = user.school_id as string;
-    const studentId = parseUuidParam(params['studentId']);
-    const parentId = parseUuidParam(params['parentId']);
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
+    const parentId = parseUuidParam(params['parentId'], { label: 'parent' });
     const result = await container()
       .parentGuardians()
       .removeForStudent(schoolId, studentId, parentId);

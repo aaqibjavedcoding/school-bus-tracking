@@ -5,19 +5,7 @@ import { useParams } from 'next/navigation';
 import React, { useState } from 'react';
 import type { ParentResponse, StudentGuardianResponse } from '@school-bus-tracking/shared-types';
 import { parentCreateSchema, studentGuardianCreateSchema } from '@school-bus-tracking/validation';
-import {
-  Badge,
-  Button,
-  Card,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Skeleton,
-  useToast,
-} from '../../../../components/ui';
+import { Badge, Button, Card, ErrorState, Field, Input, Modal, PageHeader, PasswordInput, Select, Skeleton, useToast } from '../../../../components/ui';
 import { useLoad } from '../../../../hooks/useLoad';
 import {
   fieldErrorsFromUnknown,
@@ -264,9 +252,8 @@ export default function StudentDetailPage() {
             />
           </Field>
           <Field id="np_password" label="Password" error={fieldErrors.password}>
-            <Input
+            <PasswordInput
               id="np_password"
-              type="password"
               value={newParent.password}
               onChange={(event) => setNewParent({ ...newParent, password: event.target.value })}
             />

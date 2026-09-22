@@ -1,42 +1,53 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-  type KeyboardEvent,
-} from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, useRouter } from 'expo-router';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { loginText } from '../src/theme';
 import { useAuth } from '../src/features/auth';
-import { Button, Field, LanguageMenu } from '../src/components';
+import { Button, Field, KeyboardForm, LanguageMenu, PasswordField } from '../src/components';
 import { useTranslation } from '../src/lib/i18n-provider';
 import {
   emptyToNull,
+  fieldErrorsFromUnknown,
   fieldErrorsFromZod,
   formErrorsFromZod,
   getApiErrorMessage,
+  isNetworkFailureError,
+  submitErrorMessage,
 } from '../src/lib/errors';
+import { pickFieldLabels } from '../src/lib/field-errors';
 import { homeRoute } from '../src/lib/roles';
 import { getApiConfigurationError } from '../src/services/api';
-import {
-  keyboardBehavior,
-  keyboardTopEdge,
-  scrollOffsetToRevealInput,
-} from '../src/lib/keyboard-aware';
 import { CrewLoginErrorPresentation, localizeCrewLoginError } from '../src/lib/i18n.ts';
 import { CrewPinPad } from '../src/features/crew/CrewPinPad';
 import { feedback } from '../src/features/crew/crew-feedback.ts';
-import { buildCrewPinDraft, lockoutCountdown } from '../src/features/crew/crew-login-flow.ts';
+import {
+  buildCrewPinDraft,
+  isCrewLoginNetworkFailure,
+  lockoutCountdown,
+} from '../src/features/crew/crew-login-flow.ts';
 import type { CrewLoginByPinRequest } from '@school-bus-tracking/shared-types';
+
+/**
+ * Whether the device can reach the internet **right now** (OS-level
+ * connectivity via NetInfo — the same source of truth as the offline chips).
+ * The login screen asks before spending a round trip: with data off the
+ * friendly offline line appears immediately instead of after the transport
+ * gives up. An *unknown* answer (the probe itself fails) returns `true` so
+ * the request gets to decide — the reactive classification below is the
+ * safety net either way.
+ */
+async function hasInternet(): Promise<boolean> {
+  try {
+    const state = await NetInfo.fetch();
+    return state.isConnected !== false && state.isInternetReachable !== false;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Sign-in against the existing `POST /auth/login` plus the crew-only
@@ -71,6 +82,13 @@ interface LockoutState {
   startedAt: number;
 }
 
+/**
+ * What this form's inputs are called, so a message naming one of them lands
+ * under it. `school_code` is the school's login code — the same value under two
+ * names, which is exactly why the form states its own labels.
+ */
+const LOGIN_FIELD_LABELS = pickFieldLabels(['school_code', 'school_id', 'email', 'password']);
+
 export default function LoginScreen() {
   const { status, user, login, crewLogin } = useAuth();
   const router = useRouter();
@@ -95,63 +113,15 @@ export default function LoginScreen() {
     return error ? error.message : null;
   });
 
-  // --- Keyboard-aware form plumbing (email/password only) ---------------
-  const scrollRef = useRef<ScrollView>(null);
+  // --- Keyboard awareness -------------------------------------------------
+  // The screen renders inside the shared <KeyboardForm>, which owns the
+  // KAV behaviour and the "scroll the focused input above the keyboard"
+  // plumbing (every field registers itself on focus). What remains local is
+  // the `Next`-key focus chaining between the three email-path fields.
   const schoolRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
-  const focusedRef = useRef<React.RefObject<TextInput | null> | null>(null);
-  const scrollYRef = useRef(0);
-  const keyboardHeightRef = useRef(0);
-  const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-
-  const revealFocusedInput = useCallback(() => {
-    const target = focusedRef.current?.current;
-    const scroller = scrollRef.current;
-    if (!target || !scroller || typeof target.measureInWindow !== 'function') return;
-    target.measureInWindow((_x: number, y: number, _width: number, height: number) => {
-      const offset = scrollOffsetToRevealInput({
-        inputTop: y,
-        inputBottom: y + height,
-        keyboardTop: keyboardTopEdge(windowHeight, keyboardHeightRef.current),
-        viewportTop: insets.top,
-        scrollY: scrollYRef.current,
-      });
-      if (offset === null) return;
-      scroller.scrollTo({ y: offset, animated: true });
-    });
-  }, [windowHeight, insets.top]);
-
-  const onFocusField = useCallback(
-    (ref: React.RefObject<TextInput | null>) => () => {
-      focusedRef.current = ref;
-      requestAnimationFrame(revealFocusedInput);
-    },
-    [revealFocusedInput],
-  );
-
-  useEffect(() => {
-    const showEvents: Array<'keyboardWillShow' | 'keyboardDidShow'> =
-      Platform.OS === 'ios' ? ['keyboardWillShow'] : ['keyboardDidShow'];
-    const hideEvents: Array<'keyboardWillHide' | 'keyboardDidHide'> =
-      Platform.OS === 'ios' ? ['keyboardWillHide'] : ['keyboardDidHide'];
-
-    const subs = [
-      ...showEvents.map((event) =>
-        Keyboard.addListener(event, (payload: KeyboardEvent) => {
-          keyboardHeightRef.current = payload.endCoordinates?.height ?? 0;
-          revealFocusedInput();
-        }),
-      ),
-      ...hideEvents.map((event) =>
-        Keyboard.addListener(event, () => {
-          keyboardHeightRef.current = 0;
-        }),
-      ),
-    ];
-    return () => subs.forEach((sub) => sub.remove());
-  }, [revealFocusedInput]);
 
   // 1 Hz tick for the lockout countdown — only relevant when a lockout is
   // active. The hook runs unconditionally so React's rules-of-hooks hold;
@@ -165,9 +135,10 @@ export default function LoginScreen() {
   }, [lockout]);
 
   // Lockout expiry bookkeeping lives at the component top level — it MUST
-  // not be inside `renderCrewPath` (which only runs when the crew path is
-  // mounted) or the hook count changes between email/crew renders and
-  // React throws "Rendered more hooks than during the previous render".
+  // not be inside the crew card's JSX branch (which only renders when the
+  // crew path is shown) or the hook count changes between email/crew
+  // renders and React throws "Rendered more hooks than during the previous
+  // render".
   const lockoutElapsedSeconds = lockout ? nowEpochSeconds - lockout.startedAt : 0;
   const lockoutCountdownState = lockout
     ? lockoutCountdown(lockout.totalSeconds, lockoutElapsedSeconds)
@@ -210,12 +181,32 @@ export default function LoginScreen() {
     setFieldErrors({});
     setBusy(true);
     try {
+      if (!(await hasInternet())) {
+        // Data is off: say so in the app's own words and do not spend a
+        // round trip the transport cannot finish.
+        setFormError(t('login.offline'));
+        return;
+      }
       await login(parsed.data);
     } catch (error) {
+      if (isNetworkFailureError(error)) {
+        // The connection dropped while the request was in flight — same
+        // friendly line, never a raw transport diagnostic (on Android that
+        // is a `java.net.UnknownHostException` detail).
+        setFormError(t('login.offline'));
+        return;
+      }
+      // A rejection that names a field belongs under that input, not only in the
+      // line above the form: the API's validation copy is already friendly, so it
+      // is attributed rather than rewritten.
+      setFieldErrors(fieldErrorsFromUnknown(error, LOGIN_FIELD_LABELS));
       // `context: 'login'` — a 401 here means the credentials were wrong, not
       // that a session expired: "Invalid email or password…", never
       // "Request failed with status 401".
-      setFormError(getApiErrorMessage(error, t('login.failed'), { context: 'login' }));
+      const line = submitErrorMessage(error, LOGIN_FIELD_LABELS);
+      setFormError(
+        line.length > 0 ? line : getApiErrorMessage(error, t('login.failed'), { context: 'login' }),
+      );
     } finally {
       setBusy(false);
     }
@@ -246,6 +237,17 @@ export default function LoginScreen() {
       setBusy(true);
       setCrewError(null);
       try {
+        if (!(await hasInternet())) {
+          // No data: the friendly offline line, and the typed PIN stays so a
+          // retry is one tap once the connection is back (a failed *guess*
+          // is wiped, but the network is not the driver's mistake).
+          setCrewError({
+            message: t('login.offline'),
+            codeNote: null,
+            lockedForSeconds: null,
+          });
+          return;
+        }
         const body: CrewLoginByPinRequest = {
           method: 'pin',
           school_id: draft.schoolId,
@@ -253,6 +255,16 @@ export default function LoginScreen() {
         };
         await crewLogin(body);
       } catch (error) {
+        if (isCrewLoginNetworkFailure(error)) {
+          // The request never reached the server (data dropped mid-flight):
+          // the app's offline line, never the Java diagnostic.
+          setCrewError({
+            message: t('login.offline'),
+            codeNote: null,
+            lockedForSeconds: null,
+          });
+          return;
+        }
         const presentation = localizeCrewLoginError(extractErrorPayload(error));
         setCrewError(presentation);
         // Wipe the PIN after every failure so a second guess never builds on
@@ -279,199 +291,182 @@ export default function LoginScreen() {
     return <Redirect href={homeRoute(user.role)} />;
   }
 
-  // -- Crew path render ---------------------------------------------------
-  // Plain render helper — no hooks in here (see the top-level lockout
-  // bookkeeping above); `countdown` is computed once per render there.
-  const renderCrewPath = () => {
-    const lockoutActive = lockout !== null;
-    const countdown = lockoutCountdownState ?? { expired: true, label: '0:00' };
-
-    return (
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('login.crewPath.pin.title')}</Text>
-        <Text style={styles.cardSubtitle}>{t('login.crewPath.pin.subtitle')}</Text>
-        {/*
-         * The crew card asks for two things and nothing else: the school code
-         * and the PIN below. A school code is the one identifier a driver can
-         * be expected to remember ("lincoln-high"), and the server resolves
-         * which crew member the PIN belongs to — so no user id, no UUID field.
-         */}
-        <Field
-          id="crew-school"
-          label={t('login.schoolLabel')}
-          value={crewSchoolId}
-          onChangeText={setCrewSchoolId}
-          placeholder={t('login.schoolPlaceholder')}
-          autoCapitalize="none"
-          hint={t('login.schoolHint')}
-          autoCorrect={false}
-          returnKeyType="done"
-          editable={!busy && !lockoutActive}
-          style={styles.fieldInput}
-          containerStyle={styles.fieldBlock}
-        />
-        <View style={styles.pinPadWrap}>
-          <CrewPinPad
-            value={pinDraft}
-            onChange={(next) => {
-              setPinDraft(next);
-              if (crewError) setCrewError(null);
-            }}
-            onSubmit={(pin) => void submitCrewPin(pin)}
-            disabled={busy || lockoutActive}
-          />
-          {lockoutActive ? (
-            <View style={styles.lockoutCard} accessible accessibilityLiveRegion="polite">
-              <Text style={styles.lockoutTitle}>{t('error.CREW_PIN_LOCKED')}</Text>
-              <Text style={styles.lockoutCountdown}>
-                {t('login.crewPath.lockout.wait', { seconds: countdown.label })}
-              </Text>
-              <Text style={styles.lockoutHint}>{t('login.crewPath.lockout.adminHint')}</Text>
-            </View>
-          ) : crewError ? (
-            <View style={styles.errorCard}>
-              <Text style={styles.errorCardText} accessibilityLiveRegion="polite">
-                {crewError.message}
-              </Text>
-              {crewError.codeNote ? (
-                <Text style={styles.errorCardNote}>{crewError.codeNote}</Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-
-        <Button
-          variant="ghost"
-          label={t('login.crewPath.backToAdmin')}
-          onPress={() => setPathMode('email')}
-          disabled={busy}
-        />
-      </View>
-    );
-  };
-
-  // -- Email/password render ----------------------------------------------
-  // Behaviour is untouched: same three fields, same focus chaining, same
-  // submit, same error mapping. Only the type scale and the spacing rhythm are
-  // shared with the crew card, so the two paths look like one screen.
-  const renderEmailPath = () => (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>{t('login.emailTitle')}</Text>
-      <Field
-        ref={schoolRef}
-        label={t('login.schoolLabel')}
-        value={schoolId}
-        onChangeText={setSchoolId}
-        placeholder={t('login.schoolPlaceholder')}
-        autoCapitalize="none"
-        error={fieldErrors.school_id}
-        hint={t('login.schoolHint')}
-        style={styles.fieldInput}
-        containerStyle={styles.fieldBlock}
-        returnKeyType="next"
-        submitBehavior="submit"
-        onFocus={onFocusField(schoolRef)}
-        onSubmitEditing={() => emailRef.current?.focus()}
-      />
-      <Field
-        ref={emailRef}
-        label={t('login.email')}
-        value={email}
-        onChangeText={setEmail}
-        placeholder={t('login.emailPlaceholder')}
-        keyboardType="email-address"
-        textContentType="username"
-        autoComplete="email"
-        error={fieldErrors.email}
-        style={styles.fieldInput}
-        containerStyle={styles.fieldBlock}
-        returnKeyType="next"
-        submitBehavior="submit"
-        onFocus={onFocusField(emailRef)}
-        onSubmitEditing={() => passwordRef.current?.focus()}
-      />
-      <Field
-        ref={passwordRef}
-        label={t('login.password')}
-        value={password}
-        onChangeText={setPassword}
-        placeholder={t('login.passwordPlaceholder')}
-        secureTextEntry
-        textContentType="password"
-        autoComplete="current-password"
-        error={fieldErrors.password}
-        style={styles.fieldInput}
-        containerStyle={styles.fieldBlock}
-        returnKeyType="done"
-        onFocus={onFocusField(passwordRef)}
-        onSubmitEditing={() => {
-          if (!busy) void onSubmitEmail();
-        }}
-      />
-
-      {configError ? <Text style={styles.formError}>{configError}</Text> : null}
-      {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-
-      <Button
-        label={t('login.submit')}
-        onPress={() => void onSubmitEmail()}
-        busy={busy}
-        disabled={busy || configError !== null}
-      />
-      <Button
-        variant="secondary"
-        label={t('login.crewPath.cta')}
-        onPress={() => setPathMode('crew')}
-        disabled={busy}
-      />
-    </View>
-  );
+  // Both cards render inline inside the <KeyboardForm> below (no hooks in
+  // the JSX — the lockout bookkeeping above stays at the component top
+  // level, where React's rules of hooks require it).
+  const lockoutActive = lockout !== null;
+  const countdown = lockoutCountdownState ?? { expired: true, label: '0:00' };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={keyboardBehavior(Platform.OS)}>
-      <ScrollView
-        ref={scrollRef}
-        style={styles.flex}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: spacing.lg + insets.top, paddingBottom: spacing.lg + insets.bottom },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        showsVerticalScrollIndicator={false}
-        onScroll={(event) => {
-          scrollYRef.current = event.nativeEvent.contentOffset.y;
-        }}
-        scrollEventThrottle={16}
-      >
-        <View style={styles.container}>
-          <View style={styles.hero}>
-            <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>{t('login.brandMark')}</Text>
-            </View>
-            <Text style={styles.title}>{t('login.brandName')}</Text>
-            <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
+    <KeyboardForm
+      style={styles.flex}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingTop: spacing.lg + insets.top, paddingBottom: spacing.lg + insets.bottom },
+      ]}
+      keyboardDismissMode="interactive"
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.container}>
+        <View style={styles.hero}>
+          <View style={styles.brandMark}>
+            <Text style={styles.brandMarkText}>{t('login.brandMark')}</Text>
           </View>
-
-          {/*
-           * Language lives on the login screen so a driver can pick Hindi or
-           * Marathi BEFORE signing in — the app opens in English by default
-           * (CREW_DEFAULT_LOCALE) and the saved choice wins from then on.
-           *
-           * One compact dropdown, not a row of pills: three identical buttons
-           * above the card read as three separate actions and cost two extra
-           * rows of vertical space on the screen a driver has to complete.
-           */}
-          <LanguageMenu />
-
-          {pathMode === 'email' ? renderEmailPath() : renderCrewPath()}
-
-          <View>
-            <Text style={styles.footer}>{t('login.footer')}</Text>
-          </View>
+          <Text style={styles.title}>{t('login.brandName')}</Text>
+          <Text style={styles.subtitle}>{t('login.subtitle')}</Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+        {/*
+         * Language lives on the login screen so a driver can pick Hindi or
+         * Marathi BEFORE signing in — the app opens in English by default
+         * (CREW_DEFAULT_LOCALE) and the saved choice wins from then on.
+         *
+         * One compact dropdown, not a row of pills: three identical buttons
+         * above the card read as three separate actions and cost two extra
+         * rows of vertical space on the screen a driver has to complete.
+         */}
+        <LanguageMenu />
+
+        {pathMode === 'email' ? (
+          // Behaviour is untouched: same three fields, same focus chaining,
+          // same submit, same error mapping. Only the type scale and the
+          // spacing rhythm are shared with the crew card, so the two paths
+          // look like one screen.
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t('login.emailTitle')}</Text>
+            <Field
+              ref={schoolRef}
+              label={t('login.schoolLabel')}
+              value={schoolId}
+              onChangeText={setSchoolId}
+              placeholder={t('login.schoolPlaceholder')}
+              autoCapitalize="none"
+              error={fieldErrors.school_id}
+              hint={t('login.schoolHint')}
+              style={styles.fieldInput}
+              containerStyle={styles.fieldBlock}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => emailRef.current?.focus()}
+            />
+            <Field
+              ref={emailRef}
+              label={t('login.email')}
+              value={email}
+              onChangeText={setEmail}
+              placeholder={t('login.emailPlaceholder')}
+              keyboardType="email-address"
+              textContentType="username"
+              autoComplete="email"
+              error={fieldErrors.email}
+              style={styles.fieldInput}
+              containerStyle={styles.fieldBlock}
+              returnKeyType="next"
+              submitBehavior="submit"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+            />
+            <PasswordField
+              ref={passwordRef}
+              label={t('login.password')}
+              value={password}
+              onChangeText={setPassword}
+              placeholder={t('login.passwordPlaceholder')}
+              textContentType="password"
+              autoComplete="current-password"
+              error={fieldErrors.password}
+              style={styles.fieldInput}
+              containerStyle={styles.fieldBlock}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                if (!busy) void onSubmitEmail();
+              }}
+            />
+
+            {configError ? <Text style={styles.formError}>{configError}</Text> : null}
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+            <Button
+              label={t('login.submit')}
+              onPress={() => void onSubmitEmail()}
+              busy={busy}
+              disabled={busy || configError !== null}
+            />
+            <Button
+              variant="secondary"
+              label={t('login.crewPath.cta')}
+              onPress={() => setPathMode('crew')}
+              disabled={busy}
+            />
+          </View>
+        ) : (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t('login.crewPath.pin.title')}</Text>
+            <Text style={styles.cardSubtitle}>{t('login.crewPath.pin.subtitle')}</Text>
+            {/*
+             * The crew card asks for two things and nothing else: the
+             * school code and the PIN below. A school code is the one
+             * identifier a driver can be expected to remember
+             * ("lincoln-high"), and the server resolves which crew member
+             * the PIN belongs to — so no user id, no UUID field.
+             */}
+            <Field
+              id="crew-school"
+              label={t('login.schoolLabel')}
+              value={crewSchoolId}
+              onChangeText={setCrewSchoolId}
+              placeholder={t('login.schoolPlaceholder')}
+              autoCapitalize="none"
+              hint={t('login.schoolHint')}
+              autoCorrect={false}
+              returnKeyType="done"
+              editable={!busy && !lockoutActive}
+              style={styles.fieldInput}
+              containerStyle={styles.fieldBlock}
+            />
+            <View style={styles.pinPadWrap}>
+              <CrewPinPad
+                value={pinDraft}
+                onChange={(next) => {
+                  setPinDraft(next);
+                  if (crewError) setCrewError(null);
+                }}
+                onSubmit={(pin) => void submitCrewPin(pin)}
+                disabled={busy || lockoutActive}
+              />
+              {lockoutActive ? (
+                <View style={styles.lockoutCard} accessible accessibilityLiveRegion="polite">
+                  <Text style={styles.lockoutTitle}>{t('error.CREW_PIN_LOCKED')}</Text>
+                  <Text style={styles.lockoutCountdown}>
+                    {t('login.crewPath.lockout.wait', { seconds: countdown.label })}
+                  </Text>
+                  <Text style={styles.lockoutHint}>{t('login.crewPath.lockout.adminHint')}</Text>
+                </View>
+              ) : crewError ? (
+                <View style={styles.errorCard}>
+                  <Text style={styles.errorCardText} accessibilityLiveRegion="polite">
+                    {crewError.message}
+                  </Text>
+                  {crewError.codeNote ? (
+                    <Text style={styles.errorCardNote}>{crewError.codeNote}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+
+            <Button
+              variant="ghost"
+              label={t('login.crewPath.backToAdmin')}
+              onPress={() => setPathMode('email')}
+              disabled={busy}
+            />
+          </View>
+        )}
+
+        <View>
+          <Text style={styles.footer}>{t('login.footer')}</Text>
+        </View>
+      </View>
+    </KeyboardForm>
   );
 }
 

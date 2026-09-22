@@ -44,15 +44,16 @@ export const DRIVER_DOCUMENT_NOT_FOUND_MESSAGE = 'Driver document not found';
 export const BUS_DOCUMENT_DELETED_MESSAGE = 'Bus document deleted successfully';
 export const DRIVER_DOCUMENT_DELETED_MESSAGE = 'Driver document deleted successfully';
 
-/** Raised when the issue date is later than the expiry date. */
-export const DOCUMENT_DATE_RANGE_MESSAGE = 'expiry_date must be on or after issue_date';
+/** Raised when the expiry date is not strictly after the issue date. */
+export const DOCUMENT_DATE_RANGE_MESSAGE = 'Please enter an expiry date after the issue date.';
 
 /** Raised when a document type does not belong to the catalogue of its owner. */
-export const DOCUMENT_TYPE_INVALID_MESSAGE = 'document_type is not valid for this resource';
+export const DOCUMENT_TYPE_INVALID_MESSAGE =
+  'Please select a document type that matches this resource.';
 
 /** Raised when a required/optional requirement names an unknown document type. */
 export const DOCUMENT_REQUIREMENT_TYPE_INVALID_MESSAGE =
-  'One or more document types are not valid for this resource';
+  'Please select document types that match this resource.';
 
 /** Upper bound of the requirements that can be written in one request. */
 export const MAX_DOCUMENT_REQUIREMENTS = 64;

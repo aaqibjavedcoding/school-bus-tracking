@@ -6,7 +6,7 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Route parameter of `GET /api/v1/exports/:dataset`. */
 export class ExportDatasetParamDto {
-  @IsEnum(ExportDataset, { message: 'Unknown export dataset' })
+  @IsEnum(ExportDataset, { message: 'Please select a valid dataset to export.' })
   dataset!: ExportDataset;
 }
 
@@ -23,56 +23,56 @@ export class ExportDatasetParamDto {
  */
 export class ExportQueryDto {
   @IsOptional()
-  @IsEnum(DataFileFormat, { message: 'format must be xlsx or csv' })
+  @IsEnum(DataFileFormat, { message: 'Please select a valid file format (one of: xlsx, csv).' })
   format: DataFileFormat = DataFileFormat.XLSX;
 
   @IsOptional()
-  @IsString({ message: 'search must be a string' })
-  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid search text.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the search text.' })
   search?: string;
 
   @IsOptional()
-  @IsString({ message: 'status must be a string' })
-  @MaxLength(32, { message: 'status must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid status.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the status.' })
   status?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'route_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid route.' })
   route_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'bus_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid bus.' })
   bus_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'stop_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid stop.' })
   stop_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'driver_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid driver.' })
   driver_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'conductor_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid conductor.' })
   conductor_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'parent_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid parent.' })
   parent_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'student_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid student.' })
   student_id?: string;
 
   @IsOptional()
-  @IsUUID('4', { message: 'trip_id must be a valid UUID' })
+  @IsUUID('4', { message: 'Please select a valid trip.' })
   trip_id?: string;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_from must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the start date as YYYY-MM-DD.' })
   date_from?: string;
 
   @IsOptional()
-  @Matches(DATE_ONLY, { message: 'date_to must be in YYYY-MM-DD format' })
+  @Matches(DATE_ONLY, { message: 'Please enter the end date as YYYY-MM-DD.' })
   date_to?: string;
 }

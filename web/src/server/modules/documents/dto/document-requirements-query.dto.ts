@@ -5,9 +5,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 // Types referenced in decorated signatures must be imported as types when
 // `isolatedModules` + `emitDecoratorMetadata` are on (the Next build).
-import type {
-  DocumentOwnerType,
-} from '@school-bus-tracking/shared-types';
+import type { DocumentOwnerType } from '@school-bus-tracking/shared-types';
 
 /**
  * Query string of `GET /api/v1/document-requirements`.
@@ -18,8 +16,8 @@ import type {
  */
 export class DocumentRequirementsQueryDto implements DocumentRequirementsListQuery {
   @IsEnum(DOCUMENT_OWNER_TYPE_VALUES, {
-    message: 'owner_type must be BUS or DRIVER',
+    message: 'Please select a valid document owner type (one of: BUS, DRIVER).',
   })
-  @IsNotEmpty({ message: 'owner_type is required' })
+  @IsNotEmpty({ message: 'Please select the document owner type.' })
   owner_type!: DocumentOwnerType;
 }

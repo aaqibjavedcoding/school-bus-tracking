@@ -21,12 +21,12 @@ const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 
 const BANNED_IMPORT_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/from\s+['\"]leaflet['\"]/i, 'leaflet (use maplibre-gl instead)'],
-  [/from\s+['\"]react-leaflet['\"]/i, 'react-leaflet (use maplibre-gl instead)'],
-  [/require\s*\(\s*['\"]leaflet['\"]\s*\)/i, 'leaflet (use maplibre-gl instead)'],
-  [/require\s*\(\s*['\"]react-leaflet['\"]\s*\)/i, 'react-leaflet (use maplibre-gl instead)'],
-  [/['\"]leaflet['\"]\s*:/i, 'leaflet dependency in package.json (use maplibre-gl)'],
-  [/['\"]react-leaflet['\"]\s*:/i, 'react-leaflet dependency in package.json'],
+  [/from\s+['"]leaflet['"]/i, 'leaflet (use maplibre-gl instead)'],
+  [/from\s+['"]react-leaflet['"]/i, 'react-leaflet (use maplibre-gl instead)'],
+  [/require\s*\(\s*['"]leaflet['"]\s*\)/i, 'leaflet (use maplibre-gl instead)'],
+  [/require\s*\(\s*['"]react-leaflet['"]\s*\)/i, 'react-leaflet (use maplibre-gl instead)'],
+  [/['"]leaflet['"]\s*:/i, 'leaflet dependency in package.json (use maplibre-gl)'],
+  [/['"]react-leaflet['"]\s*:/i, 'react-leaflet dependency in package.json'],
 ];
 
 const BANNED_URL_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -95,7 +95,7 @@ function bannedProviderViolations(file: string, content: string): string[] {
 function keyedUrlViolations(file: string, content: string): string[] {
   const hits: string[] = [];
   if (file.endsWith('map-provider-policy.spec.ts')) return hits;
-  for (const match of content.matchAll(/https?:\/\/[^\s'\"`)}\]]+/g)) {
+  for (const match of content.matchAll(/https?:\/\/[^\s'"`)}\]]+/g)) {
     if (/[?&](api_)?key=/i.test(match[0])) {
       hits.push(`${file}  a URL carries a key credential: ${match[0]}`);
     }
@@ -119,9 +119,9 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
   });
 
   it('the scanner still detects a banned provider (self-test)', () => {
-    assert.ok(bannedProviderViolations('x.ts', 'import L from \"leaflet\";').length === 1);
+    assert.ok(bannedProviderViolations('x.ts', 'import L from "leaflet";').length === 1);
     assert.ok(
-      bannedProviderViolations('x.ts', 'import { MapContainer } from \"react-leaflet\";').length,
+      bannedProviderViolations('x.ts', 'import { MapContainer } from "react-leaflet";').length,
     );
     assert.ok(
       bannedProviderViolations('x.ts', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png').length,
@@ -129,10 +129,7 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
     assert.ok(
       bannedProviderViolations('x.ts', 'https://api.maptiler.com/maps/basic/style.json').length,
     );
-    assert.equal(
-      bannedProviderViolations('x.ts', 'const ok = \"tiles.openfreemap.org\";').length,
-      0,
-    );
+    assert.equal(bannedProviderViolations('x.ts', 'const ok = "tiles.openfreemap.org";').length, 0);
     assert.equal(
       bannedProviderViolations('x.ts', "'https://maps.google.com/maps?daddr=' + dest").length,
       0,
@@ -147,7 +144,7 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
       keyedUrlViolations('x.ts', 'https://tiles.example.com/style.json?foo=1&api_key=abc').length,
     );
     assert.equal(
-      keyedUrlViolations('x.ts', 'https://tiles.openfreemap.org/styles/liberty').length,
+      keyedUrlViolations('x.ts', 'https://tiles.openfreemap.org/styles/bright').length,
       0,
     );
   });
@@ -219,5 +216,49 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
     assert.ok(!connectSrc.includes('*'), `built connect-src must not use wildcard: ${connectSrc}`);
     assert.doesNotMatch(imgSrc, /tile\.openstreetmap\.org/);
     assert.doesNotMatch(connectSrc, /tile\.openstreetmap\.org/);
+  });
+});
+
+describe('the tracking map shows a real map, not just shapes', () => {
+  const view = readFileSync(join(webRoot, 'src/features/map/MapViewInner.tsx'), 'utf8');
+  const css = readFileSync(join(webRoot, 'src/app/globals.css'), 'utf8');
+
+  /**
+   * `fitBounds` settles on the lowest zoom that contains every stop, which for a
+   * route is z10–z12 — the range where a street map omits minor roads and area
+   * names. Flooring the fit is what makes "road names, area names and city
+   * labels" visible, and it is our own camera policy, not the provider's, so it
+   * is pinned here next to the provider rules.
+   */
+  it('floors the tracking fit at a zoom where labels are drawn', () => {
+    const declared = /const MIN_FIT_ZOOM = (\d+)/.exec(view);
+    assert.ok(declared, 'the web map must floor its fit at MIN_FIT_ZOOM');
+    const minZoom = Number(declared![1]);
+    assert.ok(minZoom >= 12, `MIN_FIT_ZOOM=${minZoom} is still too wide for road labels`);
+    assert.match(view, /minZoom: MIN_FIT_ZOOM/, 'the floor has to be passed to fitBounds');
+  });
+
+  it('loads labels from the same free host, so no key and no new CSP host', () => {
+    const styleSource = readFileSync(join(webRoot, 'src/features/map/map-style.ts'), 'utf8');
+    const url = /DEFAULT_MAP_STYLE_URL = '([^']+)'/.exec(styleSource)![1]!;
+    assert.equal(new URL(url).host, 'tiles.openfreemap.org', 'the style must stay on the free host');
+    assert.match(url, /\/styles\/bright$/, 'bright is the label-visible variant');
+    // The CSP lists the tile host once and once only — no key, no wildcard, and
+    // glyphs/sprite come from the same origin (`connect-src`), so a style change
+    // must never need a new host here.
+    const csp = readFileSync(join(webRoot, 'security-headers.js'), 'utf8');
+    assert.equal((csp.match(/tiles\.openfreemap\.org/g) ?? []).length >= 1, true);
+    assert.doesNotMatch(csp, /api\.mapbox|tile\.openstreetmap\.org|stadiamaps|maptiler/);
+  });
+
+  it('gives the bus room to turn inside its own box', () => {
+    // Zero-sized anchor box + absolutely positioned centring wrapper: a box the
+    // exact size of the graphic clips a rotated bus to its unrotated footprint.
+    assert.match(view, /width:0;height:0;overflow:visible/);
+    assert.match(css, /\.bus-marker \{[^}]*overflow: visible/);
+    assert.match(css, /\.bus-marker-anchor \{[^}]*transform: translate\(-50%, -50%\)/);
+    const icon = readFileSync(join(webRoot, 'src/features/map/bus-marker-icon.ts'), 'utf8');
+    assert.match(icon, /class="bus-marker-anchor"/);
+    assert.match(icon, /class="bus-marker-rotor"/);
   });
 });

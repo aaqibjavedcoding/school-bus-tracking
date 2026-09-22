@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { AdminSchoolAdminResetPasswordRequest } from '@school-bus-tracking/shared-types';
 import { adminSchoolAdminResetPasswordSchema } from '@school-bus-tracking/validation';
-import { Button, Field, Input, Modal } from '../../../components/ui';
+import { Button, Field, Modal, PasswordInput } from '../../../components/ui';
 import {
   fieldErrorsFromUnknown,
   fieldErrorsFromZod,
@@ -84,9 +84,8 @@ export const ResetPasswordDialog: React.FC<{
     >
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
         <Field id="reset-password" label="New password" hint="At least 8 characters." error={fieldErrors.password}>
-          <Input
+          <PasswordInput
             id="reset-password"
-            type="password"
             value={password}
             disabled={busy}
             error={Boolean(fieldErrors.password)}
@@ -94,9 +93,8 @@ export const ResetPasswordDialog: React.FC<{
           />
         </Field>
         <Field id="reset-password-confirm" label="Confirm new password" error={fieldErrors.confirm}>
-          <Input
+          <PasswordInput
             id="reset-password-confirm"
-            type="password"
             value={confirm}
             disabled={busy}
             error={Boolean(fieldErrors.confirm)}

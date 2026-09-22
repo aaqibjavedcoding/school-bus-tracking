@@ -12,16 +12,22 @@ import { MAX_HISTORY_LIMIT } from '../live-tracking.constants';
  */
 export class ListTripLocationHistoryQueryDto implements TripLocationHistoryQuery {
   @IsOptional()
-  @IsString({ message: 'from must be an ISO-8601 date-time string' })
+  @IsString({
+    message: 'Please enter the start time as a date and time, for example 2026-04-01T08:30:00Z.',
+  })
   from?: string;
 
   @IsOptional()
-  @IsString({ message: 'to must be an ISO-8601 date-time string' })
+  @IsString({
+    message: 'Please enter the end time as a date and time, for example 2026-04-01T08:30:00Z.',
+  })
   to?: string;
 
   @IsOptional()
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(MAX_HISTORY_LIMIT, { message: `limit must be at most ${MAX_HISTORY_LIMIT}` })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(MAX_HISTORY_LIMIT, {
+    message: `Please enter a value of at most ${MAX_HISTORY_LIMIT} for the page size.`,
+  })
   limit?: number;
 }

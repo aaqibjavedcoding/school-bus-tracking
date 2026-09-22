@@ -37,15 +37,15 @@ export const UUID_OR_SCHOOL_CODE =
 export class LoginDto implements LoginRequest {
   @IsOptional()
   @ValidateIf((object: LoginDto) => object.school_id !== null)
-  @IsString({ message: 'school_id must be a string' })
-  @MaxLength(63, { message: 'school_id must be at most 63 characters' })
-  @Matches(UUID_OR_SCHOOL_CODE, { message: 'school_id must be a valid UUID or school code' })
+  @IsString({ message: 'Please enter your school code.' })
+  @MaxLength(63, { message: 'Please enter a school code of at most 63 characters.' })
+  @Matches(UUID_OR_SCHOOL_CODE, { message: 'Please enter your school code.' })
   school_id?: string | null;
 
-  @IsEmail({}, { message: 'email must be a valid email address' })
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
   email!: string;
 
-  @IsString({ message: 'password must be a string' })
-  @IsNotEmpty({ message: 'password is required' })
+  @IsString({ message: 'Please enter a valid password.' })
+  @IsNotEmpty({ message: 'Please enter the password.' })
   password!: string;
 }

@@ -110,7 +110,7 @@ describe('map provider policy (no key, no card, no billing — the product rule)
       keyedUrlViolations('x.ts', 'https://tiles.example.com/style.json?foo=1&api_key=abc').length,
     );
     assert.equal(
-      keyedUrlViolations('x.ts', 'https://tiles.openfreemap.org/styles/liberty').length,
+      keyedUrlViolations('x.ts', 'https://tiles.openfreemap.org/styles/bright').length,
       0,
     );
   });

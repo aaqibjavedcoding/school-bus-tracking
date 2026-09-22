@@ -48,44 +48,44 @@ const nullableTrim = ({ value }: { value: unknown }): unknown => {
 export class SosDto implements EmergencySosRequest {
   /** Trip the alarm belongs to; defaults to the crew member's current trip. */
   @IsOptional()
-  @IsUUID(undefined, { message: 'trip_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid trip.' })
   @Transform(nullableTrim)
   declare trip_id?: string | null;
 
   @IsEnum(EmergencyType, {
-    message: `type must be one of: ${Object.values(EmergencyType).join(', ')}`,
+    message: `Please select a valid emergency type (one of: ${Object.values(EmergencyType).join(', ')}).`,
   })
-  @IsNotEmpty({ message: 'type is required' })
+  @IsNotEmpty({ message: 'Please select the emergency type.' })
   type!: EmergencyType;
 
   @IsOptional()
-  @IsString({ message: 'message must be a string' })
+  @IsString({ message: 'Please enter a valid message.' })
   @MaxLength(EMERGENCY_MESSAGE_MAX_LENGTH, {
-    message: `message must be at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters`,
+    message: `Please enter at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters for the message.`,
   })
   @Transform(nullableTrim)
   declare message?: string | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'latitude must be a number' })
-  @IsLatitude({ message: 'latitude must be between -90 and 90' })
+  @IsNumber({}, { message: 'Please enter a valid number for the latitude.' })
+  @IsLatitude({ message: 'Please enter a value between -90 and 90 for the latitude.' })
   @Transform(nullableTrim)
   declare latitude?: number | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'longitude must be a number' })
-  @IsLongitude({ message: 'longitude must be between -180 and 180' })
+  @IsNumber({}, { message: 'Please enter a valid number for the longitude.' })
+  @IsLongitude({ message: 'Please enter a value between -180 and 180 for the longitude.' })
   @Transform(nullableTrim)
   declare longitude?: number | null;
 
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'accuracy must be a number' })
-  @Min(0, { message: 'accuracy must be at least 0' })
+  @IsNumber({}, { message: 'Please enter the GPS accuracy in metres as a number.' })
+  @Min(0, { message: 'Please enter a GPS accuracy of zero metres or more.' })
   @Max(GPS_ACCURACY_MAX_METERS, {
-    message: `accuracy must be at most ${GPS_ACCURACY_MAX_METERS} metres`,
+    message: `Please enter a GPS accuracy of at most ${GPS_ACCURACY_MAX_METERS} metres.`,
   })
   @Transform(nullableTrim)
   declare accuracy?: number | null;

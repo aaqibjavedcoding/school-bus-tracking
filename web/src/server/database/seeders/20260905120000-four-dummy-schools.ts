@@ -56,7 +56,7 @@ const timestamps = { created_at: BASE_TIMESTAMP, updated_at: BASE_TIMESTAMP };
  * school/type codes into the variant group (`…-4000-SSTT-…`, e.g.
  * `00000000-0000-4000-0101-000000000001`), which produced a variant nibble of
  * `0` and made every seeded row unusable — clicking "Manage data" on a seeded
- * school failed with `Validation failed (uuid is expected)` because
+ * school was refused with "Please select a valid school." because
  * `POST /admin/schools/:schoolId/manage/session` re-parses `:schoolId` as a
  * v4 UUID.
  *

@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   type ListRenderItemInfo,
   type StyleProp,
@@ -8,6 +10,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
+import { keyboardBehavior } from '../lib/keyboard-aware';
+import { KeyboardFormContext, useKeyboardReveal } from './keyboard-form';
 import { screenRefreshControl } from './ui';
 
 /**
@@ -46,9 +50,7 @@ export interface ListScreenProps<T> {
  * incomplete `FlatListProps`, so we narrow the boundary to a small, fully
  * typed component surface instead of propagating the broken types.
  */
-const FlatListView = FlatList as unknown as React.ComponentType<
-  Record<string, unknown>
->;
+const FlatListView = FlatList as unknown as React.ComponentType<Record<string, unknown>>;
 
 export function ListScreen<T>({
   data,
@@ -65,30 +67,44 @@ export function ListScreen<T>({
 }: ListScreenProps<T>) {
   const insets = useSafeAreaInsets();
   const bottomPadding = spacing.xl + insets.bottom + extraBottomSpace;
+  // Typed against the reveal machinery's minimal surface (the local
+  // `FlatListView` cast already narrows the component boundary; the ref only
+  // needs `scrollTo`).
+  const scrollRef = useRef<{
+    scrollTo: (options: { x?: number; y?: number; animated?: boolean }) => void;
+  } | null>(null);
+  const { contextValue, onScroll } = useKeyboardReveal(scrollRef);
 
   return (
-    <FlatListView
-      data={data}
-      keyExtractor={keyExtractor}
-      renderItem={renderItem}
-      ListHeaderComponent={header}
-      ListFooterComponent={footer}
-      ListEmptyComponent={empty}
-      style={styles.screen}
-      contentContainerStyle={[
-        padded ? styles.padded : null,
-        styles.grow,
-        { paddingBottom: bottomPadding },
-        contentContainerStyle,
-      ]}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      initialNumToRender={12}
-      maxToRenderPerBatch={10}
-      windowSize={7}
-      removeClippedSubviews
-      refreshControl={screenRefreshControl(refresh, refreshing) ?? null}
-    />
+    <KeyboardFormContext.Provider value={contextValue}>
+      <KeyboardAvoidingView style={styles.screen} behavior={keyboardBehavior(Platform.OS)}>
+        <FlatListView
+          ref={scrollRef}
+          data={data}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          ListHeaderComponent={header}
+          ListFooterComponent={footer}
+          ListEmptyComponent={empty}
+          style={styles.screen}
+          contentContainerStyle={[
+            padded ? styles.padded : null,
+            styles.grow,
+            { paddingBottom: bottomPadding },
+            contentContainerStyle,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          refreshControl={screenRefreshControl(refresh, refreshing) ?? null}
+        />
+      </KeyboardAvoidingView>
+    </KeyboardFormContext.Provider>
   );
 }
 

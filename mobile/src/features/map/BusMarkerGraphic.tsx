@@ -31,6 +31,21 @@ import { colors } from '@school-bus-tracking/design-tokens';
 export const BUS_MARKER_WIDTH = 26;
 export const BUS_MARKER_HEIGHT = 42;
 
+/**
+ * The square the marker needs **room to turn inside**, in dp: the diagonal of
+ * the footprint, rounded up.
+ *
+ * A 26 × 42 bus rotated by 45° occupies about 48 × 48 dp. React Native lays a
+ * child out inside its parent's bounds and clips at those bounds on Android, and
+ * the annotation bitmap Android captures is exactly the child's measured frame —
+ * so giving the marker a box the size of its own unrotated footprint shaves the
+ * corners off the bus at every diagonal heading. The marker view is therefore
+ * sized to this square and the graphic is centred inside it.
+ */
+export const BUS_MARKER_ROTATION_BOX = Math.ceil(
+  Math.hypot(BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT),
+);
+
 export const BusMarkerGraphic: React.FC<{ width?: number; height?: number }> = ({
   width = BUS_MARKER_WIDTH,
   height = BUS_MARKER_HEIGHT,

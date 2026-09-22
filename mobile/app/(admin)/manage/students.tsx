@@ -23,7 +23,7 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../../src/lib/errors';
-import { stopCode } from '../../../src/lib/format';
+import { stopCode, utcDateOnly } from '../../../src/lib/format';
 import {
   runLabel,
   runStaleForRoute,
@@ -41,6 +41,7 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DatePicker,
   EmptyState,
   ErrorState,
   FilterChips,
@@ -377,12 +378,13 @@ export default function ManageStudentsScreen() {
             />
           </View>
           <View style={styles.flex}>
-            <Field
+            <DatePicker
               label="Date of birth"
               value={form.date_of_birth}
-              onChangeText={(text) => setForm({ ...form, date_of_birth: text })}
+              onChange={(value) => setForm({ ...form, date_of_birth: value })}
               placeholder="YYYY-MM-DD"
-              autoCapitalize="none"
+              allowClear
+              maxDate={utcDateOnly()}
               error={fieldErrors.date_of_birth}
             />
           </View>

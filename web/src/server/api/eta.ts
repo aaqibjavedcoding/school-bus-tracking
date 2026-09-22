@@ -35,7 +35,7 @@ export const getTripsByTripIdEta: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     const trip = await resolveTripForReader(actor, tripId);
     const latest = await container()
       .liveTracking()
@@ -51,7 +51,7 @@ export const getTripsByTripIdArrivals: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     const trip = await resolveTripForReader(actor, tripId);
     return container().stopArrivals().listArrivals(trip);
   },
@@ -63,7 +63,7 @@ export const getTripsByTripIdProgress: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     const trip = await resolveTripForReader(actor, tripId);
     const latest = await container()
       .liveTracking()

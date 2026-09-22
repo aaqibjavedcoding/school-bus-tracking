@@ -23,15 +23,15 @@ const nullableTrim = ({ value }: { value: unknown }): unknown => {
  */
 export class UpdateEmergencyStatusDto implements EmergencyStatusUpdateRequest {
   @IsEnum(EmergencyStatus, {
-    message: `status must be one of: ${Object.values(EmergencyStatus).join(', ')}`,
+    message: `Please select a valid status (one of: ${Object.values(EmergencyStatus).join(', ')}).`,
   })
   status!: EmergencyStatus;
 
   /** Free-text audit note ("school van dispatched, all students safe"). */
   @IsOptional()
-  @IsString({ message: 'note must be a string' })
+  @IsString({ message: 'Please enter a valid note.' })
   @MaxLength(EMERGENCY_MESSAGE_MAX_LENGTH, {
-    message: `note must be at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters`,
+    message: `Please enter at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters for the note.`,
   })
   @Transform(nullableTrim)
   declare note?: string | null;

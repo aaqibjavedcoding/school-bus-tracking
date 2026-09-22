@@ -24,7 +24,7 @@ export const getRunsByIdCrew: EndpointDefinition<unknown, ListRunCrewQueryDto> =
   queryType: ListRunCrewQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const runId = parseUuidParam(params['id']);
+    const runId = parseUuidParam(params['id'], { label: 'run' });
     return container().runCrew().findAllForRun(schoolId, runId, query);
   },
 };
@@ -36,7 +36,7 @@ export const postRunsByIdCrew: EndpointDefinition<CreateRunCrewDto> = {
   bodyType: CreateRunCrewDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const runId = parseUuidParam(params['id']);
+    const runId = parseUuidParam(params['id'], { label: 'run' });
     return container().runCrew().create(schoolId, runId, body);
   },
 };
@@ -47,7 +47,7 @@ export const getRunCrewById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().findOne(schoolId, id);
   },
 };
@@ -59,7 +59,7 @@ export const patchRunCrewById: EndpointDefinition<UpdateRunCrewDto> = {
   bodyType: UpdateRunCrewDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().update(schoolId, id, body);
   },
 };
@@ -70,7 +70,7 @@ export const deleteRunCrewById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'run crew' });
     return container().runCrew().remove(schoolId, id);
   },
 };
@@ -86,7 +86,7 @@ export const getUsersByIdRunCrew: EndpointDefinition<unknown, ListRunCrewQueryDt
   queryType: ListRunCrewQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const userId = parseUuidParam(params['userId']);
+    const userId = parseUuidParam(params['userId'], { label: 'user' });
     if (user.role !== UserRole.SCHOOL_ADMIN && user.id !== userId) {
       throw new ForbiddenException('Staff may only view their own roster');
     }
