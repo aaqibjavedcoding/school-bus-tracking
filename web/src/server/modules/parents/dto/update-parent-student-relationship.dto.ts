@@ -17,24 +17,24 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
 /** Body of relationship PATCH endpoints. */
 export class UpdateParentStudentRelationshipDto implements ParentStudentRelationshipUpdateRequest {
   @IsOptional()
-  @IsString({ message: 'relationship must be a string' })
-  @IsNotEmpty({ message: 'relationship cannot be empty' })
-  @MaxLength(50, { message: 'relationship must be at most 50 characters' })
+  @IsString({ message: 'Please enter a valid relationship.' })
+  @IsNotEmpty({ message: 'Please enter a value for the relationship.' })
+  @MaxLength(50, { message: 'Please enter at most 50 characters for the relationship.' })
   @Transform(trimValue)
   declare relationship?: string;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'can_pick_up must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the pick-up permission.' })
   declare can_pick_up?: boolean;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_primary must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the primary contact flag.' })
   declare is_primary?: boolean;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

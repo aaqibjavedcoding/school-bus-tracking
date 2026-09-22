@@ -42,9 +42,12 @@ export {
   ParseUUIDPipe,
   parseUuidParam,
   isUuid,
+  uuidParamMessage,
+  UUID_PARAM_MESSAGE,
   UUID_VALIDATION_FAILED_MESSAGE,
   type UUIDVersion,
   type ParseUUIDPipeOptions,
+  type ParseUuidParamOptions,
 } from './parse-uuid-pipe';
 
 export {

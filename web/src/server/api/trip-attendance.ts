@@ -23,7 +23,7 @@ export const getTripsByTripIdStudents: EndpointDefinition<unknown, ListTripStude
   queryType: ListTripStudentsQueryDto,
   handler: async ({ user, query, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
     return container().tripAttendance().getManifest(actor, tripId, query);
   },
 };
@@ -34,8 +34,8 @@ export const getTripsByTripIdStudentsByStudentId: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
-    const studentId = parseUuidParam(params['studentId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     return container().tripAttendance().getStudent(actor, tripId, studentId);
   },
 };
@@ -48,8 +48,8 @@ export const postTripsByTripIdStudentsByStudentIdBoard: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
-    const studentId = parseUuidParam(params['studentId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     const record = await container().tripAttendance().board(actor, tripId, studentId);
     // Audited after success: idempotent replays never reach the handler, so a
     // retried scan produces exactly one event. `AuditService.log` is
@@ -77,8 +77,8 @@ export const postTripsByTripIdStudentsByStudentIdDrop: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
     const actor = tenantUser(user);
-    const tripId = parseUuidParam(params['tripId']);
-    const studentId = parseUuidParam(params['studentId']);
+    const tripId = parseUuidParam(params['tripId'], { label: 'trip' });
+    const studentId = parseUuidParam(params['studentId'], { label: 'student' });
     const record = await container().tripAttendance().drop(actor, tripId, studentId);
     // Same replay reasoning as the board handler above: one event per scan.
     await container()

@@ -14,26 +14,26 @@ const trimValue = ({ value }: { value: unknown }): unknown =>
  * forbidNonWhitelisted) rejects any client-supplied `school_id` with 400.
  */
 export class CreateRouteDto implements RouteCreateRequest {
-  @IsString({ message: 'name must be a string' })
-  @IsNotEmpty({ message: 'name is required' })
-  @MaxLength(150, { message: 'name must be at most 150 characters' })
+  @IsString({ message: 'Please enter a valid name.' })
+  @IsNotEmpty({ message: 'Please enter the name.' })
+  @MaxLength(150, { message: 'Please enter at most 150 characters for the name.' })
   @Transform(trimValue)
   name!: string;
 
-  @IsString({ message: 'code must be a string' })
-  @IsNotEmpty({ message: 'code is required' })
-  @MaxLength(32, { message: 'code must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid code.' })
+  @IsNotEmpty({ message: 'Please enter the code.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the code.' })
   @Transform(trimValue)
   code!: string;
 
   @IsOptional()
-  @IsString({ message: 'description must be a string' })
-  @MaxLength(2000, { message: 'description must be at most 2000 characters' })
+  @IsString({ message: 'Please enter a valid description.' })
+  @MaxLength(2000, { message: 'Please enter at most 2000 characters for the description.' })
   @Transform(trimValue)
   declare description?: string | null;
 
   @IsOptional()
   @Type(() => Boolean)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

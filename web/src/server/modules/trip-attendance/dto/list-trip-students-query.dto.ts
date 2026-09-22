@@ -12,11 +12,11 @@ import { TripAttendanceStatus, TripStudentManifestQuery } from '@school-bus-trac
 export class ListTripStudentsQueryDto implements TripStudentManifestQuery {
   @IsOptional()
   @IsEnum(TripAttendanceStatus, {
-    message: `status must be one of ${Object.values(TripAttendanceStatus).join(', ')}`,
+    message: `Please select a valid status (one of: ${Object.values(TripAttendanceStatus).join(', ')}).`,
   })
   status?: TripAttendanceStatus;
 
   @IsOptional()
-  @IsUUID(undefined, { message: 'stop_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid stop.' })
   stop_id?: string;
 }

@@ -10,8 +10,8 @@ import { RouteStopsOrderRequest } from '@school-bus-tracking/shared-types';
  * authenticated user's JWT claims.
  */
 export class ReorderRouteStopsDto implements RouteStopsOrderRequest {
-  @IsArray({ message: 'stop_ids must be an array' })
-  @ArrayMaxSize(1000, { message: 'stop_ids must contain at most 1000 ids' })
-  @IsUUID(undefined, { each: true, message: 'stop_ids must contain valid UUIDs' })
+  @IsArray({ message: 'Please provide the stop order as a list.' })
+  @ArrayMaxSize(1000, { message: 'Please provide at most 1000 stops.' })
+  @IsUUID(undefined, { each: true, message: 'Please select valid stops.' })
   stop_ids!: string[];
 }

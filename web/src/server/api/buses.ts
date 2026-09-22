@@ -44,7 +44,7 @@ export const getBusesById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['busId']);
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     return container().buses().findOne(schoolId, id);
   },
 };
@@ -56,7 +56,7 @@ export const patchBusesById: EndpointDefinition<UpdateBusDto> = {
   bodyType: UpdateBusDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['busId']);
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     const dto = body;
     return container().buses().update(schoolId, id, dto);
   },
@@ -68,7 +68,7 @@ export const deleteBusesById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['busId']);
+    const id = parseUuidParam(params['busId'], { label: 'bus' });
     return container().buses().remove(schoolId, id);
   },
 };

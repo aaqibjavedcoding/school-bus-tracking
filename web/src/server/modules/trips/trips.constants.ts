@@ -35,12 +35,11 @@ export const TRIP_ROUTE_INVALID_MESSAGE = 'Referenced route does not belong to t
 
 /** Messages for run-based dispatch (`docs/operating-model.md` §8.4). */
 export const TRIP_RUN_INVALID_MESSAGE = 'Referenced run does not belong to this school';
-export const TRIP_RUN_INACTIVE_MESSAGE =
-  'Referenced run is not active and cannot be dispatched';
+export const TRIP_RUN_INACTIVE_MESSAGE = 'Referenced run is not active and cannot be dispatched';
 export const TRIP_RUN_DRIVER_MISSING_MESSAGE =
   'No active driver is rostered on this run for the scheduled trip date';
 export const TRIP_DISPATCH_SOURCE_MESSAGE =
-  'Exactly one of run_id or route_assignment_id must be provided';
+  'Please provide either a run or a route assignment, not both.';
 export const TRIP_BUS_INVALID_MESSAGE = 'Referenced bus does not belong to this school';
 export const TRIP_DRIVER_INVALID_MESSAGE = 'Referenced driver does not belong to this school';
 export const TRIP_CONDUCTOR_INVALID_MESSAGE = 'Referenced conductor does not belong to this school';
@@ -51,10 +50,12 @@ export const TRIP_INACTIVE_RESOURCE_MESSAGE =
 
 /** Date and schedule validation messages. */
 export const TRIP_DATE_INVALID_MESSAGE =
-  'scheduled_start_at and scheduled_end_at must be valid ISO-8601 date-times';
-export const TRIP_DATE_RANGE_MESSAGE = 'scheduled_end_at must be on or after scheduled_start_at';
-export const TRIP_ACTUAL_RANGE_MESSAGE = 'actual_end_at must be on or after actual_start_at';
-export const TRIP_QUERY_DATE_RANGE_MESSAGE = 'date_to must be on or after date_from';
+  'Please enter the scheduled start and end times as real dates and times (for example 2026-04-01T08:30:00Z).';
+export const TRIP_DATE_RANGE_MESSAGE =
+  'Please enter a scheduled end time on or after the scheduled start time.';
+export const TRIP_ACTUAL_RANGE_MESSAGE =
+  'Please enter an actual end time on or after the actual start time.';
+export const TRIP_QUERY_DATE_RANGE_MESSAGE = 'Please enter an end date on or after the start date.';
 
 /** Lifecycle messages. */
 export const TRIP_INVALID_TRANSITION_MESSAGE = (from: TripStatus, to: TripStatus): string =>

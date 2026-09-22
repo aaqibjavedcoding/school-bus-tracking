@@ -21,23 +21,23 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  */
 export class UpdateRunCrewDto implements RunCrewUpdateRequest {
   @IsOptional()
-  @IsUUID(undefined, { message: 'user_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid user.' })
   declare user_id?: string;
 
   @IsOptional()
-  @IsEnum(RunCrewRole, { message: 'role must be DRIVER or CONDUCTOR' })
+  @IsEnum(RunCrewRole, { message: 'Please select a valid role (one of: DRIVER, CONDUCTOR).' })
   declare role?: RunCrewRole;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('effective date')
   declare effective_from?: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('end date')
   declare effective_to?: string | null;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

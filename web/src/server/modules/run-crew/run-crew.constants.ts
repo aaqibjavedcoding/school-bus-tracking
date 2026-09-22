@@ -1,8 +1,5 @@
 import { UserRole } from '@school-bus-tracking/shared-types';
-import {
-  RUN_CREW_RUN_CONFLICT_MESSAGE,
-  RUN_ROLE_CONFLICT_MESSAGE,
-} from '../runs/runs.constants';
+import { RUN_CREW_RUN_CONFLICT_MESSAGE, RUN_ROLE_CONFLICT_MESSAGE } from '../runs/runs.constants';
 
 /**
  * Injection tokens and user-facing messages for the run-crew (per-run roster)
@@ -26,14 +23,15 @@ export const RUN_CREW_USER_INVALID_MESSAGE =
   'Referenced staff member does not belong to this school';
 export const RUN_CREW_ROLE_MISMATCH_MESSAGE =
   'The rostered user does not have the selected staff role';
-export const RUN_CREW_ROLE_INVALID_MESSAGE = `role must be ${UserRole.DRIVER} or ${UserRole.CONDUCTOR}`;
+export const RUN_CREW_ROLE_INVALID_MESSAGE = `Please choose a valid role (${UserRole.DRIVER} or ${UserRole.CONDUCTOR}).`;
 export const RUN_CREW_INACTIVE_RESOURCE_MESSAGE =
   'Run and staff member must both be active for an active roster entry';
 
 /** Date validation messages. */
 export const RUN_CREW_DATE_INVALID_MESSAGE =
-  'effective_from and effective_to must be valid calendar dates in YYYY-MM-DD format';
-export const RUN_CREW_DATE_RANGE_MESSAGE = 'effective_to must be on or after effective_from';
+  'Please enter the effective start and end dates as real dates (YYYY-MM-DD).';
+export const RUN_CREW_DATE_RANGE_MESSAGE =
+  'Please enter an effective end date on or after the effective start date.';
 
 /**
  * `uq_run_crew_run_user_role` — the same person cannot start the same role on

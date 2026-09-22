@@ -34,15 +34,15 @@ export const ROUTE_ASSIGNMENT_USER_INVALID_MESSAGE =
   'Referenced staff member does not belong to this school';
 export const ROUTE_ASSIGNMENT_ROLE_MISMATCH_MESSAGE =
   'The assigned user does not have the selected staff role';
-export const ROUTE_ASSIGNMENT_ROLE_INVALID_MESSAGE = `role must be ${UserRole.DRIVER} or ${UserRole.CONDUCTOR}`;
+export const ROUTE_ASSIGNMENT_ROLE_INVALID_MESSAGE = `Please choose a valid role (${UserRole.DRIVER} or ${UserRole.CONDUCTOR}).`;
 export const ROUTE_ASSIGNMENT_INACTIVE_RESOURCE_MESSAGE =
   'Route, bus and staff member must all be active for an active assignment';
 
 /** Date validation messages. */
 export const ROUTE_ASSIGNMENT_DATE_INVALID_MESSAGE =
-  'effective_from and effective_to must be valid calendar dates in YYYY-MM-DD format';
+  'Please enter the effective start and end dates as real dates (YYYY-MM-DD).';
 export const ROUTE_ASSIGNMENT_DATE_RANGE_MESSAGE =
-  'effective_to must be on or after effective_from';
+  'Please enter an effective end date on or after the effective start date.';
 
 /** Conflict messages. */
 export const ROUTE_ASSIGNMENT_CONFLICT_MESSAGE =

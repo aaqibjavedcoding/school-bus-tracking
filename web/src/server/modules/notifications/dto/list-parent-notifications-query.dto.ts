@@ -27,7 +27,7 @@ export class ListParentNotificationsQueryDto implements ParentNotificationListQu
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsEnum(NotificationReadFilter, {
-    message: `status must be one of ${NOTIFICATION_READ_FILTER_VALUES.join(', ')}`,
+    message: `Please select a valid read status (one of: ${NOTIFICATION_READ_FILTER_VALUES.join(', ')}).`,
   })
   status?: NotificationReadFilter;
 }

@@ -30,23 +30,23 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  * staff roles are accepted; arbitrary UserRole values can never be persisted.
  */
 export class CreateRunCrewDto implements RunCrewCreateRequest {
-  @IsUUID(undefined, { message: 'user_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid user.' })
   user_id!: string;
 
-  @IsEnum(RunCrewRole, { message: 'role must be DRIVER or CONDUCTOR' })
+  @IsEnum(RunCrewRole, { message: 'Please select a valid role (one of: DRIVER, CONDUCTOR).' })
   role!: RunCrewRole;
 
-  @IsStringDateOnly()
-  @IsNotEmpty({ message: 'effective_from is required' })
+  @IsStringDateOnly('effective date')
+  @IsNotEmpty({ message: 'Please select the effective date.' })
   effective_from!: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('end date')
   declare effective_to?: string | null;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }
 
@@ -55,15 +55,15 @@ export class CreateRunCrewDto implements RunCrewCreateRequest {
  * local makes the API reject timestamps and malformed month/day values while
  * the service performs the final calendar-range check.
  */
-export function IsStringDateOnly(): PropertyDecorator {
+export function IsStringDateOnly(label: string): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {
     Matches(DATE_ONLY_PATTERN, {
-      message: `${String(propertyKey)} must be in YYYY-MM-DD format`,
+      message: `Please enter the ${label} as YYYY-MM-DD.`,
     })(target, propertyKey);
     IsDateString(
       { strict: true },
       {
-        message: `${String(propertyKey)} must be a valid calendar date`,
+        message: `Please enter a real calendar date for the ${label}.`,
       },
     )(target, propertyKey);
   };

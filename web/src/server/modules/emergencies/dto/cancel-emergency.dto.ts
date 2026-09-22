@@ -25,9 +25,9 @@ const nullableTrim = ({ value }: { value: unknown }): unknown => {
 export class CancelEmergencyDto {
   /** Why the alarm was raised by mistake. */
   @IsOptional()
-  @IsString({ message: 'note must be a string' })
+  @IsString({ message: 'Please enter a valid note.' })
   @MaxLength(EMERGENCY_MESSAGE_MAX_LENGTH, {
-    message: `note must be at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters`,
+    message: `Please enter at most ${EMERGENCY_MESSAGE_MAX_LENGTH} characters for the note.`,
   })
   @Transform(nullableTrim)
   declare note?: string | null;

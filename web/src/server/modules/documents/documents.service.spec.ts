@@ -226,6 +226,9 @@ describe('DocumentsService — bus documents', () => {
 
   it('marks an undated document valid and an old one expired', async () => {
     const { service } = makeService();
+    // The request DTOs require the number and both dates, so an undated row can
+    // only reach the service through a direct call (a legacy row, an import) —
+    // which is exactly what this pins: the derivation never invents a status.
     const undated = await service.createBusDocument(
       SCHOOL_A,
       BUS_A,
@@ -233,7 +236,7 @@ describe('DocumentsService — bus documents', () => {
         document_type: BusDocumentType.REGISTRATION_CERTIFICATE,
         issue_date: null,
         expiry_date: null,
-      }),
+      } as unknown as Partial<CreateBusDocumentDto>),
     );
     assert.equal(undated.status, DocumentStatus.VALID);
     assert.equal(undated.days_remaining, null);
@@ -286,6 +289,22 @@ describe('DocumentsService — bus documents', () => {
         SCHOOL_A,
         BUS_A,
         busDocumentBody({ issue_date: '2027-01-01', expiry_date: '2026-01-01' }),
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof BadRequestException);
+        assert.equal(error.message, DOCUMENT_DATE_RANGE_MESSAGE);
+        return true;
+      },
+    );
+  });
+
+  it('rejects an expiry equal to the issue date — the window must be real', async () => {
+    const { service } = makeService();
+    await assert.rejects(
+      service.createBusDocument(
+        SCHOOL_A,
+        BUS_A,
+        busDocumentBody({ issue_date: '2027-01-01', expiry_date: '2027-01-01' }),
       ),
       (error: unknown) => {
         assert.ok(error instanceof BadRequestException);

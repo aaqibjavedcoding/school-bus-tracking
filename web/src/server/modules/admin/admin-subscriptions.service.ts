@@ -157,7 +157,7 @@ export class AdminSubscriptionsService {
     // always know when the trial ends (also a database CHECK constraint).
     const effectiveTrialStart = trialEnd && !trialStart ? now : trialStart;
     if (status === SubscriptionStatus.TRIALING && !trialEnd) {
-      throw badRequest('trial_end', 'trial_end is required for a trialing subscription');
+      throw badRequest('trial_end', 'Please enter a trial end date for a trialing subscription.');
     }
 
     const periodStart = toDate(validated.current_period_start) ?? effectiveTrialStart ?? now;
@@ -166,13 +166,13 @@ export class AdminSubscriptionsService {
       effectiveTrialStart,
       trialEnd,
       'trial_end',
-      'trial_end cannot be before trial_start',
+      'Please enter a trial end date on or after the trial start date.',
     );
     assertDateOrder(
       periodStart,
       periodEnd,
       'current_period_end',
-      'current_period_end cannot be before current_period_start',
+      'Please enter a period end date on or after the period start date.',
     );
 
     try {
@@ -255,7 +255,7 @@ export class AdminSubscriptionsService {
     ) {
       throw badRequest(
         'cancelled_at',
-        'cancelled_at cannot be before the start of the current period',
+        'Please enter a cancellation date on or after the start of the current period.',
       );
     }
 
@@ -393,20 +393,20 @@ export class AdminSubscriptionsService {
       (validated.status as PersistedSubscriptionStatus | undefined) ??
       (trialEnd ? SubscriptionStatus.TRIALING : SubscriptionStatus.ACTIVE);
     if (status === SubscriptionStatus.TRIALING && !trialEnd) {
-      throw badRequest('trial_end', 'trial_end is required for a trialing subscription');
+      throw badRequest('trial_end', 'Please enter a trial end date for a trialing subscription.');
     }
     const periodEnd = toDate(validated.current_period_end);
-    assertDateOrder(trialStart, trialEnd, 'trial_end', 'trial_end cannot be before trial_start');
+    assertDateOrder(trialStart, trialEnd, 'trial_end', 'Please enter a trial end date on or after the trial start date.');
     assertDateOrder(
       switchAt,
       periodEnd,
       'current_period_end',
-      'current_period_end cannot be before current_period_start',
+      'Please enter a period end date on or after the period start date.',
     );
     if (switchAt.getTime() < new Date(current.current_period_start).getTime()) {
       throw badRequest(
         'current_period_start',
-        'current_period_start cannot be before the start of the current period',
+        'Please enter a period start date on or after the start of the current period.',
       );
     }
 
@@ -476,15 +476,15 @@ export class AdminSubscriptionsService {
         ? toDate(validated.current_period_end)
         : current.current_period_end;
 
-    assertDateOrder(trialStart, trialEnd, 'trial_end', 'trial_end cannot be before trial_start');
+    assertDateOrder(trialStart, trialEnd, 'trial_end', 'Please enter a trial end date on or after the trial start date.');
     assertDateOrder(
       periodStart,
       periodEnd,
       'current_period_end',
-      'current_period_end cannot be before current_period_start',
+      'Please enter a period end date on or after the period start date.',
     );
     if (status === SubscriptionStatus.TRIALING && !trialEnd) {
-      throw badRequest('trial_end', 'trial_end is required for a trialing subscription');
+      throw badRequest('trial_end', 'Please enter a trial end date for a trialing subscription.');
     }
 
     if (validated.status !== undefined) updates.status = status;
@@ -500,7 +500,7 @@ export class AdminSubscriptionsService {
     }
 
     if (Object.keys(updates).length === 0) {
-      throw new BadRequestException('No valid subscription fields provided');
+      throw new BadRequestException('Please provide at least one subscription field to update.');
     }
 
     await current.update(updates);
@@ -639,7 +639,7 @@ function toDate(value: string | Date | null | undefined): Date | null {
   if (value === undefined || value === null) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    throw badRequest('date', 'Date must be a valid ISO-8601 date-time');
+    throw badRequest('date', 'Please enter the date as a real date and time (for example 2026-04-01T08:30:00Z).');
   }
   return date;
 }
@@ -687,7 +687,10 @@ function validationException(error: ZodError): BadRequestException {
     if (!details[key]) details[key] = issue.message;
   }
   return new BadRequestException({
-    message: formMessages.length > 0 ? formMessages.join(' ') : 'Validation failed',
+    message:
+      formMessages.length > 0
+        ? formMessages.join(' ')
+        : 'Please check the submitted fields and try again.',
     details,
   });
 }

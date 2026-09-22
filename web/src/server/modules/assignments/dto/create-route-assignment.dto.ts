@@ -34,31 +34,31 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  * operational staff roles; arbitrary UserRole values can never be persisted.
  */
 export class CreateRouteAssignmentDto implements RouteAssignmentCreateRequest {
-  @IsUUID(undefined, { message: 'route_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid route.' })
   route_id!: string;
 
-  @IsUUID(undefined, { message: 'bus_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid bus.' })
   bus_id!: string;
 
-  @IsUUID(undefined, { message: 'user_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid user.' })
   user_id!: string;
 
   @IsEnum(RouteAssignmentRole, {
-    message: 'role must be DRIVER or CONDUCTOR',
+    message: 'Please select a valid role (one of: DRIVER, CONDUCTOR).',
   })
   role!: RouteAssignmentRole;
 
-  @IsStringDateOnly()
-  @IsNotEmpty({ message: 'effective_from is required' })
+  @IsStringDateOnly('effective date')
+  @IsNotEmpty({ message: 'Please enter the effective date.' })
   effective_from!: string;
 
   @IsOptional()
-  @IsStringDateOnly()
+  @IsStringDateOnly('end date')
   declare effective_to?: string | null;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }
 
@@ -67,15 +67,15 @@ export class CreateRouteAssignmentDto implements RouteAssignmentCreateRequest {
  * decorator local makes the API reject timestamps and malformed month/day
  * values while the service performs the final calendar-range check.
  */
-function IsStringDateOnly(): PropertyDecorator {
+function IsStringDateOnly(label: string): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {
     Matches(DATE_ONLY_PATTERN, {
-      message: `${String(propertyKey)} must be in YYYY-MM-DD format`,
+      message: `Please enter the ${label} as YYYY-MM-DD.`,
     })(target, propertyKey);
     IsDateString(
       { strict: true },
       {
-        message: `${String(propertyKey)} must be a valid calendar date`,
+        message: `Please enter a real calendar date for the ${label}.`,
       },
     )(target, propertyKey);
   };

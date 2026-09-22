@@ -34,43 +34,43 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
  * whitelist pipe (see the DTO tests).
  */
 export class CreateStaffDto implements StaffCreateRequest {
-  @IsString({ message: 'first_name must be a string' })
-  @IsNotEmpty({ message: 'first_name is required' })
-  @MaxLength(100, { message: 'first_name must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid first name.' })
+  @IsNotEmpty({ message: 'Please enter the first name.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the first name.' })
   @Transform(trimValue)
   first_name!: string;
 
-  @IsString({ message: 'last_name must be a string' })
-  @IsNotEmpty({ message: 'last_name is required' })
-  @MaxLength(100, { message: 'last_name must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid last name.' })
+  @IsNotEmpty({ message: 'Please enter the last name.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the last name.' })
   @Transform(trimValue)
   last_name!: string;
 
-  @IsEmail({}, { message: 'email must be a valid email address' })
-  @MaxLength(255, { message: 'email must be at most 255 characters' })
+  @IsEmail({}, { message: 'Please enter a valid email address.' })
+  @MaxLength(255, { message: 'Please enter at most 255 characters for the email address.' })
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   email!: string;
 
-  @IsString({ message: 'password must be a string' })
+  @IsString({ message: 'Please enter a valid password.' })
   @MinLength(MIN_PASSWORD_LENGTH, {
-    message: `password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+    message: `Please enter at least ${MIN_PASSWORD_LENGTH} characters for the password.`,
   })
-  @MaxLength(72, { message: 'password must be at most 72 characters' })
+  @MaxLength(72, { message: 'Please enter at most 72 characters for the password.' })
   @Matches(/^\S.*\S$|^\S$/, {
-    message: 'password must not start or end with whitespace',
+    message: 'Please do not start or end the password with a space.',
   })
   password!: string;
 
   @IsOptional()
-  @IsString({ message: 'phone must be a string' })
-  @MaxLength(32, { message: 'phone must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid phone number.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the phone number.' })
   @Transform(trimValue)
   declare phone?: string | null;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

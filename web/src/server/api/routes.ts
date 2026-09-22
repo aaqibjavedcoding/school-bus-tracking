@@ -45,7 +45,7 @@ export const getRoutesById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().findOne(schoolId, id);
   },
 };
@@ -56,7 +56,7 @@ export const getRoutesByIdDetails: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().getDetails(schoolId, id);
   },
 };
@@ -68,7 +68,7 @@ export const patchRoutesById: EndpointDefinition<UpdateRouteDto> = {
   bodyType: UpdateRouteDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     const dto = body;
     return container().routes().update(schoolId, id, dto);
   },
@@ -80,7 +80,7 @@ export const deleteRoutesById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().remove(schoolId, id);
   },
 };
@@ -91,7 +91,7 @@ export const getRoutesByIdStops: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routes().findRouteStops(schoolId, id);
   },
 };
@@ -103,7 +103,7 @@ export const putRoutesByIdStops: EndpointDefinition<ReorderRouteStopsDto> = {
   bodyType: ReorderRouteStopsDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route' });
     const dto = body;
     return container().routes().reorderRouteStops(schoolId, id, dto);
   },

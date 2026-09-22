@@ -65,7 +65,7 @@ export const getRouteassignmentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'route assignment' });
     return container().routeAssignments().findOne(schoolId, id);
   },
 };
@@ -119,7 +119,7 @@ export const getAssignmentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const id = parseUuidParam(params['id']);
+    const id = parseUuidParam(params['id'], { label: 'assignment' });
     return container().routeAssignments().findOne(schoolId, id);
   },
 };

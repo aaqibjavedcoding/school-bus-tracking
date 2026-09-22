@@ -44,7 +44,9 @@ export class SetCrewPinDto implements CrewPinSetRequest {
    * "clear this PIN" into "hash the string undefined".
    */
   @ValidateIf((_object: SetCrewPinDto, value: unknown) => value !== null)
-  @IsString({ message: 'pin must be a string or null' })
-  @Matches(CREW_PIN_PATTERN, { message: `pin must be exactly ${CREW_PIN_LENGTH} digits` })
+  @IsString({ message: 'Please enter a valid PIN, or leave it empty to clear it.' })
+  @Matches(CREW_PIN_PATTERN, {
+    message: `Please enter the PIN as exactly ${CREW_PIN_LENGTH} digits.`,
+  })
   declare pin: string | null;
 }

@@ -21,9 +21,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 // Types referenced in decorated signatures must be imported as types when
 // `isolatedModules` + `emitDecoratorMetadata` are on (the Next build).
-import type {
-  DocumentOwnerType,
-} from '@school-bus-tracking/shared-types';
+import type { DocumentOwnerType } from '@school-bus-tracking/shared-types';
 import {
   MAX_DOCUMENT_WARNING_DAYS,
   MIN_DOCUMENT_WARNING_DAYS,
@@ -32,23 +30,23 @@ import { MAX_DOCUMENT_REQUIREMENTS } from '../documents.constants';
 
 /** One requirement a school may override for a document type. */
 export class DocumentRequirementItemDto implements DocumentRequirementInput {
-  @IsString({ message: 'document_type must be a string' })
-  @IsNotEmpty({ message: 'document_type is required' })
-  @MaxLength(64, { message: 'document_type must be at most 64 characters' })
+  @IsString({ message: 'Please enter a valid document type.' })
+  @IsNotEmpty({ message: 'Please select the document type.' })
+  @MaxLength(64, { message: 'Please enter at most 64 characters for the document type.' })
   document_type!: string;
 
   @Type(() => Boolean)
-  @IsBoolean({ message: 'is_required must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the required flag.' })
   is_required!: boolean;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'expiry_warning_days must be an integer' })
+  @IsInt({ message: 'Please enter a whole number for the expiry warning window (in days).' })
   @Min(MIN_DOCUMENT_WARNING_DAYS, {
-    message: `expiry_warning_days must be at least ${MIN_DOCUMENT_WARNING_DAYS}`,
+    message: `Please enter a value of at least ${MIN_DOCUMENT_WARNING_DAYS} for the expiry warning window (in days).`,
   })
   @Max(MAX_DOCUMENT_WARNING_DAYS, {
-    message: `expiry_warning_days must be at most ${MAX_DOCUMENT_WARNING_DAYS}`,
+    message: `Please enter a value of at most ${MAX_DOCUMENT_WARNING_DAYS} for the expiry warning window (in days).`,
   })
   declare expiry_warning_days?: number | null;
 }
@@ -63,14 +61,14 @@ export class DocumentRequirementItemDto implements DocumentRequirementInput {
  */
 export class UpdateDocumentRequirementsDto implements DocumentRequirementsUpdateRequest {
   @IsEnum(DOCUMENT_OWNER_TYPE_VALUES, {
-    message: 'owner_type must be BUS or DRIVER',
+    message: 'Please select a valid document owner type (one of: BUS, DRIVER).',
   })
   owner_type!: DocumentOwnerType;
 
-  @IsArray({ message: 'items must be an array' })
-  @ArrayMinSize(1, { message: 'items must contain at least one requirement' })
+  @IsArray({ message: 'Please provide the document requirements as a list.' })
+  @ArrayMinSize(1, { message: 'Please add at least one document requirement.' })
   @ArrayMaxSize(MAX_DOCUMENT_REQUIREMENTS, {
-    message: `items must contain at most ${MAX_DOCUMENT_REQUIREMENTS} requirements`,
+    message: `Please provide at most ${MAX_DOCUMENT_REQUIREMENTS} document requirements.`,
   })
   @ValidateNested({ each: true })
   @Type(() => DocumentRequirementItemDto)

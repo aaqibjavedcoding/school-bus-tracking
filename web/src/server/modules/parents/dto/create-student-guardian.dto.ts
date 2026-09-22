@@ -16,22 +16,22 @@ const booleanValue = ({ value }: { value: unknown }): unknown => {
 
 /** Body of `POST /api/v1/students/:studentId/guardians`. */
 export class CreateStudentGuardianDto implements StudentGuardianCreateRequest {
-  @IsUUID(undefined, { message: 'parent_id must be a valid UUID' })
+  @IsUUID(undefined, { message: 'Please select a valid parent.' })
   parent_id!: string;
 
-  @IsString({ message: 'relationship must be a string' })
-  @IsNotEmpty({ message: 'relationship is required' })
-  @MaxLength(50, { message: 'relationship must be at most 50 characters' })
+  @IsString({ message: 'Please enter a valid relationship.' })
+  @IsNotEmpty({ message: 'Please enter a value for the relationship.' })
+  @MaxLength(50, { message: 'Please enter at most 50 characters for the relationship.' })
   @Transform(trimValue)
   relationship!: string;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'can_pick_up must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the pick-up permission.' })
   declare can_pick_up?: boolean;
 
   @IsOptional()
   @Transform(booleanValue)
-  @IsBoolean({ message: 'is_primary must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the primary contact flag.' })
   declare is_primary?: boolean;
 }

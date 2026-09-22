@@ -1,11 +1,4 @@
-import {
-  IsIn,
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-  ValidateIf,
-} from 'class-validator';
+import { IsIn, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 import {
   CREW_LOGIN_METHODS,
@@ -60,9 +53,9 @@ export class CrewLoginDto {
    * at all.
    */
   @ValidateIf(onPinBranch)
-  @IsString({ message: 'school_id must be a string' })
-  @MaxLength(63, { message: 'school_id must be at most 63 characters' })
-  @Matches(UUID_OR_SCHOOL_CODE, { message: 'school_id must be a valid UUID or school code' })
+  @IsString({ message: 'Please enter your school code.' })
+  @MaxLength(63, { message: 'Please enter a school code of at most 63 characters.' })
+  @Matches(UUID_OR_SCHOOL_CODE, { message: 'Please enter your school code.' })
   school_id!: string;
 
   /**
@@ -84,10 +77,10 @@ export class CrewLoginDto {
    * five-per-window allowance on a typo the server silently reinterpreted.
    */
   @ValidateIf(onPinBranch)
-  @IsString({ message: 'pin must be a string' })
-  @Matches(CREW_PIN_PATTERN, { message: 'pin must be exactly 4 digits' })
-  @MinLength(CREW_PIN_LENGTH, { message: 'pin must be exactly 4 digits' })
-  @MaxLength(CREW_PIN_LENGTH, { message: 'pin must be exactly 4 digits' })
+  @IsString({ message: 'Please enter a valid PIN.' })
+  @Matches(CREW_PIN_PATTERN, { message: 'Please enter the PIN as exactly 4 digits.' })
+  @MinLength(CREW_PIN_LENGTH, { message: 'Please enter the PIN as exactly 4 digits.' })
+  @MaxLength(CREW_PIN_LENGTH, { message: 'Please enter the PIN as exactly 4 digits.' })
   pin!: string;
 
   // ── QR branch ──────────────────────────────────────────────────────────────
@@ -101,9 +94,11 @@ export class CrewLoginDto {
    * would have refused locally cannot be forced through by a hand-built request.
    */
   @ValidateIf(onQrBranch)
-  @IsString({ message: 'pairing_token must be a string' })
-  @MinLength(1, { message: 'pairing_token is required' })
-  @MaxLength(CREW_PAIRING_TOKEN_MAX_LENGTH, { message: 'pairing_token is too long' })
+  @IsString({ message: 'Please enter a valid pairing token.' })
+  @MinLength(1, { message: 'Please enter a value for the pairing token.' })
+  @MaxLength(CREW_PAIRING_TOKEN_MAX_LENGTH, {
+    message: `Please enter at most ${CREW_PAIRING_TOKEN_MAX_LENGTH} characters for the pairing token.`,
+  })
   pairing_token!: string;
 }
 
@@ -148,9 +143,7 @@ export class CrewLoginDto {
  * submitted field, because on the PIN branch one of those fields is the PIN.
  */
 export function narrowCrewLoginDto(body: CrewLoginDto): CrewLoginRequest | null {
-  const sent = Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined),
-  );
+  const sent = Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
   const parsed = crewPinLoginSchema.safeParse(sent);
   return parsed.success ? parsed.data : null;
 }

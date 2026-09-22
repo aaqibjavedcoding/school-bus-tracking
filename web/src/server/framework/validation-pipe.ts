@@ -11,7 +11,10 @@
  *   `@Type`/`@Transform` coercions and defaults apply).
  * - `whitelist: true` strips properties that carry no validation decorator.
  * - `forbidNonWhitelisted: true` upgrades stripping into a 400 that names the
- *   offending property: `property <name> should not exist`.
+ *   offending property, in plain language: `Please remove the unsupported
+ *   field "include" from the request.` (`class-validator` emits the opaque
+ *   `property include should not exist`, which `flattenValidationErrors`
+ *   rewrites).
  * - Failures throw `BadRequestException` whose response body is
  *   `{ message: string[], error: 'Bad Request', statusCode: 400 }` — note the
  *   **array** message, which `HttpExceptionFilter` forwards verbatim.
@@ -20,7 +23,11 @@
  */
 import 'reflect-metadata';
 import { validate, type ValidationError, type ValidatorOptions } from 'class-validator';
-import { plainToInstance, type ClassConstructor, type ClassTransformOptions } from 'class-transformer';
+import {
+  plainToInstance,
+  type ClassConstructor,
+  type ClassTransformOptions,
+} from 'class-transformer';
 import { BadRequestException } from './http-exception';
 
 /** Mirrors Nest's `ArgumentMetadata`. */
@@ -40,6 +47,29 @@ export interface ValidationPipeOptions extends ValidatorOptions {
 /** Types that are never run through class-validator. */
 const PRIMITIVE_TYPES: readonly unknown[] = [String, Boolean, Number, Array, Object];
 
+/** The constraint key `class-validator` uses for `forbidNonWhitelisted`. */
+const WHITELIST_CONSTRAINT = 'whitelistValidation';
+
+/**
+ * `class-validator` reports an unexpected property as `property <name> should
+ * not exist`, which tells a client nothing it can act on. Rewriting it keeps
+ * the same 400 (and the same `message` array shape) while saying what to do —
+ * and it still names the offending field, which is the part that matters for
+ * debugging a stale client.
+ */
+export function unexpectedFieldMessage(property: string): string {
+  return `Please remove the unsupported field "${property}" from the request.`;
+}
+
+/** `class-validator`'s own wording for a property the whitelist stripped. */
+const UNEXPECTED_PROPERTY_PATTERN = /^property .+ should not exist$/;
+
+/** Renders one constraint message, replacing the opaque whitelist wording. */
+function constraintMessage(error: ValidationError, key: string, value: string): string {
+  const whitelisted = key === WHITELIST_CONSTRAINT || UNEXPECTED_PROPERTY_PATTERN.test(value);
+  return whitelisted ? unexpectedFieldMessage(error.property) : value;
+}
+
 /**
  * Flattens nested validation errors into the single string array Nest
  * produces, depth-first, preserving Nest's ordering and message text.
@@ -49,7 +79,9 @@ export function flattenValidationErrors(errors: ValidationError[]): string[] {
 
   const walk = (error: ValidationError): void => {
     if (error.constraints) {
-      messages.push(...Object.values(error.constraints));
+      for (const [key, value] of Object.entries(error.constraints)) {
+        messages.push(constraintMessage(error, key, value));
+      }
     }
     for (const child of error.children ?? []) {
       walk(child);

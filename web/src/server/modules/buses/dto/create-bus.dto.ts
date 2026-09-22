@@ -22,25 +22,25 @@ const trimValue = ({ value }: { value: unknown }): unknown =>
  * forbidNonWhitelisted) rejects any client-supplied `school_id` with 400.
  */
 export class CreateBusDto implements BusCreateRequest {
-  @IsString({ message: 'registration_number must be a string' })
-  @IsNotEmpty({ message: 'registration_number is required' })
-  @MaxLength(32, { message: 'registration_number must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid registration number.' })
+  @IsNotEmpty({ message: 'Please enter a value for the registration number.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the registration number.' })
   @Transform(trimValue)
   registration_number!: string;
 
   @IsOptional()
-  @IsString({ message: 'bus_number must be a string' })
-  @MaxLength(32, { message: 'bus_number must be at most 32 characters' })
+  @IsString({ message: 'Please enter a valid bus number.' })
+  @MaxLength(32, { message: 'Please enter at most 32 characters for the bus number.' })
   @Transform(trimValue)
   declare bus_number?: string | null;
 
   @Type(() => Number)
-  @IsInt({ message: 'capacity must be an integer' })
-  @Min(1, { message: 'capacity must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the capacity.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the capacity.' })
   capacity!: number;
 
   @IsOptional()
   @Type(() => Boolean)
-  @IsBoolean({ message: 'is_active must be a boolean' })
+  @IsBoolean({ message: 'Please choose true or false for the active status.' })
   declare is_active?: boolean;
 }

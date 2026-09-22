@@ -169,7 +169,10 @@ export class CrewAuthService {
      * a property a spec has to be able to *count*, and the only honest way to
      * count bcrypt calls is to hand in the function being called.
      */
-    private readonly compare: (plaintext: string, hash: string) => Promise<boolean> = comparePassword,
+    private readonly compare: (
+      plaintext: string,
+      hash: string,
+    ) => Promise<boolean> = comparePassword,
   ) {}
 
   /** The configured brute-force policy, falling back to the shipped defaults. */
@@ -445,7 +448,7 @@ export class CrewAuthService {
     // bulk import, an operator script, a new endpoint — can persist a PIN that
     // the login side would then be unable to verify.
     if (pin !== null && !crewPinSchema.safeParse(pin).success) {
-      throw new BadRequestException(`pin must be exactly ${CREW_PIN_LENGTH} digits`);
+      throw new BadRequestException(`Please enter the PIN as exactly ${CREW_PIN_LENGTH} digits.`);
     }
 
     const user = await this.users.unscoped().findOne({
@@ -740,9 +743,7 @@ export async function resolveCrewPinMatch<T extends CrewPinCandidate>(input: {
   // paths equally expensive.
   const padded = Math.max(0, min - input.candidates.length);
   const results = await Promise.all([
-    ...input.candidates.map((candidate) =>
-      compare(input.pin, candidate.pin_hash ?? padHash),
-    ),
+    ...input.candidates.map((candidate) => compare(input.pin, candidate.pin_hash ?? padHash)),
     ...Array.from({ length: padded }, () => compare(input.pin, padHash)),
   ]);
 

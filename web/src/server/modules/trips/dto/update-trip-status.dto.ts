@@ -15,22 +15,34 @@ const trimmed = ({ value }: { value: unknown }): unknown =>
  */
 export class UpdateTripStatusDto implements TripStatusUpdateRequest {
   @IsEnum(TripStatus, {
-    message: `status must be one of ${Object.values(TripStatus).join(', ')}`,
+    message: `Please select a valid status (one of: ${Object.values(TripStatus).join(', ')}).`,
   })
   status!: TripStatus;
 
   @IsOptional()
-  @IsISO8601({ strict: true }, { message: 'actual_start_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the actual start time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   declare actual_start_at?: string | null;
 
   @IsOptional()
-  @IsISO8601({ strict: true }, { message: 'actual_end_at must be a valid ISO-8601 date-time' })
+  @IsISO8601(
+    { strict: true },
+    {
+      message:
+        'Please enter the actual end time as a date and time, for example 2026-04-01T08:30:00Z.',
+    },
+  )
   declare actual_end_at?: string | null;
 
   @IsOptional()
   @Transform(trimmed)
-  @IsString({ message: 'cancellation_reason must be a string' })
-  @MinLength(1, { message: 'cancellation_reason cannot be empty' })
-  @MaxLength(500, { message: 'cancellation_reason must be at most 500 characters' })
+  @IsString({ message: 'Please enter a valid cancellation reason.' })
+  @MinLength(1, { message: 'Please enter a value for the cancellation reason.' })
+  @MaxLength(500, { message: 'Please enter at most 500 characters for the cancellation reason.' })
   declare cancellation_reason?: string | null;
 }

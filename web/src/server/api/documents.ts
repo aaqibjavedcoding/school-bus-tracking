@@ -27,7 +27,7 @@ export const postBusesByBusIdDocuments: EndpointDefinition<CreateBusDocumentDto>
   bodyType: CreateBusDocumentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
     const dto = body;
     return container().documents().createBusDocument(schoolId, busId, dto);
   },
@@ -40,7 +40,7 @@ export const getBusesByBusIdDocuments: EndpointDefinition<unknown, ListDocuments
   queryType: ListDocumentsQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
     return container().documents().listBusDocuments(schoolId, busId, query);
   },
 };
@@ -51,7 +51,7 @@ export const getBusesByBusIdDocumentsCompliance: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
     return container().documentCompliance().getBusCompliance(schoolId, busId);
   },
 };
@@ -62,8 +62,8 @@ export const getBusesByBusIdDocumentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
-    const id = parseUuidParam(params['id']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     return container().documents().findOneBusDocument(schoolId, busId, id);
   },
 };
@@ -75,8 +75,8 @@ export const patchBusesByBusIdDocumentsById: EndpointDefinition<UpdateBusDocumen
   bodyType: UpdateBusDocumentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
-    const id = parseUuidParam(params['id']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     const dto = body;
     return container().documents().updateBusDocument(schoolId, busId, id, dto);
   },
@@ -88,8 +88,8 @@ export const deleteBusesByBusIdDocumentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const busId = parseUuidParam(params['busId']);
-    const id = parseUuidParam(params['id']);
+    const busId = parseUuidParam(params['busId'], { label: 'bus' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     return container().documents().removeBusDocument(schoolId, busId, id);
   },
 };
@@ -135,7 +135,7 @@ export const postDriversByDriverIdDocuments: EndpointDefinition<CreateDriverDocu
   bodyType: CreateDriverDocumentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
     const dto = body;
     return container().documents().createDriverDocument(schoolId, driverId, dto);
   },
@@ -148,7 +148,7 @@ export const getDriversByDriverIdDocuments: EndpointDefinition<unknown, ListDocu
   queryType: ListDocumentsQueryDto,
   handler: async ({ user, query, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
     return container().documents().listDriverDocuments(schoolId, driverId, query);
   },
 };
@@ -159,7 +159,7 @@ export const getDriversByDriverIdDocumentsCompliance: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
     return container().documentCompliance().getDriverCompliance(schoolId, driverId);
   },
 };
@@ -170,8 +170,8 @@ export const getDriversByDriverIdDocumentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
-    const id = parseUuidParam(params['id']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     return container().documents().findOneDriverDocument(schoolId, driverId, id);
   },
 };
@@ -183,8 +183,8 @@ export const patchDriversByDriverIdDocumentsById: EndpointDefinition<UpdateDrive
   bodyType: UpdateDriverDocumentDto,
   handler: async ({ user, body, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
-    const id = parseUuidParam(params['id']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     const dto = body;
     return container().documents().updateDriverDocument(schoolId, driverId, id, dto);
   },
@@ -196,8 +196,8 @@ export const deleteDriversByDriverIdDocumentsById: EndpointDefinition = {
   status: HttpStatus.OK,
   handler: async ({ user, params }) => {
     const schoolId = user.school_id as string;
-    const driverId = parseUuidParam(params['driverId']);
-    const id = parseUuidParam(params['id']);
+    const driverId = parseUuidParam(params['driverId'], { label: 'driver' });
+    const id = parseUuidParam(params['id'], { label: 'document' });
     return container().documents().removeDriverDocument(schoolId, driverId, id);
   },
 };

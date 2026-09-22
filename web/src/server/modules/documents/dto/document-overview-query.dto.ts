@@ -6,9 +6,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 // Types referenced in decorated signatures must be imported as types when
 // `isolatedModules` + `emitDecoratorMetadata` are on (the Next build).
-import type {
-  DocumentOwnerType,
-} from '@school-bus-tracking/shared-types';
+import type { DocumentOwnerType } from '@school-bus-tracking/shared-types';
 
 /**
  * Query string of `GET /api/v1/documents/overview`.
@@ -20,31 +18,31 @@ import type {
 export class DocumentOverviewQueryDto implements DocumentOverviewQuery {
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'page must be an integer' })
-  @Min(1, { message: 'page must be at least 1' })
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
   page: number = 1;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'limit must be an integer' })
-  @Min(1, { message: 'limit must be at least 1' })
-  @Max(100, { message: 'limit must be at most 100' })
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
   limit: number = 20;
 
   @IsOptional()
   @IsEnum(DOCUMENT_OWNER_TYPE_VALUES, {
-    message: 'owner_type must be BUS or DRIVER',
+    message: 'Please select a valid document owner type (one of: BUS, DRIVER).',
   })
   owner_type?: DocumentOwnerType;
 
   @IsOptional()
   @IsEnum(['compliant', 'attention'], {
-    message: 'compliance must be compliant or attention',
+    message: 'Please select a valid compliance filter (one of: compliant, attention).',
   })
   compliance?: 'compliant' | 'attention';
 
   @IsOptional()
-  @IsString({ message: 'search must be a string' })
-  @MaxLength(100, { message: 'search must be at most 100 characters' })
+  @IsString({ message: 'Please enter a valid search text.' })
+  @MaxLength(100, { message: 'Please enter at most 100 characters for the search text.' })
   search?: string;
 }
