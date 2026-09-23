@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
           {/* The brand mark is the shared public logo — the same file the
               sidebar, login screen and landing page render. No brand text sits
               beside it here, so the mark carries the name for assistive tech. */}
-          <Image src="/kidbus-logo.png" alt={APP_CONFIG.appName} width={32} height={32} priority />
+          <Image src="/kidbus-logo.svg" alt={APP_CONFIG.appName} width={32} height={32} priority />
         </div>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>{title}</h1>

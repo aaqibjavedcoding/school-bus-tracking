@@ -33,7 +33,7 @@ export default function LandingPage() {
         <div className={`${styles.container} ${styles.headerInner}`}>
           <a href="#top" className={styles.brand} aria-label={`${APP_CONFIG.appName}, back to top`}>
             <span className={styles.brandMark}>
-              <Image src="/kidbus-logo.png" alt="" width={42} height={42} priority />
+              <Image src="/kidbus-logo.svg" alt="" width={42} height={42} priority />
             </span>
             <span className={styles.brandName}>{APP_CONFIG.appName}</span>
           </a>
@@ -300,7 +300,7 @@ export default function LandingPage() {
         <div className={`${styles.container} ${styles.footerInner}`}>
           <div className={styles.footerBrand}>
             <span className={styles.brandMark}>
-              <Image src="/kidbus-logo.png" alt="" width={42} height={42} />
+              <Image src="/kidbus-logo.svg" alt="" width={42} height={42} />
             </span>
             <span>
               <strong>{APP_CONFIG.appName}</strong>
