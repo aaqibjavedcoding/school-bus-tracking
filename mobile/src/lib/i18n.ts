@@ -315,6 +315,10 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'settings.language.nameHi',
   'settings.language.nameMr',
   'trip.emptyValue',
+  // The stop-label template is "{number}. {name}" in every locale: numbers
+  // are digits and stop names are data (never translated) — see the data
+  // rule at the top of `i18n.en.ts`.
+  'map.stopLabel',
   'manifest.confirmBoard',
   'manifest.confirmDrop',
   // Product/technical terms the diagnostics readout uses in every locale:

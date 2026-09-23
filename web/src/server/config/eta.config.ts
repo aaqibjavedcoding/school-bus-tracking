@@ -81,7 +81,7 @@ export default registerAs('eta', () => {
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),
       maxAccuracyMeters: numberFromEnv('ARRIVAL_MAX_ACCURACY_METERS', 100, 1),
       allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', true),
-      requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 2, 1),
+      requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 1, 1),
       skipExtraFixes: intFromEnv('ARRIVAL_SKIP_EXTRA_FIXES', 1, 0),
       maxSkipAhead: intFromEnv('ARRIVAL_MAX_SKIP_AHEAD', 2, 1),
       exitHysteresisMeters: numberFromEnv('ARRIVAL_EXIT_HYSTERESIS_METERS', 20, 0),

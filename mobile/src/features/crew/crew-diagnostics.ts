@@ -2,6 +2,7 @@ import { LIVE_TRACKING_NAMESPACE } from '@school-bus-tracking/shared-types';
 import { t } from '../../lib/i18n.ts';
 import { formatTime } from '../../lib/format.ts';
 import type { RuntimeEnvironment } from '../../lib/runtime-environment.ts';
+import type { MapStyleIssueCode } from '../map/map-style.ts';
 import type { CrewTrackingState } from './tracking-lifecycle.ts';
 import { apiHost } from './tracking-status.ts';
 
@@ -38,6 +39,12 @@ export function buildDiagnosticsRows(
   state: CrewTrackingState,
   runtime: RuntimeEnvironment,
   apiBaseUrl: string | null,
+  /**
+   * Map label/style health from the map-diagnostics store. `undefined` = the
+   * caller has no map (omit the row); `null` = the map has not reported yet
+   * (dash); `[]` = OK; non-empty = the `map.issue.*` lines, joined.
+   */
+  mapIssues?: readonly MapStyleIssueCode[] | null,
 ): DiagnosticsRow[] {
   const host = apiHost(apiBaseUrl);
 
@@ -118,6 +125,9 @@ export function buildDiagnosticsRows(
     { label: t('help.diagnostics.runtime'), value: runtimeValue },
     { label: t('help.diagnostics.apiHost'), value: apiHostValue },
     { label: t('help.diagnostics.socket'), value: socketValue },
+    ...(mapIssues === undefined
+      ? []
+      : [{ label: t('help.diagnostics.map'), value: mapLabelsValue(mapIssues) }]),
     { label: t('help.diagnostics.connection'), value: state.connection },
     { label: t('help.diagnostics.locationServices'), value: servicesValue },
     { label: t('help.diagnostics.foregroundPermission'), value: state.foregroundPermission },
@@ -128,4 +138,15 @@ export function buildDiagnosticsRows(
     { label: t('help.diagnostics.lastError'), value: lastErrorValue },
     { label: t('help.diagnostics.delivery'), value: deliveryValue },
   ];
+}
+
+/** The "Map labels" fact: OK, dash (not reported), or the issue lines. */
+function mapLabelsValue(mapIssues: readonly MapStyleIssueCode[] | null): string {
+  if (mapIssues === null) return DASH;
+  if (mapIssues.length === 0) return t('help.diagnostics.mapOk');
+  const labels = {
+    styleLoad: 'map.issue.styleLoad',
+    glyphs: 'map.issue.glyphs',
+  } as const;
+  return mapIssues.map((code) => t(labels[code])).join(' · ');
 }

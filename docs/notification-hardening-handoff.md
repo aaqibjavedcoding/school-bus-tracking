@@ -65,12 +65,24 @@ only.
   `selectProgressionCandidate`: only stops **ahead of the progress
   frontier** (highest recorded sequence) are eligible; evidence escalates
   with distance — next stop needs `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES`
-  (default 2: one fix is vulnerable to urban jitter, two cost ~2.5–5 s),
-  stops within `ARRIVAL_MAX_SKIP_AHEAD` (default 2) need
+  (default 1), stops within `ARRIVAL_MAX_SKIP_AHEAD` (default 2) need
   `+ARRIVAL_SKIP_EXTRA_FIXES` (default 1), further stops need one more
   (explicit re-sync). Ranking: most consecutive evidence → nearest →
   earliest sequence, so overlapping geofences resolve to sustained
   presence. One fix records at most one arrival.
+  **2026-09 revision (batch 3A):** the next-stop default was 2 consecutive
+  inside fixes ("one fix is vulnerable to urban jitter, two cost ~2.5–5 s").
+  Field/sim evidence reversed that call: requiring strictly-consecutive
+  inside fixes made confirmation the weakest link — one edge-jitter fix
+  outside the radius reset the run, and the trip read "stuck at first
+  stop" with zero explanations (the arrival sim drives one fix per stop
+  visit and recorded nothing). The eligibility gate (fresh ≤3 min, not
+  future, accuracy ≤100 m, no implausible jump) is the anti-jitter gate;
+  with it in place one eligible in-geofence fix is proof enough for the
+  immediate next stop. The escalating consecutive tiers above are
+  unchanged — out-of-order/skip claims still demand stronger evidence.
+  If double-booking of adjacent geofences ever shows up, re-raise via
+  `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES=2` (env) before touching code.
 - Consecutive-fix evidence per trip/stop with an exit-hysteresis fringe
   (`ARRIVAL_EXIT_HYSTERESIS_METERS`, default 20 m: past-edge fixes preserve
   partial evidence instead of wiping it) and an optional dwell span
@@ -80,6 +92,14 @@ only.
   stops; mid-route joins and reconnects re-sync via the escalated tiers
   (frontier rebuilds from DB arrivals after restarts; only the in-memory
   consecutive counts rebuild, costing ~1 extra fix).
+- Never-stall-explained rule (batch 3A): a stop without coordinates can
+  never auto-record — the evaluator warns once per trip+stop and
+  `GET /progress` exposes `arrival_diagnostics` (last fix rejection,
+  unsurveyed stops, per-stop `inside_count`/`required_fixes`), and
+  `computeTripEta` derives `next_stop` from the progress frontier (first
+  un-reached stop with `sequence_number > frontier`) with `warnings`
+  listing un-surveyable active stops — one missed visit can no longer pin
+  the trip to the first stop.
 - Heading is **not** used (meaningless when stationary); stationary buses
   confirm by sustained presence. The domain supports one direction only —
   ascending `sequence_number` (no reverse-trip concept exists). No routing

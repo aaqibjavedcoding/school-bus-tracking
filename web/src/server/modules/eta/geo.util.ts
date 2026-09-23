@@ -1,3 +1,5 @@
+import type { TripStopWarning } from '@school-bus-tracking/shared-types';
+
 /**
  * Pure geodesy helpers for the Task 22 ETA / geofence pipeline.
  *
@@ -51,6 +53,77 @@ export function haversineMeters(
     sinHalfPhi * sinHalfPhi + Math.cos(phi1) * Math.cos(phi2) * sinHalfLambda * sinHalfLambda;
 
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * A stop is geofenceable only with a surveyed, finite position. Stops without
+ * coordinates are real stops — they stay in the route and the manifest — but
+ * they can never match a GPS fix, so every consumer must treat them explicitly
+ * (warn + skip) instead of silently waiting on them.
+ */
+export function hasStopCoordinates(stop: {
+  latitude: number | null | undefined;
+  longitude: number | null | undefined;
+}): boolean {
+  return (
+    typeof stop.latitude === 'number' &&
+    typeof stop.longitude === 'number' &&
+    Number.isFinite(stop.latitude) &&
+    Number.isFinite(stop.longitude)
+  );
+}
+
+/**
+ * Can this stop ever record an automatic arrival? Active, surveyed and with a
+ * real geofence radius. This is the ONE "recordable" predicate: the arrival
+ * selector's next-unarrived derivation, the ETA's `next_stop` and the arrival
+ * diagnostics all read it the same way — an un-surveyable stop can never be
+ * "next" and never pins progress.
+ */
+export function isRecordableStop(stop: {
+  latitude: number | null | undefined;
+  longitude: number | null | undefined;
+  geofence_radius_meters: number | null | undefined;
+  is_active?: boolean | null;
+}): boolean {
+  return (
+    stop.is_active !== false &&
+    hasStopCoordinates(stop) &&
+    Number.isFinite(stop.geofence_radius_meters) &&
+    (stop.geofence_radius_meters ?? 0) > 0
+  );
+}
+
+/** The route-stop input `stopCoordinateWarnings` reads. */
+export interface WarningStop {
+  id: string;
+  name: string;
+  sequence_number: number;
+  latitude: number | null;
+  longitude: number | null;
+  is_active?: boolean;
+}
+
+/**
+ * The admin-actionable warnings for one route: every active stop that cannot
+ * produce an automatic arrival because it has no surveyed coordinates.
+ * One shared derivation for the ETA response, the arrival pipeline and the
+ * progress diagnostics — they must never disagree about which stops are
+ * un-surveyed.
+ */
+export function stopCoordinateWarnings(stops: WarningStop[]): TripStopWarning[] {
+  const warnings: TripStopWarning[] = [];
+  for (const stop of stops) {
+    if (stop.is_active === false) continue;
+    if (hasStopCoordinates(stop)) continue;
+    warnings.push({
+      code: 'stop_missing_coordinates',
+      stop_id: stop.id,
+      stop_name: stop.name,
+      sequence_number: stop.sequence_number,
+    });
+  }
+  return warnings;
 }
 
 /** A device speed is usable only when it is a finite, strictly positive number. */

@@ -23,7 +23,10 @@ import { BusMarker } from '../map/BusMarker';
 import { StopMarker } from '../map/StopMarker';
 import { accuracyCirclePolygon } from '../map/accuracy-circle';
 import type { BusMotionFix } from '../map/bus-motion.ts';
-import { resolveMapStyleUrl } from '../map/map-style';
+import { SINGLE_POINT_ZOOM, initialCameraFor } from '../map/fit-camera.ts';
+import { MapIssueLines } from '../map/map-issue-lines';
+import { reportMapIssue } from '../map/map-diagnostics';
+import { useMapStyle } from '../map/use-map-style';
 import { mapSurfaceMode } from '../map/map-surface-mode';
 import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
 import type { RenderedMarker } from '../map/useBusMarkerMotion';
@@ -87,17 +90,9 @@ export interface DriverTripMapProps {
 }
 
 /**
- * The style URL for this bundle (one per build — see `map-style.ts` and the
- * note on the observer map).
+ * Padding that keeps markers off the edge when the route is fitted.
  */
-const MAP_STYLE_URL = resolveMapStyleUrl({
-  EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
-});
-
-/** Padding that keeps markers off the edge when the route is fitted. */
 const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
-/** Zoom used when there is exactly one point to frame. */
-const SINGLE_POINT_ZOOM = 15;
 
 /**
  * School-bus amber with an explicit alpha — `rgba()` rather than an 8-digit
@@ -109,36 +104,19 @@ const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 
 /**
- * Only ever used for the `Camera`'s `initialViewState` — read once at map
- * creation, never as a controlled camera (see the observer map's note).
+ * Initial framing + fit math (with the `MAP_MIN_FIT_ZOOM` floor) lives in
+ * `fit-camera.ts`, shared with the observer map. Only ever used for the
+ * `Camera`'s `initialViewState` — read once at map creation, never as a
+ * controlled camera (see the observer map's note).
  */
-function initialCameraFor(
-  points: Array<{ latitude: number; longitude: number }>,
-): InitialViewState | null {
-  if (points.length === 0) return null;
-  if (points.length === 1) {
-    return { center: [points[0].longitude, points[0].latitude], zoom: SINGLE_POINT_ZOOM };
-  }
-  const latitudes = points.map((point) => point.latitude);
-  const longitudes = points.map((point) => point.longitude);
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLng = Math.min(...longitudes);
-  const maxLng = Math.max(...longitudes);
-  // The zoom at which the world's latitude span matches the fitted span
-  // (1.4×, the same padding the old region used): span = 360 / 2^zoom.
-  const zoom = Math.max(2, Math.log2(360 / Math.max(0.01, (maxLat - minLat) * 1.4)));
-  return {
-    center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
-    zoom,
-  };
-}
 
 interface SurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
   routeLineFeature: Feature<LineString> | null;
   accuracyCircleFeature: Feature<Polygon> | null;
   initialCamera: InitialViewState | null;
+  /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
+  mapStyle: MapProps['mapStyle'];
   localFix: BusMotionFix | null;
   tripId: string | null;
   reducedMotion: boolean;
@@ -179,10 +157,11 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
     onRegionChangeComplete,
     onMapReady,
     cameraRef,
+    mapStyle,
   }) => (
     <MapView
       style={styles.map}
-      mapStyle={MAP_STYLE_URL}
+      mapStyle={mapStyle}
       // OSM-derived tiles legally require the attribution and the logo;
       // MapLibre renders both in the BOTTOM corners, so the panel lives
       // top-left.
@@ -191,6 +170,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
       onDidFinishLoadingMap={onMapReady}
+      onDidFailLoadingMap={() => reportMapIssue('styleLoad')}
     >
       {/* Uncontrolled after the initial state; imperative via cameraRef. */}
       <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
@@ -237,6 +217,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
           latitude={stop.latitude}
           longitude={stop.longitude}
           title={stop.name}
+          label={t('map.stopLabel', { number: stop.sequence_number, name: stop.name })}
           description={`${t('map.stopA11y', { number: stop.sequence_number })}${
             stop.address ? ` · ${stop.address}` : ''
           }`}
@@ -346,6 +327,11 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   // platform — see `map-surface-mode.ts`).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!localFix);
 
+  // The style pipeline: fetched, glyph-repaired, fontstack rewrites
+  // registered, endpoint verified — failures land in the map-diagnostics
+  // store (rendered by the panel above / the Help screen).
+  const { mapStyle } = useMapStyle();
+
   if (surfaceMode === 'no-coordinates') {
     return (
       <View style={[styles.placeholder, { height }]}>
@@ -379,6 +365,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
             onRegionChangeComplete={onRegionChangeComplete}
             onMapReady={onMapReady}
             cameraRef={cameraRef}
+            mapStyle={mapStyle}
           />
         )}
 
@@ -396,6 +383,8 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
               it, only when that is true. */}
           <Text style={styles.panelNote}>{copy.position}</Text>
           {copy.delivery ? <Text style={styles.panelNote}>{copy.delivery}</Text> : null}
+          {/* Map style/label failures are visible here — never blank-silent. */}
+          <MapIssueLines />
         </View>
 
         {surfaceMode === 'map' && exploring ? (

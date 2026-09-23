@@ -88,10 +88,20 @@ function createBusMarkerElement(): HTMLDivElement {
 function createStopMarkerElement(
   sequence: number,
   kind: 'plain' | 'next' | 'current',
+  name: string,
 ): HTMLDivElement {
   const el = document.createElement('div');
   el.className = `stop-marker ${kind}`;
   el.textContent = String(sequence);
+  // Always-visible stop name + sequence (the shared `map.stopLabel` template
+  // '{number}. {name}' — mobile's StopMarker shows the same). The popup stays
+  // a click affordance; the label is the reading affordance. Absolutely
+  // positioned so the dot's 22px box — and the marker anchor math — never
+  // change and the label cannot block map gestures.
+  const label = document.createElement('span');
+  label.className = 'stop-marker-label';
+  label.textContent = `${sequence}. ${name}`;
+  el.appendChild(label);
   return el;
 }
 
@@ -100,6 +110,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   stops = [],
   highlightStopId = null,
   connection = 'offline',
+  onMapError,
 }) => {
   const reducedMotion = usePrefersReducedMotion();
   const [exploring, setExploring] = useState(false);
@@ -123,6 +134,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   fixRef.current = fix;
   const recenterRef = useRef<(() => void) | null>(null);
   const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
+  const onMapErrorRef = useRef(onMapError);
+  onMapErrorRef.current = onMapError;
 
   const mappedStops = useMemo(
     () =>
@@ -141,6 +154,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         .map((stop) => [stop.longitude, stop.latitude] as [number, number]),
     [mappedStops],
   );
+
+  // Declared before the map-init effect: its deps gate map creation. The
+  // empty state renders no container div, so the map may only initialise (or
+  // re-initialise) once there is something to show.
+  const hasAnything = mappedStops.length > 0 || fix !== null;
 
   const presentation = useMemo(
     () =>
@@ -323,15 +341,32 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         ? [mappedStops[0].longitude, mappedStops[0].latitude]
         : [0, 0];
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: styleUrl,
-      center: initialCenter,
-      zoom: SINGLE_POINT_ZOOM - 1,
-      attributionControl: { compact: false },
-    });
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: styleUrl,
+        center: initialCenter,
+        zoom: SINGLE_POINT_ZOOM - 1,
+        attributionControl: { compact: false },
+      });
+    } catch (error) {
+      // Never fail silently: the caller shows "Map failed to load".
+      console.error('[MapView] map initialization failed', error);
+      onMapErrorRef.current?.('Map failed to load');
+      return;
+    }
 
     mapRef.current = map;
+
+    // Style/tile/glyph failures and WebGL context loss surface here — they
+    // must never leave a silent blank map box.
+    const onMapErrorEvent = (event: unknown) => {
+      const message = (event as { error?: { message?: string } })?.error?.message ?? 'map error';
+      console.error('[MapView]', message);
+      onMapErrorRef.current?.('Map failed to load');
+    };
+    map.on('error', onMapErrorEvent as never);
 
     // Gesture detection via originalEvent (MapLibre's documented signal)
     const onMoveStart = (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
@@ -428,6 +463,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     return () => {
       map.off('movestart', onMoveStart as never);
+      map.off('error', onMapErrorEvent as never);
       stopLoop();
       map.remove();
       mapRef.current = null;
@@ -436,10 +472,14 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       busPopupRef.current = null;
       stopMarkersRef.current = [];
     };
-    // We want to run once when webglSupported becomes true; lineCoords/mappedStops
-    // are read inside load handler via dispatch/fitToData which captures them,
-    // but re-creating the map on every stop change would be wrong.
-  }, [webglSupported]);
+    // Run once when webglSupported becomes true — lineCoords/mappedStops are
+    // read inside the load handler via dispatch/fitToData and re-creating the
+    // map on every stop change would be wrong. `hasAnything` MUST be here:
+    // the empty state renders no container div, so when the first datum
+    // (stops or fix) arrives after mount the effect has to re-run — with
+    // `[webglSupported]` alone the container appeared but the map never
+    // initialised, leaving a dead map box on the admin trip page.
+  }, [webglSupported, hasAnything]);
 
   // Update route line when stops change
   useEffect(() => {
@@ -494,7 +534,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     for (const stop of mappedStops) {
       const kind = highlightStopId === stop.id ? 'current' : 'plain';
-      const el = createStopMarkerElement(stop.sequence_number, kind as 'plain' | 'current');
+      const el = createStopMarkerElement(
+        stop.sequence_number,
+        kind as 'plain' | 'current',
+        stop.name,
+      );
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([stop.longitude, stop.latitude])
         .addTo(map);
@@ -622,8 +666,6 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       stopLoop();
     };
   }, [stopLoop]);
-
-  const hasAnything = mappedStops.length > 0 || fix !== null;
 
   if (!hasAnything) {
     return (

@@ -2335,6 +2335,49 @@ export interface TripStopEta {
 }
 
 /** Successful payload of `GET /api/v1/trips/:tripId/eta`. */
+/** A route stop the school admin must survey before it can geofence. */
+export type TripStopWarningCode = 'stop_missing_coordinates';
+
+/** Admin-actionable data problem on one route stop. */
+export interface TripStopWarning {
+  code: TripStopWarningCode;
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+}
+
+/** Why the newest evaluated fix produced no arrival evidence. */
+export type TripArrivalFixRejection =
+  | 'stale'
+  | 'future'
+  | 'inaccurate'
+  | 'missing-accuracy'
+  | 'implausible-jump';
+
+/** Confirmation evidence accumulated for one not-yet-reached stop. */
+export interface TripArrivalPendingStop {
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+  /** Eligible in-geofence fixes accumulated since the last reset. */
+  inside_count: number;
+  /** Fixes this stop's progression tier requires before it records. */
+  required_fixes: number;
+}
+
+/**
+ * Why arrivals have (not) advanced — the support-facing answer to
+ * "why is next stop not moving?", never a silent stall.
+ */
+export interface TripArrivalDiagnostics {
+  /** Rejection reason of the newest evaluated fix; null when it was eligible. */
+  last_fix_rejection: TripArrivalFixRejection | null;
+  /** Stops that can never auto-record (no coordinates) — survey them. */
+  unsurveyed_stops: TripStopWarning[];
+  /** Evidence state of every recordable stop ahead of the progress frontier. */
+  pending_stops: TripArrivalPendingStop[];
+}
+
 export interface TripEtaResponse {
   trip_id: string;
   school_id: string;
@@ -2351,12 +2394,22 @@ export interface TripEtaResponse {
   speed_source: 'gps' | 'fallback' | null;
   /** The most recently reached stop (arrival recorded), or null before the first. */
   current_stop: TripStopEta | null;
-  /** The first not-yet-reached stop in route order, or null when all are reached. */
+  /**
+   * The first not-yet-reached stop ahead of the progress frontier (the
+   * highest already-reached sequence), or null when all are reached. A stop
+   * the trip already moved past — reached, or skipped by the arrival policy —
+   * never pins this, so one missed visit cannot stick the trip at it.
+   */
   next_stop: TripStopEta | null;
   /** Every route stop in order with its distance / ETA / arrival state. */
   items: TripStopEta[];
   /** False exactly when no GPS fix exists — no ETA is fabricated in that case. */
   eta_available: boolean;
+  /**
+   * Admin-actionable data problems (e.g. stops without coordinates that can
+   * never auto-record an arrival). Optional; absent or empty means no warnings.
+   */
+  warnings?: TripStopWarning[];
 }
 
 /** One persisted stop-arrival event of a trip. */
@@ -2394,12 +2447,20 @@ export interface TripProgressResponse {
   tracking_state: TripTrackingState;
   /** The most recently reached stop, or null before the first. */
   current_stop: TripStopEta | null;
-  /** The first not-yet-reached stop in route order, or null when all are reached. */
+  /**
+   * The first not-yet-reached stop ahead of the progress frontier, or null
+   * when all are reached (see `TripEtaResponse.next_stop`).
+   */
   next_stop: TripStopEta | null;
   /** Every recorded arrival of this trip, in arrival order. */
   arrivals: TripStopArrivalResponse[];
   /** The ETA summary (same shape as `GET /trips/:tripId/eta`). */
   eta: TripEtaResponse;
+  /**
+   * Why arrivals have (not) advanced — evidence counts, unsurveyed stops and
+   * the last fix rejection. Optional; absent means the evaluator has not run.
+   */
+  arrival_diagnostics?: TripArrivalDiagnostics;
 }
 
 /** Server → room: the bus entered a stop's geofence and the visit was recorded. */

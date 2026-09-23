@@ -86,8 +86,13 @@ describe('native bus map invariants', () => {
   });
 
   test('keeps a single style URL, resolved by the policy module', () => {
-    assert.match(map, /resolveMapStyleUrl\(/, 'the style URL must come from map-style.ts');
-    assert.match(map, /mapStyle=\{MAP_STYLE_URL\}/);
+    // The style pipeline (`use-map-style.ts`) is the one place that resolves
+    // the URL via the policy module (`map-style.ts`) and feeds both maps —
+    // components never carry a tile/style endpoint of their own.
+    const pipeline = read('src/features/map/use-map-style.ts');
+    assert.match(pipeline, /resolveMapStyleUrl\(/, 'the style URL must come from map-style.ts');
+    assert.match(map, /useMapStyle\(/, 'the surface takes its style from the pipeline');
+    assert.match(map, /mapStyle=\{mapStyle\}/);
   });
 
   /**
