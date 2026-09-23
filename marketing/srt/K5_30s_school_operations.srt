@@ -1,0 +1,30 @@
+1
+00:00:00,000 --> 00:00:04,459
+THE TRANSPORT DESK
+There is a better way
+
+2
+00:00:04,459 --> 00:00:10,945
+BULK IMPORT
+Validate, review, then commit
+
+3
+00:00:10,945 --> 00:00:17,432
+EXPORTS
+Excel or CSV, always in sync
+
+4
+00:00:17,432 --> 00:00:23,108
+SUBSCRIPTIONS
+Per-school plans and limits
+
+5
+00:00:23,108 --> 00:00:26,756
+ZEROMILESYSTEMS
+Made in India, for India
+
+6
+00:00:26,756 --> 00:00:30,000
+GET STARTED TODAY
+zeromilesystems@gmail.com • ZeroMileSystems.com
+

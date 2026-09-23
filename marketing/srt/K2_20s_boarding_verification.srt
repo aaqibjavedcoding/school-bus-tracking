@@ -1,0 +1,25 @@
+1
+00:00:00,000 --> 00:00:04,000
+CONDUCTOR APP
+Every child is marked as boarded
+
+2
+00:00:04,000 --> 00:00:08,727
+PARENTS NOTIFIED
+The moment it happens
+
+3
+00:00:08,727 --> 00:00:13,090
+MANIFEST
+Roster ordered by stop sequence
+
+4
+00:00:13,090 --> 00:00:17,090
+ZERO PAPERWORK
+Boarded to dropped, fully logged
+
+5
+00:00:17,090 --> 00:00:20,000
+GET STARTED TODAY
+zeromilesystems@gmail.com • ZeroMileSystems.com
+

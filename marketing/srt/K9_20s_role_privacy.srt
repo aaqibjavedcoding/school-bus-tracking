@@ -1,0 +1,25 @@
+1
+00:00:00,000 --> 00:00:05,454
+PARENTS
+Only what is theirs to see
+
+2
+00:00:05,454 --> 00:00:09,454
+SCHOOL ADMINS
+Whole-school control
+
+3
+00:00:09,454 --> 00:00:13,090
+DRIVERS & CONDUCTORS
+Two-tap trip flow
+
+4
+00:00:13,090 --> 00:00:17,090
+PRIVACY BY DESIGN
+No cross-school data, ever
+
+5
+00:00:17,090 --> 00:00:20,000
+GET STARTED TODAY
+zeromilesystems@gmail.com • ZeroMileSystems.com
+

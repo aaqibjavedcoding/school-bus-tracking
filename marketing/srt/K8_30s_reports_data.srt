@@ -1,0 +1,25 @@
+1
+00:00:00,000 --> 00:00:06,290
+EVIDENCE, NOT MEMORY
+Every action is logged
+
+2
+00:00:06,290 --> 00:00:12,580
+REPORTS
+Same filters as the screen
+
+3
+00:00:12,580 --> 00:00:17,903
+EXPORTS
+The file and the UI never disagree
+
+4
+00:00:17,903 --> 00:00:26,129
+BULK IMPORT
+Rollback-safe, up to 5,000 rows
+
+5
+00:00:26,129 --> 00:00:30,000
+GET STARTED TODAY
+zeromilesystems@gmail.com • ZeroMileSystems.com
+

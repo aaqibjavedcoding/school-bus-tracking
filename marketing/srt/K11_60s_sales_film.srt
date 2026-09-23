@@ -1,0 +1,50 @@
+1
+00:00:00,000 --> 00:00:09,570
+THE MORNING PROBLEM
+Three hundred children, zero visibility
+
+2
+00:00:09,570 --> 00:00:16,196
+CREW APP
+GPS starts with the trip itself
+
+3
+00:00:16,196 --> 00:00:22,085
+ATTENDANCE
+Boarded and dropped, verified
+
+4
+00:00:22,085 --> 00:00:27,607
+PARENT APP
+Alerts the moment it matters
+
+5
+00:00:27,607 --> 00:00:33,128
+LIVE TRACKING
+No manual marking, ever
+
+6
+00:00:33,128 --> 00:00:40,858
+EMERGENCY
+Every admin alarmed, instantly
+
+7
+00:00:40,858 --> 00:00:47,116
+COMPLIANCE
+30-day expiry alerts
+
+8
+00:00:47,116 --> 00:00:53,006
+EXPORTS
+Excel or CSV, always in sync
+
+9
+00:00:53,006 --> 00:00:56,687
+GO LIVE FAST
+Your whole school, one upload
+
+10
+00:00:56,687 --> 00:01:00,000
+GET STARTED TODAY
+zeromilesystems@gmail.com • ZeroMileSystems.com
+
