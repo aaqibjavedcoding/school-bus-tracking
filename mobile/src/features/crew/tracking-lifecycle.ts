@@ -114,6 +114,27 @@ export const CREW_LOCATION_TASK = 'school-bus-crew-location';
 
 const WATCH_INTERVAL_MS = 4_000; // server throttle floor is 2500 ms
 const WATCH_DISTANCE_METERS = 10;
+
+/** Throttle UI re-renders from GPS: only publish lastFix when moved >10m or 10s elapsed (3E speed). */
+const PUBLISH_DISTANCE_THRESHOLD_M = 10;
+const PUBLISH_TIME_THRESHOLD_MS = 10_000;
+let lastPublishedFix: { latitude: number; longitude: number; recordedMs: number } | null = null;
+
+function shouldPublishFix(latitude: number, longitude: number, recordedMs: number): boolean {
+  if (!lastPublishedFix) return true;
+  const timeDelta = recordedMs - lastPublishedFix.recordedMs;
+  if (timeDelta >= PUBLISH_TIME_THRESHOLD_MS) return true;
+  // Haversine distance (inline to avoid extra import cycle)
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(latitude - lastPublishedFix.latitude);
+  const dLon = toRad(longitude - lastPublishedFix.longitude);
+  const lat1 = toRad(lastPublishedFix.latitude);
+  const lat2 = toRad(latitude);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const dist = 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(a)));
+  return dist >= PUBLISH_DISTANCE_THRESHOLD_M;
+}
 /**
  * Every wait in the recovery path is bounded, so a background execution can
  * never hang open. The production values are the defaults; the object exists so
@@ -845,18 +866,26 @@ export function deliverCrewDeviceFix(fix: DeviceLocationFix): PushFixResult {
     return 'invalid';
   }
 
-  patchStats({
-    lastFix: {
+  const recordedMs = new Date(payload.recorded_at).getTime();
+  if (shouldPublishFix(payload.latitude, payload.longitude, recordedMs)) {
+    lastPublishedFix = {
       latitude: payload.latitude,
       longitude: payload.longitude,
-      accuracy: payload.accuracy ?? null,
-      recorded_at: payload.recorded_at,
-      // `payload.heading` is absent when the device had no course (the source
-      // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
-      heading: payload.heading ?? null,
-      speed: payload.speed ?? null,
-    },
-  });
+      recordedMs,
+    };
+    patchStats({
+      lastFix: {
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        accuracy: payload.accuracy ?? null,
+        recorded_at: payload.recorded_at,
+        // `payload.heading` is absent when the device had no course (the source
+        // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
+        heading: payload.heading ?? null,
+        speed: payload.speed ?? null,
+      },
+    });
+  }
 
   const socket = getLiveTrackingSocket() as unknown as { connected: boolean };
   if (!socket.connected || !getAccessToken()) {
@@ -1263,6 +1292,7 @@ export async function stopCrewTracking(
   await clearPersistedContext();
 
   resetPendingFix();
+  lastPublishedFix = null;
   state = {
     ...initialState,
     foregroundPermission: state.foregroundPermission,
@@ -1466,18 +1496,27 @@ export async function runHeadlessCrewLocationTask(
     patchStats({ invalidCount: state.stats.invalidCount + 1 });
     return result;
   }
-  patchStats({
-    lastFix: {
-      latitude: payload.latitude,
-      longitude: payload.longitude,
-      accuracy: payload.accuracy ?? null,
-      recorded_at: payload.recorded_at,
-      // `payload.heading` is absent when the device had no course (the source
-      // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
-      heading: payload.heading ?? null,
-      speed: payload.speed ?? null,
-    },
-  });
+  // Throttle UI publish from headless path too (3E speed).
+  {
+    const recordedMs = new Date(payload.recorded_at).getTime();
+    if (shouldPublishFix(payload.latitude, payload.longitude, recordedMs)) {
+      lastPublishedFix = {
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        recordedMs,
+      };
+      patchStats({
+        lastFix: {
+          latitude: payload.latitude,
+          longitude: payload.longitude,
+          accuracy: payload.accuracy ?? null,
+          recorded_at: payload.recorded_at,
+          heading: payload.heading ?? null,
+          speed: payload.speed ?? null,
+        },
+      });
+    }
+  }
 
   const outcome = await sendPayload(payload, payload.idempotency_key ?? '');
   if (epoch !== startedIn) {
@@ -1628,6 +1667,7 @@ export async function __resetCrewTrackingForTests(): Promise<void> {
   invalidateSessionRecovery();
   policy.reset();
   resetPendingFix();
+  lastPublishedFix = null;
   epoch += 1;
   hydrateAttempted = false;
   socketListenersAttached = false;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApiErrorMessage } from '../lib/errors';
 import { createDebouncedReload, subscribeDataUpdated } from '../lib/data-updated';
 
@@ -18,6 +18,12 @@ export interface UseLoadOptions {
   enabled?: boolean;
 }
 
+/**
+ * Optimized for admin speed (3E):
+ * - keeps previous data while reloading (no flash)
+ * - memoizes deps to avoid unnecessary reloads
+ * - stable data-updated subscription via ref
+ */
 export function useLoad<T>(
   loader: () => Promise<T>,
   deps: unknown[] = [],
@@ -33,6 +39,8 @@ export function useLoad<T>(
   const enabledRef = useRef(options.enabled);
   enabledRef.current = options.enabled;
 
+  const depsKey = useMemo(() => JSON.stringify(deps), [JSON.stringify(deps)]);
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -42,7 +50,10 @@ export function useLoad<T>(
 
   const reload = useCallback(async () => {
     const id = ++requestId.current;
-    setLoading(true);
+    const isInitial = requestId.current === 1;
+    if (isInitial) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await loaderRef.current();
@@ -69,22 +80,24 @@ export function useLoad<T>(
       return;
     }
     void reload();
-  }, [reload, options.enabled, ...deps]);
+  }, [reload, options.enabled, depsKey]);
 
   // Any successful write anywhere in the app refreshes this screen too, so the
   // row a user just saved is current even when the form that saved it lives on
   // another page (see `lib/data-updated`).
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
   useEffect(() => {
     const debounced = createDebouncedReload(() => {
       if (enabledRef.current === false) return;
-      return reload();
+      return reloadRef.current();
     });
     const unsubscribe = subscribeDataUpdated(debounced.request);
     return () => {
       unsubscribe();
       debounced.cancel();
     };
-  }, [reload]);
+  }, []);
 
   return { data, setData, loading, error, reload };
 }

@@ -14,6 +14,11 @@ import { CalendarPicker } from './date-picker-calendar';
  *
  * The value is the API's own unit, `YYYY-MM-DD` (empty string = unset), so
  * forms keep sending exactly what the shared zod schemas validate.
+ *
+ * Field fix (3E): the clear ✕ was a nested Pressable inside the open
+ * Pressable, so tapping clear also opened the calendar on Android. The
+ * control is now a View with two sibling Pressables — main area opens, clear
+ * only clears — so the gestures never conflict.
  */
 export interface DatePickerProps {
   label: string;
@@ -23,7 +28,7 @@ export interface DatePickerProps {
   placeholder?: string;
   error?: string | null;
   hint?: string | null;
-  /** Shows the inline ✕ and the calendar's "Clear" action (optional dates). */
+  /** Shows the inline ✕ and the calendar's \"Clear\" action (optional dates). */
   allowClear?: boolean;
   /** Inclusive lower bound (`YYYY-MM-DD`). */
   minDate?: string | null;
@@ -52,27 +57,31 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   return (
     <View style={[styles.field, containerStyle]}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <Pressable
-        onPress={() => setOpen(true)}
-        style={[styles.control, error ? styles.controlError : null]}
-        accessibilityRole="button"
-        accessibilityLabel={filled ? `${label}: ${value}` : label}
-      >
-        <Ionicons name="calendar-outline" size={18} color={colors.neutral[500]} />
-        <Text style={filled ? styles.controlValue : styles.controlPlaceholder} numberOfLines={1}>
-          {filled ? value : (placeholder ?? t('datePicker.placeholder'))}
-        </Text>
+      <View style={[styles.control, error ? styles.controlError : null]}>
+        <Pressable
+          onPress={() => setOpen(true)}
+          style={styles.controlMain}
+          accessibilityRole=\"button\"
+          accessibilityLabel={filled ? `${label}: ${value}` : label}
+          hitSlop={2}
+        >
+          <Ionicons name=\"calendar-outline\" size={18} color={colors.neutral[500]} />
+          <Text style={filled ? styles.controlValue : styles.controlPlaceholder} numberOfLines={1}>
+            {filled ? value : (placeholder ?? t('datePicker.placeholder'))}
+          </Text>
+        </Pressable>
         {filled && allowClear ? (
           <Pressable
             onPress={() => onChange('')}
             hitSlop={8}
-            accessibilityRole="button"
+            accessibilityRole=\"button\"
             accessibilityLabel={t('datePicker.clear')}
+            style={styles.clearButton}
           >
-            <Ionicons name="close-circle" size={18} color={colors.neutral[400]} />
+            <Ionicons name=\"close-circle\" size={18} color={colors.neutral[400]} />
           </Pressable>
         ) : null}
-      </Pressable>
+      </View>
       {hint && !error ? <Text style={styles.hint}>{hint}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <CalendarPicker
@@ -102,7 +111,6 @@ const styles = StyleSheet.create({
   control: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: surface.borderInteractive,
@@ -110,6 +118,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs + 2,
     minHeight: touch.target,
+  },
+  controlMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  clearButton: {
+    paddingLeft: spacing.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   controlError: {
     borderColor: colors.status.danger,
