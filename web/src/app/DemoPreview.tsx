@@ -83,7 +83,7 @@ export function DemoPreview() {
       <div className={styles.previewTopbar}>
         <div className={styles.previewBrand}>
           <span className={styles.previewBrandMark}>
-            <Image src="/kidbus-logo.png" alt="" width={26} height={26} />
+            <Image src="/kidbus-logo.svg" alt="" width={26} height={26} />
           </span>
           <strong>{APP_CONFIG.appName}</strong>
           <span className={styles.previewDivider} aria-hidden="true" />
