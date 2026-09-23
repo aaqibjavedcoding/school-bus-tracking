@@ -23,12 +23,27 @@ mock.module('react-native', { namedExports: { Platform: platform } });
 
 interface SpokenCall {
   text: string;
-  options: { language?: string; rate?: number; pitch?: number; onError?: () => void };
+  options: {
+    language?: string;
+    rate?: number;
+    pitch?: number;
+    /** The voice identifier batch 3C pins, when the probe found one. */
+    voice?: string;
+    volume?: number;
+    onError?: () => void;
+    onDone?: () => void;
+    onStopped?: () => void;
+  };
 }
 const speech = {
   spoken: [] as SpokenCall[],
   stops: 0,
   throwOnSpeak: false,
+};
+/** The engine's voice list, as a device would report it — plus a probe counter. */
+const voices = {
+  list: [] as Array<{ identifier: string; name: string; quality: string; language: string }>,
+  probes: 0,
 };
 mock.module('expo-speech', {
   namedExports: {
@@ -38,6 +53,10 @@ mock.module('expo-speech', {
     },
     stop: async () => {
       speech.stops += 1;
+    },
+    getAvailableVoicesAsync: async () => {
+      voices.probes += 1;
+      return [...voices.list];
     },
   },
 });
@@ -196,7 +215,7 @@ test('vibration off ⇒ the native haptics module is never called at all', () =>
   assert.equal(haptics.selections, 0);
 });
 
-test('on web nothing is installed — no speech, no haptics, no crash', () => {
+test('on web nothing is installed — no speech, no haptics, no crash', async () => {
   platform.OS = 'web';
   core.configureFeedbackDrivers(null);
   native.installFeedbackDrivers();
@@ -206,5 +225,133 @@ test('on web nothing is installed — no speech, no haptics, no crash', () => {
   assert.doesNotThrow(() => instance.on({ type: 'sos.fired' }));
   assert.deepEqual(speech.spoken, [], 'a browser tab must not start talking');
   assert.deepEqual(haptics.impacts, []);
+
+  // A browser has no TTS engine to ask, so it must answer "not measured" —
+  // never "measured, nothing installed", which would put a wrong hint on the
+  // settings card and blame the device for something it cannot do.
+  assert.equal(voices.probes, 0, 'web never opens the engine');
+  assert.equal(await native.detectVoiceCapabilities(), null);
   platform.OS = 'android';
+});
+
+// ── Batch 3C: the two voice modes, against the real engine wrapper ─────────
+//
+// The unit specs pin the policy with an injected capability set. These pin the
+// *wiring*: that the one probe reaches `Speech.speak` as a language tag **and**
+// a voice identifier, that Devanagari really leaves the phone when the device
+// can speak it, and that the next-stop announcement obeys the Voice switch
+// like every other event.
+
+const voice = (await import(
+  pathToFileURL(ROOT + 'src/features/crew/crew-voice.ts').href
+)) as typeof import('./crew-voice.ts');
+
+const DEVANAGARI = /[\u0900-\u097F]/;
+
+test('the engine is probed once per process and the answer cached', async () => {
+  platform.OS = 'android';
+  native.installFeedbackDrivers();
+  voices.list = [
+    { identifier: 'en-in-1', name: 'en-in-1', quality: 'Default', language: 'en-IN' },
+    { identifier: 'hi-in-1', name: 'hi-in-1', quality: 'Enhanced', language: 'hi-IN' },
+  ];
+  voices.probes = 0;
+
+  const first = await native.detectVoiceCapabilities();
+  const second = await native.detectVoiceCapabilities();
+
+  assert.equal(voices.probes, 1, 'two callers, one native round-trip');
+  assert.equal(first, second, 'the memoised promise is shared, not repeated');
+  assert.equal(first?.bestByLanguage.get('hi')?.voiceId, 'hi-in-1');
+  assert.equal(
+    voice.voiceCapabilities(),
+    first,
+    'the policy layer reads the same cached set — it never probes',
+  );
+});
+
+test('a phone WITH a hi-IN voice speaks real Devanagari through that voice', () => {
+  i18n.setLocale('hi', { persist: false });
+  const { instance } = dispatcher();
+  instance.on({ type: 'board.confirmed', firstName: 'Ramesh', at: '2026-09-15T07:42:00' });
+
+  const call = speech.spoken[0]!;
+  assert.ok(DEVANAGARI.test(call.text), `expected Devanagari, got "${call.text}"`);
+  assert.ok(call.text.startsWith('Ramesh'), 'the name keeps the script the school typed it in');
+  assert.ok(call.text.endsWith('सुबह'), `the spoken clock is Hindi too: "${call.text}"`);
+  assert.equal(call.options.language, 'hi-IN');
+  assert.equal(call.options.voice, 'hi-in-1', 'the exact voice the probe found');
+  assert.equal(call.options.rate, 0.95);
+});
+
+test('a locale the phone CANNOT speak falls back to Latin + en-IN, pinning English', () => {
+  // Same cached probe: it reported en-IN and hi-IN, and the app is in Marathi.
+  i18n.setLocale('mr', { persist: false });
+  const { instance } = dispatcher();
+  instance.on({ type: 'trip.completed' });
+
+  const call = speech.spoken[0]!;
+  assert.equal(call.text, 'Trip sampurna zali, dhanyavad', 'Latin-script Marathi, not gibberish');
+  assert.ok(!DEVANAGARI.test(call.text), 'Devanagari through an English voice is the bug');
+  assert.equal(call.options.language, 'en-IN');
+  assert.equal(call.options.voice, 'en-in-1', 'the best English voice is pinned instead');
+  i18n.setLocale('en', { persist: false });
+});
+
+test('with no identifier to pin, the voice option is omitted — not sent as undefined', () => {
+  // iOS throws on a voice identifier it cannot resolve, so a half-known voice
+  // must leave the key out and let the language tag do the work.
+  voice.configureVoiceCapabilities(voice.parseVoiceCapabilities([{ language: 'hi-IN' }]));
+  i18n.setLocale('hi', { persist: false });
+  const { instance } = dispatcher();
+  instance.on({ type: 'gps.on' });
+
+  const options = speech.spoken[0]!.options;
+  assert.equal(options.language, 'hi-IN');
+  assert.equal('voice' in options, false, 'the key must be absent, not undefined');
+  i18n.setLocale('en', { persist: false });
+  voice.configureVoiceCapabilities(null);
+});
+
+test('a next-stop announcement is spoken in the active locale voice', () => {
+  voice.configureVoiceCapabilities(
+    voice.parseVoiceCapabilities([
+      { identifier: 'mr-in-1', language: 'mr-IN' },
+      { identifier: 'en-in-1', language: 'en-IN' },
+    ]),
+  );
+  i18n.setLocale('mr', { persist: false });
+  const { instance } = dispatcher();
+  instance.on({ type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 });
+
+  const call = speech.spoken[0]!;
+  assert.equal(call.text, 'पुढील स्टॉप: Shivaji Chowk, 12 मुले');
+  assert.equal(call.options.language, 'mr-IN');
+  assert.equal(call.options.voice, 'mr-in-1');
+  i18n.setLocale('en', { persist: false });
+  voice.configureVoiceCapabilities(null);
+});
+
+test('voice off ⇒ a next-stop announcement never reaches the engine, but still buzzes', () => {
+  const { instance } = dispatcher(false, true);
+  instance.on({ type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 });
+  instance.on({ type: 'stop.approaching', stopName: 'Shivaji Chowk', studentCount: 12 });
+  assert.deepEqual(speech.spoken, []);
+  assert.equal(speech.stops, 0);
+  assert.equal(haptics.impacts.length, 2, 'the light tap belongs to the vibration switch');
+});
+
+test('a next-stop announcement goes through the SAME throttle as boarding chatter', () => {
+  // It is an event like any other, not a second speech path: the 600 ms floor,
+  // the one-item slot and latest-wins all apply, so a stop line can never talk
+  // over a conductor's boarding burst (or queue up behind it).
+  const { instance } = dispatcher(true, false);
+  instance.on({ type: 'board.confirmed', firstName: 'A' });
+  instance.on({ type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 });
+
+  assert.equal(speech.spoken.length, 1, 'the stop line did not jump the gap');
+  assert.equal(instance.getStats().spoken, 1);
+  assert.equal(instance.getStats().coalesced, 1, 'held in the one-item slot, never queued');
+  assert.equal(instance.getStats().failures, 0);
+  voice.configureVoiceCapabilities(null);
 });

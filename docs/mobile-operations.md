@@ -323,10 +323,13 @@ Support-facing notes for the localisation layer (Phase 3). Full design map:
 
 ### Voice
 
-Shipped in Phase 3b. The crew app speaks a short confirmation — first name,
-what happened, and the time ("_Ramesh ka boarding ho gaya, 7:42 subah_") — and
-buzzes, so a driver holding a phone at arm's length in a noisy bus does not
-have to read the screen to know the tap registered.
+Shipped in Phase 3b, extended by batch 3C. The crew app speaks a short
+confirmation — first name, what happened, and the time ("_Ramesh ka boarding ho
+gaya, 7:42 subah_", or "_रमेश बस में चढ़ गया, 7:42 सुबह_" on a phone that has a
+Hindi voice) — and buzzes, so a driver holding a phone at arm's length in a
+noisy bus does not have to read the screen to know the tap registered. Since
+batch 3C it also announces the **next stop** and how many children are on it,
+for the driver and the conductor alike.
 
 **Where the switches are**: Help & support → **Sound & vibration**, right under
 the language switch. Two independent switches, **Voice** and **Vibration**.
@@ -355,23 +358,59 @@ Defaults: `DRIVER`/`CONDUCTOR` get **both on**; `SCHOOL_ADMIN`/`PARENT` get
    this is a sync problem, not a voice problem: go to the offline-queue
    section above.
 
-**"It speaks Hinglish, not Hindi."** Working as designed, not a bug to file.
-The Hindi voice lines are written in **Latin script** ("_Ramesh ka boarding ho
-gaya_") because many budget Androids in service have an English TTS voice and
-no `hi-IN` one; Devanagari text sent to an English voice is read as gibberish
-or skipped entirely. Latin-script Hinglish read by the English voice is
-understood by Hindi-speaking crew. The **screen** stays in proper Devanagari —
-the two channels are deliberately different. Marathi follows the same design:
-screen in Devanagari (Marathi), voice in **Latin-script Marathi**
-("_Ramesh bas madhe aaun gele_") read by the `en-IN` voice, because an
-`mr-IN` voice pack is even less commonly installed than `hi-IN`.
+**"It speaks Hinglish, not Hindi."** Since batch 3C this is a **device**
+question, not a design one, and the app can answer it on the spot: open Help →
+**Sound & vibration**. If the phone has no voice for the app's language, the
+card says so in as many words ("_हिन्दी आवाज़ इंस्टॉल नहीं है_") and gives the
+fix. If that row is **absent**, the phone was measured to have the voice and the
+app is speaking through it — so a Hinglish-sounding announcement on such a
+device _is_ a bug; ask for the device model.
+
+Why the fallback exists: the app asks the OS engine what it can speak, once per
+launch, and picks the script to match.
+
+- **voice installed** (`hi-IN` / `mr-IN`) → real Devanagari, spoken by that
+  voice ("_रमेश बस में चढ़ गया, 7:42 सुबह_", "_रमेश बसमध्ये चढला, 7:42 सकाळी_");
+- **not installed** → Latin-script Hinglish / Marathi-in-Latin
+  ("_Ramesh ka boarding ho gaya, 7:42 subah_") through the `en-IN` voice,
+  because Devanagari sent to an English engine is read as gibberish or skipped
+  entirely. Many budget Androids in service are in this state: Google's Hindi
+  and Marathi voice data are opt-in downloads.
+
+To install it: **Android Settings → Accessibility (or System) → Text-to-speech
+output → preferred engine → gear icon → Install voice data**, then pick
+हिन्दी / मराठी. The app probes the engine **once per launch** (that is what
+keeps announcements instant), so restart the app after installing for the new
+voice to be picked up. The **screen** is
+Devanagari in both cases — reading and listening are different channels, and
+only the second depends on what the phone has installed. Nothing here uses a
+paid voice service: it is the phone's own engine either way.
+
+**"It doesn't announce the next stop."** Work down this list:
+
+1. **Voice switch off** (Help → Sound & vibration) — it gates every
+   announcement, including stops.
+2. **No trip open, or no next stop yet.** The announcement comes from the
+   server's `next_stop` (the progress frontier). Before the trip is boarding,
+   or once every stop has been reached, there is nothing to announce — and the
+   "kids at next stop" card on the same screen says the same thing.
+3. **The stop has no name or its list is still loading.** The app waits rather
+   than say "next stop, zero students" for a count it has not fetched. On a bad
+   connection the announcement can therefore arrive a second or two after the
+   card fills in.
+4. **It already said it.** Each stop is announced at most twice per run — once
+   when it becomes next, once when the bus is nearly there (within ~2 minutes
+   or ~400 m). Re-opening the trip screen does not repeat it; starting another
+   trip does.
 
 **"It talks too much."** It should not: rapid taps collapse. Boarding forty
 students back to back produces **three** announcements, not forty — the first
 name, then running counts ("_24 bachche chadh gaye_"). Announcements never
 queue up, so the voice can never fall behind the screen and start naming a
-student tapped half a minute ago. If a phone really is announcing every single
-row, that is a bug worth reporting with the device model.
+student tapped half a minute ago. Next-stop lines share the same 600 ms floor
+and the same one-item slot, so a stop announcement can neither interrupt a
+boarding burst nor pile up behind one. If a phone really is announcing every
+single row, that is a bug worth reporting with the device model.
 
 **"It doesn't vibrate."** Check the Vibration switch first, then the phone's
 own haptics setting (Settings → Sound & vibration → **Vibration & haptics**,
@@ -386,7 +425,10 @@ above.
 **What is never spoken**, by design and enforced by a test: medical notes,
 phone numbers, guardian names and contacts, the emergency detail text, and a
 full name with admission number. Voice carries a first name and nothing more —
-a bus is a public place and anyone within earshot hears it.
+a bus is a public place and anyone within earshot hears it. The batch-3C
+next-stop announcement did not widen that: it carries a **stop name** and a
+**count**, never a list of the children at it, and the same test still asserts
+`SPOKEN_STUDENT_FIELDS == ['first_name']`.
 
 ## List / Search / Pagination
 

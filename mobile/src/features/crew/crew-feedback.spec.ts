@@ -14,7 +14,13 @@ import {
   type SoundSettings,
 } from './crew-feedback.ts';
 import { HapticPattern } from './crew-haptics.ts';
-import { VOICE_MIN_GAP_MS, type CrewFeedbackEvent, type VoiceUtterance } from './crew-voice.ts';
+import {
+  configureVoiceCapabilities,
+  parseVoiceCapabilities,
+  VOICE_MIN_GAP_MS,
+  type CrewFeedbackEvent,
+  type VoiceUtterance,
+} from './crew-voice.ts';
 import { parseSoundSettings, serializeSoundSettings } from './feedback-preferences.ts';
 
 /**
@@ -198,6 +204,9 @@ describe('feedback matrix: role × (voice, vibration) × on/off', () => {
       { type: 'offline.synced', count: 2 },
       { type: 'gps.on' },
       { type: 'gps.off' },
+      // Batch 3C — the next-stop announcements obey the same switch.
+      { type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 },
+      { type: 'stop.approaching', stopName: 'Shivaji Chowk', studentCount: 12 },
     ];
     for (const event of events) dispatcher.on(event);
     assert.equal(spy.total(), 0, 'we sent nothing');
@@ -376,6 +385,35 @@ describe('throttle behaviour end-to-end', () => {
     dispatcher.on({ type: 'gps.on' });
     assert.equal(spy.spoken[0]?.language, 'en-IN');
     assert.equal(spy.spoken[0]?.rate, 0.95);
+    assert.equal(spy.spoken[0]?.voiceId, null, 'un-probed: the engine picks the voice itself');
+  });
+
+  test('a measured device upgrades the SAME dispatcher to the native voice', () => {
+    // Batch 3C: no second code path and no per-role copy — the dispatcher hands
+    // the engine whatever the cached probe resolved, at call time.
+    const spy = spyDrivers();
+    const { dispatcher, advance } = makeDispatcher(spy, { voice: true, vibration: false });
+    configureVoiceCapabilities(
+      parseVoiceCapabilities([
+        { identifier: 'en-1', language: 'en-IN' },
+        { identifier: 'hi-1', language: 'hi-IN' },
+      ]),
+    );
+    try {
+      setLocale('hi', { persist: false });
+      dispatcher.on({ type: 'gps.on' });
+      assert.equal(spy.spoken[0]?.language, 'hi-IN');
+      assert.equal(spy.spoken[0]?.voiceId, 'hi-1');
+
+      advance(VOICE_MIN_GAP_MS + 1);
+      setLocale('mr', { persist: false }); // a locale this phone cannot speak
+      dispatcher.on({ type: 'gps.off' });
+      assert.equal(spy.spoken[1]?.language, 'en-IN', 'Latin fallback, en-IN tag');
+      assert.equal(spy.spoken[1]?.voiceId, 'en-1', 'the best English voice is pinned instead');
+    } finally {
+      configureVoiceCapabilities(null);
+      setLocale('en', { persist: false });
+    }
   });
 
   test('reset() stops speech and clears pending work', () => {
@@ -388,5 +426,64 @@ describe('throttle behaviour end-to-end', () => {
     scheduler.run();
     assert.deepEqual(spy.spoken, []);
     assert.equal(spy.stops, 1);
+  });
+});
+
+// ── Batch 3C: next-stop announcements ──────────────────────────────────────
+
+describe('next-stop announcements use the one dispatcher, both roles', () => {
+  const nextStop = (stopName = 'Shivaji Chowk', studentCount = 12): CrewFeedbackEvent => ({
+    type: 'stop.next',
+    stopName,
+    studentCount,
+  });
+
+  test('voice ON: the stop line is spoken once, and it buzzes', () => {
+    const spy = spyDrivers();
+    const { dispatcher } = makeDispatcher(spy, { voice: true, vibration: true });
+    dispatcher.on(nextStop());
+
+    assert.equal(spy.spoken.length, 1);
+    assert.equal(spy.spoken[0]?.text, 'Next stop: Shivaji Chowk, 12 students');
+    assert.equal(spy.stops, 1, 'every speak is preceded by a stop');
+    assert.deepEqual(spy.haptics, [HapticPattern.light]);
+    assert.equal(dispatcher.getStats().spoken, 1);
+  });
+
+  test('voice OFF: zero speech calls — the announcement is not a special case', () => {
+    const spy = spyDrivers();
+    const { dispatcher } = makeDispatcher(spy, { voice: false, vibration: true });
+    dispatcher.on(nextStop());
+    dispatcher.on({ type: 'stop.approaching', stopName: 'Depot Gate', studentCount: 3 });
+
+    assert.deepEqual(spy.spoken, []);
+    assert.equal(spy.stops, 0);
+    assert.equal(spy.haptics.length, 2, 'the vibration switch is its own decision');
+  });
+
+  test('inside the gap it waits in the one-item slot, then speaks the newest fact', () => {
+    const spy = spyDrivers();
+    const { dispatcher, scheduler, advance } = makeDispatcher(spy, {
+      voice: true,
+      vibration: false,
+    });
+    dispatcher.on(board('A'));
+    dispatcher.on(nextStop());
+    assert.equal(spy.spoken.length, 1, 'the stop line did not jump the 600 ms floor');
+    assert.equal(dispatcher.getStats().coalesced, 1);
+    assert.equal(scheduler.pending, 1, 'one timer, never a pile');
+
+    advance(VOICE_MIN_GAP_MS + 1);
+    scheduler.run();
+    assert.equal(spy.spoken.length, 2);
+    assert.equal(spy.spoken[1]?.text, 'Next stop: Shivaji Chowk, 12 students');
+  });
+
+  test('the native seam grew no probe: detection is not on the announcement path', () => {
+    // The structural half of "never probe the TTS engine per utterance" — the
+    // dispatcher still has exactly three native calls to make, so there is no
+    // way for an announcement to trigger capability detection.
+    const spy = spyDrivers();
+    assert.deepEqual(Object.keys(spy.drivers).sort(), ['haptic', 'speak', 'stopSpeaking']);
   });
 });

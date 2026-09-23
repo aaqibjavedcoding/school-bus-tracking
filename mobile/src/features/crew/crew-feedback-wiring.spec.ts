@@ -16,6 +16,18 @@ import { describe, test } from 'node:test';
 const mobileRoot = `${process.cwd()}/`;
 const read = (path: string): string => readFileSync(`${mobileRoot}${path}`, 'utf8');
 
+/**
+ * Source with the comments removed.
+ *
+ * These modules *document* the native APIs they deliberately never call —
+ * `crew-voice.ts` explains why it does not import `expo-speech`, the Sound card
+ * explains why the engine's own note is honest — so a guard about **calls** has
+ * to read code, not prose. Same device `i18n-literals.spec.ts` uses.
+ */
+function code(path: string): string {
+  return read(path).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+}
+
 /** Every file allowed to import a Phase-3b native module. */
 const NATIVE_OWNER = 'src/features/crew/crew-feedback-native.ts';
 
@@ -24,9 +36,12 @@ const FEEDBACK_MODULES = [
   'src/features/crew/crew-haptics.ts',
   'src/features/crew/crew-feedback.ts',
   'src/features/crew/feedback-preferences.ts',
+  // Batch 3C: the next-stop announcement policy is pure like the rest, so the
+  // whole "when does the bus talk about stops" behaviour is spec-covered.
+  'src/features/crew/next-stop-announcer.ts',
 ];
 
-/** Call sites wired in Phase 3b. */
+/** Call sites wired in Phase 3b (and by batch 3C). */
 const WIRED_SURFACES = [
   'src/features/crew/ManifestList.tsx',
   'src/features/crew/TripStatusActions.tsx',
@@ -34,6 +49,17 @@ const WIRED_SURFACES = [
   'src/features/crew/HoldToConfirmButton.tsx',
   'src/features/crew/GpsShareStrip.tsx',
   'src/features/crew/offline/OfflineSyncBanner.tsx',
+  // Batch 3C — ONE announcer call site, used by both crew roles (the trip
+  // screen is shared, so there is no per-role wiring to drift).
+  'src/features/crew/useNextStopAnnouncements.ts',
+];
+
+/** Every file that could be tempted to ask the TTS engine something itself. */
+const VOICE_SURFACES = [
+  ...FEEDBACK_MODULES,
+  ...WIRED_SURFACES,
+  'src/features/crew/FeedbackProvider.tsx',
+  'src/features/crew/SoundSettingsCard.tsx',
 ];
 
 describe('the native seam is exactly one file', () => {
@@ -74,11 +100,16 @@ describe('the native seam is exactly one file', () => {
 });
 
 describe('speech is never awaited and never fails an action', () => {
-  test('no `await` on a speech or haptic call anywhere in the feature', () => {
+  test('no `await` on a speech or haptic DELIVERY call anywhere in the feature', () => {
+    // Delivery only. `Speech.getAvailableVoicesAsync()` is awaited by design in
+    // the memoised capability probe — it is not on any action's path, it runs
+    // once per process, and the next describe pins both facts.
+    const delivery =
+      /await\s+(Speech\.(speak|stop|pause|resume)|Haptics\.(impactAsync|notificationAsync|selectionAsync))\b/;
     const offenders: string[] = [];
     for (const file of [...FEEDBACK_MODULES, ...WIRED_SURFACES, NATIVE_OWNER]) {
       for (const [index, line] of read(file).split('\n').entries()) {
-        if (/await\s+(Speech|Haptics)\./.test(line)) {
+        if (delivery.test(line)) {
           offenders.push(`${file}:${index + 1}`);
         }
         if (/await\s+\w*[Ff]eedback\.(on|speak)\b/.test(line)) {
@@ -111,6 +142,90 @@ describe('speech is never awaited and never fails an action', () => {
       const pattern = new RegExp(`safely\\(\\(\\) => ${call.replace(/[.()]/g, '\\$&')}`);
       assert.ok(pattern.test(dispatcher), `${call} must be wrapped by safely()`);
     }
+  });
+});
+
+describe('the TTS engine is asked once, in one file, and the answer is cached', () => {
+  test('only `crew-feedback-native.ts` probes the installed voices', () => {
+    // Batch 3C's performance rule: capability detection is a native round-trip,
+    // so it belongs to the seam and nowhere else — a screen that probed per
+    // render would make the app slower than the feature is worth.
+    const offenders = VOICE_SURFACES.filter((file) => /getAvailableVoicesAsync/.test(code(file)));
+    assert.deepEqual(
+      offenders,
+      [],
+      `these ask the engine directly instead of reading the cache: ${offenders.join(', ')}`,
+    );
+    assert.ok(/getAvailableVoicesAsync/.test(code(NATIVE_OWNER)), 'the wrapper owns the probe');
+  });
+
+  test('the probe is memoised — a second caller shares the one round-trip', () => {
+    const native = read(NATIVE_OWNER);
+    assert.ok(
+      /let capabilityProbe: Promise<VoiceCapabilitySet \| null> \| null = null;/.test(native),
+      'the memo lives in the native seam',
+    );
+    assert.ok(/if \(capabilityProbe === null\)/.test(native), 'it is checked before probing');
+  });
+
+  test('a failed probe is not cached as "this phone has no voices"', () => {
+    assert.ok(
+      /capabilityProbe = null;/.test(read(NATIVE_OWNER)),
+      'an unmeasured phone must not be told it is missing a voice',
+    );
+  });
+
+  test('the policy layer resolves from the cache and imports no native module', () => {
+    const voice = code('src/features/crew/crew-voice.ts');
+    assert.ok(!/expo-speech/.test(voice), 'crew-voice.ts stays loadable under node --test');
+    assert.ok(/export function configureVoiceCapabilities/.test(voice), 'the cache seam exists');
+    assert.ok(
+      /export function resolveVoicePlan/.test(voice),
+      'ONE resolver — the driver and the conductor cannot have two',
+    );
+  });
+
+  test('the React layer publishes the probe result instead of repeating it', () => {
+    const provider = code('src/features/crew/FeedbackProvider.tsx');
+    assert.ok(
+      /void detectVoiceCapabilities\(\)/.test(provider),
+      'fire-and-forget: the voice channel works while the probe is in flight',
+    );
+  });
+
+  test('the Sound card reads the resolver, never the engine', () => {
+    const card = code('src/features/crew/SoundSettingsCard.tsx');
+    assert.ok(/resolveVoicePlan\(/.test(card), 'the hint comes from the shared resolver');
+    assert.ok(!/getAvailableVoicesAsync|expo-speech/.test(card));
+  });
+});
+
+describe('one announcer, both crew roles (batch 3C)', () => {
+  test('the shared trip screen wires it exactly once', () => {
+    const trip = code('app/(crew)/trip.tsx');
+    assert.equal(
+      trip.match(/useNextStopAnnouncements\(/g)?.length,
+      1,
+      'a per-role copy would announce every stop twice for one of the roles',
+    );
+  });
+
+  test('the role never reaches the announcer or its glue', () => {
+    for (const file of [
+      'src/features/crew/next-stop-announcer.ts',
+      'src/features/crew/useNextStopAnnouncements.ts',
+    ]) {
+      assert.ok(
+        !/\bisDriver\b|UserRole/.test(code(file)),
+        `${file} must stay role-free — the conductor boards the same kids the driver carries`,
+      );
+    }
+  });
+
+  test('the announcer reports through the dispatcher, never into the engine', () => {
+    const hook = code('src/features/crew/useNextStopAnnouncements.ts');
+    assert.ok(/feedback\.on\(event\)/.test(hook), 'the Voice switch and the throttle gate it');
+    assert.ok(!/await\s+feedback\.on/.test(hook), 'and it is never awaited');
   });
 });
 

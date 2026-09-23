@@ -381,14 +381,32 @@ export const en = {
   'settings.sound.vibrationA11y': 'Vibration feedback',
   'settings.sound.noEngineNote':
     'No sound? Your phone may have no speech engine installed — the app still records every action.',
+  // Batch 3C — shown once when the app's language has no voice on this phone,
+  // so the fallback is explained instead of silently sounding English.
+  'settings.sound.nativeVoiceTitle': '{language} voice not installed',
+  'settings.sound.nativeVoiceBody':
+    'Announcements are spoken in English. Install the {language} voice under Android Settings → Text-to-speech output.',
 
   // ── Voice phrases (SPOKEN, never rendered — see `crew-voice.ts`) ───────
   //
-  // A separate namespace from the screen copy on purpose: the Hindi values of
-  // these keys are **Latin-script Hinglish**, not Devanagari, because a budget
-  // Android device usually has no `hi-IN` voice installed and would garble
-  // Devanagari through its default English voice. Written UI stays Devanagari;
-  // these are the only strings that leave through the speaker.
+  // A separate namespace from the screen copy on purpose: these are the only
+  // strings that leave through the speaker, and a screen label must never be
+  // shortened into one.
+  //
+  // Two script variants, one per phrase, chosen at call time by
+  // `resolveVoicePlan()` from the voices actually installed on the device:
+  //
+  // - `voice.*`        — the **Latin-script** line (`hi`/`mr` values are
+  //                      Hinglish / Marathi-in-Latin). Spoken through `en-IN`
+  //                      when the phone has no `hi-IN`/`mr-IN` voice, which is
+  //                      the common case on the budget Androids in service.
+  // - `voice.native.*` — the **native-script** line (real Devanagari for
+  //                      `hi`/`mr`), spoken through the device's own voice.
+  //
+  // English has one script, so its two rows are the same sentence — written
+  // out rather than derived, because the dictionary is a flat literal object
+  // and `t()`'s placeholder inference needs the literal type of each key.
+  // `crew-voice.spec.ts` pins the equality so the pair cannot drift.
   //
   // Budget: 6–9 words. A driver is listening while driving.
   'voice.board.done': '{name} has boarded, {time}',
@@ -408,6 +426,30 @@ export const en = {
   'voice.time.afternoon': 'in the afternoon',
   'voice.time.evening': 'in the evening',
   'voice.time.night': 'at night',
+  // Next-stop announcements (batch 3C) — driver AND conductor, on a next-stop
+  // change and again when the bus is nearly there. A stop name is school data,
+  // never student data; the count is the same aggregate the card shows.
+  'voice.stop.next': 'Next stop: {name}, {count} students',
+  'voice.stop.approaching': 'Approaching {name}, {count} students',
+  'voice.native.board.done': '{name} has boarded, {time}',
+  'voice.native.drop.done': '{name} has got off, {time}',
+  'voice.native.board.summary': '{count} students boarded',
+  'voice.native.drop.summary': '{count} students got off',
+  'voice.native.trip.boarding': 'Boarding started',
+  'voice.native.trip.inProgress': 'Trip started, drive safe',
+  'voice.native.trip.completed': 'Trip complete, well done',
+  'voice.native.sos.fired': 'Emergency alert sent to school',
+  'voice.native.sos.queued': 'No network, emergency alert will retry',
+  'voice.native.offline.synced': '{count} saved actions have been sent',
+  'voice.native.gps.on': 'Location sharing on',
+  'voice.native.gps.off': 'Location sharing off',
+  'voice.native.time.now': 'just now',
+  'voice.native.time.morning': 'in the morning',
+  'voice.native.time.afternoon': 'in the afternoon',
+  'voice.native.time.evening': 'in the evening',
+  'voice.native.time.night': 'at night',
+  'voice.native.stop.next': 'Next stop: {name}, {count} students',
+  'voice.native.stop.approaching': 'Approaching {name}, {count} students',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'SBT',

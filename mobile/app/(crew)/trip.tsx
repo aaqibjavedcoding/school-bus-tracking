@@ -18,6 +18,7 @@ import {
   isTripShareable,
   useCrewLocationSharing,
   useCrewToday,
+  useNextStopAnnouncements,
 } from '../../src/features/crew';
 // Imported by path, not through the barrel: this component needs the MapLibre
 // native map module, and the crew barrel is also pulled in by headless code
@@ -157,6 +158,23 @@ export default function CrewTripScreen() {
     () => summarizeNextStopKids(kidsLoad.data ?? [], stopsLoad.data ?? [], nextStopId),
     [kidsLoad.data, stopsLoad.data, nextStopId],
   );
+
+  /**
+   * Batch 3C — **both roles** hear the next stop, in the app's language and in
+   * the voice this phone actually has. The announcer reuses the card's own
+   * summary and the server's `next_stop` ETA, so the announcement and the
+   * screen can never disagree; it fires on a next-stop change and again when
+   * the bus is nearly there, and it respects the Voice switch, the 600 ms
+   * floor and latest-wins because it reports through `feedback` like every
+   * other event (`next-stop-announcer.ts` for the policy).
+   */
+  useNextStopAnnouncements({
+    tripId: trip?.id ?? null,
+    summary: nextStopKids,
+    loaded: !kidsLoad.loading,
+    etaMinutes: live.eta?.next_stop?.eta_minutes ?? null,
+    distanceMeters: live.eta?.next_stop?.distance_meters ?? null,
+  });
 
   if (loading && !data) {
     return <LoadingView label={t('trip.loading')} />;

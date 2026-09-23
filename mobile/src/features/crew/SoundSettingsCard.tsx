@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { Card } from '../../components';
 import { fontScaleCaps, surface } from '../../theme';
-import { useTranslation } from '../../lib/i18n-provider';
+import { useLocale, useTranslation } from '../../lib/i18n-provider';
 import { useSoundSettings } from './FeedbackProvider.tsx';
 import type { SoundSettings } from './crew-feedback.ts';
+import { languageSelfName, resolveVoicePlan, shouldShowNativeVoiceHint } from './crew-voice.ts';
 
 /**
  * "Sound & vibration" — the Phase-3b settings block, on the Help & support
@@ -24,6 +25,13 @@ import type { SoundSettings } from './crew-feedback.ts';
  * Phase 3a made for the language switch), so a crew member has one place to
  * go when something is not right.
  *
+ * **One honest footnote about the voice itself (batch 3C).** When the phone
+ * was measured and has no voice for the app's language, a bordered row says
+ * so and says where to install one — because the fallback otherwise sounds
+ * like a bug ("it speaks Hinglish, not Hindi"). It is advice on a settings
+ * card, not a dialog mid-run, and it is one-time: dismissible, and it
+ * disappears for good the moment the voice is installed.
+ *
  * Presentation follows the Phase-1/2 rules: 64px rows (`touch.field`), icon +
  * label on every actionable element, nothing below 16px, and the state is
  * spelled out in words ("On"/"Off") as well as shown by the track colour —
@@ -31,11 +39,25 @@ import type { SoundSettings } from './crew-feedback.ts';
  */
 export const SoundSettingsCard: React.FC = () => {
   const t = useTranslation();
-  const { settings, setSettings, ready } = useSoundSettings();
+  const locale = useLocale();
+  const { settings, setSettings, ready, voiceSupport } = useSoundSettings();
 
   const toggle = (key: keyof SoundSettings) => {
     setSettings({ ...settings, [key]: !settings[key] });
   };
+
+  /**
+   * Batch 3C — the honest footnote about *which* voice this phone has.
+   *
+   * The plan is the same resolver the announcer uses, over the cached probe:
+   * `nativeVoiceMissing` is true only when the device was measured and the
+   * app's language has no voice on it. The row then explains why
+   * announcements sound English and where to install the voice — once, until
+   * dismissed, and never as a nag during a run.
+   */
+  const plan = resolveVoicePlan(locale, voiceSupport.capabilities);
+  const showVoiceHint = shouldShowNativeVoiceHint(plan, voiceSupport.nativeVoiceHintDismissed);
+  const language = languageSelfName(locale);
 
   return (
     <Card legible title={t('settings.sound.title')}>
@@ -59,6 +81,31 @@ export const SoundSettingsCard: React.FC = () => {
         disabled={!ready}
         onToggle={() => toggle('vibration')}
       />
+
+      {showVoiceHint ? (
+        <View style={styles.voiceHint}>
+          <View style={styles.voiceHintRow}>
+            <Ionicons name="language" size={26} color={colors.neutral[600]} />
+            <View style={styles.rowText}>
+              <Text {...fontScaleCaps.label} style={styles.rowLabel}>
+                {t('settings.sound.nativeVoiceTitle', { language })}
+              </Text>
+              <Text style={styles.rowHint}>
+                {t('settings.sound.nativeVoiceBody', { language })}
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={voiceSupport.dismissNativeVoiceHint}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.dismiss')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.dismiss, pressed ? styles.rowPressed : null]}
+          >
+            <Text style={styles.dismissLabel}>{t('common.dismiss')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/**
        * The honest footnote. `expo-speech` drives the OS engine, so a device
@@ -121,6 +168,38 @@ const styles = StyleSheet.create({
     color: colors.neutral[600],
     marginTop: spacing.xs,
     lineHeight: 18,
+  },
+  // Batch 3C — the missing-native-voice hint. A bordered block rather than a
+  // dialog: it is advice, not an interruption, and it sits where the voice
+  // switch already is.
+  voiceHint: {
+    backgroundColor: colors.neutral[50],
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  voiceHintRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  dismiss: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: surface.borderInteractive,
+    backgroundColor: '#ffffff',
+  },
+  dismissLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: surface.actionPrimary,
   },
   row: {
     flexDirection: 'row',
