@@ -43,6 +43,7 @@ W = H = 1080
 FPS = 30
 SR = 48000
 CRF = "23"           # master quality: 23 keeps a 30 s film ≈ 3–5 MB with no visible loss
+VARIANT_CRF = "26"   # re-narrated variants: ~25% smaller, no visible difference on these plates
 THUMB_Q = 84
 M = 64
 LEAD = 0.45          # silence before narration
@@ -712,6 +713,8 @@ def main():
     ap.add_argument("--outdir", default=None, help="override the output folder for renders")
     args = ap.parse_args()
 
+    if args.variant:
+        globals()["CRF"] = VARIANT_CRF
     videos = variant_videos(args.variant) if args.variant else VIDEOS
     outdir = args.outdir or (os.path.join(VIDEO_DIR, args.variant) if args.variant else None)
 

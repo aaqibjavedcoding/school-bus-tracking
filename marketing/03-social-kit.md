@@ -2,7 +2,7 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> are ~110 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
 > `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
 > folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
 > Nothing here affects the product build.
@@ -228,12 +228,12 @@ alarms. At month end → reports in Excel. Nothing for your staff to learn — o
 
 ---
 
-## Hinglish posts (5 films, ready captions)
+## Hinglish posts (all 11 films, ready captions)
 
-Five films ship with a Hinglish narration in `videos/hinglish/` (`HI_` prefix): **K1, K2, K6, K7, K10**.
-Identical visuals, timings and English on-screen text — only the voice is Hinglish. Post these on
+**Every film now has a Hinglish narration** in `videos/hinglish/` (`HI_` prefix), each with its own 9:16
+cut. Identical visuals, timings and English on-screen text — only the voice is Hinglish. Post these on
 Instagram (parent audience); keep the English masters for LinkedIn and for the ads you run to school
-owners.
+owners. Captions for the first five are below, then the six school-facing ones.
 
 **HI_K1 — live tracking (15 s)**
 > "Bachche ki bus kahan hai?" 🚌
@@ -267,6 +267,40 @@ owners.
 > Live tracking · verified boarding · instant SOS · reports jo school ko pasand aayenge.
 > Aaj hi apne school ke liye free pilot — zeromilesystems@gmail.com
 > #KidBus #ZeroMileSystems #SchoolBusSafety #EdTechIndia
+
+**HI_K3 — SOS & emergency (30 s)** — school owners, WhatsApp groups
+> Hospital, breakdown ya koi security problem — us waqt phone calls ka time nahi hota. 🚨
+> Driver ka ek tap → school ke har admin ki screen par alarm, bus aur live location ke saath. Status
+> open → acknowledged → resolved. Saath hi insurance, fitness aur licence ke expiry alerts.
+> Free 30-day pilot → zeromilesystems@gmail.com · ZeroMileSystems.com
+
+**HI_K4 — documents & compliance (20 s)**
+> Insurance ki date nikal rahi hai? Fitness certificate "kisi file mein" hai? 😅
+> KidBus har bus aur driver ka document track karta hai, aur expiry se **tees din pehle** alert deta
+> hai. Poora school, ek dashboard.
+> #SchoolBusSafety #Compliance #KidBus #SchoolAdministration
+
+**HI_K5 — Excel import, reports, plans (30 s)** — school owners
+> School transport desk = register + phone calls + WhatsApp forwards? Ab nahi. 🚌📊
+> Excel se poora school minutes mein import · koi bhi report ek click mein export · attendance, trips
+> aur bus utilisation ek dashboard par. Har school ka apna plan, apni limits, apni privacy.
+> Demo ke liye: zeromilesystems@gmail.com
+
+**HI_K8 — attendance & reports (30 s)**
+> "Kal attendance ka record?" — ab ek click. 📊
+> Har boarding, drop, trip aur stop arrival, time ke saath. 15 reports, Excel export, aur spreadsheet
+> se bulk import (pehle validation dry run). Na register, na dobara typing.
+> #SchoolAdmin #KidBus #SchoolManagement #EdTechIndia
+
+**HI_K9 — privacy (20 s)**
+> Parents ko sirf apna bachcha dikhta hai. Admin ko poora fleet. Driver ko simple crew app. 🔒
+> Ek platform, chaar experiences — aur poori privacy.
+> #KidBus #DataPrivacy #SchoolBusSafety
+
+**HI_K11 — 60 s sales film** — principals ko 1-to-1 bhejne ke liye
+> Sir/Madam, 1 minute mein poora KidBus: live tracking, parent alerts, SOS, compliance aur reports.
+> 10 schools ke liye free 30-day pilot chal raha hai. Demo set up kar doon? — ZeroMileSystems
+> (WhatsApp pe pehle video bhejein, phir yeh line — dono ek saath nahi)
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> are ~110 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
 > `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
 > folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
 > Nothing here affects the product build.
@@ -120,6 +120,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 **Full narration (copy-paste into any TTS):**  
 > A medical emergency. A breakdown. A security concern. KidBus puts one SOS button in the driver's hand. The alarm reaches every school admin instantly, with the bus, the trip and the live location attached. An alarm sounds on the admin's screen until someone responds. Status moves from open, to acknowledged, to resolved. Plus automatic expiry alerts for insurance, fitness and driving licences. KidBus, by ZeroMileSystems.com.
 
+**Hinglish narration** (voice variant `HI_K3_30s_sos_compliance.mp4`, same visuals and timings):  
+> Koi medical emergency. Bus kharab. Ya koi security problem. KidBus driver ke haath mein ek SOS button deta hai. Alarm turant har school admin tak pahunchta hai — bus, trip aur live location ke saath. Admin ki screen par alarm bajta rehta hai jab tak koi jawab na de. Status open se acknowledged, phir resolved. Saath hi insurance, fitness aur licence ke expiry alerts. KidBus, by ZeroMileSystems.com.
+
 ---
 
 ## 20S Compliance Documents — `K4_20s_compliance_documents`
@@ -149,6 +152,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 
 **Full narration (copy-paste into any TTS):**  
 > Insurance expiring next week? Fitness certificate missing? KidBus tracks every bus and driver document with automatic alerts, thirty days before expiry. One school-wide compliance overview. No more lost files. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K4_20s_compliance_documents.mp4`, same visuals and timings):  
+> Insurance ki date nikal rahi hai? Fitness certificate nahi mil raha? KidBus har bus aur driver ka document track karta hai, aur expiry se tees din pehle alert deta hai. Poora school ek hi dashboard par. Files kho jaane ka jhanjhat khatam. KidBus, by ZeroMileSystems.com.
 
 ---
 
@@ -182,6 +188,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 
 **Full narration (copy-paste into any TTS):**  
 > Running a school transport desk should not mean registers and phone calls. KidBus imports your students, parents, buses and routes from Excel in minutes, exports any report in one click, and gives you attendance, trip and bus utilisation data. One dashboard for your entire fleet. Every school gets its own subscription plan, limits and privacy. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K5_30s_school_operations.mp4`, same visuals and timings):  
+> School transport desk ka matlab register aur phone calls nahi hona chahiye. KidBus aapke students, parents, buses aur routes Excel se minutes mein import karta hai, aur koi bhi report ek click mein export. Attendance, trips aur bus utilisation — sab ek dashboard par. Har school ka apna subscription plan, apni limits aur apni privacy. KidBus, by ZeroMileSystems.com.
 
 ---
 
@@ -282,6 +291,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 **Full narration (copy-paste into any TTS):**  
 > Attendance you cannot argue with. KidBus logs every boarding, drop, trip and stop arrival with timestamps. Fifteen built-in reports, each exportable to Excel in one click. Bulk import your whole school from a spreadsheet, with a validation dry run first. No more registers. No more re-typing. Reports that match the screen, every single time. KidBus, by ZeroMileSystems.com.
 
+**Hinglish narration** (voice variant `HI_K8_30s_reports_data.mp4`, same visuals and timings):  
+> Attendance jispe sawal na uthaya ja sake. KidBus har boarding, drop, trip aur stop arrival ko time ke saath record karta hai. Pandrah built-in reports, har ek Excel mein ek click se. Poora school spreadsheet se bulk import karo, pehle validation dry run ke saath. Na register, na dobara typing. Reports hamesha screen se match karti hain. KidBus, by ZeroMileSystems.com.
+
 ---
 
 ## 20S Role Privacy — `K9_20s_role_privacy`
@@ -311,6 +323,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 
 **Full narration (copy-paste into any TTS):**  
 > KidBus keeps every family in the loop, but only their own. Parents see their children, their bus and their stop. School admins see the whole fleet. Drivers get a simple crew app. One platform, four experiences, complete privacy. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K9_20s_role_privacy.mp4`, same visuals and timings):  
+> KidBus har family ko unke bachche ki jaankari deta hai — aur sirf unki. Parents ko dikhta hai unka bachcha, unki bus aur unka stop. School admin ko poora fleet. Drivers ko simple crew app. Ek platform, chaar experiences, poori privacy. KidBus, by ZeroMileSystems.com.
 
 ---
 
@@ -383,5 +398,8 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. Book 
 
 **Full narration (copy-paste into any TTS):**  
 > Every morning, thousands of school buses leave the gate, and nobody really knows what happens next. Paper registers, phone calls, parents waiting with no information. KidBus changes that. The driver's app shares live GPS, and starts on its own when the trip begins. The conductor marks every boarding and drop in one tap, and parents are notified instantly. Parents see their child's bus on a live map, with alerts the moment it matters. Every stop arrival is detected automatically, and every remaining stop gets a live ETA. If something goes wrong, one tap raises an SOS on every admin's screen, with the trip and the location attached. In the office, every bus and driver document is tracked, with alerts thirty days before expiry. Attendance, trips and vehicle utilisation become reports you can export to Excel in one click. Your entire school, onboarded from a spreadsheet in minutes. KidBus, by ZeroMileSystems.com. Book a free thirty-day pilot for your school today.
+
+**Hinglish narration** (voice variant `HI_K11_60s_sales_film.mp4`, same visuals and timings):  
+> Har subah hazaron school buses gate se nikal jaati hain, aur kisi ko sach mein pata nahi hota aage kya hota hai. Register, phone calls, bina jaankari wait karte parents. KidBus ye badal deta hai. Driver ke app se live GPS share hota hai, aur trip shuru hote hi apne aap chalu ho jaata hai. Conductor har boarding aur drop ek tap mein mark karta hai, aur parents ko turant alert jaata hai. Parents apne bachche ki bus live map par dekhte hain, aur zaroori moment par alerts paate hain. Har stop arrival khud detect hoti hai, aur har bache hue stop ka live ETA milta hai. Kuch galat ho to ek tap mein SOS har admin ki screen par pahunchta hai, trip aur location ke saath. Office mein har bus aur driver ka document track hota hai, expiry se tees din pehle alert ke saath. Attendance, trips aur vehicle utilisation ek click mein Excel report ban jaate hain. Poora school, ek spreadsheet se, minute mein onboard. KidBus, by ZeroMileSystems.com. Aaj hi apne school ke liye free tees din ka pilot book kijiye.
 
 ---

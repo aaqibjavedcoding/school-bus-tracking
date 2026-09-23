@@ -2,7 +2,7 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> are ~110 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
 > `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
 > folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
 > Nothing here affects the product build.

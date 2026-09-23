@@ -29,7 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VIDEO_DIR = os.path.join(ROOT, "videos")
 FF = imageio_ffmpeg.get_ffmpeg_exe()
 
-V_CRF = "29"          # verticals: soft motion graphics, 29 is visually transparent here
+V_CRF = "31"          # verticals: soft motion graphics, 29 is visually transparent here
 H_CRF = "26"
 # landscape cut is a "nice to have" for most films, so only the hero films ship with one
 HERO = ("K11",)
