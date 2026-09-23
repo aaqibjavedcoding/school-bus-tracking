@@ -103,6 +103,45 @@ export function addMonths(
 }
 
 /**
+ * True when `month` of `year` contains at least one day inside the inclusive
+ * `[minDate, maxDate]` window (either bound `null` = unbounded on that side).
+ * Powers the calendar's month picker: a month with no selectable day is
+ * offered disabled, never tappable.
+ */
+export function monthOverlapsRange(
+  year: number,
+  month: number,
+  minDate: string | null,
+  maxDate: string | null,
+): boolean {
+  const lastDay = daysInMonth(year, month);
+  if (lastDay === 0) return false;
+  if (minDate && compareDateOnly(formatDateOnly({ year, month, day: lastDay }), minDate) < 0) {
+    return false;
+  }
+  if (maxDate && compareDateOnly(formatDateOnly({ year, month, day: 1 }), maxDate) > 0) {
+    return false;
+  }
+  return true;
+}
+
+/** True when `year` contains at least one day inside the inclusive window. */
+export function yearOverlapsRange(
+  year: number,
+  minDate: string | null,
+  maxDate: string | null,
+): boolean {
+  if (!Number.isInteger(year)) return false;
+  if (minDate && compareDateOnly(formatDateOnly({ year, month: 12, day: 31 }), minDate) < 0) {
+    return false;
+  }
+  if (maxDate && compareDateOnly(formatDateOnly({ year, month: 1, day: 1 }), maxDate) > 0) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Order two `YYYY-MM-DD` strings as calendar days (-1 / 0 / 1).
  * Returns 0 when either side is not a real date — unparseable values are
  * never ordered, they are simply not comparable.

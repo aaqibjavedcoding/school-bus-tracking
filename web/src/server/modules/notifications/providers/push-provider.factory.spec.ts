@@ -65,3 +65,71 @@ describe('createPushProvider selection', () => {
     assert.equal(provider.name, 'noop-push');
   });
 });
+
+/**
+ * The selection must never be silent: production without a push rail logs an
+ * unmissable error at provider construction, and an active rail is named in
+ * the boot log so a deployment can verify FCM is really live.
+ */
+describe('createPushProvider selection logging', () => {
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+  const ORIGINAL_LOG_SILENT = process.env.LOG_SILENT;
+
+  function withCapturedConsole(
+    nodeEnv: string,
+    run: () => void,
+  ): { errors: string[]; logs: string[] } {
+    const errors: string[] = [];
+    const logs: string[] = [];
+    const originalError = console.error;
+    const originalLog = console.log;
+    process.env.NODE_ENV = nodeEnv;
+    delete process.env.LOG_SILENT; // the guard under test speaks through the console
+    console.error = (...args: unknown[]) => errors.push(args.map(String).join(' '));
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(' '));
+    try {
+      run();
+    } finally {
+      console.error = originalError;
+      console.log = originalLog;
+      if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+      if (ORIGINAL_LOG_SILENT === undefined) delete process.env.LOG_SILENT;
+      else process.env.LOG_SILENT = ORIGINAL_LOG_SILENT;
+    }
+    return { errors, logs };
+  }
+
+  it('logs an unmissable error when the NoOp would run in production', () => {
+    const { errors, logs } = withCapturedConsole('production', () => {
+      const provider = createPushProvider({});
+      assert.equal(provider.name, 'noop-push');
+    });
+    assert.equal(errors.length, 1, 'exactly one loud error at selection');
+    assert.match(errors[0], /PUSH DELIVERY IS DISABLED IN PRODUCTION/);
+    assert.match(errors[0], /NoOpPushProvider/);
+    assert.match(errors[0], /FIREBASE_SERVICE_ACCOUNT_JSON/);
+    assert.deepEqual(logs, [], 'no informational log softens the error');
+  });
+
+  it('names the active FCM rail when credentials are present in production', () => {
+    const { errors, logs } = withCapturedConsole('production', () => {
+      const provider = createPushProvider({ serviceAccountJson: SERVICE_ACCOUNT_JSON });
+      assert.equal(provider.name, 'push-router');
+    });
+    assert.deepEqual(errors, [], 'no error when a rail is active');
+    assert.ok(
+      logs.some((line) => /Push rails active: Android FCM/.test(line)),
+      `expected the active rail in the log, got: ${logs.join(' | ')}`,
+    );
+  });
+
+  it('logs the NoOp informationally outside production', () => {
+    const { errors, logs } = withCapturedConsole('development', () => {
+      const provider = createPushProvider({});
+      assert.equal(provider.name, 'noop-push');
+    });
+    assert.deepEqual(errors, [], 'dev/CI must not page anyone');
+    assert.ok(logs.some((line) => /NoOpPushProvider active/.test(line)));
+  });
+});

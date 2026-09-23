@@ -9,7 +9,9 @@ import {
   isRealDate,
   isValidDateOnly,
   monthGrid,
+  monthOverlapsRange,
   parseDateOnly,
+  yearOverlapsRange,
 } from './calendar.ts';
 
 describe('daysInMonth', () => {
@@ -147,5 +149,76 @@ describe('compareDateOnly', () => {
   it('treats unparseable values as incomparable (0)', () => {
     assert.equal(compareDateOnly('', '2026-01-01'), 0);
     assert.equal(compareDateOnly('2026-02-30', '2026-01-01'), 0);
+  });
+});
+
+describe('monthOverlapsRange', () => {
+  it('accepts every month when unbounded', () => {
+    for (let month = 1; month <= 12; month += 1) {
+      assert.equal(monthOverlapsRange(2026, month, null, null), true, `month ${month}`);
+    }
+  });
+
+  it('rejects months entirely before minDate', () => {
+    assert.equal(monthOverlapsRange(2026, 8, '2026-09-01', null), false);
+    assert.equal(
+      monthOverlapsRange(2026, 9, '2026-09-01', null),
+      true,
+      'the boundary month itself',
+    );
+    assert.equal(monthOverlapsRange(2026, 9, '2026-09-30', null), true, 'one day still inside');
+    assert.equal(monthOverlapsRange(2026, 9, '2026-10-01', null), false);
+  });
+
+  it('rejects months entirely after maxDate', () => {
+    assert.equal(monthOverlapsRange(2026, 10, null, '2026-09-23'), false);
+    assert.equal(
+      monthOverlapsRange(2026, 9, null, '2026-09-23'),
+      true,
+      'the boundary month itself',
+    );
+    assert.equal(monthOverlapsRange(2026, 9, null, '2026-09-01'), true, 'one day still inside');
+    assert.equal(monthOverlapsRange(2026, 9, null, '2026-08-31'), false);
+  });
+
+  it('handles a window inside a single month', () => {
+    assert.equal(monthOverlapsRange(2026, 9, '2026-09-10', '2026-09-20'), true);
+    assert.equal(
+      monthOverlapsRange(2026, 9, '2026-10-01', '2026-10-31'),
+      false,
+      'window in a later month',
+    );
+    assert.equal(
+      monthOverlapsRange(2026, 9, '2026-08-01', '2026-08-31'),
+      false,
+      'window in an earlier month',
+    );
+  });
+
+  it('rejects an out-of-range month number', () => {
+    assert.equal(monthOverlapsRange(2026, 13, null, null), false);
+    assert.equal(monthOverlapsRange(2026, 0, null, null), false);
+  });
+});
+
+describe('yearOverlapsRange', () => {
+  it('accepts every year when unbounded', () => {
+    assert.equal(yearOverlapsRange(1990, null, null), true);
+    assert.equal(yearOverlapsRange(2026, null, null), true);
+  });
+
+  it('rejects years entirely outside the window', () => {
+    assert.equal(yearOverlapsRange(2025, '2026-01-01', null), false);
+    assert.equal(yearOverlapsRange(2026, '2026-01-01', null), true, 'the boundary year itself');
+    assert.equal(yearOverlapsRange(2027, null, '2026-09-23'), false);
+    assert.equal(yearOverlapsRange(2026, null, '2026-09-23'), true, 'the boundary year itself');
+    assert.equal(yearOverlapsRange(1989, '1990-01-01', '2010-12-31'), false);
+    assert.equal(yearOverlapsRange(2011, '1990-01-01', '2010-12-31'), false);
+    assert.equal(yearOverlapsRange(2000, '1990-01-01', '2010-12-31'), true, 'inside the window');
+  });
+
+  it('rejects a non-integer year', () => {
+    assert.equal(yearOverlapsRange(Number.NaN, null, null), false);
+    assert.equal(yearOverlapsRange(2026.5, null, null), false);
   });
 });

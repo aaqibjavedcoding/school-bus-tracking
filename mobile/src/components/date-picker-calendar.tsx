@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Modal as RNModal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal as RNModal, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
@@ -10,7 +10,9 @@ import {
   compareDateOnly,
   formatDateOnly,
   monthGrid,
+  monthOverlapsRange,
   parseDateOnly,
+  yearOverlapsRange,
   type CalendarDate,
 } from '../lib/calendar';
 import { utcDateOnly } from '../lib/format';
@@ -23,7 +25,22 @@ import { utcDateOnly } from '../lib/format';
  * Only real calendar days are tappable: the grid is generated from
  * `monthGrid` (see `src/lib/calendar.ts`), so February the 30th does not
  * exist as a button. That is what makes invalid dates impossible — there is
- * no text-entry path to fight.
+ * no text-entry path to fight. `minDate` / `maxDate` extend the guarantee:
+ * out-of-window days, months and years render disabled, and the "Today"
+ * shortcut honours both bounds too.
+ *
+ * ### Month + year navigation
+ *
+ * Three drill-down views share the one modal: **days** (the 6×7 grid),
+ * **months** (12 tappable month names) and **years** (12 tappable years,
+ * paged in steps of 12). The header label is split into two buttons: the
+ * month opens the month picker, the year opens the year picker. Arrows step
+ * the current view by one unit (±1 month / ±1 year / ±12 years), and a
+ * horizontal swipe over the grid does the same. Selecting a year lands back
+ * on the day grid of that same month, selecting a month on the day grid of
+ * that month — so any date inside the visible 12-year window is at most
+ * three taps away from the open calendar (year → day, or month → day, or
+ * just day), and one swipe/arrow per step beyond it.
  *
  * Single-tap confirms: pressing a day calls `onConfirm` with its
  * `YYYY-MM-DD` and closes, matching the native date pickers' form-field
@@ -54,6 +71,13 @@ const WEEKDAY_KEYS = [
   'date.weekday.5',
   'date.weekday.6',
 ] as const;
+
+/** How many years one year-picker page shows (and one arrow/swipe steps). */
+const YEARS_PER_PAGE = 12;
+/** Horizontal distance that turns a drag into a month/year swipe. */
+const SWIPE_MIN_DX = 24;
+
+type PickerViewMode = 'days' | 'months' | 'years';
 
 export interface CalendarPickerProps {
   visible: boolean;
@@ -94,21 +118,79 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
   const [view, setView] = useState(
     () => selected ?? parseDateOnly(initialDate ?? '') ?? todayDate!,
   );
+  const [viewMode, setViewMode] = useState<PickerViewMode>('days');
 
   // Re-open always lands on the month of the current value (or `initialDate`
-  // / today) — the month the user navigated to last time must not leak in.
+  // / today) in the day view — the month the user navigated to last time
+  // must not leak in.
   useEffect(() => {
     if (!visible) return;
     const anchor = selected ?? parseDateOnly(initialDate ?? '') ?? todayDate;
     if (anchor) setView(anchor);
+    setViewMode('days');
   }, [visible, value, initialDate, selected, todayDate]);
 
   const grid = monthGrid(view.year, view.month);
-  const step = (delta: number) =>
-    setView((current) => {
-      const next = addMonths(current.year, current.month, delta);
-      return { ...next, day: 1 };
-    });
+  const yearPageStart = view.year - Math.floor(YEARS_PER_PAGE / 2);
+  const yearPage = Array.from({ length: YEARS_PER_PAGE }, (_, index) => yearPageStart + index);
+
+  const monthEnabled = (year: number, month: number): boolean =>
+    monthOverlapsRange(year, month, minDate, maxDate);
+  const yearEnabled = (year: number): boolean => yearOverlapsRange(year, minDate, maxDate);
+  const pageHasEnabledYear = (startYear: number): boolean =>
+    Array.from({ length: YEARS_PER_PAGE }, (_, index) => yearEnabled(startYear + index)).some(
+      Boolean,
+    );
+
+  const previousMonth = addMonths(view.year, view.month, -1);
+  const nextMonth = addMonths(view.year, view.month, 1);
+  const canStepBack =
+    viewMode === 'days'
+      ? monthEnabled(previousMonth.year, previousMonth.month)
+      : viewMode === 'months'
+        ? yearEnabled(view.year - 1)
+        : pageHasEnabledYear(yearPageStart - YEARS_PER_PAGE);
+
+  /** Steps the active view by one unit (arrow or swipe): month, year, 12 years. */
+  const step = (direction: -1 | 1) => {
+    if (viewMode === 'days') {
+      const next = addMonths(view.year, view.month, direction);
+      if (!monthEnabled(next.year, next.month)) return;
+      setView({ ...next, day: 1 });
+      return;
+    }
+    if (viewMode === 'months') {
+      if (!yearEnabled(view.year + direction)) return;
+      setView({ ...view, year: view.year + direction });
+      return;
+    }
+    const target = view.year + direction * YEARS_PER_PAGE;
+    if (!pageHasEnabledYear(target - Math.floor(YEARS_PER_PAGE / 2))) return;
+    setView({ ...view, year: target });
+  };
+
+  // The stable PanResponder callbacks always call the latest `step`.
+  const stepRef = useRef(step);
+  useEffect(() => {
+    stepRef.current = step;
+  });
+
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // The day/month/year buttons keep their taps; the grid only claims
+        // the gesture once it is clearly a horizontal drag.
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > SWIPE_MIN_DX && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onPanResponderRelease: (_event, gesture) => {
+          if (Math.abs(gesture.dx) < SWIPE_MIN_DX || Math.abs(gesture.dx) <= Math.abs(gesture.dy)) {
+            return;
+          }
+          stepRef.current(gesture.dx < 0 ? 1 : -1);
+        },
+      }),
+    [],
+  );
 
   const daySelectable = (day: CalendarDate): boolean => {
     const stamp = formatDateOnly(day);
@@ -117,84 +199,237 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
     return true;
   };
 
+  const pickMonth = (month: number) => {
+    setView({ year: view.year, month, day: 1 });
+    setViewMode('days');
+  };
+
+  /** A year tap lands straight back on the day grid of the shown month. */
+  const pickYear = (year: number) => {
+    setView({ year, month: view.month, day: 1 });
+    setViewMode('days');
+  };
+
+  const todayOutOfRange =
+    (minDate !== null && compareDateOnly(today, minDate) < 0) ||
+    (maxDate !== null && compareDateOnly(today, maxDate) > 0);
+
+  const cardLabel =
+    viewMode === 'months'
+      ? t('datePicker.selectMonth')
+      : viewMode === 'years'
+        ? t('datePicker.selectYear')
+        : t('datePicker.title');
+
   return (
     <RNModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={styles.card} accessibilityLabel={t('datePicker.title')}>
-          <View style={styles.header}>
-            <Pressable
-              onPress={() => step(-1)}
-              hitSlop={8}
-              style={styles.navButton}
-              accessibilityRole="button"
-              accessibilityLabel={`${t('datePicker.title')} ${t(MONTH_KEYS[(view.month + 10) % 12])} ${String(view.year - 1)}`}
-            >
-              <Ionicons name="chevron-back" size={20} color={colors.neutral[700]} />
-            </Pressable>
-            <Text style={styles.monthLabel}>
-              {t(MONTH_KEYS[view.month - 1])} {view.year}
-            </Text>
-            <Pressable
-              onPress={() => step(1)}
-              hitSlop={8}
-              style={styles.navButton}
-              accessibilityRole="button"
-              accessibilityLabel={`${t('datePicker.title')} ${t(MONTH_KEYS[view.month % 12])} ${String(view.year + 1)}`}
-            >
-              <Ionicons name="chevron-forward" size={20} color={colors.neutral[700]} />
-            </Pressable>
-          </View>
-
-          <View style={styles.weekdayRow}>
-            {WEEKDAY_KEYS.map((key) => (
-              <View key={key} style={styles.weekdayCell}>
-                <Text style={styles.weekdayText}>{t(key)}</Text>
+        <View style={styles.card} accessibilityLabel={cardLabel}>
+          {viewMode === 'years' ? (
+            <View style={styles.header}>
+              <NavButton
+                onPress={() => step(-1)}
+                disabled={!canStepBack}
+                icon="chevron-back"
+                accessibilityLabel={t('datePicker.previousYear')}
+              />
+              <Text style={styles.monthLabel}>
+                {yearPageStart}–{yearPage[YEARS_PER_PAGE - 1]}
+              </Text>
+              <NavButton
+                onPress={() => step(1)}
+                disabled={!pageHasEnabledYear(yearPageStart + YEARS_PER_PAGE)}
+                icon="chevron-forward"
+                accessibilityLabel={t('datePicker.nextYear')}
+              />
+            </View>
+          ) : viewMode === 'months' ? (
+            <View style={styles.header}>
+              <NavButton
+                onPress={() => step(-1)}
+                disabled={!canStepBack}
+                icon="chevron-back"
+                accessibilityLabel={t('datePicker.previousYear')}
+              />
+              <Pressable
+                onPress={() => setViewMode('years')}
+                hitSlop={8}
+                style={styles.headerTitleButton}
+                accessibilityRole="button"
+                accessibilityLabel={`${view.year}, ${t('datePicker.selectYear')}`}
+              >
+                <Text style={styles.monthLabel}>{view.year}</Text>
+              </Pressable>
+              <NavButton
+                onPress={() => step(1)}
+                disabled={!yearEnabled(view.year + 1)}
+                icon="chevron-forward"
+                accessibilityLabel={t('datePicker.nextYear')}
+              />
+            </View>
+          ) : (
+            <View style={styles.header}>
+              <NavButton
+                onPress={() => step(-1)}
+                disabled={!canStepBack}
+                icon="chevron-back"
+                accessibilityLabel={t('datePicker.previousMonth')}
+              />
+              <View style={styles.headerTitle}>
+                <Pressable
+                  onPress={() => setViewMode('months')}
+                  hitSlop={8}
+                  style={styles.headerTitleButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t(MONTH_KEYS[view.month - 1])}, ${t('datePicker.selectMonth')}`}
+                >
+                  <Text style={styles.monthLabel}>{t(MONTH_KEYS[view.month - 1])}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setViewMode('years')}
+                  hitSlop={8}
+                  style={styles.headerTitleButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${view.year}, ${t('datePicker.selectYear')}`}
+                >
+                  <Text style={styles.yearLabel}>{view.year}</Text>
+                </Pressable>
               </View>
-            ))}
-          </View>
+              <NavButton
+                onPress={() => step(1)}
+                disabled={!monthEnabled(nextMonth.year, nextMonth.month)}
+                icon="chevron-forward"
+                accessibilityLabel={t('datePicker.nextMonth')}
+              />
+            </View>
+          )}
 
-          <View style={styles.grid}>
-            {grid.map((day, index) => {
-              if (!day) {
-                return <View key={`empty-${index}`} style={styles.cell} />;
-              }
-              const stamp = formatDateOnly(day);
-              const isToday = stamp === today;
-              const isSelected = selected !== null && stamp === value;
-              const selectable = daySelectable(day);
-              return (
-                <View key={stamp} style={styles.cell}>
-                  <Pressable
-                    onPress={() => {
-                      if (!selectable) return;
-                      onConfirm(stamp);
-                      onClose();
-                    }}
-                    disabled={!selectable}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${t(MONTH_KEYS[day.month - 1])} ${day.day}, ${day.year}`}
-                    accessibilityState={{ selected: isSelected, disabled: !selectable }}
-                    style={[
-                      styles.day,
-                      isSelected ? styles.daySelected : null,
-                      isToday && !isSelected ? styles.dayToday : null,
-                      !selectable ? styles.dayDisabled : null,
-                    ]}
-                  >
-                    <Text
+          {viewMode === 'days' ? (
+            <View {...swipeResponder.panHandlers}>
+              <View style={styles.weekdayRow}>
+                {WEEKDAY_KEYS.map((key) => (
+                  <View key={key} style={styles.weekdayCell}>
+                    <Text style={styles.weekdayText}>{t(key)}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.grid}>
+                {grid.map((day, index) => {
+                  if (!day) {
+                    return <View key={`empty-${index}`} style={styles.cell} />;
+                  }
+                  const stamp = formatDateOnly(day);
+                  const isToday = stamp === today;
+                  const isSelected = selected !== null && stamp === value;
+                  const selectable = daySelectable(day);
+                  return (
+                    <View key={stamp} style={styles.cell}>
+                      <Pressable
+                        onPress={() => {
+                          if (!selectable) return;
+                          onConfirm(stamp);
+                          onClose();
+                        }}
+                        disabled={!selectable}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${t(MONTH_KEYS[day.month - 1])} ${day.day}, ${day.year}`}
+                        accessibilityState={{ selected: isSelected, disabled: !selectable }}
+                        style={[
+                          styles.day,
+                          isSelected ? styles.daySelected : null,
+                          isToday && !isSelected ? styles.dayToday : null,
+                          !selectable ? styles.dayDisabled : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayText,
+                            isSelected ? styles.dayTextSelected : null,
+                            !selectable ? styles.dayTextDisabled : null,
+                          ]}
+                        >
+                          {day.day}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : viewMode === 'months' ? (
+            <View style={styles.unitsGrid} {...swipeResponder.panHandlers}>
+              {MONTH_KEYS.map((key, index) => {
+                const month = index + 1;
+                const enabled = monthEnabled(view.year, month);
+                const isSelectedMonth =
+                  selected !== null && selected.year === view.year && selected.month === month;
+                const isCurrentMonth =
+                  todayDate !== null && todayDate.year === view.year && todayDate.month === month;
+                return (
+                  <View key={key} style={styles.unitCell}>
+                    <Pressable
+                      onPress={() => pickMonth(month)}
+                      disabled={!enabled}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelectedMonth, disabled: !enabled }}
                       style={[
-                        styles.dayText,
-                        isSelected ? styles.dayTextSelected : null,
-                        !selectable ? styles.dayTextDisabled : null,
+                        styles.unit,
+                        isSelectedMonth ? styles.daySelected : null,
+                        isCurrentMonth && !isSelectedMonth ? styles.dayToday : null,
+                        !enabled ? styles.dayDisabled : null,
                       ]}
                     >
-                      {day.day}
-                    </Text>
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
+                      <Text
+                        style={[
+                          styles.unitText,
+                          isSelectedMonth ? styles.dayTextSelected : null,
+                          !enabled ? styles.dayTextDisabled : null,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {t(key)}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.unitsGrid} {...swipeResponder.panHandlers}>
+              {yearPage.map((year) => {
+                const enabled = yearEnabled(year);
+                const isSelectedYear = selected !== null && selected.year === year;
+                const isCurrentYear = todayDate !== null && todayDate.year === year;
+                return (
+                  <View key={year} style={styles.unitCell}>
+                    <Pressable
+                      onPress={() => pickYear(year)}
+                      disabled={!enabled}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelectedYear, disabled: !enabled }}
+                      style={[
+                        styles.unit,
+                        isSelectedYear ? styles.daySelected : null,
+                        isCurrentYear && !isSelectedYear ? styles.dayToday : null,
+                        !enabled ? styles.dayDisabled : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.unitText,
+                          isSelectedYear ? styles.dayTextSelected : null,
+                          !enabled ? styles.dayTextDisabled : null,
+                        ]}
+                      >
+                        {year}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           <View style={[styles.footer, { paddingBottom: spacing.md + insets.bottom * 0.5 }]}>
             <Pressable
@@ -202,20 +437,12 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                 onConfirm(today);
                 onClose();
               }}
-              disabled={Boolean(maxDate && compareDateOnly(today, maxDate) > 0)}
-              style={[
-                styles.footerButton,
-                maxDate && compareDateOnly(today, maxDate) > 0 ? styles.footerButtonDisabled : null,
-              ]}
+              disabled={todayOutOfRange}
+              style={[styles.footerButton, todayOutOfRange ? styles.footerButtonDisabled : null]}
               hitSlop={6}
               accessibilityRole="button"
             >
-              <Text
-                style={[
-                  styles.footerText,
-                  maxDate && compareDateOnly(today, maxDate) > 0 ? styles.footerTextDisabled : null,
-                ]}
-              >
+              <Text style={[styles.footerText, todayOutOfRange ? styles.footerTextDisabled : null]}>
                 {t('datePicker.today')}
               </Text>
             </Pressable>
@@ -243,6 +470,26 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
   );
 };
 
+/** Round chevron used by every view's header arrows. */
+const NavButton: React.FC<{
+  onPress: () => void;
+  disabled: boolean;
+  icon: 'chevron-back' | 'chevron-forward';
+  accessibilityLabel: string;
+}> = ({ onPress, disabled, icon, accessibilityLabel }) => (
+  <Pressable
+    onPress={onPress}
+    disabled={disabled}
+    hitSlop={8}
+    style={[styles.navButton, disabled ? styles.navButtonDisabled : null]}
+    accessibilityRole="button"
+    accessibilityLabel={accessibilityLabel}
+    accessibilityState={{ disabled }}
+  >
+    <Ionicons name={icon} size={20} color={colors.neutral[700]} />
+  </Pressable>
+);
+
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
@@ -269,10 +516,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  navButtonDisabled: {
+    opacity: 0.35,
+  },
+  headerTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerTitleButton: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: borderRadius.sm,
+  },
   monthLabel: {
     fontSize: typography.fontSizes.base,
     fontWeight: '700',
     color: colors.neutral[900],
+  },
+  yearLabel: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.neutral[600],
   },
   weekdayRow: {
     flexDirection: 'row',
@@ -323,6 +588,31 @@ const styles = StyleSheet.create({
   },
   dayTextDisabled: {
     color: colors.neutral[500],
+  },
+  unitsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    minHeight: 6 * 44,
+    alignContent: 'center',
+  },
+  unitCell: {
+    width: '25%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  unit: {
+    minWidth: 64,
+    minHeight: 40,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unitText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '600',
+    color: colors.neutral[800],
   },
   footer: {
     flexDirection: 'row',

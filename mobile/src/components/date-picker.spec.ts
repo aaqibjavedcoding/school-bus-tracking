@@ -77,6 +77,26 @@ describe('one reusable picker behind every date field', () => {
     assert.ok(calendar.includes('onConfirm(stamp)'), 'a tap confirms the day');
   });
 
+  it('CalendarPicker navigates months and years (arrows, swipe, pickers)', () => {
+    const source = maskCommentsAndStrings(calendar);
+    // Month/year pickers exist as views of the one shared component: any
+    // past or future date is a few taps away, never a chevron march.
+    assert.ok(/MONTH_KEYS\.map/.test(source), 'the month picker renders the twelve month keys');
+    assert.ok(/pickYear\(/.test(source), 'the year picker confirms a picked year');
+    assert.ok(
+      /onMoveShouldSetPanResponder/.test(source),
+      'a horizontal swipe steps the visible unit',
+    );
+    // The window guards come from the shared pure lib (unit-tested there),
+    // so months/years without a single selectable day are never offered.
+    assert.ok(calendar.includes('monthOverlapsRange'), 'months outside min/max are blocked');
+    assert.ok(calendar.includes('yearOverlapsRange'), 'years outside min/max are blocked');
+    assert.ok(
+      calendar.includes('t(MONTH_KEYS[view.month - 1])'),
+      'the day-view month header still renders through t()',
+    );
+  });
+
   it('DateTimeField picks its date from the same calendar', () => {
     assert.ok(dateTime.includes('<CalendarPicker'), 'the date segment opens the shared calendar');
   });
