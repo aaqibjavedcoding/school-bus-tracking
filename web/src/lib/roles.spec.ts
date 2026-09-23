@@ -17,7 +17,7 @@ import {
 describe('canAccessPath', () => {
   it('lets a school admin open the deep links reachable from the sidebar', () => {
     for (const path of [
-      '/',
+      '/dashboard',
       '/staff',
       '/buses/bus-1/documents',
       '/drivers/driver-1/documents',
@@ -42,7 +42,9 @@ describe('canAccessPath', () => {
 
   it('sends the platform admin to the console and school roles to their home', () => {
     assert.equal(homePath(UserRole.SUPER_ADMIN), '/admin');
-    assert.equal(homePath(UserRole.SCHOOL_ADMIN), '/');
+    assert.equal(homePath(UserRole.SCHOOL_ADMIN), '/dashboard');
+    assert.equal(canAccessPath(UserRole.SCHOOL_ADMIN, '/'), true, 'landing page is public');
+    assert.equal(canAccessPath(UserRole.PARENT, '/'), true, 'landing page is public');
     assert.equal(homePath(UserRole.CONDUCTOR), '/crew');
   });
 
@@ -79,9 +81,10 @@ describe('platform console navigation', () => {
     assert.equal(activeNavHref(items, '/nowhere'), null);
   });
 
-  it('never treats the school dashboard root as a prefix match', () => {
+  it('highlights the school dashboard without treating the public home as a dashboard', () => {
     const items = navItemsForRole(UserRole.SCHOOL_ADMIN);
-    assert.equal(activeNavHref(items, '/'), '/');
+    assert.equal(activeNavHref(items, '/'), null);
+    assert.equal(activeNavHref(items, '/dashboard'), '/dashboard');
     assert.equal(activeNavHref(items, '/students'), '/students');
     assert.equal(activeNavHref(items, '/trips/42'), '/trips');
   });

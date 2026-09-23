@@ -1,15 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { Button, Card, Field, Input, PasswordInput } from '../../components/ui';
 import { useAuth } from '../../features/auth/AuthProvider';
-import {
-  fieldErrorsFromUnknown,
-  fieldErrorsFromZod,
-  submitErrorMessage,
-} from '../../lib/errors';
+import { fieldErrorsFromUnknown, fieldErrorsFromZod, submitErrorMessage } from '../../lib/errors';
 import { pickFieldLabels } from '../../lib/field-errors';
 import { homePath } from '../../lib/roles';
 
@@ -123,6 +120,11 @@ export default function LoginPage() {
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+        <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
+          <Link href="/" className="linkish" style={{ fontSize: '0.875rem' }}>
+            ← Back to homepage
+          </Link>
+        </div>
       </Card>
     </div>
   );
