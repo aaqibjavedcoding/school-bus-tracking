@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { useMemo, useState } from 'react';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { fullName, initials, roleLabel } from '../../lib/format';
 import { activeNavHref, navItemsForRole } from '../../lib/roles';
 import { useAuth } from '../../features/auth/AuthProvider';
@@ -42,9 +43,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       ) : null}
       <aside className={`sidebar ${open ? 'open' : ''}`.trim()} aria-label="Primary">
         <div className="sidebar-brand">
-          <span className="brand-mark">SBT</span>
+          <img src="/kidbus-mark.png" alt="" className="brand-logo" />
           <div className="brand-copy">
-            <h1>School Bus Tracking</h1>
+            <h1>{APP_CONFIG.appName}</h1>
             <p>Live fleet operations</p>
           </div>
         </div>

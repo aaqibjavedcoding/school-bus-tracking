@@ -272,7 +272,7 @@ export const en = {
   'gps.message.revoked': 'Access to live tracking was revoked — sharing has stopped.',
   // Android foreground-service notification. Honest wording: the service shares
   // this device's GPS while the trip is active; it cannot promise delivery.
-  'gps.service.title': 'School Bus GPS sharing',
+  'gps.service.title': 'KidBus GPS sharing',
   'gps.service.body': 'Sharing this phone’s GPS with the school while the trip is active.',
   /**
    * The four support counters ("Sent", "Rejected", "Dropped (offline)",
@@ -452,8 +452,8 @@ export const en = {
   'voice.native.stop.approaching': 'Approaching {name}, {count} students',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
-  'login.brandMark': 'SBT',
-  'login.brandName': 'School Bus Tracking',
+  'login.brandMark': 'KB',
+  'login.brandName': 'KidBus',
   'login.subtitle': 'Sign in with your school account',
   'login.schoolLabel': 'School code',
   'login.schoolPlaceholder': 'e.g. lincoln-high',

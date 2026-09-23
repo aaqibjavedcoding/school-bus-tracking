@@ -1,5 +1,6 @@
 import { Readable, Writable } from 'stream';
 import * as ExcelJS from 'exceljs';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { DataFileFormat } from '@school-bus-tracking/shared-types';
 
 /**
@@ -257,7 +258,7 @@ export async function buildWorkbookBuffer(
   sheets: Array<SheetOptions & { rows: SheetCell[][] }>,
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'School Bus Tracking';
+  workbook.creator = APP_CONFIG.appName;
   workbook.created = new Date();
 
   for (const sheet of sheets) {
@@ -347,7 +348,7 @@ export async function writeXlsxToStream(
     useStyles: true,
     useSharedStrings: false,
   });
-  workbook.creator = 'School Bus Tracking';
+  workbook.creator = APP_CONFIG.appName;
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet(sheet.sheetName);

@@ -258,7 +258,7 @@ export const mr: Dictionary = {
   'gps.message.backgroundNeedsTrip': 'बॅकग्राउंड शेअरिंगसाठी सुरू असलेली ट्रिप आवश्यक आहे.',
   'gps.message.backgroundFailed': 'बॅकग्राउंड शेअरिंग चालू होऊ शकले नाही.',
   'gps.message.revoked': 'लाइव्ह ट्रॅकिंगचा प्रवेश रद्द झाला — शेअरिंग थांबवले आहे.',
-  'gps.service.title': 'शाळा बस GPS शेअरिंग',
+  'gps.service.title': 'KidBus GPS शेअरिंग',
   'gps.service.body': 'ट्रिप सुरू असताना हा फोन त्याची GPS शाळेला पाठवत आहे.',
   'gps.noTripBody': 'आज ट्रिप नाही — ट्रिप सुरू असताना GPS गणक इथे दिसतात.',
   'gps.driverOnlyTitle': 'GPS शेअरिंग',
@@ -417,8 +417,8 @@ export const mr: Dictionary = {
   'voice.native.stop.approaching': '{name} पोहोचत आहोत, {count} मुले',
 
   // ── Login ──────────────────────────────────────────────────────────────
-  'login.brandMark': 'SBT',
-  'login.brandName': 'School Bus Tracking',
+  'login.brandMark': 'KB',
+  'login.brandName': 'KidBus',
   'login.subtitle': 'तुमच्या शाळेच्या खात्याने लॉगिन करा',
   'login.schoolLabel': 'शाळेचा कोड',
   'login.schoolPlaceholder': 'उदा. lincoln-high',

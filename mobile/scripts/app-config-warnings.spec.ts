@@ -42,7 +42,7 @@ const DRIVER = `
 const path = require('node:path');
 const configPath = path.join(__dirname, 'app.config.js');
 const baseConfig = {
-  name: 'School Bus Tracking',
+  name: 'KidBus',
   slug: 'school-bus-tracking',
   android: { package: 'com.schoolbustracking.app' },
   plugins: ['expo-router'],

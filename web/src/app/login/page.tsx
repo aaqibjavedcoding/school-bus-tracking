@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { loginSchema } from '@school-bus-tracking/validation';
 import { Button, Card, Field, Input, PasswordInput } from '../../components/ui';
 import { useAuth } from '../../features/auth/AuthProvider';
@@ -70,9 +71,9 @@ export default function LoginPage() {
     <div className="login-screen">
       <Card className="login-card">
         <div className="row" style={{ marginBottom: '1rem' }}>
-          <span className="brand-mark">SBT</span>
+          <img src="/kidbus-mark.png" alt="" className="brand-logo" />
           <div>
-            <h1 style={{ fontSize: '1.2rem' }}>School Bus Tracking</h1>
+            <h1 style={{ fontSize: '1.2rem' }}>{APP_CONFIG.appName}</h1>
             <p className="muted">Sign in with your school account</p>
           </div>
         </div>
