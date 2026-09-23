@@ -2,9 +2,10 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `social/srt/`, `social/thumbs/`,
-> `assets/ai/` and `tools/` in this folder refer to that pack. This folder is the source of truth for
-> the *text*: scripts, prompts, captions and the client brief. Nothing here affects the product build.
+> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
+> folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
+> Nothing here affects the product build.
 
 **Product:** KidBus  |  **Company:** ZeroMileSystems.com  |  **Contact:** zeromilesystems@gmail.com
 
@@ -16,6 +17,8 @@ Eleven ready-to-post films: 15 s, 20 s, 30 s and one 60 s sales film. Every film
 2. **Proof (mid)** — the feature that removes it, named plainly (never jargon).
 3. **Payoff (last feature scene)** — what the buyer's day looks like afterwards.
 4. **End card (last ~4 s)** — logo, `ZeroMileSystems.com`, email, free-pilot offer.
+
+**Language variants:** five of these films (K1, K2, K6, K7, K10) also ship with a **Hinglish narration** — voice-over only, identical visuals and timings, files prefixed `HI_` in `videos/hinglish/`. The on-screen text stays English so every parent and every school admin can read it; only the spoken language changes.
 
 **Safe-zone rules used in every render:** all text sits inside the central 92 % (`192 px` below the top tag and `96 px` above the bottom edge) so Reels/Shorts UI never covers a word. Captions are burnt-in AND shipped as `.srt`.
 
@@ -48,6 +51,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 **Full narration (copy-paste into any TTS):**  
 > Where is my child's bus? KidBus shows the live location and the exact ETA for every stop. Safer journeys, calmer mornings. KidBus, by ZeroMileSystems.com.
 
+**Hinglish narration** (voice variant `HI_K1_15s_live_tracking.mp4`, same visuals and timings):  
+> Bachche ki bus kahan hai? KidBus live location dikhata hai, aur har stop ka exact ETA. Safe safar, shaant subah. KidBus, by ZeroMileSystems.com.
+
 ---
 
 ## 20S Boarding Verification — `K2_20s_boarding_verification`
@@ -77,6 +83,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 
 **Full narration (copy-paste into any TTS):**  
 > Is my child really on the bus? KidBus verifies every boarding and every drop in one tap by the conductor, and sends parents an instant alert the moment it happens. No registers. No phone calls. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K2_20s_boarding_verification.mp4`, same visuals and timings):  
+> Bachcha bus mein chadha ya nahi? Ab andaza nahi lagana. KidBus har boarding aur drop verify karta hai. Conductor ka ek tap, aur parent ko turant alert. Na register, na phone calls. KidBus, by ZeroMileSystems.com.
 
 ---
 
@@ -207,6 +216,9 @@ caption bar: `zeromilesystems@gmail.com` | One app your whole school can actuall
 **Full narration (copy-paste into any TTS):**  
 > One platform for your entire school transport operation. Live GPS tracking, boarding and drop verification, ETA and stop arrivals, SOS with an admin siren, compliance documents, and one-click reports. For school admins, drivers, conductors and parents. On web, on mobile, and in Hindi for your crew. One app your whole school can actually use. KidBus, by ZeroMileSystems.com.
 
+**Hinglish narration** (voice variant `HI_K6_30s_all_in_one.mp4`, same visuals and timings):  
+> Aapke poore school transport ka ek hi platform. Register, phone calls, bus kahan hai — sab khatam. Live GPS tracking, boarding aur drop verification, ETA aur stop arrival, SOS with admin siren, document compliance, aur ek click mein reports. Admins, drivers, conductors aur parents, sabke liye. Web par, mobile par, aur crew ke liye Hindi mein. Poora school, ek app. KidBus, by ZeroMileSystems.com.
+
 ---
 
 ## 20S Geofence Eta — `K7_20s_geofence_eta`
@@ -236,6 +248,9 @@ caption bar: `zeromilesystems@gmail.com` | KidBus, by ZeroMileSystems.com. |
 
 **Full narration (copy-paste into any TTS):**  
 > Your bus enters the stop geofence, and every waiting parent is notified instantly. KidBus calculates an ETA for every remaining stop and marks arrivals automatically. Drivers drive. The system does the talking. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K7_20s_geofence_eta.mp4`, same visuals and timings):  
+> Bus jaise hi stop ke paas pahunchti hai, har parent ko turant alert milta hai. KidBus har bache hue stop ka ETA batata hai, aur arrival khud mark karta hai. Driver gaadi chalaye. Baaki sab system sambhale. KidBus, by ZeroMileSystems.com.
 
 ---
 
@@ -320,6 +335,9 @@ caption bar: `zeromilesystems@gmail.com` | Free pilot for your school today. Kid
 
 **Full narration (copy-paste into any TTS):**  
 > KidBus. School transport, completely visible. Live tracking, verified boarding, instant SOS, and reports your school will love. Free pilot for your school today. KidBus, by ZeroMileSystems.com.
+
+**Hinglish narration** (voice variant `HI_K10_15s_brand_tagline.mp4`, same visuals and timings):  
+> KidBus. School transport, poori tarah visible. Live tracking, verified boarding, instant SOS, aur reports jo school ko pasand aayenge. Aaj hi apne school ke liye free pilot. KidBus, by ZeroMileSystems.com.
 
 ---
 

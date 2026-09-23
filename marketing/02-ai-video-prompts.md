@@ -2,9 +2,10 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `social/srt/`, `social/thumbs/`,
-> `assets/ai/` and `tools/` in this folder refer to that pack. This folder is the source of truth for
-> the *text*: scripts, prompts, captions and the client brief. Nothing here affects the product build.
+> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
+> folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
+> Nothing here affects the product build.
 
 Everything below is written to be pasted straight into an AI video tool: **Veo / Sora / Kling /
 Runway / Pika / Hailuo** for footage, **Midjourney / Ideogram / DALL·E / Firefly** for stills,

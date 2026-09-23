@@ -2,9 +2,10 @@
 
 > **Media lives outside this repository.** The finished MP4s, narration MP3s, scene plates and
 > cover thumbnails are kept in the standalone *KidBus marketing pack* (git-ignored by design: they
-> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `social/srt/`, `social/thumbs/`,
-> `assets/ai/` and `tools/` in this folder refer to that pack. This folder is the source of truth for
-> the *text*: scripts, prompts, captions and the client brief. Nothing here affects the product build.
+> are ~90 MB of binaries). Paths such as `videos/`, `videos/9x16/`, `videos/hinglish/`, `social/srt/`,
+> `social/thumbs/`, `statics/`, `assets/ai/` and `tools/` in this folder refer to that pack. This
+> folder is the source of truth for the *text*: scripts, prompts, captions and the client brief.
+> Nothing here affects the product build.
 
 Ready-to-post copy for all eleven films. Copy the block you need; nothing here repeats the video's own
 on-screen words too literally — the caption's job is to earn the *click* and the *comment*.
@@ -226,6 +227,50 @@ itself. Conductor taps once → the parent knows. Something goes wrong → one t
 alarms. At month end → reports in Excel. Nothing for your staff to learn — one day of training."*
 
 ---
+
+## Hinglish posts (5 films, ready captions)
+
+Five films ship with a Hinglish narration in `videos/hinglish/` (`HI_` prefix): **K1, K2, K6, K7, K10**.
+Identical visuals, timings and English on-screen text — only the voice is Hinglish. Post these on
+Instagram (parent audience); keep the English masters for LinkedIn and for the ads you run to school
+owners.
+
+**HI_K1 — live tracking (15 s)**
+> "Bachche ki bus kahan hai?" 🚌
+> Ye sawaal har parent ke dimaag mein hota hai — 7 baje subah.
+> KidBus live location dikhata hai, aur har stop ka exact ETA. Safe safar, shaant subah.
+> School ke liye free 30-day pilot → DM "PILOT" ya zeromilesystems@gmail.com
+> #SchoolBusSafety #ParentingIndia #KidBus #SchoolTransport #NagpurSchools
+
+**HI_K2 — boarding & drop alerts (20 s)**
+> "Beta bus mein chadha ya nahi?" — ab andaza nahi lagana padta. ✅
+> Conductor ka ek tap → parent ko turant alert. Har boarding aur drop record par.
+> Na register, na phone calls.
+> Free pilot → DM "PILOT" · zeromilesystems@gmail.com
+> #ChildSafety #SchoolBusSafety #KidBus #ParentingTips
+
+**HI_K7 — geofence arrival + ETA (20 s)**
+> "Bus do minute mein aa rahi hai" — pehli baar sach mein. ⏱️
+> Bus stop ke paas pahunchte hi parent ko alert, aur har bache hue stop ka ETA.
+> Driver gaadi chalaye — baaki sab system sambhale.
+> #KidBus #SchoolBusSafety #ParentingIndia #SmartSchool
+
+**HI_K6 — all-in-one platform (30 s)**
+> Poora school transport, ek platform. 🚌
+> Live GPS · boarding alerts · ETA · SOS · documents · reports — aur crew ke liye **Hindi app jo bolti
+> hai** ("Ramesh ka boarding ho gaya, 7:42 subah").
+> School ke liye free 30-day pilot → DM "PILOT"
+> #EdTechIndia #SchoolManagement #KidBus #SchoolBusSafety
+
+**HI_K10 — brand film (15 s)**
+> KidBus. School transport, poori tarah visible. 🚌
+> Live tracking · verified boarding · instant SOS · reports jo school ko pasand aayenge.
+> Aaj hi apne school ke liye free pilot — zeromilesystems@gmail.com
+> #KidBus #ZeroMileSystems #SchoolBusSafety #EdTechIndia
+
+---
+
+## Hashtag sets (rotate, don't repeat all of them every time)
 
 | Set | Hashtags |
 | --- | --- |

@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 import imageio_ffmpeg
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from spec import ACCENTS, BRAND, VIDEOS  # noqa: E402
+from spec import ACCENTS, BRAND, VIDEOS, variant_videos  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AI_DIR = os.path.join(ROOT, "assets", "ai")
@@ -593,7 +593,7 @@ def srt_time(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def build(video: dict, with_audio=True, preview=False):
+def build(video: dict, with_audio=True, preview=False, outdir: str | None = None):
     vid = video["id"]
     T = video["duration"]
     scenes = video["scenes"]
@@ -664,8 +664,9 @@ def build(video: dict, with_audio=True, preview=False):
         writer.send(np.asarray(frame_at(i / FPS), dtype=np.uint8))
     writer.close()
 
-    out = os.path.join(VIDEO_DIR, f"{vid}.mp4")
-    os.makedirs(VIDEO_DIR, exist_ok=True)
+    video_dir = outdir or VIDEO_DIR
+    out = os.path.join(video_dir, f"{vid}.mp4")
+    os.makedirs(video_dir, exist_ok=True)
     if with_audio:
         vo_path = os.path.join(VO_DIR, f"{vid}.mp3")
         pcm, tempo = build_audio(video, timeline, vo_path)
@@ -706,13 +707,22 @@ def main():
     ap.add_argument("--only", nargs="*", default=None)
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--no-audio", action="store_true")
+    ap.add_argument("--variant", choices=["hinglish"], default=None,
+                    help="render the re-narrated variants (own id prefix + own folder)")
+    ap.add_argument("--outdir", default=None, help="override the output folder for renders")
     args = ap.parse_args()
 
-    for v in VIDEOS:
-        if args.only and not any(v["id"].startswith(p) for p in args.only):
+    videos = variant_videos(args.variant) if args.variant else VIDEOS
+    outdir = args.outdir or (os.path.join(VIDEO_DIR, args.variant) if args.variant else None)
+
+    for v in videos:
+        prefixes = args.only or []
+        if args.variant:  # allow `--only K1` to match HI_K1_... as well
+            prefixes = [p if p.startswith("HI_") else "HI_" + p for p in prefixes]
+        if prefixes and not any(v["id"].startswith(p) for p in prefixes):
             continue
         print(f"=== {v['id']} ({v['duration']}s) {v['title']} ===")
-        build(v, with_audio=not args.no_audio, preview=args.preview)
+        build(v, with_audio=not args.no_audio, preview=args.preview, outdir=outdir)
 
 
 if __name__ == "__main__":

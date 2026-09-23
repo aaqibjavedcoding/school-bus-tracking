@@ -660,3 +660,62 @@ VIDEOS = [
         ],
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Language variants
+# ---------------------------------------------------------------------------
+# Hinglish narration for the five films that a parent-facing Instagram audience sees most.
+# The on-screen text deliberately stays English (readable to every parent and every school
+# admin); only the voice switches, which is exactly how the app itself behaves — Hindi for the
+# crew, English chrome on the web console.
+HINGLISH = {
+    "K1_15s_live_tracking": (
+        "Bachche ki bus kahan hai? KidBus live location dikhata hai, aur har stop ka exact ETA. "
+        "Safe safar, shaant subah. KidBus, by ZeroMileSystems.com."
+    ),
+    "K2_20s_boarding_verification": (
+        "Bachcha bus mein chadha ya nahi? Ab andaza nahi lagana. KidBus har boarding aur drop verify "
+        "karta hai. Conductor ka ek tap, aur parent ko turant alert. Na register, na phone calls. "
+        "KidBus, by ZeroMileSystems.com."
+    ),
+    "K6_30s_all_in_one": (
+        "Aapke poore school transport ka ek hi platform. Register, phone calls, bus kahan hai — sab "
+        "khatam. Live GPS tracking, boarding aur drop verification, ETA aur stop arrival, SOS with "
+        "admin siren, document compliance, aur ek click mein reports. Admins, drivers, conductors aur "
+        "parents, sabke liye. Web par, mobile par, aur crew ke liye Hindi mein. Poora school, ek app. "
+        "KidBus, by ZeroMileSystems.com."
+    ),
+    "K7_20s_geofence_eta": (
+        "Bus jaise hi stop ke paas pahunchti hai, har parent ko turant alert milta hai. KidBus har "
+        "bache hue stop ka ETA batata hai, aur arrival khud mark karta hai. Driver gaadi chalaye. "
+        "Baaki sab system sambhale. KidBus, by ZeroMileSystems.com."
+    ),
+    "K10_15s_brand_tagline": (
+        "KidBus. School transport, poori tarah visible. Live tracking, verified boarding, instant SOS, "
+        "aur reports jo school ko pasand aayenge. Aaj hi apne school ke liye free pilot. "
+        "KidBus, by ZeroMileSystems.com."
+    ),
+}
+
+VARIANTS = {"hinglish": HINGLISH}
+VARIANT_PREFIX = {"hinglish": "HI_"}
+
+
+def variant_videos(name: str) -> list:
+    """Videos re-narrated in another language. Scene visuals, timings and on-screen text are
+    untouched -- only `vo` differs, so a variant renders through exactly the same pipeline and
+    lands in its own folder with a `HI_` id prefix."""
+    table = VARIANTS[name]
+    out = []
+    for v in VIDEOS:
+        if v["id"] not in table:
+            continue
+        nv = dict(v)
+        nv["id"] = VARIANT_PREFIX[name] + v["id"]
+        nv["vo"] = table[v["id"]]
+        nv["title"] = f"{v['title']} ({name})"
+        nv["variant"] = name
+        nv["source_id"] = v["id"]
+        out.append(nv)
+    return out

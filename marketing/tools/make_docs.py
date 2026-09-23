@@ -8,7 +8,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from spec import BRAND, VIDEOS  # noqa: E402
+from spec import BRAND, HINGLISH, VIDEOS  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(ROOT, "docs")
@@ -156,6 +156,11 @@ def build() -> str:
         "3. **Payoff (last feature scene)** — what the buyer's day looks like afterwards.",
         "4. **End card (last ~4 s)** — logo, `" + BRAND["company"] + "`, email, free-pilot offer.",
         "",
+        "**Language variants:** five of these films (K1, K2, K6, K7, K10) also ship with a "
+        "**Hinglish narration** — voice-over only, identical visuals and timings, files prefixed "
+        "`HI_` in `videos/hinglish/`. The on-screen text stays English so every parent and every "
+        "school admin can read it; only the spoken language changes.",
+        "",
         "**Safe-zone rules used in every render:** all text sits inside the central 92 % "
         "(`192 px` below the top tag and `96 px` above the bottom edge) so Reels/Shorts UI never "
         "covers a word. Captions are burnt-in AND shipped as `.srt`.",
@@ -208,10 +213,14 @@ def build() -> str:
             "",
             f"**Full narration (copy-paste into any TTS):**  ",
             f"> {norm(v['vo'])}",
-            "",
-            "---",
-            "",
         ]
+        if vid in HINGLISH:
+            out += [
+                "",
+                f"**Hinglish narration** (voice variant `HI_{vid}.mp4`, same visuals and timings):  ",
+                f"> {norm(HINGLISH[vid])}",
+            ]
+        out += ["", "---", ""]
     return "\n".join(out)
 
 

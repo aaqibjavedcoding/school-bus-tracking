@@ -21,7 +21,7 @@ standalone *KidBus marketing pack* — it is ~90 MB of binaries and has no busin
 | [`03-social-kit.md`](./03-social-kit.md) | Per-film captions for Instagram + LinkedIn, hashtag sets, 4-week posting calendar, WhatsApp/email pitch text | Posting anything, any day |
 | [`04-feature-brief.md`](./04-feature-brief.md) | One-page client brief of the shipped product: what each role gets, technical Q&A, pilot structure, objection handling | Sales calls, proposals, onboarding a school |
 | [`srt/`](./srt) | Subtitle files for all 11 films | LinkedIn/YouTube upload, or burning open captions |
-| [`tools/`](./tools) | The render pipeline (`spec.py` = the copy, `build_video.py` = the look, `export_versions.py` = 9:16/16:9 cuts, `make_docs.py` = regenerates `01-video-scripts.md` from the spec) | Re-rendering after a copy change |
+| [`tools/`](./tools) | The render pipeline (`spec.py` = the copy incl. the `HINGLISH` narration table, `build_video.py` = the look + `--variant hinglish`, `export_versions.py` = 9:16/16:9 cuts, `make_statics.py` = carousel + one-pager, `make_docs.py` = regenerates `01-video-scripts.md` from the spec) | Re-rendering after a copy change |
 
 The two campaign facts worth repeating, because they are what actually gets a school to say yes:
 
@@ -46,6 +46,13 @@ zeromilesystems@gmail.com · Free pilot for your school**.
 
 **Call to action:** *DM "PILOT" for a free 30-day pilot* — one CTA everywhere, so response can be
 counted in one inbox.
+
+**Language variants:** five of the films (K1, K2, K6, K7, K10 — the ones a parent-facing Instagram
+audience sees) also exist with a **Hinglish narration**: identical visuals, timings and English
+on-screen text, only the voice changes, rendered as `HI_*` files. Hinglish captions for those five are
+in `03-social-kit.md`. The choice mirrors the product itself — Hindi for the crew, English chrome on
+the console — because the parent audience in the Hindi belt watches with sound on, while school owners
+read on mute in a LinkedIn feed.
 
 **First ten days (from [`03-social-kit.md`](./03-social-kit.md)):** K1 (live tracking) → K3 (SOS) →
 K2 (boarding alerts) → K4 (documents) → K10 (brand, as a ₹300–500/day ad test) → K6 (all-in-one,
