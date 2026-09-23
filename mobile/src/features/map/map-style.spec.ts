@@ -5,6 +5,12 @@ import {
   DEFAULT_MAP_STYLE_URL,
   MAP_ATTRIBUTION,
   MAP_STYLE_ENV_VARIABLE,
+  OPENFREEMAP_GLYPHS_TEMPLATE,
+  buildGlyphProbeUrl,
+  collectTextFontStacks,
+  encodeFontStack,
+  glyphUrlTransforms,
+  inspectMapStyle,
   resolveMapStyleUrl,
   __resetMapStyleWarningsForTests,
 } from './map-style.ts';
@@ -109,5 +115,80 @@ describe('resolveMapStyleUrl', () => {
     resolveMapStyleUrl(env('http://a.example/s'));
     assert.equal(resolveMapStyleUrl(env('https://b.example/s')), 'https://b.example/s');
     assert.equal(warnings.length, 1);
+  });
+});
+
+/**
+ * Glyph / label health, pinned: the fontstack request is percent-encoded
+ * (maplibre-native Android drops labels over space-broken glyph paths), a
+ * missing or non-https `glyphs` template is repaired to the canonical
+ * OpenFreeMap fonts endpoint, and every style's declared text stacks are
+ * discovered so no layer can fall back to the 404-ing default stack silently.
+ */
+describe('map-style glyph helpers', () => {
+  it('encodes fontstack path segments: spaces only, commas preserved', () => {
+    assert.equal(encodeFontStack('Noto Sans Regular'), 'Noto%20Sans%20Regular');
+    assert.equal(
+      encodeFontStack('Open Sans Regular,Arial Unicode MS Regular'),
+      'Open%20Sans%20Regular,Arial%20Unicode%20MS%20Regular',
+    );
+  });
+
+  it('builds the exact probe URL the engine should request', () => {
+    assert.equal(
+      buildGlyphProbeUrl(OPENFREEMAP_GLYPHS_TEMPLATE, 'Noto Sans Regular'),
+      'https://tiles.openfreemap.org/fonts/Noto%20Sans%20Regular/0-255.pbf',
+    );
+  });
+
+  it('collects the unique text-font stacks of symbol layers only', () => {
+    const stacks = collectTextFontStacks({
+      layers: [
+        { id: 'bg', type: 'background' },
+        { id: 'road', type: 'symbol', layout: { 'text-font': ['Noto Sans Regular'] } },
+        { id: 'place', type: 'symbol', layout: { 'text-font': ['Noto Sans Regular'] } },
+        { id: 'shield', type: 'symbol', layout: { 'text-font': ['Noto Sans Bold'] } },
+        { id: 'nameless', type: 'symbol', layout: {} },
+      ],
+    });
+    assert.deepEqual(stacks, ['Noto Sans Regular', 'Noto Sans Bold']);
+  });
+
+  it('repairs a missing or non-https glyphs template to the canonical endpoint', () => {
+    const missing = inspectMapStyle({ layers: [] });
+    assert.equal(missing.glyphsRepaired, true);
+    assert.equal(missing.glyphsTemplate, OPENFREEMAP_GLYPHS_TEMPLATE);
+    assert.equal((missing.style as { glyphs?: string }).glyphs, OPENFREEMAP_GLYPHS_TEMPLATE);
+
+    const plaintext = inspectMapStyle({ glyphs: 'http://tiles.example/fonts/{fontstack}/{range}.pbf' });
+    assert.equal(plaintext.glyphsRepaired, true);
+    assert.equal(plaintext.glyphsTemplate, OPENFREEMAP_GLYPHS_TEMPLATE);
+  });
+
+  it('keeps an intact https template untouched (CDN caching preserved)', () => {
+    const intact = inspectMapStyle({
+      glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+      layers: [{ type: 'symbol', layout: { 'text-font': ['Noto Sans Italic'] } }],
+    });
+    assert.equal(intact.glyphsRepaired, false);
+    assert.equal(intact.glyphsTemplate, 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf');
+    assert.deepEqual(intact.fontStacks, ['Noto Sans Italic']);
+  });
+
+  it('reports a non-object style as uninspectable (the caller raises styleLoad)', () => {
+    assert.equal(inspectMapStyle('nope').glyphsTemplate, null);
+    assert.equal(inspectMapStyle(null).glyphsTemplate, null);
+    assert.equal(inspectMapStyle([1, 2]).glyphsTemplate, null);
+  });
+
+  it('emits one idempotent, id-stable transform per stack (raw form only)', () => {
+    assert.deepEqual(glyphUrlTransforms(['Noto Sans Regular', 'Noto Sans Bold']), [
+      { id: 'sbt-glyph-0', find: 'Noto Sans Regular', replace: 'Noto%20Sans%20Regular' },
+      { id: 'sbt-glyph-1', find: 'Noto Sans Bold', replace: 'Noto%20Sans%20Bold' },
+    ]);
+    // `find` matches the unencoded request form only — applying the rewrite
+    // to an already-encoded URL is a no-op, so the pipeline cannot double
+    // encode (`%2520`).
+    assert.equal('Noto%20Sans%20Regular'.replace('Noto Sans Regular', 'x'), 'Noto%20Sans%20Regular');
   });
 });

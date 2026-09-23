@@ -23,7 +23,10 @@ import { resolve } from 'node:path';
  * - expired-auth server disconnect → refresh → explicit reconnect, versus a
  *   permanent revocation which stops retries for good;
  * - two screens starting tracking → exactly one location watcher;
- * - status derived from the server acknowledgement, not from a local fix.
+ * - status derived from the server acknowledgement, not from a local fix;
+ * - successive stop visits each deliver their own fix — the per-visit
+ *   evidence stream the server's arrival pipeline advances stops with
+ *   (batch 3A: one eligible in-geofence fix records the next stop).
  */
 
 const ROOT = `${resolve(fileURLToPath(import.meta.url), '../../../../')}/`;
@@ -1116,4 +1119,44 @@ test('32. hydrate: Expo Go never probes the task, a development build reflects i
     'a development build reflects the real OS task state',
   );
   assert.equal(location.hasStartedCalls, 1);
+});
+
+test('33. successive stop visits each deliver their fix — the stream that advances stops', async () => {
+  persistContext();
+
+  // Three visits along the route (~440 m apart). Since batch 3A one eligible
+  // in-geofence fix records the next stop server-side, so the send path must
+  // deliver EACH visit's fix — same-trip, own idempotency key, own device
+  // timestamp — or the trip cannot advance. (The server-side stop assertions
+  // live in `web`'s arrival sim, `npm run smoke:eta`; this pins the mobile
+  // half: the evidence stream itself.)
+  const visits = [
+    { latitude: 21.1458, longitude: 79.0882 },
+    { latitude: 21.1498, longitude: 79.0882 },
+    { latitude: 21.1538, longitude: 79.0882 },
+  ];
+  for (const [index, coords] of visits.entries()) {
+    const result = await lifecycle.runHeadlessCrewLocationTask([
+      fix(0, { ...coords, speed: 0 }),
+    ]);
+    assert.equal(result.delivered, 1, `visit ${index + 1} fix is delivered`);
+    assert.equal(result.dropped, 0);
+  }
+
+  const sent = socket.locationUpdates();
+  assert.equal(sent.length, 3, 'every visit delivered exactly one fix');
+  assert.deepEqual(
+    sent.map((entry) => [entry.payload.latitude, entry.payload.longitude]),
+    visits.map((coords) => [coords.latitude, coords.longitude]),
+    'fixes arrive in visit order with their own coordinates',
+  );
+  const keys = sent.map((entry) => String(entry.payload.idempotency_key));
+  assert.equal(new Set(keys).size, 3, 'each fix carries its own idempotency key');
+  for (const entry of sent) {
+    assert.equal(entry.payload.trip_id, TRIP);
+  }
+
+  const stats = lifecycle.getCrewLocationStats();
+  assert.equal(stats.emittedCount, 3, 'three accepted fixes — three arrival candidates');
+  assert.equal(stats.disconnectedCount, 0);
 });

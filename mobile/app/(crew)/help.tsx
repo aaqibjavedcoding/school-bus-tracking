@@ -13,6 +13,7 @@ import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionReco
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { SoundSettingsCard } from '../../src/features/crew/SoundSettingsCard';
 import { buildDiagnosticsRows } from '../../src/features/crew/crew-diagnostics';
+import { getMapIssues } from '../../src/features/map/map-diagnostics';
 import { crewCopy } from '../../src/features/crew/crew-copy';
 import { API_BASE_URL } from '../../src/services/api.ts';
 import '../../src/lib/runtime-env.ts';
@@ -146,7 +147,7 @@ export default function CrewHelpScreen() {
        * shared lifecycle snapshot and never starts or stops anything.
        */}
       <Card title={t('help.diagnostics.title')} description={t('help.diagnostics.hint')}>
-        {buildDiagnosticsRows(sharing.trackingState, getRuntime(), API_BASE_URL).map((row) => (
+        {buildDiagnosticsRows(sharing.trackingState, getRuntime(), API_BASE_URL, getMapIssues()).map((row) => (
           <KeyValue key={row.label} label={row.label} value={row.value} />
         ))}
       </Card>

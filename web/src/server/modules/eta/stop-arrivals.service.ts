@@ -3,10 +3,14 @@ import { UniqueConstraintError, type Transaction } from 'sequelize';
 import type { Sequelize } from 'sequelize-typescript';
 import {
   LIVE_TRACKING_EVENTS,
+  TripArrivalDiagnostics,
+  TripArrivalFixRejection,
+  TripArrivalPendingStop,
   TripProgressResponse,
   TripStopArrivalListResponse,
   TripStopArrivalResponse,
   TripStopArrivedEvent,
+  TripStopWarning,
   TripEtaUpdateEvent,
   liveTrackingRoomName,
   type LiveTrackingEvent,
@@ -15,7 +19,11 @@ import { getTripTrackingState, isTripTrackingActive } from '@school-bus-tracking
 import { Stop, Trip, TripLocation, TripStopArrival } from '../../database/models';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EtaService, type EtaLocationFix } from './eta.service';
-import { haversineMeters } from './geo.util';
+import {
+  haversineMeters,
+  isRecordableStop,
+  stopCoordinateWarnings,
+} from './geo.util';
 
 /** Room-scoped broadcast sink attached by the tracking gateway once sockets are up. */
 export type EtaRoomBroadcaster = (room: string, event: LiveTrackingEvent, payload: unknown) => void;
@@ -41,7 +49,13 @@ export interface ArrivalDetectionConfig {
   maxAccuracyMeters: number;
   /** Whether fixes without an accuracy reading stay eligible. */
   allowMissingAccuracy: boolean;
-  /** In-a-row fixes inside a geofence before the next stop records. */
+  /**
+   * In-a-row fixes inside a geofence before a stop records. The immediately
+   * next stop defaults to 1 (see `DEFAULT_ARRIVAL_DETECTION_CONFIG`): its
+   * evidence must survive real GPS jitter, or the trip sticks at the first
+   * stop. Escalating tiers below still demand consecutive runs for the
+   * extraordinary claims (skipped-ahead, re-sync).
+   */
   requiredConsecutiveFixes: number;
   /** Extra consecutive fixes for a stop ahead of the next unarrived stop. */
   skipExtraFixes: number;
@@ -63,7 +77,14 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   futureToleranceMs: 60_000,
   maxAccuracyMeters: 100,
   allowMissingAccuracy: true,
-  requiredConsecutiveFixes: 2,
+  // The next unarrived stop records from a SINGLE eligible in-geofence fix.
+  // Requiring strictly-consecutive inside fixes made confirmation the weakest
+  // link of the trip: one edge-jitter fix outside the radius reset the run and
+  // the trip read "stuck at first" with no explanation (the sim drove one fix
+  // per stop visit and recorded nothing). The eligibility gate above is the
+  // anti-jitter gate; out-of-order claims keep the escalating consecutive
+  // tiers (`skipExtraFixes`, `maxSkipAhead`).
+  requiredConsecutiveFixes: 1,
   skipExtraFixes: 1,
   maxSkipAhead: 2,
   exitHysteresisMeters: 20,
@@ -73,8 +94,7 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
 };
 
 /** Why a fix was rejected as arrival evidence (ingestion is unaffected). */
-export type FixRejectionReason =
-  'stale' | 'future' | 'inaccurate' | 'missing-accuracy' | 'implausible-jump';
+export type FixRejectionReason = TripArrivalFixRejection;
 
 /** Last evaluated fix of a trip — the movement/jump reference point. */
 interface LastFixReference {
@@ -138,6 +158,12 @@ export class StopArrivalsService {
 
   /** Consecutive inside-geofence evidence per trip per stop. */
   private readonly insideByTrip = new Map<string, Map<string, StopInsideEvidence>>();
+
+  /** Why the newest evaluated fix of a trip produced no evidence (diagnostics). */
+  private readonly lastRejectionByTrip = new Map<string, FixRejectionReason | null>();
+
+  /** Trips whose un-surveyed stops were already warned about (once per process). */
+  private readonly warnedByTrip = new Map<string, Set<string>>();
 
   constructor(
     private readonly stops: typeof Stop,
@@ -229,6 +255,8 @@ export class StopArrivalsService {
     this.seenByTrip.delete(tripId);
     this.lastFixByTrip.delete(tripId);
     this.insideByTrip.delete(tripId);
+    this.lastRejectionByTrip.delete(tripId);
+    this.warnedByTrip.delete(tripId);
   }
 
   /**
@@ -271,7 +299,78 @@ export class StopArrivalsService {
       next_stop: eta.next_stop,
       arrivals: this.mapArrivals(arrivals, stops),
       eta,
+      arrival_diagnostics: this.buildArrivalDiagnostics(trip, stops, arrivals),
     };
+  }
+
+  /**
+   * The support-facing answer to "why is next stop not moving?": un-surveyable
+   * stops, per-stop evidence against its confirmation tier, and the reason
+   * the newest evaluated fix produced nothing. Pure composition of state the
+   * evaluator already keeps — never another source of truth.
+   */
+  private buildArrivalDiagnostics(
+    trip: Trip,
+    stops: Stop[],
+    arrivals: TripStopArrival[],
+  ): TripArrivalDiagnostics {
+    const unsurveyedStops: TripStopWarning[] = stopCoordinateWarnings(stops);
+    this.warnUnsurveyedStops(trip.id, unsurveyedStops);
+
+    const arrivedIds = new Set(arrivals.map((arrival) => arrival.stop_id));
+    let frontier = 0;
+    for (const stop of stops) {
+      if (arrivedIds.has(stop.id) && stop.sequence_number > frontier) {
+        frontier = stop.sequence_number;
+      }
+    }
+    const nextUnarrived = [...stops]
+      .filter((stop) => !arrivedIds.has(stop.id) && isValidGeofenceStop(stop))
+      .sort((a, b) => a.sequence_number - b.sequence_number)[0];
+
+    const inside = this.insideByTrip.get(trip.id) ?? new Map<string, StopInsideEvidence>();
+    const pending_stops: TripArrivalPendingStop[] = stops
+      .filter(
+        (stop) => !arrivedIds.has(stop.id) && stop.sequence_number > frontier && isValidGeofenceStop(stop),
+      )
+      .sort((a, b) => a.sequence_number - b.sequence_number)
+      .map((stop) => ({
+        stop_id: stop.id,
+        stop_name: stop.name,
+        sequence_number: stop.sequence_number,
+        inside_count: inside.get(stop.id)?.count ?? 0,
+        required_fixes: requiredFixesForProgression(
+          stop.sequence_number,
+          frontier,
+          nextUnarrived?.sequence_number ?? 0,
+          this.config,
+        ),
+      }));
+
+    return {
+      last_fix_rejection: this.lastRejectionByTrip.get(trip.id) ?? null,
+      unsurveyed_stops: unsurveyedStops,
+      pending_stops,
+    };
+  }
+
+  /** Warns once per trip+stop that an un-surveyed stop can never auto-record. */
+  private warnUnsurveyedStops(tripId: string, unsurveyed: TripStopWarning[]): void {
+    if (unsurveyed.length === 0) return;
+    let warned = this.warnedByTrip.get(tripId);
+    if (!warned) {
+      warned = new Set<string>();
+      this.warnedByTrip.set(tripId, warned);
+    }
+    for (const stop of unsurveyed) {
+      if (warned.has(stop.stop_id)) continue;
+      warned.add(stop.stop_id);
+      this.logger.warn(
+        `Route stop ${stop.stop_id} ("${stop.stop_name}", sequence ${stop.sequence_number}) ` +
+          `has no coordinates — it can never record an automatic arrival for trip ${tripId}. ` +
+          'The trip must skip past it; survey the stop or adjust the plan.',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -308,6 +407,9 @@ export class StopArrivalsService {
     const lastFix = this.lastFixByTrip.get(trip.id) ?? null;
     const eligibility = assessFixEligibility(fixPoint, lastFix, nowMs, this.config);
     if (!eligibility.eligible) {
+      // Diagnostics: the newest fix rejected as arrival evidence, with the
+      // reason — the explanation the progress endpoint hands to support.
+      this.lastRejectionByTrip.set(trip.id, eligibility.reason ?? 'stale');
       // A jump still advances the reference point: one glitch then costs at
       // most two fixes, and a genuine relocation re-syncs immediately
       // instead of poisoning every later comparison. Stale, future-dated and
@@ -328,6 +430,7 @@ export class StopArrivalsService {
       longitude: fix.longitude,
       recordedMs,
     });
+    this.lastRejectionByTrip.set(trip.id, null);
 
     const arrivedStopIds = new Set(existingArrivals.map((arrival) => arrival.stop_id));
     const seen = this.seenByTrip.get(trip.id);
@@ -702,6 +805,33 @@ export interface ProgressionCandidateInput {
 }
 
 /**
+ * Confirmation tier of one stop: how many consecutive in-geofence fixes its
+ * claim demands. The immediately next stop needs only the base count; each
+ * stop skipped past the next one adds `skipExtraFixes`, and anything beyond
+ * `maxSkipAhead` of the frontier needs one more (explicit re-sync). Shared by
+ * the selection and the arrival diagnostics so the two can never disagree
+ * about what a stop is waiting for.
+ */
+export function requiredFixesForProgression(
+  sequenceNumber: number,
+  frontier: number,
+  nextUnarrivedSequence: number,
+  config: Pick<
+    ArrivalDetectionConfig,
+    'requiredConsecutiveFixes' | 'skipExtraFixes' | 'maxSkipAhead'
+  >,
+): number {
+  if (sequenceNumber <= nextUnarrivedSequence) {
+    return config.requiredConsecutiveFixes;
+  }
+  let required = config.requiredConsecutiveFixes + config.skipExtraFixes;
+  if (sequenceNumber > frontier + config.maxSkipAhead) {
+    required += 1; // re-sync tier
+  }
+  return required;
+}
+
+/**
  * Phase 1 progression policy: the arrival candidate of one fix.
  *
  * Only stops AHEAD of the progress frontier (the highest sequence already
@@ -763,13 +893,12 @@ export function selectProgressionCandidate(
     const evidence = inside.get(stop.id);
     const count = evidence?.count ?? 0;
     const sinceMs = evidence?.sinceMs ?? fix.recordedMs;
-    let required = config.requiredConsecutiveFixes;
-    if (stop.sequence_number > nextUnarrived.sequence_number) {
-      required += config.skipExtraFixes;
-      if (stop.sequence_number > frontier + config.maxSkipAhead) {
-        required += 1; // re-sync tier
-      }
-    }
+    const required = requiredFixesForProgression(
+      stop.sequence_number,
+      frontier,
+      nextUnarrived.sequence_number,
+      config,
+    );
     if (count < required) {
       continue;
     }
@@ -789,15 +918,14 @@ export function selectProgressionCandidate(
   return winner ? { stop: winner.stop, distanceMeters: winner.distanceMeters } : null;
 }
 
-/** A stop can only match when it is active, surveyed and has a real radius. */
+/**
+ * A stop can only match when it is active, surveyed and has a real radius.
+ * Un-surveyed stops are silently non-matching here (nothing to geofence
+ * against) — the explicit, warned treatment of that state lives in
+ * `stopCoordinateWarnings` / `warnUnsurveyedStops`.
+ */
 function isValidGeofenceStop(stop: GeofenceStop): boolean {
-  return (
-    stop.is_active !== false &&
-    stop.latitude != null &&
-    stop.longitude != null &&
-    Number.isFinite(stop.geofence_radius_meters) &&
-    stop.geofence_radius_meters > 0
-  );
+  return isRecordableStop(stop);
 }
 
 /** True when the error is a Sequelize unique-constraint violation. */

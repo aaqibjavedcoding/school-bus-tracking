@@ -16,6 +16,7 @@ import {
   STOP_1,
   STOP_2,
   STOP_3,
+  STOP_NO_COORDS,
   TRIP_A,
   TRIP_CANCELLED,
   TRIP_COMPLETED,
@@ -33,6 +34,7 @@ import {
 } from './eta.test-utils';
 import {
   assessFixEligibility,
+  requiredFixesForProgression,
   selectProgressionCandidate,
   StopArrivalsService,
   DEFAULT_ARRIVAL_DETECTION_CONFIG,
@@ -86,12 +88,10 @@ describe('StopArrivalsService geofence evaluation', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    // Phase 1: one fix is only evidence — the confirmation fix records.
-    const first = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    // One eligible in-geofence fix is proof enough for the next stop.
     const fix = clock.fix({ ...AT_STOP_1 });
     const recorded = await evaluate(harness, trip, fix, clock.now());
 
-    assert.equal(first, null);
     assert.ok(recorded);
     assert.equal(recorded.stop.id, STOP_1);
     assert.equal(recorded.stop.name, 'Green Park Stop');
@@ -134,8 +134,8 @@ describe('StopArrivalsService geofence evaluation', () => {
     const second = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     const third = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
 
-    assert.equal(first, null); // evidence, not yet confirmation
-    assert.ok(second);
+    assert.ok(first); // one eligible in-geofence fix records immediately
+    assert.equal(second, null);
     assert.equal(third, null);
     assert.equal(harness.arrivals.created.length, 1);
     assert.equal(harness.arrivalNotifications.length, 1);
@@ -198,13 +198,13 @@ describe('StopArrivalsService geofence evaluation', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     const atStop1 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    const againAtStop1 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     // ~840 m down-route: a realistic two-minute drive, not a jump.
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 120_000), clock.now());
-    const atStop2 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }), clock.now());
+    const atStop2 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 120_000), clock.now());
 
     assert.ok(atStop1);
+    assert.equal(againAtStop1, null);
     assert.ok(atStop2);
     assert.equal(atStop1.stop.id, STOP_1);
     assert.equal(atStop2.stop.id, STOP_2);
@@ -222,12 +222,11 @@ describe('StopArrivalsService geofence evaluation', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
 
     assert.ok(recorded);
     assert.equal(recorded.stop.id, STOP_1);
-    assert.equal(harness.arrivals.created.length, 1);
+    assert.equal(harness.arrivals.created.length, 1, 'one fix records at most one arrival');
   });
 
   it('only evaluates stops of the trip route (wrong-route isolation)', async () => {
@@ -392,10 +391,11 @@ describe('StopArrivalsService geofence evaluation', () => {
       ...AT_STOP_1,
     };
 
-    await evaluate(harness, trip, clock.fix(claimed), clock.now());
     const recorded = await evaluate(harness, trip, clock.fix(claimed), clock.now());
+    const second = await evaluate(harness, trip, clock.fix(claimed), clock.now());
 
     assert.ok(recorded);
+    assert.equal(second, null);
     assert.equal(recorded.stop.id, STOP_1);
     const created = harness.arrivals.created[0];
     assert.equal(created['school_id'], SCHOOL_A);
@@ -440,11 +440,12 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     );
 
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    const again = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
 
     assert.ok(recorded);
     assert.equal(recorded.stop.id, STOP_1);
+    assert.equal(again, null);
   });
 
   it('ignores fixes dated beyond the future tolerance', async () => {
@@ -474,7 +475,6 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
       received_at: now,
     });
 
-    await evaluate(harness, trip, skewed, now);
     const recorded = await evaluate(harness, trip, skewed, now);
 
     assert.ok(recorded);
@@ -505,7 +505,6 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1, accuracy: null }), clock.now());
     const recorded = await evaluate(
       harness,
       trip,
@@ -535,7 +534,9 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
   });
 
   it('ignores an implausible jump and recovers on the following fixes', async () => {
-    const harness = makeArrivalsHarness();
+    // Pinned at base 2: this test is about jump-gating of accumulated
+    // evidence, not the confirm-from-one-fix product default.
+    const harness = makeArrivalsHarness({ config: { requiredConsecutiveFixes: 2 } });
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
@@ -561,7 +562,6 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     // sustained presence alone.
     const stationary = { ...AT_STOP_1, heading: null, speed: 0 };
 
-    await evaluate(harness, trip, clock.fix(stationary), clock.now());
     const recorded = await evaluate(harness, trip, clock.fix(stationary), clock.now());
 
     assert.ok(recorded);
@@ -569,7 +569,9 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
   });
 
   it('preserves partial evidence inside the hysteresis fringe', async () => {
-    const harness = makeArrivalsHarness();
+    // Pinned at base 2: the point is that the fringe preserves (not wipes)
+    // the partial inside-evidence of the first fix.
+    const harness = makeArrivalsHarness({ config: { requiredConsecutiveFixes: 2 } });
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
     // ~111 m from stop 1: past the 100 m radius, inside the 20 m fringe.
@@ -590,7 +592,8 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
   });
 
   it('resets evidence once the fix leaves the hysteresis fringe', async () => {
-    const harness = makeArrivalsHarness();
+    // Pinned at base 2: evidence must visibly rebuild after a real exit.
+    const harness = makeArrivalsHarness({ config: { requiredConsecutiveFixes: 2 } });
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
     // ~200 m from stop 1: outside radius + fringe.
@@ -654,7 +657,9 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
           arrivalNotifications.push(input);
         },
       } as never,
-      { ...DEFAULT_ARRIVAL_DETECTION_CONFIG },
+      // Pinned at base 2: the warm-up fix must not record, so the two
+      // concurrent confirmations below genuinely race for the same insert.
+      { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, requiredConsecutiveFixes: 2 },
     );
 
     const trip = asTrip(makeTrip());
@@ -680,11 +685,12 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 120_000), clock.now());
-    const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }), clock.now());
+    const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 120_000), clock.now());
+    const again = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }), clock.now());
 
     assert.ok(recorded);
     assert.equal(recorded.stop.id, STOP_2);
+    assert.equal(again, null);
   });
 });
 
@@ -694,14 +700,12 @@ describe('StopArrivalsService Phase 1 stop progression', () => {
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     const atStop1 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
     assert.ok(atStop1);
 
     // Stop 2 never produced a fix (missed samples); stop 3 needs the
-    // skip-tier evidence (2 + 1 consecutive fixes).
-    await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }, 180_000), clock.now());
-    const early = await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
+    // skip-tier evidence (base 1 + skip extra 1 consecutive fixes).
+    const early = await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }, 180_000), clock.now());
     assert.equal(early, null);
     const atStop3 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
     assert.ok(atStop3);
@@ -722,11 +726,9 @@ describe('StopArrivalsService Phase 1 stop progression', () => {
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
     // Fresh trip, first fixes already at stop 3 (mid-route join): the
-    // re-sync tier needs 2 + 1 + 1 consecutive fixes.
+    // re-sync tier needs base 1 + skip extra 1 + re-sync 1 consecutive fixes.
     await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
     await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
-    const third = await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
-    assert.equal(third, null);
     const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_3 }), clock.now());
 
     assert.ok(recorded);
@@ -900,7 +902,10 @@ describe('assessFixEligibility', () => {
 });
 
 describe('selectProgressionCandidate', () => {
-  const config = { ...DEFAULT_ARRIVAL_DETECTION_CONFIG };
+  // Tier-pure selection math: pinned at base 2 so the escalation counts in
+  // these specs ("needs 2 + 1", "2 + 1 + 1") stay independent of the product
+  // default (`requiredConsecutiveFixes`, now 1).
+  const config = { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, requiredConsecutiveFixes: 2 };
   const fix = { latitude: 40.7003, longitude: -73.9997, recordedMs: 100_000 };
   const stops = () => [
     makeStop({ id: STOP_1, sequence_number: 1, latitude: 40.7003, longitude: -73.9997 }),
@@ -1199,10 +1204,11 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
     const harness = makeArrivalsHarness({ withTransaction: true });
     const trip = asTrip(makeTrip());
 
-    await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
     const recorded = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    const again = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
 
     assert.ok(recorded, 'the arrival is recorded');
+    assert.equal(again, null, 'the same visit records exactly once');
     assert.equal(harness.transaction?.stats.started, 1, 'exactly one transaction');
     assert.equal(harness.transaction?.stats.committed, 1);
     assert.equal(harness.transaction?.stats.rolledBack, 0);
@@ -1222,7 +1228,8 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
     });
     const trip = asTrip(makeTrip());
 
-    // Fix 1 only accrues evidence; fixes 2 and 3 try to record — and roll back.
+    // With the confirm-from-one-fix default every eligible fix attempts to
+    // record — and every attempt rolls back with its fan-out.
     const first = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
     const second = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
     const third = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
@@ -1230,7 +1237,7 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
     assert.equal(first, null, 'the fix yields no recorded arrival');
     assert.equal(second, null);
     assert.equal(third, null);
-    assert.equal(harness.transaction?.stats.rolledBack, 2, 'every attempt rolled back');
+    assert.equal(harness.transaction?.stats.rolledBack, 3, 'every attempt rolled back');
     assert.equal(harness.arrivals.rows.length, 0, 'no arrival survived the rollback');
     assert.equal(harness.arrivalNotifications.length, 0);
     assert.equal(
@@ -1248,14 +1255,19 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
     });
     const trip = asTrip(makeTrip());
     await evaluate(failing, trip, clock.fix(AT_STOP_1), clock.now());
-    assert.equal(failing.arrivals.rows.length, 0);
+    assert.equal(
+      failing.transaction?.stats.rolledBack,
+      1,
+      'the failing attempt rolled back (a real transaction leaves no row)',
+    );
 
     // Same trip/fix sequence, healthy notifications service.
     const healthy = makeArrivalsHarness({ withTransaction: true });
-    await evaluate(healthy, trip, clock.fix(AT_STOP_1), clock.now());
     const recovered = await evaluate(healthy, trip, clock.fix(AT_STOP_1), clock.now());
+    const again = await evaluate(healthy, trip, clock.fix(AT_STOP_1), clock.now());
 
     assert.ok(recovered, 'the arrival is recorded on the retry');
+    assert.equal(again, null);
     assert.equal(healthy.arrivals.rows.length, 1);
     assert.equal(healthy.arrivalNotifications.length, 1);
   });
@@ -1268,14 +1280,115 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
     });
     const trip = asTrip(makeTrip());
 
-    // First fix: fails and rolls back.
-    await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
-    // Second fix after the failure: the evidence must still be able to record.
+    const first = await evaluate(harness, trip, clock.fix(AT_STOP_1), clock.now());
+    // The attempt failed and rolled back — nothing was recorded.
+    assert.equal(first, null);
     harness.arrivals.rows.length = 0;
     const service = harness.service as unknown as { seenByTrip: Map<string, Set<string>> };
     assert.ok(
       !service.seenByTrip.get(TRIP_A)?.has(STOP_1),
       'a rolled-back arrival must not enter the in-memory seen set',
     );
+  });
+});
+
+describe('arrival confirmation default and progression tiers', () => {
+  it('defaults to a single eligible in-geofence fix for the next stop', () => {
+    // Pinned product decision (2026-09 batch 3A): confirmation must not be
+    // the weakest link of the trip — the eligibility gate is the anti-jitter
+    // gate, the immediate next stop records from one fix.
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.requiredConsecutiveFixes, 1);
+  });
+
+  it('maps each progression tier to its required consecutive fixes', () => {
+    const tiers = {
+      requiredConsecutiveFixes: 2,
+      skipExtraFixes: 1,
+      maxSkipAhead: 2,
+    };
+    // Next unarrived (sequence 2): the base tier only.
+    assert.equal(requiredFixesForProgression(2, 0, 2, tiers), 2);
+    assert.equal(requiredFixesForProgression(1, 0, 2, tiers), 2);
+    // One past the next unarrived, within the skip window of the frontier
+    // (1 + 2 = 3): base + skip extra.
+    assert.equal(requiredFixesForProgression(3, 1, 2, tiers), 3);
+    // Beyond the skip window of the frontier: + re-sync (2 + 1 + 1).
+    assert.equal(requiredFixesForProgression(4, 1, 2, tiers), 4);
+    assert.equal(requiredFixesForProgression(3, 0, 2, tiers), 4);
+    // Same mapping with the product default (base 1).
+    assert.equal(requiredFixesForProgression(2, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 1);
+    assert.equal(requiredFixesForProgression(3, 1, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 2);
+    assert.equal(requiredFixesForProgression(3, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 3);
+    assert.equal(requiredFixesForProgression(4, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 3);
+  });
+});
+
+describe('getProgress arrival_diagnostics', () => {
+  it('explains the last fix rejection and the per-stop evidence state', async () => {
+    const harness = makeArrivalsHarness();
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Stale fix: the rejection reason must surface in the diagnostics.
+    await evaluate(
+      harness,
+      trip,
+      makeFix({
+        ...AT_STOP_1,
+        recorded_at: new Date('2026-09-01T04:41:30.000Z'),
+        received_at: new Date('2026-09-01T06:41:30.000Z'),
+      }),
+      clock.now(),
+    );
+    const staleProgress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(staleProgress.arrival_diagnostics?.last_fix_rejection, 'stale');
+    assert.deepEqual(staleProgress.arrival_diagnostics?.unsurveyed_stops, []);
+    assert.equal(staleProgress.arrival_diagnostics?.pending_stops.length, 3);
+
+    // A stop far ahead of the frontier reports its escalated tier
+    // (base 1 + skip extra 1 + re-sync 1 at frontier 0).
+    const ahead = staleProgress.arrival_diagnostics?.pending_stops.find(
+      (entry) => entry.stop_id === STOP_3,
+    );
+    assert.equal(ahead?.inside_count, 0);
+    assert.equal(ahead?.required_fixes, 3);
+
+    // One eligible fix records the next stop and clears the rejection.
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.last_fix_rejection, null);
+    const pending = progress.arrival_diagnostics?.pending_stops.map((entry) => entry.stop_id);
+    assert.deepEqual(pending, [STOP_2, STOP_3]);
+  });
+
+  it('lists un-surveyed stops once and never waits on them', async () => {
+    const unSurveyed = makeStop({
+      id: STOP_NO_COORDS,
+      name: 'Unsurveyed Lane',
+      sequence_number: 2,
+      latitude: null,
+      longitude: null,
+    });
+    const harness = makeArrivalsHarness({
+      stops: [makeStop({ id: STOP_1, sequence_number: 1 }), unSurveyed, makeStop({ id: STOP_3, sequence_number: 3, longitude: -73.98 })],
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Stop 1 records from one fix; the un-surveyed stop 2 is announced …
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+
+    const warnings = progress.arrival_diagnostics?.unsurveyed_stops ?? [];
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0]?.stop_id, STOP_NO_COORDS);
+    assert.equal(warnings[0]?.code, 'stop_missing_coordinates');
+    assert.equal(warnings[0]?.stop_name, 'Unsurveyed Lane');
+
+    // … never waits on it: pending stops are recordable-only, so progress
+    // evidence moves to stop 3 (the `next_stop` mirror of this rule is pinned
+    // in eta.service.spec with a real EtaService).
+    const pendingIds = (progress.arrival_diagnostics?.pending_stops ?? []).map((entry) => entry.stop_id);
+    assert.deepEqual(pendingIds, [STOP_3]);
   });
 });

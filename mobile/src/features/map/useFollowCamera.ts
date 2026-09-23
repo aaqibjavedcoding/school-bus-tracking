@@ -7,6 +7,7 @@ import {
   type FollowCameraController,
   type FollowCameraPort,
 } from './follow-camera-controller';
+import { initialCameraFor } from './fit-camera.ts';
 import type { RenderedMarker } from './useBusMarkerMotion';
 
 /**
@@ -106,18 +107,16 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
       fitToCoordinates: (points, options) => {
         const camera = cameraRef.current;
         if (!camera || points.length === 0) return;
-        let west = points[0].longitude;
-        let east = points[0].longitude;
-        let south = points[0].latitude;
-        let north = points[0].latitude;
-        for (const point of points) {
-          west = Math.min(west, point.longitude);
-          east = Math.max(east, point.longitude);
-          south = Math.min(south, point.latitude);
-          north = Math.max(north, point.latitude);
-        }
-        camera.fitBounds([west, south, east, north], {
-          padding: options.edgePadding,
+        // Centre + floored zoom instead of `fitBounds`: a bounds fit settles
+        // on the lowest zoom containing every stop — z9–z11 for a whole
+        // route, the zooms where a street map draws no names (the tracking
+        // map's "unlabeled outline" bug). `initialCameraFor` (fit-camera.ts)
+        // floors the fit at `MAP_MIN_FIT_ZOOM` (13, web parity).
+        const frame = initialCameraFor(points);
+        if (!frame) return;
+        camera.easeTo({
+          center: frame.center,
+          zoom: frame.zoom,
           duration: options.animated ? 500 : 1,
         });
       },

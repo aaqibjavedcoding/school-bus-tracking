@@ -1,7 +1,12 @@
 import React, { useCallback, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { UserRole, type StopResponse, type TripResponse } from '@school-bus-tracking/shared-types';
+import {
+  UserRole,
+  type StopResponse,
+  type TripResponse,
+  type TripStudentManifestResponse,
+} from '@school-bus-tracking/shared-types';
 import { spacing, borderRadius } from '@school-bus-tracking/design-tokens';
 import { useAuth } from '../../src/features/auth';
 import {
@@ -18,6 +23,8 @@ import {
 // native map module, and the crew barrel is also pulled in by headless code
 // paths that must never touch a native module.
 import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
+import { NextStopKidCard } from '../../src/features/crew/NextStopKidCard';
+import { summarizeNextStopKids } from '../../src/features/crew/next-stop-kids';
 import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
@@ -134,6 +141,23 @@ export default function CrewTripScreen() {
     return unwrapEnvelope(await apiClient.listRouteStops(trip.route_id)).items;
   }, [trip?.route_id]);
 
+  /**
+   * "Kids at next stop" — for BOTH roles (the conductor boards and drops the
+   * same kids). The next stop is the **server-authoritative**
+   * `eta.next_stop` (progress-frontier derived since batch 3A), so the list
+   * and the navigation card can never disagree about where the bus is
+   * heading. One query per next-stop change — no N+1.
+   */
+  const nextStopId = live.eta?.next_stop?.stop_id ?? null;
+  const kidsLoad = useLoad<TripStudentManifestResponse['items']>(async () => {
+    if (!trip || !nextStopId) return [];
+    return unwrapEnvelope(await apiClient.listTripStudents(trip.id, { stop_id: nextStopId })).items;
+  }, [trip?.id, nextStopId]);
+  const nextStopKids = useMemo(
+    () => summarizeNextStopKids(kidsLoad.data ?? [], stopsLoad.data ?? [], nextStopId),
+    [kidsLoad.data, stopsLoad.data, nextStopId],
+  );
+
   if (loading && !data) {
     return <LoadingView label={t('trip.loading')} />;
   }
@@ -248,9 +272,16 @@ export default function CrewTripScreen() {
         <TripNavigationCard
           trip={trip}
           stops={stopsLoad.data ?? []}
-          nextStopId={live.eta?.next_stop?.stop_id ?? null}
+          nextStopId={nextStopId}
         />
       ) : null}
+
+      {/**
+       * Both roles: who gets on or off at the next stop (the old isDriver
+       * gate hid this from the conductor, who boards and drops the same
+       * kids). Windowed at 8 names — see `next-stop-kids.ts`.
+       */}
+      <NextStopKidCard summary={nextStopKids} loaded={!kidsLoad.loading} />
 
       <View style={styles.linkRow}>
         <Button

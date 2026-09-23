@@ -81,6 +81,12 @@ export const en = {
   'trip.link.manifestDriver': 'Manifest',
   'trip.link.manifestConductor': 'Board & drop',
   'trip.link.stops': 'Stops & ETA',
+  'trip.kids.title': 'Kids at next stop',
+  'trip.kids.count.one': '{count} kid',
+  'trip.kids.count.other': '{count} kids',
+  'trip.kids.none': 'No kids at this stop',
+  'trip.kids.noNext': 'No upcoming stop',
+  'trip.kids.more': '+{count} more',
 
   // ── Trip lifecycle actions ─────────────────────────────────────────────
   'trip.action.boarding': 'Start boarding',
@@ -340,6 +346,8 @@ export const en = {
   'help.diagnostics.recovery': 'Recovery attempts (last reason)',
   'help.diagnostics.lastError': 'Last error',
   'help.diagnostics.delivery': 'Delivery counters',
+  'help.diagnostics.map': 'Map labels',
+  'help.diagnostics.mapOk': 'OK',
   'help.diagnostics.valueExpoGo': 'Expo Go',
   'help.diagnostics.valueDevBuild': 'Development build',
   'help.diagnostics.valueUnknown': 'Unknown',
@@ -490,6 +498,9 @@ export const en = {
     'Expo Go cannot load the map engine, so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
   'map.busA11y': 'School bus',
   'map.stopA11y': 'Stop {number}',
+  'map.stopLabel': '{number}. {name}',
+  'map.issue.styleLoad': 'Map failed to load',
+  'map.issue.glyphs': 'Map labels unavailable',
 
   /**
    * Driver Trip map (Session 2) — see `src/features/crew/crew-map-presentation.ts`.

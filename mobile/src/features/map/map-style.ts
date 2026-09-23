@@ -114,3 +114,129 @@ export function resolveMapStyleUrl(env: Record<string, string | undefined>): str
 export function __resetMapStyleWarningsForTests(): void {
   warnedAboutNonHttpsStyle = false;
 }
+
+// ── Glyph / label health ───────────────────────────────────────────────────
+//
+// The map is worthless as a tracking surface if street and place names do not
+// draw. Two independent failure modes took the labels away and both are
+// handled from here (details in `docs/live-tracking-map.md`):
+//
+// 1. layers without an explicit `text-font` fall back to MapLibre's default
+//    stack ("Open Sans Regular,Arial Unicode MS Regular"), whose OpenFreeMap
+//    font URL 404s — every symbol layer then draws with zero glyphs and the
+//    map is silently unlabeled (LiveTrafficStan#82);
+// 2. the Android MapLibre build drops labels when the glyph fetch URL carries
+//    unencoded spaces in the fontstack segment (maplibre-native#3939 family),
+//    so the fontstack path must be requested percent-encoded.
+//
+// The pipeline (`use-map-style.ts`) fetches the style JSON in JS, repairs the
+// `glyphs` template if it is missing or non-https, rewrites every fontstack
+// request to its encoded form via `TransformRequestManager`, probes one real
+// glyph URL to *verify* the endpoint answers, and reports every failure into
+// the map-diagnostics store — never blank-silent.
+
+/** The canonical OpenFreeMap fonts endpoint, https like everything we load. */
+export const OPENFREEMAP_GLYPHS_TEMPLATE =
+  'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
+
+/** What a map issue means for the panels (`map.issue.*` copy keys). */
+export type MapStyleIssueCode = 'styleLoad' | 'glyphs';
+
+/** A serializable `TransformRequestManager` rewrite: raw fontstack → encoded. */
+export interface GlyphUrlTransform {
+  /** Stable across runs — the manager keys transforms by id. */
+  id: string;
+  /** Matches the raw (unencoded) form only, so applying twice is a no-op. */
+  find: string;
+  replace: string;
+}
+
+/** The result of diagnosing (and, when needed, repairing) a style JSON. */
+export interface StyleInspection {
+  /** The style to load — the input, with `glyphs` repaired when required. */
+  style: Record<string, unknown>;
+  /** The glyphs template in force (`null` only for a non-object style). */
+  glyphsTemplate: string | null;
+  /** Unique `text-font` stacks of the style's symbol layers, in order. */
+  fontStacks: string[];
+  /** True when the input's `glyphs` template was missing or unsafe. */
+  glyphsRepaired: boolean;
+}
+
+/** Percent-encodes a fontstack path segment: spaces only, commas preserved. */
+export function encodeFontStack(fontStack: string): string {
+  return fontStack
+    .split(',')
+    .map((name) => name.trim().split(' ').join('%20'))
+    .join(',');
+}
+
+/**
+ * The glyph URL to probe for one stack — the exact form the engine should
+ * request (`Noto%20Sans%20Regular`, range `0-255`).
+ */
+export function buildGlyphProbeUrl(template: string, fontStack: string): string {
+  return template
+    .replace('{fontstack}', encodeFontStack(fontStack))
+    .replace('{range}', '0-255');
+}
+
+/** Collects the unique `text-font` stacks declared by the style's symbol layers. */
+export function collectTextFontStacks(style: unknown): string[] {
+  const layers = (style as { layers?: unknown })?.layers;
+  if (!Array.isArray(layers)) return [];
+  const stacks: string[] = [];
+  for (const layer of layers) {
+    const candidate = layer as {
+      type?: unknown;
+      layout?: { 'text-font'?: unknown };
+    };
+    if (candidate?.type !== 'symbol') continue;
+    const font = candidate.layout?.['text-font'];
+    if (!Array.isArray(font)) continue;
+    const stack = font.filter((entry): entry is string => typeof entry === 'string').join(',');
+    if (stack !== '' && !stacks.includes(stack)) stacks.push(stack);
+  }
+  return stacks;
+}
+
+/**
+ * Diagnoses a style JSON and repairs its `glyphs` template when missing or
+ * non-https (a plaintext font request would leak positions to the wire — the
+ * same rule `resolveMapStyleUrl` enforces for tiles). Repair injects the
+ * canonical OpenFreeMap fonts endpoint, because that is where the style
+ * family's Noto Sans stacks actually live.
+ */
+export function inspectMapStyle(styleJson: unknown): StyleInspection {
+  if (styleJson === null || typeof styleJson !== 'object' || Array.isArray(styleJson)) {
+    return { style: {}, glyphsTemplate: null, fontStacks: [], glyphsRepaired: false };
+  }
+  const style = styleJson as Record<string, unknown>;
+  const raw = typeof style['glyphs'] === 'string' ? (style['glyphs'] as string) : null;
+  const usable =
+    raw !== null &&
+    raw.startsWith('https://') &&
+    raw.includes('{fontstack}') &&
+    raw.includes('{range}');
+  const glyphsTemplate = usable ? raw : OPENFREEMAP_GLYPHS_TEMPLATE;
+  return {
+    style: usable ? style : { ...style, glyphs: glyphsTemplate },
+    glyphsTemplate,
+    fontStacks: collectTextFontStacks(style),
+    glyphsRepaired: !usable,
+  };
+}
+
+/**
+ * One `TransformRequestManager` rewrite per stack: the raw fontstack as the
+ * engine would put it in the URL path, replaced by its percent-encoded form.
+ * `find` matches only the raw form, so the pipeline is idempotent — safe even
+ * if a future engine version encodes the segment itself.
+ */
+export function glyphUrlTransforms(fontStacks: readonly string[]): GlyphUrlTransform[] {
+  return fontStacks.map((stack, index) => ({
+    id: `sbt-glyph-${index}`,
+    find: stack,
+    replace: encodeFontStack(stack),
+  }));
+}

@@ -19,6 +19,7 @@ import {
 import { MapView } from '../map/MapView';
 import { deriveTrackingPresentation } from '../map/tracking-presentation';
 import { ConnectionIndicator } from './ConnectionIndicator';
+import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { useLiveTripTracking, type ConnectionState, type LiveFix } from './useLiveTripTracking';
 
 export const TripTracker: React.FC<{
@@ -170,6 +171,12 @@ export const TripTrackerView: React.FC<{
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
+  // Map failure surfacing (bad style/tile/glyph, WebGL loss, render crash):
+  // the map never fails silently — the badge below the map says so, and the
+  // boundary's retry remounts the map from scratch.
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapAttempt, setMapAttempt] = useState(0);
+
   if (!tripId) {
     return (
       <div className="map-shell">
@@ -183,17 +190,42 @@ export const TripTrackerView: React.FC<{
 
   return (
     <div style={{ position: 'relative' }}>
-      <MapView
-        key={tripId}
-        fix={fix}
-        stops={stops}
-        highlightStopId={highlightStopId}
-        connection={connection}
-      />
+      <ErrorBoundary
+        key={mapAttempt}
+        fallback={
+          <div className="map-shell">
+            <div className="empty">
+              <p className="field-error">Map failed to load</p>
+              <p className="muted">Live status and stops are still available.</p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ marginTop: '0.75rem' }}
+                onClick={() => {
+                  setMapError(null);
+                  setMapAttempt((attempt) => attempt + 1);
+                }}
+              >
+                Retry map
+              </button>
+            </div>
+          </div>
+        }
+        onError={() => setMapError('Map failed to load')}
+      >
+        <MapView
+          key={tripId}
+          fix={fix}
+          stops={stops}
+          highlightStopId={highlightStopId}
+          connection={connection}
+          onMapError={setMapError}
+        />
+      </ErrorBoundary>
       <div className="map-overlay">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <ConnectionIndicator state={connection} />
+            <ConnectionIndicator state={connection} mapError={mapError !== null} />
             {tripStatus ? <span className="muted">{tripStatusLabel(tripStatus)}</span> : null}
           </div>
           <p className="muted" style={{ marginTop: '0.45rem' }}>
@@ -216,6 +248,23 @@ export const TripTrackerView: React.FC<{
             </p>
           ) : null}
         </div>
+        {eta?.warnings && eta.warnings.length > 0 ? (
+          <div className="card" style={{ marginTop: '0.5rem' }} role="status">
+            <p className="field-error">
+              These stops have no coordinates and can never record an arrival:
+            </p>
+            <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem' }}>
+              {eta.warnings.map((warning) => (
+                <li key={warning.stop_id} className="muted">
+                  #{warning.sequence_number} {warning.stop_name}
+                </li>
+              ))}
+            </ul>
+            <p className="muted" style={{ marginTop: '0.35rem' }}>
+              Survey them — otherwise the trip will skip past them.
+            </p>
+          </div>
+        ) : null}
         <EtaPanel fix={fix} eta={eta} lastArrival={lastArrival} />
       </div>
     </div>

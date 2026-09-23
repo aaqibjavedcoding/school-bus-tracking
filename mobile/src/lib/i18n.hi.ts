@@ -77,6 +77,12 @@ export const hi: Dictionary = {
   'trip.link.manifestDriver': 'सूची',
   'trip.link.manifestConductor': 'चढ़ना-उतरना',
   'trip.link.stops': 'स्टॉप और ETA',
+  'trip.kids.title': 'अगले स्टॉप के बच्चे',
+  'trip.kids.count.one': '{count} बच्चा',
+  'trip.kids.count.other': '{count} बच्चे',
+  'trip.kids.none': 'इस स्टॉप पर कोई बच्चा नहीं',
+  'trip.kids.noNext': 'कोई अगला स्टॉप नहीं',
+  'trip.kids.more': '+{count} और',
 
   // ── Trip lifecycle actions ─────────────────────────────────────────────
   'trip.action.boarding': 'बोर्डिंग शुरू करें',
@@ -310,6 +316,8 @@ export const hi: Dictionary = {
   'help.diagnostics.recovery': 'Recovery कोशिशें (अंतिम reason)',
   'help.diagnostics.lastError': 'अंतिम error',
   'help.diagnostics.delivery': 'शेयरिंग के counters',
+  'help.diagnostics.map': 'नक्शे के लेबल',
+  'help.diagnostics.mapOk': 'ठीक',
   'help.diagnostics.valueExpoGo': 'Expo Go',
   'help.diagnostics.valueDevBuild': 'Development build',
   'help.diagnostics.valueUnknown': 'अज्ञात',
@@ -442,6 +450,9 @@ export const hi: Dictionary = {
     'Expo Go में map engine load नहीं होता, इसलिए इस build में map नहीं दिखेगा। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं — map देखने के लिए development build उपयोग करें।',
   'map.busA11y': 'स्कूल बस',
   'map.stopA11y': 'स्टॉप {number}',
+  'map.stopLabel': '{number}. {name}',
+  'map.issue.styleLoad': 'नक्शा लोड नहीं हो सका',
+  'map.issue.glyphs': 'नक्शे के लेबल नहीं दिख रहे',
 
   /**
    * ड्राइवर ट्रिप मैप: मार्कर इसी डिवाइस का GPS है। डिलीवरी की बात केवल तब कही

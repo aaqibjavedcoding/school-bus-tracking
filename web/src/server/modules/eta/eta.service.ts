@@ -2,6 +2,7 @@ import {
   TripEtaResponse,
   TripLocationResponse,
   TripStopEta,
+  TripStopWarning,
 } from '@school-bus-tracking/shared-types';
 import { getTripTrackingState } from '@school-bus-tracking/validation';
 import { Stop, Trip, TripStopArrival } from '../../database/models';
@@ -9,7 +10,9 @@ import {
   cumulativeStopDistancesMeters,
   effectiveSpeedKmh,
   etaMinutesForDistance,
+  isRecordableStop,
   sanitizeSpeedKmh,
+  stopCoordinateWarnings,
 } from './geo.util';
 
 /** Environment-backed tuning of the ETA calculation (see `config/`). */
@@ -106,17 +109,38 @@ export class EtaService {
 
     const arrivalStopIds = new Set(arrivals.map((arrival) => arrival.stop_id));
 
-    // Current stop: the highest-sequence stop that already recorded an
-    // arrival. Next stop: the first not-yet-reached stop in route order.
+    // Progress frontier: the highest-sequence stop that already recorded an
+    // arrival (0 before the first). The current stop is that stop — the trip's
+    // confirmed progress, regardless of what was skipped on the way.
     let currentStop: Stop | null = null;
-    let nextStop: Stop | null = null;
+    let frontier = 0;
     for (const stop of stops) {
-      if (arrivalStopIds.has(stop.id)) {
+      if (arrivalStopIds.has(stop.id) && stop.sequence_number > frontier) {
+        frontier = stop.sequence_number;
         currentStop = stop;
-      } else if (nextStop === null) {
-        nextStop = stop;
       }
     }
+
+    // Next stop: the first not-yet-reached stop AHEAD of the frontier that can
+    // actually record (see `isRecordableStop` — the arrival selector derives
+    // its next-unarrived the same way). A stop the trip already moved past —
+    // missed, or skipped by the arrival policy — must never pin `next_stop`,
+    // and an un-surveyable stop is never "next": it cannot advance the trip
+    // (it surfaces in `warnings` instead). Before the first arrival the
+    // frontier is 0 and this is simply the route's first recordable stop.
+    let nextStop: Stop | null = null;
+    for (const stop of stops) {
+      if (
+        !arrivalStopIds.has(stop.id) &&
+        stop.sequence_number > frontier &&
+        isRecordableStop(stop)
+      ) {
+        nextStop = stop;
+        break;
+      }
+    }
+
+    const warnings: TripStopWarning[] = stopCoordinateWarnings(stops);
 
     const speed = fixForEta !== null ? effectiveSpeedKmh(fixForEta.speed, this.config) : null;
     const speedSource: TripEtaResponse['speed_source'] =
@@ -170,6 +194,7 @@ export class EtaService {
       next_stop: nextStopId ? (items.find((item) => item.stop_id === nextStopId) ?? null) : null,
       items,
       eta_available: fixForEta !== null,
+      warnings,
     };
   }
 

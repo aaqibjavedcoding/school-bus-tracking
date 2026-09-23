@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { formatTime } from '../../lib/format.ts';
 import { describeRuntime } from '../../lib/runtime-environment.ts';
 import { buildDiagnosticsRows, type DiagnosticsRow } from './crew-diagnostics.ts';
+import type { MapStyleIssueCode } from '../map/map-style.ts';
 import type { CrewTrackingState } from './tracking-lifecycle.ts';
 
 /**
@@ -226,5 +227,34 @@ describe('buildDiagnosticsRows', () => {
   it('runs with sharing off: the sharing row is the no-fact dash', () => {
     const rows = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null);
     assert.equal(valueOf(rows, 'Sharing running'), '—');
+  });
+});
+
+describe('buildDiagnosticsRows — Map labels row', () => {
+  it('appears only when the caller has a map (4th argument)', () => {
+    // Historical callers (no map) keep the exact old row set.
+    const withoutMap = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null);
+    assert.equal(withoutMap.find((row) => row.label === 'Map labels'), undefined);
+  });
+
+  it('reports OK, dash, and the joined issue lines', () => {
+    const ok = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, []);
+    assert.equal(valueOf(ok, 'Map labels'), 'OK');
+
+    const notReported = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, null);
+    assert.equal(valueOf(notReported, 'Map labels'), '—');
+
+    const issues: readonly MapStyleIssueCode[] = ['glyphs', 'styleLoad'];
+    const broken = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, issues);
+    assert.equal(
+      valueOf(broken, 'Map labels'),
+      'Map labels unavailable · Map failed to load',
+    );
+    // The row sits next to the socket row (map transport facts together).
+    const labels = broken.map((row) => row.label);
+    assert.ok(
+      labels.indexOf('Map labels') === labels.indexOf('Live tracking socket') + 1,
+      'Map labels follows Live tracking socket',
+    );
   });
 });

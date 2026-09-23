@@ -11,6 +11,7 @@ import {
   STOP_1,
   STOP_2,
   STOP_3,
+  STOP_NO_COORDS,
   TRIP_A,
   makeArrival,
   makeEtaService,
@@ -122,6 +123,63 @@ describe('EtaService.computeTripEta', () => {
     assert.equal(eta.current_stop?.stop_id, STOP_3);
     assert.equal(eta.next_stop, null);
     assert.ok(eta.items.every((item) => item.arrived));
+  });
+
+  it('derives next_stop from the progress frontier (a missed stop never pins it)', async () => {
+    // Stop 1 was missed — no arrival — while the trip already reached stop 2.
+    // The old first-unvisited derivation stuck next_stop at stop 1 forever.
+    const service = makeEtaService(DEFAULT_STOPS, [
+      makeArrival({ stop_id: STOP_2, arrived_at: new Date('2026-09-01T06:44:00.000Z') }),
+    ]);
+    const trip = makeTrip();
+    const fix = makeFix({ latitude: 40.7001, longitude: -73.99 });
+
+    const eta = await service.computeTripEta({ trip, latest: fix });
+
+    assert.equal(eta.current_stop?.stop_id, STOP_2);
+    assert.equal(eta.next_stop?.stop_id, STOP_3);
+    // The missed stop stays in the route listing, un-reached and behind.
+    const missed = eta.items.find((item) => item.stop_id === STOP_1);
+    assert.equal(missed?.arrived, false);
+  });
+
+  it('skips an un-surveyed stop for next_stop and warns about it once', async () => {
+    // Stop 1 has no coordinates: it can never record, so it can never be
+    // "next" — and the admin gets one explicit warning to survey it.
+    const stops = [
+      makeStop({
+        id: STOP_NO_COORDS,
+        name: 'Unsurveyed Lane',
+        sequence_number: 1,
+        latitude: null,
+        longitude: null,
+      }),
+      makeStop({ id: STOP_2, name: 'Oak Ave', sequence_number: 2, longitude: -73.99 }),
+      makeStop({ id: STOP_3, name: 'Maple St', sequence_number: 3, longitude: -73.98 }),
+    ];
+    const service = makeEtaService(stops, []);
+    const trip = makeTrip();
+
+    const eta = await service.computeTripEta({ trip, latest: null });
+
+    assert.equal(eta.next_stop?.stop_id, STOP_2);
+    assert.deepEqual(eta.warnings, [
+      {
+        code: 'stop_missing_coordinates',
+        stop_id: STOP_NO_COORDS,
+        stop_name: 'Unsurveyed Lane',
+        sequence_number: 1,
+      },
+    ]);
+    // The un-surveyed stop is still a route stop — listed, just never "next".
+    assert.equal(eta.items.length, 3);
+    assert.equal(eta.items[0]?.stop_id, STOP_NO_COORDS);
+    assert.equal(eta.items[0]?.distance_meters, null);
+
+    // A surveyed route reports no warnings at all (not even an empty list
+    // changes anything — consumers may treat absence as "all clear").
+    const clean = await makeEtaService(DEFAULT_STOPS, []).computeTripEta({ trip, latest: null });
+    assert.deepEqual(clean.warnings, []);
   });
 
   it('keeps distances along the stop polyline (bus → next → following stops)', async () => {

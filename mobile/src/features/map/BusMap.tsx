@@ -24,7 +24,10 @@ import type { ConnectionState, LiveFix } from '../tracking/useLiveTripTracking';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { BusMarker } from './BusMarker';
 import { StopMarker } from './StopMarker';
-import { resolveMapStyleUrl } from './map-style';
+import { SINGLE_POINT_ZOOM, initialCameraFor } from './fit-camera.ts';
+import { MapIssueLines } from './map-issue-lines';
+import { reportMapIssue } from './map-diagnostics';
+import { useMapStyle } from './use-map-style';
 import { mapSurfaceMode } from './map-surface-mode';
 import { NeedsDevBuildPanel } from './needs-dev-build-panel';
 import type { RenderedMarker } from './useBusMarkerMotion';
@@ -99,18 +102,9 @@ export interface BusMapProps {
 }
 
 /**
- * The style URL for this bundle. Metro inlines `process.env.EXPO_PUBLIC_*` at
- * bundle time, so this is decided once, per build, in the one place the
- * product rule allows it (`map-style.ts`) — never hard-coded in a component.
+ * Padding that keeps markers off the edge when the route is fitted.
  */
-const MAP_STYLE_URL = resolveMapStyleUrl({
-  EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
-});
-
-/** Padding that keeps markers off the edge when the route is fitted. */
 const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
-/** Zoom used when there is exactly one point to frame. */
-const SINGLE_POINT_ZOOM = 15;
 
 /**
  * School-bus amber with an explicit alpha.
@@ -124,33 +118,14 @@ const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 
 /**
- * Only ever used for the `Camera`'s `initialViewState`, so the map opens
- * somewhere sensible before the first `fitToData` lands. The engine reads it
- * once at map creation — this is deliberately **not** a controlled camera
- * (that prop-recomputed-per-fix pattern is the bug the follow-camera rewrite
+ * Initial framing + fit math (with the `MAP_MIN_FIT_ZOOM` floor that keeps a
+ * whole route out of the "unlabeled outline" zooms) lives in `fit-camera.ts`,
+ * shared with the crew driver map. Only ever used for the `Camera`'s
+ * `initialViewState`, so the map opens somewhere sensible before the first
+ * `fitToData` lands — deliberately **not** a controlled camera (that
+ * prop-recomputed-per-fix pattern is the bug the follow-camera rewrite
  * removed).
  */
-function initialCameraFor(
-  points: Array<{ latitude: number; longitude: number }>,
-): InitialViewState | null {
-  if (points.length === 0) return null;
-  if (points.length === 1) {
-    return { center: [points[0].longitude, points[0].latitude], zoom: SINGLE_POINT_ZOOM };
-  }
-  const latitudes = points.map((point) => point.latitude);
-  const longitudes = points.map((point) => point.longitude);
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLng = Math.min(...longitudes);
-  const maxLng = Math.max(...longitudes);
-  // The zoom at which the world's latitude span matches the fitted span
-  // (1.4×, the same padding the old region used): span = 360 / 2^zoom.
-  const zoom = Math.max(2, Math.log2(360 / Math.max(0.01, (maxLat - minLat) * 1.4)));
-  return {
-    center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
-    zoom,
-  };
-}
 
 // ── The map surface ────────────────────────────────────────────────────────
 
@@ -176,6 +151,8 @@ interface MapSurfaceProps {
   onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
+  /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
+  mapStyle: MapProps['mapStyle'];
 }
 
 /**
@@ -200,10 +177,11 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
     onRegionChangeComplete,
     onMapReady,
     cameraRef,
+    mapStyle,
   }) => (
     <MapView
       style={styles.map}
-      mapStyle={MAP_STYLE_URL}
+      mapStyle={mapStyle}
       // OpenStreetMap-derived tiles legally require the attribution and the
       // logo; MapLibre renders both in the BOTTOM corners, which is why this
       // map's own controls live in the TOP corners.
@@ -212,6 +190,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
       onDidFinishLoadingMap={onMapReady}
+      onDidFailLoadingMap={() => reportMapIssue('styleLoad')}
     >
       {/*
         The camera: uncontrolled after the initial state. All movement is
@@ -274,6 +253,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
           latitude={stop.latitude}
           longitude={stop.longitude}
           title={stop.name}
+          label={t('map.stopLabel', { number: stop.sequence_number, name: stop.name })}
           description={`${t('map.stopA11y', { number: stop.sequence_number })}${
             stop.address ? ` · ${stop.address}` : ''
           }`}
@@ -344,6 +324,8 @@ const MapStatusPanel: React.FC<{
       {presentation.socketOffline ? (
         <Text style={styles.panelNote}>{t('map.offlineNote')}</Text>
       ) : null}
+      {/* Map style/label failures are visible here — never blank-silent. */}
+      <MapIssueLines />
     </View>
   );
 });
@@ -457,6 +439,11 @@ export const BusMap: React.FC<BusMapProps> = ({
   // `map-surface-mode.ts` (Expo Go carries no map engine on any platform).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
 
+  // The style pipeline: fetched, glyph-repaired, fontstack rewrites
+  // registered, endpoint verified — failures land in the map-diagnostics
+  // store (rendered by MapStatusPanel / the Help screen).
+  const { mapStyle } = useMapStyle();
+
   if (surfaceMode === 'no-coordinates') {
     return (
       <View style={[styles.placeholder, { height }]}>
@@ -490,6 +477,7 @@ export const BusMap: React.FC<BusMapProps> = ({
             onRegionChangeComplete={handleRegionChangeComplete}
             onMapReady={handleMapReady}
             cameraRef={cameraRef}
+            mapStyle={mapStyle}
           />
         )}
 
