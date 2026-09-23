@@ -1,7 +1,14 @@
-import { getLocale, t, type Locale, type StaticTranslationKey } from '../../lib/i18n.ts';
+import {
+  getLocale,
+  t,
+  type Locale,
+  type StaticTranslationKey,
+  type TranslationKey,
+} from '../../lib/i18n.ts';
 
 /**
- * Voice-feedback **policy** (Phase 3b) — pure, React-free, native-free.
+ * Voice-feedback **policy** (Phase 3b; two voice modes added by batch 3C) —
+ * pure, React-free, native-free.
  *
  * This module decides *what would be said*; it never says it. The single
  * native call (`Speech.speak` / `Speech.stop`) lives in
@@ -11,43 +18,81 @@ import { getLocale, t, type Locale, type StaticTranslationKey } from '../../lib/
  *
  * ---
  *
- * ### Why the Hindi voice copy is written in **Latin script** (Hinglish)
+ * ### Two voice modes: the device decides, once (batch 3C)
  *
- * This is the load-bearing decision of the whole phase, and it is a *device*
+ * This is the load-bearing decision of the whole feature, and it is a *device*
  * decision, not a linguistic one.
  *
- * `expo-speech` is a thin shim over the OS text-to-speech engine. On the
- * budget Android handsets this app is actually used on, a `hi-IN` voice is
- * frequently **not installed** — Google's Hindi voice data is an opt-in
- * download, and a phone that has never been asked to speak Hindi does not
- * have it. Hand a Devanagari string to such a device and the engine falls
- * back to its default (usually English) voice, which either spells the
- * code points out or emits nothing at all. Either way the driver hears
- * garbage at the exact moment they needed confirmation.
+ * `expo-speech` is a thin shim over the OS text-to-speech engine and ships no
+ * voice of its own — **free, on-device, and never a paid voice API**. What it
+ * can say therefore depends entirely on what the phone has installed, and on
+ * the budget Android handsets this app is used on that varies per device.
  *
- * A **Latin-script Hinglish** phrase — `"Ramesh ka boarding ho gaya"` — is
- * read correctly by the *default* voice that every device has, and it is the
- * register the crew actually speaks. So the voice channel is deliberately
- * decoupled from the written one:
+ * So the phrase and the tag are chosen from the installed voices, not from the
+ * locale alone:
  *
- * | channel        | `hi` locale renders          | why                                 |
- * | -------------- | ---------------------------- | ----------------------------------- |
- * | **written UI** | Devanagari (`i18n.hi.ts`)    | it is read; the script is the point |
- * | **voice**      | Latin Hinglish (`voice.*`)   | it is heard; the engine is the point |
+ * | device has `hi-IN` / `mr-IN` | spoken line                                 | tag               |
+ * | ---------------------------- | ------------------------------------------- | ----------------- |
+ * | **yes**                      | `voice.native.*` — real Devanagari           | `hi-IN` / `mr-IN` |
+ * | **no**                       | `voice.*` — Latin Hinglish / Marathi-in-Latin | `en-IN`           |
  *
- * Two channels, one locale. The UI locale still *selects* which voice phrase
- * is used (resolution order unchanged — see `resolveInitialLocale`), it just
- * selects from the `voice.*` namespace instead of the screen copy.
+ * Handing Devanagari to a phone whose only voice is English is the failure
+ * this design exists to avoid: the engine falls back to its default voice,
+ * which either spells the code points out or emits nothing at all — garbage at
+ * exactly the moment the driver needed confirmation. The Latin line is the
+ * honest fallback, read correctly by the voice every device has. It is *not*
+ * the only mode any more, and it never was the preference: a phone that can
+ * speak Marathi now hears Marathi.
+ *
+ * The written UI is unaffected — it is Devanagari for `hi`/`mr` in both modes,
+ * because a screen is read and a speaker is heard:
+ *
+ * | channel        | `hi` locale renders                                |
+ * | -------------- | -------------------------------------------------- |
+ * | **written UI** | Devanagari (`i18n.hi.ts`), always                  |
+ * | **voice**      | Devanagari when the engine can, Latin when it can't |
+ *
+ * When the app's language has no voice on the device the fallback is
+ * **explained**, not left to sound like a bug: {@link activeVoicePlan} reports
+ * `nativeVoiceMissing`, and the Sound & vibration card shows the install hint
+ * once ({@link shouldShowNativeVoiceHint}).
+ *
+ * ### Detection is cached — the engine is never probed per utterance
+ *
+ * `Speech.getAvailableVoicesAsync()` is one native round-trip and, on iOS, can
+ * need a warm-up before it answers at all. It runs **once per process** in
+ * `crew-feedback-native.ts` and hands the parsed result to
+ * {@link configureVoiceCapabilities}. Everything after that is a `Map.get` on
+ * the cached set, so an announcement costs no I/O and no UI-thread work —
+ * {@link resolveVoicePlan} is pure and synchronous.
+ *
+ * Until the probe lands the cached set is `null`, which resolves to the Latin
+ * fallback: the first announcements of a cold start are intelligible rather
+ * than Devanagari-into-an-English-voice, and the hint is not shown for a state
+ * we have not measured yet.
  *
  * ### Which BCP-47 tag we hand the engine
  *
- * Derived from the **script the phrase is written in**, not from the language
- * it is in — see {@link VOICE_LANGUAGE_TAG}. Both phrase sets are Latin, so
- * both ask for `en-IN`: an Indian-English voice pronounces both "Ramesh has
- * boarded" and "Ramesh ka boarding ho gaya" with the right vowels, and where
- * `en-IN` is missing the generic English fallback still produces intelligible
- * words. Asking for `hi-IN` while handing it Latin text is precisely the
- * combination that garbles.
+ * Derived from the **script the phrase is written in** — see
+ * {@link NATIVE_VOICE_TAG} and {@link FALLBACK_VOICE_TAG}, because a tag that
+ * disagrees with the script is the bug in both directions: `hi-IN` with Latin
+ * text garbles, and `en-IN` with Devanagari garbles. Where the probe found a
+ * concrete voice we also pin its identifier ({@link VoiceUtterance.voiceId}),
+ * which is what Android actually selects on (`options.voice` → `setVoice`),
+ * its `language` option being region-tag-shy.
+ *
+ * ### Live locale, not an import-time one
+ *
+ * Every read of the locale happens at call time ({@link activeVoicePlan} →
+ * `getLocale()`). A module-level `const` would freeze whichever language was
+ * active when the bundle loaded and never pick up a switch; the spec pins the
+ * switch for the phrase, the tag *and* the voice identifier.
+ *
+ * ### One resolver, one announcer, both roles
+ *
+ * The driver and the conductor share this module, the dispatcher in
+ * `crew-feedback.ts` and the next-stop announcer in `next-stop-announcer.ts`.
+ * There is no per-role voice code to drift.
  *
  * ### Privacy
  *
@@ -60,30 +105,246 @@ import { getLocale, t, type Locale, type StaticTranslationKey } from '../../lib/
 // ── Language ───────────────────────────────────────────────────────────────
 
 /**
- * UI locale → the BCP-47 tag handed to the TTS engine.
+ * Locale → the BCP-47 tag handed to the engine when the phone **has** a voice
+ * for it, i.e. when the native-script line is what gets spoken.
  *
- * Keyed by locale so a third locale is additive, but the *value* follows the
- * script of that locale's `voice.*` phrases. Today all three phrase sets are
- * Latin (English, Hinglish, Marathi-in-Latin), so all ask for `en-IN`; a
- * future locale that ships Devanagari (or Tamil-script) voice copy would
- * change its own row here and nothing else.
+ * Keyed by locale so a fourth is additive: add its tag here and its
+ * `voice.native.*` values, and nothing else changes.
  */
-export const VOICE_LANGUAGE_TAG: Readonly<Record<Locale, string>> = {
+export const NATIVE_VOICE_TAG: Readonly<Record<Locale, string>> = {
   en: 'en-IN',
-  hi: 'en-IN',
-  mr: 'en-IN',
+  hi: 'hi-IN',
+  mr: 'mr-IN',
 };
 
 /**
- * The tag for the **active** locale, read at call time.
+ * The tag for the Latin-script fallback line.
+ *
+ * One constant on purpose: the fallback exists because the phone has no voice
+ * for the locale, so the only voice guaranteed to be there is Indian English —
+ * which reads "Ramesh ka boarding ho gaya" with the right vowels. Asking for
+ * `hi-IN` while handing it Latin text is precisely the combination that
+ * garbles, so the fallback never does.
+ */
+export const FALLBACK_VOICE_TAG = 'en-IN';
+
+/** Which phrase namespace an utterance is built from. */
+export type VoiceScript = 'native' | 'latin';
+
+// ── Capability detection (cached, never per utterance) ─────────────────────
+
+/** One installed voice, normalised from the engine's own record. */
+export interface InstalledVoice {
+  /** Lowercase ISO-639-1 subtag — `hi`, `mr`, `en`. */
+  language: string;
+  /** Uppercase region subtag when the engine reported one — `IN`. */
+  region: string | null;
+  /** True for an "enhanced"/high-quality voice; those are preferred. */
+  enhanced: boolean;
+  /** Engine voice identifier, or `null` when none was reported. */
+  voiceId: string | null;
+}
+
+/**
+ * What `Speech.getAvailableVoicesAsync()` hands back, typed defensively: it
+ * crosses a native boundary, so every field is `unknown` until parsed.
+ */
+export interface EngineVoiceRecord {
+  identifier?: unknown;
+  language?: unknown;
+  quality?: unknown;
+}
+
+/**
+ * The parsed, **cached** answer to "what can this phone actually speak?".
+ *
+ * One `Map` keyed by language subtag, decided at parse time — so resolving a
+ * plan is a lookup, never a scan, and never a native call.
+ */
+export interface VoiceCapabilitySet {
+  bestByLanguage: ReadonlyMap<string, InstalledVoice>;
+}
+
+/**
+ * Three-letter codes some Android engines report (`hin-IND`), folded onto the
+ * two-letter subtags our locales use. Only our languages are mapped: an
+ * unknown language is kept as reported and simply never matches a locale.
+ */
+const ISO3_LANGUAGE: Readonly<Record<string, string | undefined>> = {
+  hin: 'hi',
+  mar: 'mr',
+  eng: 'en',
+};
+
+/** The region whose voice sounds right for this app's languages. */
+const PREFERRED_REGION = 'IN';
+
+function normalizeLanguageSubtag(raw: string): string {
+  const lowered = raw.trim().toLowerCase();
+  return ISO3_LANGUAGE[lowered] ?? lowered;
+}
+
+/** Ranks two voices of the same language; higher wins, ties keep the first. */
+function voiceScore(voice: InstalledVoice): number {
+  return (voice.region === PREFERRED_REGION ? 2 : 0) + (voice.enhanced ? 1 : 0);
+}
+
+/**
+ * Parse an engine voice list into the cached capability set.
+ *
+ * Tolerant by design: a record with a missing or malformed language is
+ * skipped rather than throwing, because the only thing that must never happen
+ * is a phone that stops announcing. `null`/empty input yields an **empty**
+ * set (not `null`) — the probe answered, and the answer was "nothing usable".
+ */
+export function parseVoiceCapabilities(
+  records: readonly EngineVoiceRecord[] | null | undefined,
+): VoiceCapabilitySet {
+  const best = new Map<string, InstalledVoice>();
+  for (const record of records ?? []) {
+    if (typeof record?.language !== 'string') continue;
+    const [rawLanguage, rawRegion] = record.language.split(/[-_]/);
+    if (!rawLanguage) continue;
+    const identifier = record.identifier;
+    const voice: InstalledVoice = {
+      language: normalizeLanguageSubtag(rawLanguage),
+      region: rawRegion ? rawRegion.toUpperCase() : null,
+      enhanced: record.quality === 'Enhanced',
+      voiceId: typeof identifier === 'string' && identifier.length > 0 ? identifier : null,
+    };
+    const current = best.get(voice.language);
+    if (!current || voiceScore(voice) > voiceScore(current)) best.set(voice.language, voice);
+  }
+  return { bestByLanguage: best };
+}
+
+let capabilities: VoiceCapabilitySet | null = null;
+
+/**
+ * Install the cached capability set. Called once per process by
+ * `crew-feedback-native.ts` after its single probe; `null` restores the
+ * un-probed state (specs, logout).
+ */
+export function configureVoiceCapabilities(next: VoiceCapabilitySet | null): void {
+  capabilities = next;
+}
+
+/** The cached set, or `null` while it has not been probed. */
+export function voiceCapabilities(): VoiceCapabilitySet | null {
+  return capabilities;
+}
+
+// ── Plan resolution ────────────────────────────────────────────────────────
+
+/** Everything the engine and the phrase builder need to agree on. */
+export interface VoicePlan {
+  locale: Locale;
+  /** Which namespace the phrase is built from. */
+  script: VoiceScript;
+  /** BCP-47 tag handed to the engine. */
+  language: string;
+  /** Voice identifier to pin, or `null` to let the engine choose. */
+  voiceId: string | null;
+  /**
+   * True when the locale needs a voice this phone was *measured* not to have —
+   * the condition the install hint explains. Never true before the probe
+   * (`null` capabilities), so an unmeasured phone is not told it is broken.
+   */
+  nativeVoiceMissing: boolean;
+}
+
+/**
+ * **The one voice resolver.** Locale in, engine settings out — pure, cached
+ * inputs only, no native call, so it is safe to run per utterance.
+ *
+ * - `en` → its own `en-IN` voice explicitly (never the engine's blind
+ *   default), because "English" is the one locale with no fallback story;
+ * - `hi`/`mr` with a matching installed voice → the native-script line and the
+ *   native tag, i.e. real Devanagari spoken by a real Hindi/Marathi voice;
+ * - `hi`/`mr` without one → the Latin line, `en-IN`, and the pin on the best
+ *   English voice present, plus `nativeVoiceMissing` so the user is told;
+ * - capabilities not probed yet → the same Latin fallback, without the hint.
+ */
+export function resolveVoicePlan(
+  locale: Locale,
+  installed: VoiceCapabilitySet | null,
+): VoicePlan {
+  const wanted = installed?.bestByLanguage.get(locale) ?? null;
+
+  if (locale === 'en') {
+    return {
+      locale,
+      script: 'native',
+      language: NATIVE_VOICE_TAG.en,
+      voiceId: wanted?.voiceId ?? null,
+      nativeVoiceMissing: false,
+    };
+  }
+
+  if (wanted) {
+    return {
+      locale,
+      script: 'native',
+      language: NATIVE_VOICE_TAG[locale],
+      voiceId: wanted.voiceId,
+      nativeVoiceMissing: false,
+    };
+  }
+
+  return {
+    locale,
+    script: 'latin',
+    language: FALLBACK_VOICE_TAG,
+    voiceId: installed?.bestByLanguage.get('en')?.voiceId ?? null,
+    nativeVoiceMissing: installed !== null,
+  };
+}
+
+/**
+ * The plan for the **active** locale, read at call time.
  *
  * Phase 3a's lesson, repeated here because it is the same trap: a
- * module-level `const lang = VOICE_LANGUAGE_TAG[getLocale()]` would freeze
- * whatever locale happened to be active at import time and never pick up a
+ * module-level `const plan = resolveVoicePlan(getLocale(), …)` would freeze
+ * whichever locale happened to be active at import time and never pick up a
  * language switch. `crew-voice.spec.ts` pins the switch.
  */
+export function activeVoicePlan(): VoicePlan {
+  return resolveVoicePlan(getLocale(), capabilities);
+}
+
+/** The tag for the **active** locale and the active capability set. */
 export function voiceLanguageTag(): string {
-  return VOICE_LANGUAGE_TAG[getLocale()];
+  return activeVoicePlan().language;
+}
+
+/**
+ * Each locale's self-designation, in its own script — the `{language}` of the
+ * install hint. Reuses the switcher's invariant keys, so the hint says
+ * "हिन्दी"/"मराठी" in every UI language, which is what a support call needs.
+ */
+const LOCALE_SELF_NAME_KEY: Readonly<Record<Locale, StaticTranslationKey>> = {
+  en: 'settings.language.nameEn',
+  hi: 'settings.language.nameHi',
+  mr: 'settings.language.nameMr',
+};
+
+/** The active locale's own name, for the install hint's `{language}`. */
+export function languageSelfName(locale: Locale = getLocale()): string {
+  return t(LOCALE_SELF_NAME_KEY[locale]);
+}
+
+/**
+ * Whether the Sound & vibration card should show the install hint.
+ *
+ * One boolean of policy so the "once" is a rule rather than a component's
+ * mood: the phone must have been *measured* to lack the active locale's voice,
+ * and the crew member must not have dismissed it for this session.
+ */
+export function shouldShowNativeVoiceHint(
+  plan: Pick<VoicePlan, 'nativeVoiceMissing'>,
+  dismissed: boolean,
+): boolean {
+  return plan.nativeVoiceMissing && !dismissed;
 }
 
 /**
@@ -100,6 +361,13 @@ export const VOICE_RATE = 0.95;
 export interface VoiceUtterance {
   text: string;
   language: string;
+  /**
+   * Engine voice identifier to pin, or `null` to let the engine choose from
+   * `language`. Only ever an identifier this process read from
+   * `Speech.getAvailableVoicesAsync()` — iOS *throws* on an unknown one, so
+   * inventing or caching one across processes is not an option.
+   */
+  voiceId: string | null;
   rate: number;
 }
 
@@ -177,6 +445,23 @@ export function spokenFirstName(name: string): string {
   return name.trim().split(/\s+/)[0]?.slice(0, 24) ?? '';
 }
 
+/** Cap on a spoken stop name — see {@link spokenStopName}. */
+export const SPOKEN_STOP_NAME_MAX = 32;
+
+/**
+ * A stop name, squeezed and capped.
+ *
+ * A stop is school data, not student data, so nothing here is private — the
+ * {@link SPOKEN_STUDENT_FIELDS} rule is untouched. This is about hearing: an
+ * announcement is "stop + count", and a 60-character name pushes the count
+ * off the end of the sentence the conductor needed. Internal whitespace is
+ * collapsed because a double space is where an engine starts reading
+ * punctuation aloud.
+ */
+export function spokenStopName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').slice(0, SPOKEN_STOP_NAME_MAX);
+}
+
 // ── Time ───────────────────────────────────────────────────────────────────
 
 /** Day-part boundaries, shared by both locales' spoken clock. */
@@ -190,37 +475,54 @@ function dayPart(hours: number): DayPart {
 }
 
 /**
+ * The spoken-clock words, as native/Latin pairs.
+ *
  * Typed with `StaticTranslationKey` (the placeholder-free subset, same device
  * Phase 3a used for `KNOWN_ERROR_CODES`) so `t(key)` stays fully checked at a
- * runtime-resolved key — no cast, and a day-part key that gained a
+ * runtime-resolved key — no cast, and a clock word that gained a
  * `{placeholder}` would be a compile error here.
+ *
+ * A pair per row because the day-part word is part of the sentence: "7:42
+ * सुबह" through an `hi-IN` voice and "7:42 subah" through `en-IN` are the two
+ * modes, and mixing them is how a phrase starts sounding half-translated.
  */
-const DAY_PART_KEY: Readonly<Record<DayPart, StaticTranslationKey>> = {
-  morning: 'voice.time.morning',
-  afternoon: 'voice.time.afternoon',
-  evening: 'voice.time.evening',
-  night: 'voice.time.night',
+type ClockWord = DayPart | 'now';
+
+const CLOCK_WORD_KEY: Readonly<Record<ClockWord, Record<VoiceScript, StaticTranslationKey>>> = {
+  now: { native: 'voice.native.time.now', latin: 'voice.time.now' },
+  morning: { native: 'voice.native.time.morning', latin: 'voice.time.morning' },
+  afternoon: { native: 'voice.native.time.afternoon', latin: 'voice.time.afternoon' },
+  evening: { native: 'voice.native.time.evening', latin: 'voice.time.evening' },
+  night: { native: 'voice.native.time.night', latin: 'voice.time.night' },
 };
 
 /**
- * "7:42 subah" / "7:42 morning" — a spoken clock, not a printed one.
+ * "7:42 subah" / "7:42 सुबह" / "7:42 in the morning" — a spoken clock, not a
+ * printed one.
  *
  * Deliberately not `manifest-row.ts`'s `formatClock`: "AM"/"PM" is read by a
  * TTS engine as two letters, and "ay em" after a number is noise. A day-part
  * word is what a person says.
  *
- * An absent or unparseable timestamp falls back to `voice.time.now` rather
+ * `script` defaults to the active plan's, resolved **at call time** — so a
+ * language switch or a late-landing capability probe changes the next clock
+ * word, never a frozen one.
+ *
+ * An absent or unparseable timestamp falls back to `voice.*.time.now` rather
  * than to an empty string — "Ramesh boarded, now" is true and speakable;
  * "Ramesh boarded, " is a bug you can hear.
  */
-export function spokenClock(iso: string | null | undefined): string {
-  if (typeof iso !== 'string' || iso.length === 0) return t('voice.time.now');
+export function spokenClock(
+  iso: string | null | undefined,
+  script: VoiceScript = activeVoicePlan().script,
+): string {
+  if (typeof iso !== 'string' || iso.length === 0) return t(CLOCK_WORD_KEY.now[script]);
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return t('voice.time.now');
+  if (Number.isNaN(date.getTime())) return t(CLOCK_WORD_KEY.now[script]);
   const hours24 = date.getHours();
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
   const clock = `${hours12}:${String(date.getMinutes()).padStart(2, '0')}`;
-  return `${clock} ${t(DAY_PART_KEY[dayPart(hours24)])}`;
+  return `${clock} ${t(CLOCK_WORD_KEY[dayPart(hours24)][script])}`;
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
@@ -247,9 +549,27 @@ export type CrewFeedbackEvent =
   | { type: 'sos.queued' }
   | { type: 'offline.synced'; count: number }
   | { type: 'gps.on' }
-  | { type: 'gps.off' };
+  | { type: 'gps.off' }
+  /**
+   * Next-stop announcements (batch 3C), for **both** crew roles.
+   *
+   * What a stop event carries is a stop name and an aggregate count — the two
+   * facts the crew need before the doors open. There is no field for a
+   * student, so {@link SPOKEN_STUDENT_FIELDS} is unchanged: a name-per-child
+   * announcement of who is waiting at the next stop would put four children's
+   * names on a speaker, and the manifest screen already shows them.
+   */
+  | { type: 'stop.next'; stopName: string; studentCount: number }
+  /** The same stop, said again because the bus is nearly there. */
+  | { type: 'stop.approaching'; stopName: string; studentCount: number };
 
 export type CrewFeedbackEventType = CrewFeedbackEvent['type'];
+
+/** The two next-stop announcement types, as a value for specs to assert on. */
+export const STOP_ANNOUNCEMENT_EVENTS: readonly CrewFeedbackEventType[] = [
+  'stop.next',
+  'stop.approaching',
+];
 
 /**
  * Events that are **haptic-only**, and why each one is silent:
@@ -274,61 +594,115 @@ export const PRIORITY_EVENTS: readonly CrewFeedbackEventType[] = ['sos.fired', '
 // ── Phrases ────────────────────────────────────────────────────────────────
 
 /**
- * The phrase for one event, in the **active** locale, built at call time.
+ * The phrase for one event, in the **active** locale and the **active** voice
+ * mode, both resolved at call time.
  *
  * `null` means "say nothing" — a silent event, or a payload the privacy net
  * refused. Callers treat both identically.
  */
 export function voicePhrase(event: CrewFeedbackEvent): string | null {
   if (SILENT_EVENTS.includes(event.type)) return null;
-  const text = buildPhrase(event);
+  const text = buildPhrase(event, activeVoicePlan().script);
   if (text === null) return null;
   return isSpeakable(text) ? text : null;
 }
 
-function buildPhrase(event: CrewFeedbackEvent): string | null {
+/**
+ * Picks the dictionary row for the script in use.
+ *
+ * Generic over the two literal keys so the result stays a **union of
+ * literals** — that is what keeps `t()`'s placeholder inference exact at a
+ * runtime-chosen key (the same device `StaticTranslationKey` provides for the
+ * placeholder-free ones). Both rows of a pair carry the same placeholders;
+ * `crew-voice.spec.ts` asserts that per pair, in every locale.
+ */
+function voiceLine<N extends TranslationKey, L extends TranslationKey>(
+  script: VoiceScript,
+  native: N,
+  latin: L,
+): N | L {
+  return script === 'native' ? native : latin;
+}
+
+function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | null {
   switch (event.type) {
     case 'board.confirmed':
-      return t('voice.board.done', {
+      return t(voiceLine(script, 'voice.native.board.done', 'voice.board.done'), {
         name: spokenFirstName(event.firstName),
-        time: spokenClock(event.at),
+        time: spokenClock(event.at, script),
       });
     case 'drop.confirmed':
-      return t('voice.drop.done', {
+      return t(voiceLine(script, 'voice.native.drop.done', 'voice.drop.done'), {
         name: spokenFirstName(event.firstName),
-        time: spokenClock(event.at),
+        time: spokenClock(event.at, script),
       });
     case 'trip.boarding':
-      return t('voice.trip.boarding');
+      return t(voiceLine(script, 'voice.native.trip.boarding', 'voice.trip.boarding'));
     case 'trip.inProgress':
-      return t('voice.trip.inProgress');
+      return t(voiceLine(script, 'voice.native.trip.inProgress', 'voice.trip.inProgress'));
     case 'trip.completed':
-      return t('voice.trip.completed');
+      return t(voiceLine(script, 'voice.native.trip.completed', 'voice.trip.completed'));
     case 'sos.fired':
-      return t('voice.sos.fired');
+      return t(voiceLine(script, 'voice.native.sos.fired', 'voice.sos.fired'));
     case 'sos.queued':
-      return t('voice.sos.queued');
+      return t(voiceLine(script, 'voice.native.sos.queued', 'voice.sos.queued'));
     case 'offline.synced':
-      return t('voice.offline.synced', { count: event.count });
+      return t(voiceLine(script, 'voice.native.offline.synced', 'voice.offline.synced'), {
+        count: event.count,
+      });
     case 'gps.on':
-      return t('voice.gps.on');
+      return t(voiceLine(script, 'voice.native.gps.on', 'voice.gps.on'));
     case 'gps.off':
-      return t('voice.gps.off');
+      return t(voiceLine(script, 'voice.native.gps.off', 'voice.gps.off'));
+    case 'stop.next':
+    case 'stop.approaching':
+      return stopPhrase(event, script);
     default:
       return null;
   }
 }
 
-/** The coalesced form of a burst: "5 students boarded". */
-export function summaryPhrase(type: 'board.confirmed' | 'drop.confirmed', count: number): string {
-  return type === 'board.confirmed'
-    ? t('voice.board.summary', { count })
-    : t('voice.drop.summary', { count });
+/**
+ * "Next stop: Shivaji Chowk, 12 students" — and the approaching variant of the
+ * same two facts.
+ *
+ * `null` when the stop has no usable name, for the reason `spokenClock` falls
+ * back to "now" instead of "": an announcement with a hole in it is a bug you
+ * can hear. The announcer refuses to fire without a name too
+ * (`next-stop-announcer.ts`); this is the second net.
+ */
+function stopPhrase(
+  event: Extract<CrewFeedbackEvent, { type: 'stop.next' } | { type: 'stop.approaching' }>,
+  script: VoiceScript,
+): string | null {
+  const name = spokenStopName(event.stopName);
+  if (name.length === 0) return null;
+  const params = { name, count: event.studentCount };
+  return event.type === 'stop.next'
+    ? t(voiceLine(script, 'voice.native.stop.next', 'voice.stop.next'), params)
+    : t(voiceLine(script, 'voice.native.stop.approaching', 'voice.stop.approaching'), params);
 }
 
-/** Wraps a phrase with the language and rate the engine needs. */
+/**
+ * The coalesced form of a burst: "5 students boarded".
+ *
+ * `script` defaults to the active plan's, resolved when the flush happens —
+ * which is the moment the sentence is actually built.
+ */
+export function summaryPhrase(
+  type: 'board.confirmed' | 'drop.confirmed',
+  count: number,
+  script: VoiceScript = activeVoicePlan().script,
+): string {
+  return type === 'board.confirmed'
+    ? t(voiceLine(script, 'voice.native.board.summary', 'voice.board.summary'), { count })
+    : t(voiceLine(script, 'voice.native.drop.summary', 'voice.drop.summary'), { count });
+}
+
+/** Wraps a phrase with the language, voice and rate the engine needs. */
 export function utteranceFor(text: string): VoiceUtterance {
-  return { text, language: voiceLanguageTag(), rate: VOICE_RATE };
+  const plan = activeVoicePlan();
+  return { text, language: plan.language, voiceId: plan.voiceId, rate: VOICE_RATE };
 }
 
 // ── Throttle ───────────────────────────────────────────────────────────────

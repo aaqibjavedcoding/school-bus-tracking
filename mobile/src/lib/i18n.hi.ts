@@ -350,15 +350,20 @@ export const hi: Dictionary = {
   'settings.sound.vibrationA11y': 'कंपन से पुष्टि',
   'settings.sound.noEngineNote':
     'आवाज़ नहीं आ रही? हो सकता है फ़ोन में बोलने वाला इंजन न हो — ऐप फिर भी हर काम दर्ज करता है।',
+  'settings.sound.nativeVoiceTitle': '{language} आवाज़ इंस्टॉल नहीं है',
+  'settings.sound.nativeVoiceBody':
+    'घोषणाएँ अंग्रेज़ी में बोली जाती हैं। Android सेटिंग्स → टेक्स्ट-टू-स्पीच में {language} आवाज़ इंस्टॉल करें।',
 
   // ── Voice phrases (बोली जाती हैं, स्क्रीन पर कभी नहीं दिखतीं) ──────────
   //
-  // **ये जान-बूझकर रोमन (Latin) लिपि में हैं, देवनागरी में नहीं।** सस्ते
-  // Android फ़ोनों में अक्सर `hi-IN` वाली आवाज़ इंस्टॉल ही नहीं होती; ऐसे में
-  // देवनागरी टेक्स्ट डिफ़ॉल्ट अंग्रेज़ी आवाज़ से टूटा-फूटा पढ़ा जाता है। रोमन
-  // लिपि में लिखी हिंग्लिश हर फ़ोन की डिफ़ॉल्ट आवाज़ साफ़ बोल देती है और
-  // ड्राइवर की अपनी बोली से भी मेल खाती है। स्क्रीन की भाषा देवनागरी ही रहती
-  // है — ये दो अलग चैनल हैं (देखें `crew-voice.ts`).
+  // `voice.*` **रोमन (Latin) लिपि** में हैं — फ़ॉलबैक। सस्ते Android फ़ोनों में
+  // अक्सर `hi-IN` आवाज़ इंस्टॉल नहीं होती और देवनागरी टेक्स्ट डिफ़ॉल्ट अंग्रेज़ी
+  // आवाज़ से टूटा-फूटा पढ़ा जाता है; रोमन हिंग्लिश हर फ़ोन साफ़ बोल देता है।
+  //
+  // `voice.native.*` वही बातें **देवनागरी** में हैं — असली हिन्दी आवाज़, और
+  // इन्हें तभी बोला जाता है जब फ़ोन में `hi-IN` आवाज़ मौजूद हो
+  // (`resolveVoicePlan()`, `crew-voice.ts`). स्क्रीन की भाषा हमेशा देवनागरी ही
+  // रहती है; ये दो अलग चैनल हैं।
   'voice.board.done': '{name} ka boarding ho gaya, {time}',
   'voice.drop.done': '{name} utar gaya, {time}',
   'voice.board.summary': '{count} bachche chadh gaye',
@@ -376,6 +381,31 @@ export const hi: Dictionary = {
   'voice.time.afternoon': 'dopahar',
   'voice.time.evening': 'shaam',
   'voice.time.night': 'raat',
+  // Next-stop announcements (batch 3C) — driver AND conductor.
+  'voice.stop.next': 'Agla stop: {name}, {count} bachche',
+  'voice.stop.approaching': '{name} pahunchne wale hain, {count} bachche',
+  // Devanagari — spoken ONLY when the phone has a `hi-IN` voice installed.
+  // A student's first name stays whatever script the school typed it in; an
+  // `hi-IN` engine reads a Latin name inside a Hindi sentence correctly.
+  'voice.native.board.done': '{name} बस में चढ़ गया, {time}',
+  'voice.native.drop.done': '{name} बस से उतर गया, {time}',
+  'voice.native.board.summary': '{count} बच्चे चढ़ गए',
+  'voice.native.drop.summary': '{count} बच्चे उतर गए',
+  'voice.native.trip.boarding': 'बोर्डिंग शुरू हो गई',
+  'voice.native.trip.inProgress': 'यात्रा शुरू, ध्यान से चलाइए',
+  'voice.native.trip.completed': 'यात्रा पूरी हुई, धन्यवाद',
+  'voice.native.sos.fired': 'आपात सूचना स्कूल को भेजी गई',
+  'voice.native.sos.queued': 'नेटवर्क नहीं, आपात सूचना फिर भेजी जाएगी',
+  'voice.native.offline.synced': '{count} सहेजे काम भेज दिए गए',
+  'voice.native.gps.on': 'लोकेशन भेजना चालू',
+  'voice.native.gps.off': 'लोकेशन भेजना बंद',
+  'voice.native.time.now': 'अभी',
+  'voice.native.time.morning': 'सुबह',
+  'voice.native.time.afternoon': 'दोपहर',
+  'voice.native.time.evening': 'शाम',
+  'voice.native.time.night': 'रात',
+  'voice.native.stop.next': 'अगला स्टॉप: {name}, {count} बच्चे',
+  'voice.native.stop.approaching': '{name} पहुँचने वाले हैं, {count} बच्चे',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'SBT',

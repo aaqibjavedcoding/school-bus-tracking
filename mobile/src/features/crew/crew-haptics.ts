@@ -18,7 +18,7 @@ import type { CrewFeedbackEvent, CrewFeedbackEventType } from './crew-voice.ts';
  *
  * | felt as            | means                        | events                                    |
  * | ------------------ | ---------------------------- | ----------------------------------------- |
- * | light tap          | "recorded"                   | board / drop confirmed, trip transitions  |
+ * | light tap          | "recorded"                   | board / drop, trip transitions, next stop |
  * | error buzz         | "that did not happen"        | rejection, 409, network failure           |
  * | success buzz       | "the big thing went through" | SOS delivered, offline queue drained      |
  * | selection tick     | "I am registering your input"| SOS hold started, GPS toggled             |
@@ -78,6 +78,11 @@ export const HAPTIC_BY_EVENT: Readonly<Record<CrewFeedbackEventType, HapticPatte
   'offline.synced': HapticPattern.success,
   'gps.on': HapticPattern.selection,
   'gps.off': HapticPattern.selection,
+  // Batch 3C: a next-stop announcement is information the crew did not ask
+  // for, so it gets the lightest "something happened" tap — a buzz that
+  // confirms the announcement is the phone's own, not a pothole.
+  'stop.next': HapticPattern.light,
+  'stop.approaching': HapticPattern.light,
 };
 
 /** The pattern for an event. Total — every event has one. */

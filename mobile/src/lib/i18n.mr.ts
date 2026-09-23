@@ -357,12 +357,22 @@ export const mr: Dictionary = {
   'settings.sound.vibrationA11y': 'कंपन पुष्टी',
   'settings.sound.noEngineNote':
     'आवाज नाही? तुमच्या फोनमध्ये बोलण्याचा इंजिन नसू शकतो — अ‍ॅप तरीही प्रत्येक कारवाई नोंदवतो.',
+  'settings.sound.nativeVoiceTitle': '{language} आवाज स्थापित नाही',
+  'settings.sound.nativeVoiceBody':
+    'घोषणा इंग्रजीत बोलल्या जातात. Android सेटिंग्ज → टेक्स्ट-टू-स्पीच मध्ये {language} आवाज स्थापित करा.',
 
   // ── Voice phrases (SPOKEN, never rendered — see `crew-voice.ts`) ───────
   //
-  // Latin-script Marathi, for the same device reason as the Hindi phrases:
-  // the default `en-IN` voice reads it cleanly; an `mr-IN` pack is usually
-  // absent. Budget: 6–9 words — the driver is listening while driving.
+  // `voice.*` is **Latin-script Marathi** — the fallback, for the same device
+  // reason as Hindi: the default `en-IN` voice reads it cleanly, and an
+  // `mr-IN` pack is usually absent.
+  //
+  // `voice.native.*` carries the same lines in **Devanagari** — real Marathi,
+  // spoken only when the phone actually has an `mr-IN` voice
+  // (`resolveVoicePlan()`, `crew-voice.ts`). The screen stays Devanagari
+  // either way; the two channels are separate.
+  //
+  // Budget: 6–9 words — the driver is listening while driving.
   'voice.board.done': '{name} bas madhe aaun gele, {time}',
   'voice.drop.done': '{name} bas madheun uatla, {time}',
   'voice.board.summary': '{count} balek bas madhe aaun gele',
@@ -380,6 +390,31 @@ export const mr: Dictionary = {
   'voice.time.afternoon': 'dopahar',
   'voice.time.evening': 'shaam',
   'voice.time.night': 'raat',
+  // Next-stop announcements (batch 3C) — driver AND conductor.
+  'voice.stop.next': 'Pudhil stop: {name}, {count} balek',
+  'voice.stop.approaching': '{name} pohochat aahot, {count} balek',
+  // Devanagari — spoken ONLY when the phone has an `mr-IN` voice installed.
+  // A student's first name keeps whatever script the school typed it in; an
+  // `mr-IN` engine reads a Latin name inside a Marathi sentence correctly.
+  'voice.native.board.done': '{name} बसमध्ये चढला, {time}',
+  'voice.native.drop.done': '{name} बसमधून उतरला, {time}',
+  'voice.native.board.summary': '{count} मुले बसमध्ये चढली',
+  'voice.native.drop.summary': '{count} मुले बसमधून उतरली',
+  'voice.native.trip.boarding': 'चढणे सुरू झाले',
+  'voice.native.trip.inProgress': 'प्रवास सुरू, सावधानतेने चालवा',
+  'voice.native.trip.completed': 'प्रवास पूर्ण झाला, धन्यवाद',
+  'voice.native.sos.fired': 'आपत्कालीन सूचना शाळेला पाठवली',
+  'voice.native.sos.queued': 'नेटवर्क नाही, आपत्कालीन सूचना पुन्हा पाठवली जाईल',
+  'voice.native.offline.synced': '{count} कामे पाठवली गेली',
+  'voice.native.gps.on': 'लोकेशन पाठवणे सुरू',
+  'voice.native.gps.off': 'लोकेशन पाठवणे बंद',
+  'voice.native.time.now': 'आताच',
+  'voice.native.time.morning': 'सकाळी',
+  'voice.native.time.afternoon': 'दुपारी',
+  'voice.native.time.evening': 'संध्याकाळी',
+  'voice.native.time.night': 'रात्री',
+  'voice.native.stop.next': 'पुढील स्टॉप: {name}, {count} मुले',
+  'voice.native.stop.approaching': '{name} पोहोचत आहोत, {count} मुले',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'SBT',

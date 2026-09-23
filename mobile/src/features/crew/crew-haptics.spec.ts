@@ -31,6 +31,9 @@ const ALL_EVENTS: CrewFeedbackEventType[] = [
   'offline.synced',
   'gps.on',
   'gps.off',
+  // Batch 3C — the next-stop announcements.
+  'stop.next',
+  'stop.approaching',
 ];
 
 describe('the event → pattern table', () => {
@@ -81,6 +84,17 @@ describe('the event → pattern table', () => {
   test('trip transitions share the light "recorded" pattern', () => {
     for (const type of ['trip.boarding', 'trip.inProgress', 'trip.completed'] as const) {
       assert.equal(hapticFor({ type } as CrewFeedbackEvent), HapticPattern.light);
+    }
+  });
+
+  test('a next-stop announcement is a light tap — information, not an outcome', () => {
+    // Batch 3C: the crew did not ask for it, so it gets the lightest "something
+    // happened" pattern. The tap also answers a question a driver cannot: was
+    // that sentence the phone, or the road?
+    for (const type of ['stop.next', 'stop.approaching'] as const) {
+      const event = { type, stopName: 'Shivaji Chowk', studentCount: 12 } as CrewFeedbackEvent;
+      assert.equal(hapticFor(event), HapticPattern.light);
+      assert.ok(isUnthrottled(hapticFor(event)), 'a reminder must never be swallowed by a gate');
     }
   });
 });

@@ -91,4 +91,12 @@ export { feedback, defaultSoundSettings } from './crew-feedback';
 export type { SoundSettings } from './crew-feedback';
 export type { CrewFeedbackEvent } from './crew-voice';
 export { FeedbackProvider, useSoundSettings } from './FeedbackProvider';
+export type { VoiceSupport } from './FeedbackProvider';
 export { SoundSettingsCard } from './SoundSettingsCard';
+/**
+ * Batch 3C — next-stop announcements. ONE announcer for BOTH crew roles
+ * (`next-stop-announcer.ts` is the policy, spec'd; this is the React glue),
+ * reporting through the same `feedback` dispatcher as every other event.
+ */
+export { useNextStopAnnouncements } from './useNextStopAnnouncements';
+export type { NextStopAnnouncementSource } from './useNextStopAnnouncements';
