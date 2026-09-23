@@ -49,6 +49,20 @@ function everyNavItem(): Array<{ role: string; item: NavItem }> {
   return entries;
 }
 
+describe('public landing and school dashboard routes', () => {
+  it('serves a public introduction at / and keeps the dashboard behind /dashboard', () => {
+    const landing = path.resolve(here, '..', 'app', 'page.tsx');
+    const source = fs.readFileSync(landing, 'utf8');
+    assert.ok(fs.existsSync(pageFileFor('/dashboard')), 'the school dashboard has a page');
+    assert.match(source, /href="\/login"/, 'the public page links to the real login');
+    assert.match(source, /href="#demo"/, 'the demo is accessible without signing in');
+    assert.match(source, /<DemoPreview\s*\/>/, 'the page renders the interactive preview');
+    assert.equal(canAccessPath(UserRole.SCHOOL_ADMIN, '/dashboard'), true);
+    assert.equal(canAccessPath(UserRole.PARENT, '/dashboard'), false);
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/dashboard'), false);
+  });
+});
+
 describe('sidebar navigation targets', () => {
   it('renders a real page for every nav entry of every role', () => {
     const missing = everyNavItem()

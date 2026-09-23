@@ -29,6 +29,7 @@ export interface NavItem {
  *
  * The platform SUPER_ADMIN is not a school user: it lands on the platform
  * console (`/admin`), while school roles land in their tenant workspace.
+ * `/` is the public introduction, not the school operations dashboard.
  */
 export function homePath(role: UserRole): string {
   switch (role) {
@@ -40,7 +41,7 @@ export function homePath(role: UserRole): string {
     case UserRole.PARENT:
       return '/parent';
     default:
-      return '/';
+      return '/dashboard';
   }
 }
 
@@ -80,7 +81,7 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
       ];
     case UserRole.SCHOOL_ADMIN:
       return [
-        { href: '/', label: 'Dashboard', icon: 'home' },
+        { href: '/dashboard', label: 'Dashboard', icon: 'home' },
         { href: '/students', label: 'Students', icon: 'users' },
         { href: '/buses', label: 'Buses', icon: 'bus' },
         { href: '/routes', label: 'Routes', icon: 'route' },
@@ -149,8 +150,14 @@ const MANAGED_ALLOWED_PREFIXES = MANAGED_NAV_ITEMS.map((item) => item.href);
  * SUPER_ADMIN for as long as an assisted-management session is active — and
  * only those sections.
  */
-export function canAccessPath(role: UserRole, pathname: string, managedSchoolActive = false): boolean {
-  if (pathname === '/login') return true;
+export function canAccessPath(
+  role: UserRole,
+  pathname: string,
+  managedSchoolActive = false,
+): boolean {
+  // These public pages live outside the authenticated layout. Keeping them
+  // explicitly public also makes the route policy unambiguous to callers.
+  if (pathname === '/' || pathname === '/login') return true;
 
   // The platform console belongs exclusively to the SUPER_ADMIN.
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
@@ -173,9 +180,6 @@ export function canAccessPath(role: UserRole, pathname: string, managedSchoolAct
     allowed.add(prefix);
   }
 
-  if (pathname === '/') {
-    return allowed.has('/') || role === UserRole.SCHOOL_ADMIN;
-  }
   for (const href of allowed) {
     if (href === '/admin') continue;
     if (pathname === href || pathname.startsWith(`${href}/`)) {
