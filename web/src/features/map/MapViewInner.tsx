@@ -123,7 +123,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const busElementRef = useRef<HTMLDivElement | null>(null);
   const busPopupRef = useRef<maplibregl.Popup | null>(null);
-  const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
+  // 3E speed: keep stop markers by id so we don't recreate all on highlight change.
+  const stopMarkersRef = useRef<Map<string, { marker: maplibregl.Marker; element: HTMLDivElement }>>(
+    new Map(),
+  );
   const motionRef = useRef(createBusMotion({ reducedMotion }));
   const frameRef = useRef<number | null>(null);
   const lastFrameAtRef = useRef(0);
@@ -471,7 +474,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       busMarkerRef.current = null;
       busElementRef.current = null;
       busPopupRef.current = null;
-      stopMarkersRef.current = [];
+      for (const { marker } of stopMarkersRef.current.values()) {
+        marker.remove();
+      }
+      stopMarkersRef.current.clear();
     };
     // Run once when webglSupported becomes true — lineCoords/mappedStops are
     // read inside the load handler via dispatch/fitToData and re-creating the
@@ -522,24 +528,53 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
   }, [fix, presentation.accuracyCircleMeters]);
 
-  // Stop markers
+  // Stop markers — diff by id, avoid full recreate on highlight change (3E speed).
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Clear old
-    for (const m of stopMarkersRef.current) {
-      m.remove();
-    }
-    stopMarkersRef.current = [];
+    const existing = stopMarkersRef.current;
+    const nextIds = new Set(mappedStops.map((s) => s.id));
 
+    // Remove markers for stops that no longer exist.
+    for (const [id, entry] of existing) {
+      if (!nextIds.has(id)) {
+        entry.marker.remove();
+        existing.delete(id);
+      }
+    }
+
+    // Add or update markers.
     for (const stop of mappedStops) {
       const kind = highlightStopId === stop.id ? 'current' : 'plain';
-      const el = createStopMarkerElement(
-        stop.sequence_number,
-        kind as 'plain' | 'current',
-        stop.name,
-      );
+      const entry = existing.get(stop.id);
+      if (entry) {
+        // Update position if changed (cheap) and kind class.
+        entry.marker.setLngLat([stop.longitude, stop.latitude]);
+        const el = entry.element;
+        // Keep label text in sync if sequence/name changed.
+        const labelSpan = el.querySelector('.stop-marker-label') as HTMLSpanElement | null;
+        const expectedLabel = `${stop.sequence_number}. ${stop.name}`;
+        if (labelSpan && labelSpan.textContent !== expectedLabel) {
+          labelSpan.textContent = expectedLabel;
+        }
+        // Update first text node (sequence number) and class.
+        if (el.firstChild && el.firstChild.nodeType === 3) {
+          const seqText = String(stop.sequence_number);
+          if (el.firstChild.textContent !== seqText) el.firstChild.textContent = seqText;
+        } else {
+          // Fallback: recreate if structure unexpected.
+          el.textContent = String(stop.sequence_number);
+          const lbl = document.createElement('span');
+          lbl.className = 'stop-marker-label';
+          lbl.textContent = expectedLabel;
+          el.appendChild(lbl);
+        }
+        el.className = `stop-marker ${kind}`;
+        continue;
+      }
+
+      const el = createStopMarkerElement(stop.sequence_number, kind as 'plain' | 'current', stop.name);
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([stop.longitude, stop.latitude])
         .addTo(map);
@@ -550,17 +585,22 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         }`,
       );
       marker.setPopup(popup);
-
-      stopMarkersRef.current.push(marker);
+      existing.set(stop.id, { marker, element: el });
     }
-
-    return () => {
-      for (const m of stopMarkersRef.current) {
-        m.remove();
-      }
-      stopMarkersRef.current = [];
-    };
   }, [mappedStops, highlightStopId]);
+
+  // Highlight-only update: when only highlightStopId changes, avoid re-diffing all stops
+  // by just toggling the class on the two affected markers. The main effect above already
+  // handles highlight, but this extra effect ensures we don't re-create popups.
+  useEffect(() => {
+    for (const [id, entry] of stopMarkersRef.current) {
+      const shouldBeCurrent = id === highlightStopId;
+      const isCurrent = entry.element.classList.contains('current');
+      if (shouldBeCurrent !== isCurrent) {
+        entry.element.className = `stop-marker ${shouldBeCurrent ? 'current' : 'plain'}`;
+      }
+    }
+  }, [highlightStopId]);
 
   // Bus marker creation / fix handling (motion machine)
   useEffect(() => {

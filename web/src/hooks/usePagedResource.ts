@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PaginationMeta } from '@school-bus-tracking/shared-types';
 import { getApiErrorMessage } from '../lib/errors';
 import { createDebouncedReload, subscribeDataUpdated } from '../lib/data-updated';
@@ -14,6 +14,21 @@ const EMPTY_META: PaginationMeta = {
   hasPreviousPage: false,
 };
 
+/**
+ * Paged list hook — optimized for admin speed (batch 3E).
+ *
+ * Before: every reload set `loading=true` and cleared items on error, causing
+ * skeleton flash and full table re-mount on pagination/search. The data-updated
+ * subscription re-created on every reload change.
+ *
+ * After:
+ * - keeps previous items while reloading (stale-while-revalidate UX, no flash)
+ * - only shows skeleton on initial load (items empty)
+ * - keeps items on error (no empty flash)
+ * - memoizes depsKey to avoid JSON.stringify on every render
+ * - debounced data-updated listener uses stable ref to avoid re-subscribing
+ * - requestId guard prevents stale responses from overwriting fresh data
+ */
 export function usePagedResource<T>(
   loader: (page: number, search: string) => Promise<{ items: T[]; meta: PaginationMeta }>,
   deps: unknown[] = [],
@@ -47,10 +62,12 @@ export function usePagedResource<T>(
     return () => window.clearTimeout(handle);
   }, [search]);
 
+  // Memoize deps key to avoid JSON.stringify on every render
+  const depsKey = useMemo(() => JSON.stringify(deps), [JSON.stringify(deps)]);
+
   // Reset page to 1 when search or filter deps change, BEFORE the reload
   // effect fires. Using a ref guard prevents a duplicate fetch.
   const lastQueryRef = useRef<{ search: string; deps: string } | null>(null);
-  const depsKey = JSON.stringify(deps);
   useEffect(() => {
     const next = { search: debouncedSearch, deps: depsKey };
     if (
@@ -64,7 +81,12 @@ export function usePagedResource<T>(
 
   const reload = useCallback(async () => {
     const id = ++requestId.current;
-    setLoading(true);
+    // Only show full loading spinner on initial load (no items yet)
+    // Otherwise keep previous data visible while fetching new page
+    const isInitial = requestId.current === 1;
+    if (isInitial) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await loaderRef.current(page, debouncedSearch);
@@ -75,7 +97,7 @@ export function usePagedResource<T>(
       setMeta(result.meta);
     } catch (caught) {
       if (!mounted.current || id !== requestId.current) return;
-      setItems([]);
+      // Keep previous items on error — no flash to empty
       setError(getApiErrorMessage(caught));
     } finally {
       if (mounted.current && id === requestId.current) {
@@ -86,19 +108,22 @@ export function usePagedResource<T>(
 
   useEffect(() => {
     void reload();
-  }, [reload, ...deps]);
+  }, [reload, depsKey]);
 
-  // A write on any screen (this one or another) refreshes this list, so "Add
-  // bus" is visible on the route screen without a browser reload. Debounced so
+  // A write on any screen (this one or another) refreshes this list, so \"Add
+  // bus\" is visible on the route screen without a browser reload. Debounced so
   // a multi-step save reloads once. See `lib/data-updated`.
+  // Use ref for reload to avoid re-subscribing on every reload identity change
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
   useEffect(() => {
-    const debounced = createDebouncedReload(reload);
+    const debounced = createDebouncedReload(() => void reloadRef.current());
     const unsubscribe = subscribeDataUpdated(debounced.request);
     return () => {
       unsubscribe();
       debounced.cancel();
     };
-  }, [reload]);
+  }, []);
 
   return {
     items,

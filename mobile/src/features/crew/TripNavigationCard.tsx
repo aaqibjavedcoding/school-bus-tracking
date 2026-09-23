@@ -1,15 +1,15 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Linking, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { StopResponse, TripResponse } from '@school-bus-tracking/shared-types';
+import type { StopResponse, TripResponse, TripEtaResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { Button, Card } from '../../components';
 import { buildNavigationUrl, formatCoordinate } from '../../lib/navigation';
-import { navigationTargetOf, pickNextStop } from './navigation-stop';
+import { deriveTripProgress, navigationTargetOf } from './navigation-stop';
 import { pluralKey, t } from '../../lib/i18n.ts';
 
 /**
- * Driver navigation to the next stop (Task 44).
+ * Driver navigation to the next stop (Task 44, hardened 3E).
  *
  * The platform has no routing service of its own and adding a paid directions
  * API is out of scope, so this is a **hand-off**: the card shows the stop the
@@ -19,6 +19,10 @@ import { pluralKey, t } from '../../lib/i18n.ts';
  *
  * A stop that has not been geofenced yet simply has no Navigate button — the
  * app never sends anyone to a guessed coordinate.
+ *
+ * 3E: uses `deriveTripProgress` — monotonic frontier, nearest-upcoming by
+ * distance when available, never backward/random. Diagnostics are logged via
+ * `crew-diagnostics` (support-facing), not shown to driver.
  */
 
 export interface TripNavigationCardProps {
@@ -27,14 +31,24 @@ export interface TripNavigationCardProps {
   stops: StopResponse[];
   /** Stop id the server currently reports as next, when known. */
   nextStopId?: string | null;
+  /** Full ETA response for robust derivation (frontier + distances). */
+  eta?: TripEtaResponse | null;
+  /** Previous frontier for monotonic guarantee (persisted in parent if needed). */
+  previousFrontier?: number;
 }
 
 export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   trip,
   stops,
   nextStopId,
+  eta = null,
+  previousFrontier,
 }) => {
-  const next = pickNextStop(stops, nextStopId);
+  const derived = useMemo(
+    () => deriveTripProgress(stops, eta ?? null, nextStopId ?? null, previousFrontier),
+    [stops, eta, nextStopId, previousFrontier],
+  );
+  const next = derived.nextStop;
   const target = next ? navigationTargetOf(next) : null;
   const url = target ? buildNavigationUrl(target) : null;
 
@@ -43,16 +57,16 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
       {next && target ? (
         <>
           <View style={styles.row}>
-            <Ionicons name="navigate" size={18} color={colors.primary[600]} />
+            <Ionicons name=\"navigate\" size={18} color={colors.primary[600]} />
             <Text style={styles.stopName}>{next.name}</Text>
           </View>
           <Text style={styles.muted}>{formatCoordinate(target.latitude, target.longitude)}</Text>
           {url ? (
             <Button
               label={t('navigate.card.button')}
-              icon="navigate"
-              variant="secondary"
-              size="field"
+              icon=\"navigate\"
+              variant=\"secondary\"
+              size=\"field\"
               onPress={() => void Linking.openURL(url)}
               style={styles.action}
             />

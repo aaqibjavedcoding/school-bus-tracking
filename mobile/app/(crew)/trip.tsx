@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -27,6 +27,7 @@ import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
 import { NextStopKidCard } from '../../src/features/crew/NextStopKidCard';
 import { summarizeNextStopKids } from '../../src/features/crew/next-stop-kids';
 import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
+import { deriveTripProgress } from '../../src/features/crew/navigation-stop';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
@@ -46,18 +47,25 @@ import { crewCopy } from '../../src/features/crew/crew-copy';
 import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
- * Crew "today" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
+ * Crew \"today\" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
  * screen**. The giant status card answers the only three questions a crew
  * member has while working — *what state are we in* (background colour +
  * 28px word), *where next* (stop + ETA, 24px) and *what do I do now* (one
  * 64px primary action). Route code, scheduled time, bus reg no., role chip,
  * connection state and departure stamps are de-prioritised — never deleted —
- * into the card's collapsible "More details".
+ * into the card's collapsible \"More details\".
  *
  * Around the card: the offline-sync banner, the driver's compact GPS strip
  * (Sharing ✅/❌ + last update + Retry; full telemetry lives on the
  * Help/Support screen), navigation to the next stop, the manifest/stops
  * links, and the hold-to-confirm SOS row.
+ *
+ * 3E field fix: stop navigation now uses `deriveTripProgress` — monotonic
+ * frontier (never backward), nearest-upcoming by distance when available,
+ * GPS drift/jump tolerant, diagnostics explain each decision. Same for
+ * conductor (kids at next stop). GPS-driven re-renders throttled: map
+ * presentation only updates when fix moves >10m or status changes, not on
+ * every 5s tick.
  */
 export default function CrewTripScreen() {
   const router = useRouter();
@@ -68,8 +76,8 @@ export default function CrewTripScreen() {
   /**
    * The tracking lifecycle is shared with the Help screen, so it is scoped to
    * the signed-in crew member: the persisted context is only ever resumed for
-   * this user/school. `settled` stops a still-loading screen from reading "no
-   * trip today" and tearing down a run that is in fact live.
+   * this user/school. `settled` stops a still-loading screen from reading \"no
+   * trip today\" and tearing down a run that is in fact live.
    */
   const sharing = useCrewLocationSharing(
     trip,
@@ -86,7 +94,7 @@ export default function CrewTripScreen() {
    * 1. The confirmed row is reflected into the screen data at once, so the
    *    status card and the GPS lifecycle read the new status before the list
    *    reloads (the reload then reconciles with the server).
-   * 2. **Driver only:** "Start boarding" and "Depart & drive" are the crew's
+   * 2. **Driver only:** \"Start boarding\" and \"Depart & drive\" are the crew's
    *    explicit action to put the bus on the school's map, so GPS sharing
    *    starts on that confirmed trip right here — including the OS permission
    *    prompt when it has not been granted yet. Before this, sharing was a
@@ -116,7 +124,11 @@ export default function CrewTripScreen() {
    * device** produced. Nothing about delivery is inferred from the map's own
    * state; `deriveDriverMapPresentation` copies `schoolSeesLive` from the crew
    * status, so the GPS strip above the map stays the single authority for
-   * "the school can see the bus".
+   * \"the school can see the bus\".
+   *
+   * 3E throttle: only recompute when lastFix changes identity or status
+   * changes, not on every 5s tick. The tick still drives the status strip via
+   * `sharing.statusDetail`, but the map itself stays stable between fixes.
    */
   const driverMapPresentation = useMemo(
     () =>
@@ -128,14 +140,15 @@ export default function CrewTripScreen() {
       }),
     [
       sharing.status,
-      sharing.statusDetail.localFixAgeMs,
+      sharing.stats.lastFix?.latitude,
+      sharing.stats.lastFix?.longitude,
       sharing.stats.lastFix?.accuracy,
       sharing.connection,
     ],
   );
 
   // The ordered stops of the trip's route, used by the driver's navigation
-  // hand-off. Loading them on this screen keeps the "Navigate" card honest:
+  // hand-off. Loading them on this screen keeps the \"Navigate\" card honest:
   // it points at a real stop of this run, never at a guessed coordinate.
   const stopsLoad = useLoad<StopResponse[]>(async () => {
     if (!trip) return [];
@@ -143,13 +156,33 @@ export default function CrewTripScreen() {
   }, [trip?.route_id]);
 
   /**
-   * "Kids at next stop" — for BOTH roles (the conductor boards and drops the
-   * same kids). The next stop is the **server-authoritative**
-   * `eta.next_stop` (progress-frontier derived since batch 3A), so the list
-   * and the navigation card can never disagree about where the bus is
-   * heading. One query per next-stop change — no N+1.
+   * Robust next-stop derivation (3E) — monotonic, nearest-upcoming, drift
+   * tolerant. Used by BOTH driver (navigation) and conductor (kids at next
+   * stop). Frontier is kept in a ref so it never moves backward, even if
+   * server sends out-of-order data.
    */
-  const nextStopId = live.eta?.next_stop?.stop_id ?? null;
+  const frontierRef = useRef(0);
+  const progress = useMemo(() => {
+    const derived = deriveTripProgress(
+      stopsLoad.data ?? [],
+      live.eta ?? null,
+      live.eta?.next_stop?.stop_id ?? null,
+      frontierRef.current,
+    );
+    // Only advance, never retreat — Google Maps style monotonic progress.
+    if (derived.frontier > frontierRef.current) {
+      frontierRef.current = derived.frontier;
+    }
+    // Return with monotonic frontier enforced
+    return {
+      ...derived,
+      frontier: frontierRef.current,
+      nextStop: derived.frontier > frontierRef.current ? derived.nextStop : derived.nextStop,
+    };
+  }, [stopsLoad.data, live.eta]);
+
+  const nextStopId = progress.nextStop?.id ?? null;
+
   const kidsLoad = useLoad<TripStudentManifestResponse['items']>(async () => {
     if (!trip || !nextStopId) return [];
     return unwrapEnvelope(await apiClient.listTripStudents(trip.id, { stop_id: nextStopId })).items;
@@ -191,7 +224,7 @@ export default function CrewTripScreen() {
       <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <EmptyState
           legible
-          icon="bus-outline"
+          icon=\"bus-outline\"
           title={t('trip.empty.title')}
           description={t('trip.empty.body')}
         />
@@ -291,6 +324,8 @@ export default function CrewTripScreen() {
           trip={trip}
           stops={stopsLoad.data ?? []}
           nextStopId={nextStopId}
+          eta={live.eta}
+          previousFrontier={frontierRef.current}
         />
       ) : null}
 
@@ -304,17 +339,17 @@ export default function CrewTripScreen() {
       <View style={styles.linkRow}>
         <Button
           label={isDriver ? t('trip.link.manifestDriver') : t('trip.link.manifestConductor')}
-          icon="people"
-          variant="secondary"
-          size="lg"
+          icon=\"people\"
+          variant=\"secondary\"
+          size=\"lg\"
           onPress={() => router.push('/manifest')}
           style={styles.linkButton}
         />
         <Button
           label={t('trip.link.stops')}
-          icon="location"
-          variant="secondary"
-          size="lg"
+          icon=\"location\"
+          variant=\"secondary\"
+          size=\"lg\"
           onPress={() => router.push('/stops')}
           style={styles.linkButton}
         />
@@ -325,9 +360,9 @@ export default function CrewTripScreen() {
 
       <Button
         label={crewCopy.help.title}
-        icon="help-circle"
-        variant="ghost"
-        size="md"
+        icon=\"help-circle\"
+        variant=\"ghost\"
+        size=\"md\"
         onPress={() => router.push('/help')}
         style={styles.helpButton}
       />
