@@ -20,6 +20,12 @@ import { NoOpPushProvider } from './noop-push.provider';
  * rail that fails to parse falls back to "that rail unavailable" with a
  * warning — never to a silent success. Credential values are never logged or
  * echoed; only the absence/invalidity of a configuration is reported.
+ *
+ * The selection is logged once, here, at provider construction (server boot
+ * builds it through the delivery worker): which rails are active — or, when
+ * the NoOp is about to run **in production**, an unmissable error. A
+ * deployment whose credentials are missing, misnamed or malformed must never
+ * discover at the first school emergency that no push ever left the server.
  */
 export function createPushProvider(options: {
   serviceAccountJson?: string | null;
@@ -36,8 +42,24 @@ export function createPushProvider(options: {
   const apns = buildApns(options, logger);
 
   if (!fcm && !apns) {
+    if (process.env.NODE_ENV === 'production') {
+      logger.error(
+        'PUSH DELIVERY IS DISABLED IN PRODUCTION — the NoOpPushProvider is active because no push rail is configured. ' +
+          'Set FIREBASE_SERVICE_ACCOUNT_JSON (Android FCM) and/or APNS_KEY_PEM + APNS_KEY_ID + APNS_TEAM_ID + APNS_TOPIC (iOS). ' +
+          'Until then NO notification will reach any device.',
+      );
+    } else {
+      logger.log(
+        'NoOpPushProvider active — no push rail configured (set FIREBASE_SERVICE_ACCOUNT_JSON for Android FCM; expected in local dev and CI).',
+      );
+    }
     return new NoOpPushProvider();
   }
+
+  const rails = [fcm ? 'Android FCM' : null, apns ? 'iOS direct APNs' : null]
+    .filter((rail): rail is string => rail !== null)
+    .join(' + ');
+  logger.log(`Push rails active: ${rails}`);
   return new PushDeliveryRouter(fcm, apns);
 }
 
