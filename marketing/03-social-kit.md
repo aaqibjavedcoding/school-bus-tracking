@@ -238,6 +238,39 @@ Instagram: 3 broad + 3 niche + 2 local ≈ 8–12 tags. LinkedIn: 3 maximum, at 
 
 ---
 
+## Static assets (`statics/`)
+
+Two non-video assets carry the campaign when a video is the wrong tool:
+
+| Asset | Size / format | Where it goes |
+| --- | --- | --- |
+| `statics/carousel_schools/01.jpg … 06.jpg` | 1080 × 1350 (4:5) JPEG | **Instagram + LinkedIn carousel** — "Five things your register cannot tell you", one feature per slide, CTA on the last slide. Post it as a carousel (swipe), never as six single posts |
+| `statics/whatsapp/kidbus-one-pager.jpg` | 1080 × 1920 JPEG | **WhatsApp / Telegram forward** — the sheet you send to a principal who will not watch a 60 s video. Six numbered benefits, the offer band, your contact |
+| `statics/whatsapp/kidbus-one-pager.pdf` | A4 PDF | Email attachment, printed handout at a school visit |
+
+**Carousel caption (paste with the carousel):**
+
+> Five things your paper register cannot tell you 🙏🚌
+> Where the bus is right now · which child actually boarded · who responded in an emergency · which
+> document expires next week · and the attendance report your office can hand to an inspector.
+> All five, one platform. KidBus, by ZeroMileSystems.com
+> Free 30-day pilot for the first 10 schools → DM "PILOT" or zeromilesystems@gmail.com
+> #SchoolBusSafety #SchoolManagement #EdTechIndia #KidBus #SchoolTransport
+
+**How to use the one-pager on WhatsApp** (this converts better than a video link, because nothing has
+to load): send the image with *no* text first, then one line —
+
+> Sir/Madam, this is what your school gets. 30-day free pilot, first 10 schools. Shall I set up a
+> 15-minute demo this week? — ZeroMileSystems
+
+Static assets are rebuilt from the same brand tokens as the films:
+
+```bash
+python3 tools/make_statics.py     # carousel + one-pager (+ PDF)
+```
+
+---
+
 ## Posting plan (4 weeks, no extra video needed)
 
 | Day | Post | Channel |
