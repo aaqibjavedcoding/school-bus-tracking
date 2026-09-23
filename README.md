@@ -42,18 +42,22 @@ plus **one Expo/React Native app** shared by drivers, conductors, parents and sc
 `DRIVER`, `CONDUCTOR`, `PARENT`. `SUPER_ADMIN` is platform-level and owns **no** `school_id`;
 every other role is scoped to exactly one school tenant.
 
-| Role           | Web surface                    | Mobile surface                                          | What they do                                                                                                                                                                           |
-| -------------- | ------------------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SUPER_ADMIN`  | `/admin/*` platform console    | `/platform` notice screen only (console is web-only)    | Onboard/suspend schools, manage school admins, define plans, assign/extend/cancel subscriptions, revenue estimates, audit log, and **"Manage data"** assisted sessions inside a tenant |
-| `SCHOOL_ADMIN` | `/` dashboard + 14 nav entries | `(admin)` 6 tabs + hidden CRUD screens                  | Full fleet/route/people/trip/attendance/tracking/documents/emergency management, reports, Excel import/export                                                                          |
-| `DRIVER`       | `/crew`                        | `(crew)` — Trip tab leads with navigation + GPS sharing | Start/close the trip, share GPS (foreground + background), manifest, stop ETA, SOS                                                                                                     |
-| `CONDUCTOR`    | `/crew`                        | `(crew)` — Manifest leads                               | Same crew surface; emphasis on boarding/dropping children, SOS                                                                                                                         |
-| `PARENT`       | `/parent/*`                    | `(parent)` — Home / Track / Alerts                      | See children + exact bus/driver, live map + ETA + next stop, notification centre with unread badge                                                                                     |
+| Role           | Web surface                   | Mobile surface                                          | What they do                                                                                                                                                                           |
+| -------------- | ----------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPER_ADMIN`  | `/admin/*` platform console   | `/platform` notice screen only (console is web-only)    | Onboard/suspend schools, manage school admins, define plans, assign/extend/cancel subscriptions, revenue estimates, audit log, and **"Manage data"** assisted sessions inside a tenant |
+| `SCHOOL_ADMIN` | `/dashboard` + 14 nav entries | `(admin)` 6 tabs + hidden CRUD screens                  | Full fleet/route/people/trip/attendance/tracking/documents/emergency management, reports, Excel import/export                                                                          |
+| `DRIVER`       | `/crew`                       | `(crew)` — Trip tab leads with navigation + GPS sharing | Start/close the trip, share GPS (foreground + background), manifest, stop ETA, SOS                                                                                                     |
+| `CONDUCTOR`    | `/crew`                       | `(crew)` — Manifest leads                               | Same crew surface; emphasis on boarding/dropping children, SOS                                                                                                                         |
+| `PARENT`       | `/parent/*`                   | `(parent)` — Home / Track / Alerts                      | See children + exact bus/driver, live map + ETA + next stop, notification centre with unread badge                                                                                     |
+
+The public `/` page introduces the platform, links to `/login`, and includes an interactive,
+read-only sample trip at `/#demo`. This demo uses fictional data; it never exposes real trips,
+locations, or student information. After signing in, each role is sent to its own workspace.
 
 Web nav per role (source of truth: `web/src/lib/roles.ts`, mirrored client-side by `canAccessPath()`
 and server-side by `@Roles(...)` on every endpoint):
 
-- **SCHOOL_ADMIN**: `/` Dashboard, `/students`, `/buses`, `/routes`, `/staff`, `/assignments`,
+- **SCHOOL_ADMIN**: `/dashboard` Dashboard, `/students`, `/buses`, `/routes`, `/staff`, `/assignments`,
   `/shifts` (Shifts & runs), `/documents`, `/emergencies`, `/trips`, `/tracking`, `/attendance`,
   `/reports`, `/imports` — plus the detail deep links the guard grants
   (`/students/:studentId` — which owns the guardians panel —, `/buses/:busId/documents`,
@@ -1037,7 +1041,7 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 | Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
 | Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
 | Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_MAP_STYLE_URL` (optional, https-only — a self-hosted OpenFreeMap style; the map needs no key)                                                                                                                                       |
-| Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/bright`) |
+| Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/bright`)                                                                                         |
 
 Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.
