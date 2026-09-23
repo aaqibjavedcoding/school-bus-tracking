@@ -2,8 +2,8 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { TripAttendanceStatus } from '@school-bus-tracking/shared-types';
 import { borderRadius, colors, spacing } from '@school-bus-tracking/design-tokens';
-import { t, pluralKey, type TranslationKey } from '../../lib/i18n.ts';
-import { useTranslation } from '../../lib/i18n-provider.ts';
+import { t, pluralKey } from '../../lib/i18n.ts';
+import { useTranslation } from '../../lib/i18n-provider';
 import { settledSymbol } from './manifest-row.ts';
 import type { NextStopKidsSummary } from './next-stop-kids.ts';
 

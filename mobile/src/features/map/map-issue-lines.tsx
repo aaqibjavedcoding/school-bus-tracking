@@ -1,7 +1,7 @@
 import React, { useSyncExternalStore } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { colors } from '@school-bus-tracking/design-tokens';
-import { useTranslation } from '../../lib/i18n-provider.ts';
+import { useTranslation } from '../../lib/i18n-provider';
 import { t } from '../../lib/i18n.ts';
 import { getMapIssues, subscribeMapIssues } from './map-diagnostics.ts';
 
