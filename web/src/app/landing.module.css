@@ -104,26 +104,20 @@
   width: 42px;
   height: 42px;
   place-items: center;
-  background: var(--forest);
-  color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 6px 14px rgb(23 61 52 / 0.13);
+  flex-shrink: 0;
 }
 
-.brandMark svg {
-  width: 25px;
-  height: 25px;
+.brandMark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .brandName {
   font-size: 1.06rem;
-  font-weight: 650;
+  font-weight: 800;
   letter-spacing: -0.045em;
   white-space: nowrap;
-}
-
-.brandName strong {
-  font-weight: 800;
 }
 
 .nav {
@@ -798,14 +792,13 @@
   width: 26px;
   height: 26px;
   place-items: center;
-  background: var(--forest);
-  color: #fff;
-  border-radius: 7px;
+  flex-shrink: 0;
 }
 
-.previewBrandMark svg {
-  width: 19px;
-  height: 19px;
+.previewBrandMark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .previewDivider {
@@ -1257,12 +1250,6 @@
   gap: 25px;
 }
 
-.footerBrand .brandMark {
-  background: #f4c661;
-  color: var(--forest-dark);
-  box-shadow: none;
-}
-
 .footerBrand strong,
 .footerBrand small {
   display: block;
@@ -1431,11 +1418,6 @@
   .brandMark {
     width: 37px;
     height: 37px;
-  }
-
-  .brandMark svg {
-    width: 23px;
-    height: 23px;
   }
 
   .brandName {

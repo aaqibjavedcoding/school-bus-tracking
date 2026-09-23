@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import type { MapViewProps } from './types';
@@ -593,7 +594,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     if (busPopupRef.current) {
       const showSpeed = presentation.animate && fix.speed !== null;
       const html = `
-        <strong>School bus</strong>
+        <strong>${escapeHtml(APP_CONFIG.appName)}</strong>
         <div>${presentation.animate ? `Updated ${escapeHtml(formatRelative(fix.received_at))}` : `Last known ${escapeHtml(formatTime(fix.recorded_at))}`}</div>
         <div>${showSpeed ? escapeHtml(formatSpeedKmh(fix.speed)) : 'Speed not reported'}</div>
         ${fix.accuracy !== null && fix.accuracy > 50 ? `<div>Position approximate (±${Math.round(fix.accuracy)} m)</div>` : ''}

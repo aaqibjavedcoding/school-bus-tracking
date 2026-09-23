@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { ArrowIcon, BrandBusIcon, MarketingIcon } from './LandingIcons';
 import { DemoPreview } from './DemoPreview';
 import styles from './landing.module.css';
 
 export const metadata: Metadata = {
-  title: 'School Bus Tracking | Every school day, on the right track',
+  title: `${APP_CONFIG.appName} | Every school day, on the right track`,
   description:
     'A clearer school journey for everyone. Bring live bus tracking, routes, crew operations, and parent updates into one place.',
 };
@@ -30,13 +31,11 @@ export default function LandingPage() {
 
       <header className={styles.header}>
         <div className={`${styles.container} ${styles.headerInner}`}>
-          <a href="#top" className={styles.brand} aria-label="School Bus Tracking, back to top">
+          <a href="#top" className={styles.brand} aria-label={`${APP_CONFIG.appName}, back to top`}>
             <span className={styles.brandMark}>
-              <BrandBusIcon />
+              <Image src="/kidbus-logo.png" alt="" width={42} height={42} priority />
             </span>
-            <span className={styles.brandName}>
-              School Bus <strong>Tracking</strong>
-            </span>
+            <span className={styles.brandName}>{APP_CONFIG.appName}</span>
           </a>
           <nav className={styles.nav} aria-label="Main navigation">
             <a href="#features">Why it matters</a>
@@ -301,10 +300,10 @@ export default function LandingPage() {
         <div className={`${styles.container} ${styles.footerInner}`}>
           <div className={styles.footerBrand}>
             <span className={styles.brandMark}>
-              <BrandBusIcon />
+              <Image src="/kidbus-logo.png" alt="" width={42} height={42} />
             </span>
             <span>
-              <strong>School Bus Tracking</strong>
+              <strong>{APP_CONFIG.appName}</strong>
               <small>Better journeys start together.</small>
             </span>
           </div>

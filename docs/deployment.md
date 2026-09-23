@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes how to deploy the School Bus Tracking platform.
+This document describes how to deploy the KidBus platform.
 
 **No paid service/provider is included in this phase.**
 

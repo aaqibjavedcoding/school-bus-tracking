@@ -27,6 +27,8 @@ import type { Dictionary } from './i18n.en.ts';
  * Devanagari; only the speaker gets the Latin channel.
  */
 export const mr: Dictionary = {
+  // ── Brand (the product name is the same in every locale) ──────────────
+  'app.name': 'KidBus',
   // ── Crew navigation ────────────────────────────────────────────────────
   'nav.tab.drive': 'ड्राइव्ह',
   'nav.tab.trip': 'ट्रिप',
@@ -258,7 +260,7 @@ export const mr: Dictionary = {
   'gps.message.backgroundNeedsTrip': 'बॅकग्राउंड शेअरिंगसाठी सुरू असलेली ट्रिप आवश्यक आहे.',
   'gps.message.backgroundFailed': 'बॅकग्राउंड शेअरिंग चालू होऊ शकले नाही.',
   'gps.message.revoked': 'लाइव्ह ट्रॅकिंगचा प्रवेश रद्द झाला — शेअरिंग थांबवले आहे.',
-  'gps.service.title': 'शाळा बस GPS शेअरिंग',
+  'gps.service.title': 'KidBus GPS शेअरिंग',
   'gps.service.body': 'ट्रिप सुरू असताना हा फोन त्याची GPS शाळेला पाठवत आहे.',
   'gps.noTripBody': 'आज ट्रिप नाही — ट्रिप सुरू असताना GPS गणक इथे दिसतात.',
   'gps.driverOnlyTitle': 'GPS शेअरिंग',
@@ -417,8 +419,8 @@ export const mr: Dictionary = {
   'voice.native.stop.approaching': '{name} पोहोचत आहोत, {count} मुले',
 
   // ── Login ──────────────────────────────────────────────────────────────
-  'login.brandMark': 'SBT',
-  'login.brandName': 'School Bus Tracking',
+  'login.brandMark': 'KB',
+  'login.brandName': 'KidBus',
   'login.subtitle': 'तुमच्या शाळेच्या खात्याने लॉगिन करा',
   'login.schoolLabel': 'शाळेचा कोड',
   'login.schoolPlaceholder': 'उदा. lincoln-high',
@@ -487,7 +489,7 @@ export const mr: Dictionary = {
   'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
   'map.needsDevBuildBody':
     'Expo Go मध्ये map engine load होत नाही, म्हणून या build मध्ये map दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — map पाहण्यासाठी development build वापरा।',
-  'map.busA11y': 'शाळेची बस',
+  'map.busA11y': 'KidBus',
   'map.stopA11y': 'थांबा {number}',
   'map.stopLabel': '{number}. {name}',
   'map.issue.styleLoad': 'नकाशा लोड झाला नाही',

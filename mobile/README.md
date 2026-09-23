@@ -1,4 +1,4 @@
-# School Bus Tracking — Mobile App (Expo / React Native)
+# KidBus — Mobile App (Expo / React Native)
 
 One React Native app for **drivers**, **conductors**, **parents** and **school
 admins**. It talks to the existing API — now served by the `web` workspace as

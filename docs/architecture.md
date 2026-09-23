@@ -1,8 +1,8 @@
-# School Bus Tracking SaaS — Architecture Blueprint (Phase 1)
+# KidBus — Architecture Blueprint (Phase 1)
 
 ## 1. Executive Summary & Overview
 
-The **School Bus Tracking SaaS** platform is an enterprise-grade, multi-tenant solution designed to provide real-time bus location tracking, automated student boarding/deboarding verification, dynamic ETA calculation, and safety communications across educational institutions.
+The **KidBus** platform is an enterprise-grade, multi-tenant solution designed to provide real-time bus location tracking, automated student boarding/deboarding verification, dynamic ETA calculation, and safety communications across educational institutions.
 
 The platform serves four primary stakeholder groups:
 
@@ -212,7 +212,7 @@ Shared packages ensure zero type divergence and unified styling across the platf
 
 ## 8. Multi-Tenancy Architecture (Implemented)
 
-The School Bus Tracking platform is a shared-database, row-level multi-tenant SaaS: every tenant is a row in `schools` and every tenant-owned resource carries `school_id`, which is the isolation anchor throughout the API and database.
+The KidBus platform is a shared-database, row-level multi-tenant SaaS: every tenant is a row in `schools` and every tenant-owned resource carries `school_id`, which is the isolation anchor throughout the API and database.
 
 ### 8.1 Tenancy Model
 

@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import React, { useMemo, useState } from 'react';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { fullName, initials, roleLabel } from '../../lib/format';
 import { activeNavHref, navItemsForRole } from '../../lib/roles';
 import { useAuth } from '../../features/auth/AuthProvider';
@@ -42,9 +44,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       ) : null}
       <aside className={`sidebar ${open ? 'open' : ''}`.trim()} aria-label="Primary">
         <div className="sidebar-brand">
-          <span className="brand-mark">SBT</span>
+          <span className="brand-mark">
+            <Image src="/kidbus-logo.png" alt="" width={34} height={34} priority />
+          </span>
           <div className="brand-copy">
-            <h1>School Bus Tracking</h1>
+            <h1>{APP_CONFIG.appName}</h1>
             <p>Live fleet operations</p>
           </div>
         </div>

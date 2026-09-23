@@ -1,6 +1,6 @@
 # Infrastructure & Local Development Environment
 
-This directory houses container definitions and infrastructure scripts for the School Bus Tracking platform.
+This directory houses container definitions and infrastructure scripts for the KidBus platform.
 
 ## PostgreSQL + PostGIS
 

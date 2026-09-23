@@ -306,6 +306,8 @@ export function pluralKey<B extends PluralKeyBase>(
  */
 export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   'nav.tab.sos',
+  // The product name and its monogram are the same in every locale.
+  'app.name',
   'login.brandMark',
   'login.brandName',
   'login.emailPlaceholder',
@@ -319,6 +321,8 @@ export const LOCALE_INVARIANT_KEYS: readonly TranslationKey[] = [
   // are digits and stop names are data (never translated) — see the data
   // rule at the top of `i18n.en.ts`.
   'map.stopLabel',
+  // The map marker announces the vehicle by brand, which is not translated.
+  'map.busA11y',
   'manifest.confirmBoard',
   'manifest.confirmDrop',
   // Product/technical terms the diagnostics readout uses in every locale:

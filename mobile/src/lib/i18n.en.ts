@@ -24,6 +24,8 @@
  * them, so `t('board.done', { name })` without `time` will not compile.
  */
 export const en = {
+  // ── Brand ──────────────────────────────────────────────────────────────
+  'app.name': 'KidBus',
   // ── Crew navigation (tab bar + screen titles) ──────────────────────────
   'nav.tab.drive': 'Drive',
   'nav.tab.trip': 'Trip',
@@ -272,7 +274,7 @@ export const en = {
   'gps.message.revoked': 'Access to live tracking was revoked — sharing has stopped.',
   // Android foreground-service notification. Honest wording: the service shares
   // this device's GPS while the trip is active; it cannot promise delivery.
-  'gps.service.title': 'School Bus GPS sharing',
+  'gps.service.title': 'KidBus GPS sharing',
   'gps.service.body': 'Sharing this phone’s GPS with the school while the trip is active.',
   /**
    * The four support counters ("Sent", "Rejected", "Dropped (offline)",
@@ -452,8 +454,8 @@ export const en = {
   'voice.native.stop.approaching': 'Approaching {name}, {count} students',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
-  'login.brandMark': 'SBT',
-  'login.brandName': 'School Bus Tracking',
+  'login.brandMark': 'KB',
+  'login.brandName': 'KidBus',
   'login.subtitle': 'Sign in with your school account',
   'login.schoolLabel': 'School code',
   'login.schoolPlaceholder': 'e.g. lincoln-high',
@@ -538,7 +540,7 @@ export const en = {
   'map.needsDevBuildTitle': 'Map preview needs a development build',
   'map.needsDevBuildBody':
     'Expo Go cannot load the map engine, so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
-  'map.busA11y': 'School bus',
+  'map.busA11y': 'KidBus',
   'map.stopA11y': 'Stop {number}',
   'map.stopLabel': '{number}. {name}',
   'map.issue.styleLoad': 'Map failed to load',

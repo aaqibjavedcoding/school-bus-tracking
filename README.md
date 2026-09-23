@@ -1,4 +1,4 @@
-# School Bus Tracking SaaS
+# KidBus
 
 A production-grade, **multi-tenant school bus tracking platform**: real-time GPS bus tracking,
 student boarding/dropping verification, dynamic ETA, geofenced stop arrivals, compliance-document

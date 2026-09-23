@@ -1,5 +1,5 @@
 /**
- * Sequelize CLI configuration for the School Bus Tracking application.
+ * Sequelize CLI configuration for the KidBus application.
  *
  * The schema is migration-driven: `sequelize.sync()` is never used.
  * All paths are TypeScript. `ts-node` is registered by
