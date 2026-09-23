@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Redirect, useRouter } from 'expo-router';
 import { useAuth } from '../src/features/auth';
 import { LoadingView } from '../src/components';
+import { useTranslation } from '../src/lib/i18n-provider';
 import { homeRoute } from '../src/lib/roles';
 
 /**
@@ -12,6 +13,7 @@ import { homeRoute } from '../src/lib/roles';
  */
 export default function IndexGate() {
   const { status, user } = useAuth();
+  const t = useTranslation();
   const router = useRouter();
 
   useEffect(() => {
@@ -21,7 +23,7 @@ export default function IndexGate() {
   }, [status, router]);
 
   if (status === 'loading') {
-    return <LoadingView label="School Bus Tracking" />;
+    return <LoadingView label={t('app.name')} />;
   }
   if (status === 'authenticated' && user) {
     return <Redirect href={homeRoute(user.role)} />;

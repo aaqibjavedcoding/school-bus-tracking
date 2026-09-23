@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the security measures implemented in the School Bus Tracking platform.
+This document describes the security measures implemented in the KidBus platform.
 
 **No paid service/provider is included in this phase.**
 

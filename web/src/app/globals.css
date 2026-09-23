@@ -119,13 +119,11 @@ img {
 }
 
 .brand-mark {
-  background: var(--color-primary-500);
-  color: var(--color-navy);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  padding: 0.28rem 0.5rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
 }
 
 .brand-copy h1 {

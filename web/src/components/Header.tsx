@@ -1,4 +1,6 @@
 import React from 'react';
+import Image from 'next/image';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { colors } from '@school-bus-tracking/design-tokens';
 
 export interface HeaderProps {
@@ -20,17 +22,11 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        <div
-          style={{
-            backgroundColor: colors.primary[500],
-            color: colors.neutral[900],
-            fontWeight: 800,
-            fontSize: '1.25rem',
-            padding: '0.25rem 0.6rem',
-            borderRadius: '6px',
-          }}
-        >
-          SBT
+        <div style={{ display: 'grid', placeItems: 'center', width: 32, height: 32 }}>
+          {/* The brand mark is the shared public logo — the same file the
+              sidebar, login screen and landing page render. No brand text sits
+              beside it here, so the mark carries the name for assistive tech. */}
+          <Image src="/kidbus-logo.png" alt={APP_CONFIG.appName} width={32} height={32} priority />
         </div>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>{title}</h1>

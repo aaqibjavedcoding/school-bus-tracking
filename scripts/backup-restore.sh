@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Backup and restore workflow for the School Bus Tracking database.
+# Backup and restore workflow for the KidBus database.
 #
 # Uses PostgreSQL tools (pg_dump / pg_restore) for local development
 # and testing. This is NOT a production backup solution — production
@@ -212,7 +212,7 @@ case "${1:-help}" in
     do_list
     ;;
   help|*)
-    echo "School Bus Tracking — Database Backup/Restore"
+    echo "KidBus — Database Backup/Restore"
     echo ""
     echo "Usage:"
     echo "  $0 backup [output_file]    Create a backup"

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { ArrowIcon, BrandBusIcon, MarketingIcon } from './LandingIcons';
 import styles from './landing.module.css';
 
@@ -81,9 +83,9 @@ export function DemoPreview() {
       <div className={styles.previewTopbar}>
         <div className={styles.previewBrand}>
           <span className={styles.previewBrandMark}>
-            <BrandBusIcon />
+            <Image src="/kidbus-logo.png" alt="" width={26} height={26} />
           </span>
-          <strong>School Bus Tracking</strong>
+          <strong>{APP_CONFIG.appName}</strong>
           <span className={styles.previewDivider} aria-hidden="true" />
           <span>Product preview</span>
         </div>

@@ -2,9 +2,16 @@
  * Shared Configuration Defaults & Constants (Phase 1)
  */
 
+/**
+ * The product's own name lives here and nowhere else in code: the web console
+ * reads `appName` for its page titles and brand lockups instead of repeating a
+ * literal per screen. (The mobile app reads its copy from `src/lib/i18n.*`,
+ * which is the dictionary of record for every user-visible mobile string; the
+ * OS-level app name is declared once in `mobile/app.json`.)
+ */
 export const APP_CONFIG = {
-  appName: 'School Bus Tracking SaaS',
-  shortName: 'SBT',
+  appName: 'KidBus',
+  shortName: 'KB',
   version: '0.1.0',
   defaultApiPort: 3001,
   defaultWebPort: 3000,

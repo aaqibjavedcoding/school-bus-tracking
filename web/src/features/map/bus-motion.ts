@@ -77,7 +77,7 @@ export const MOTION_THRESHOLDS = {
   gapSnapMs: 45_000,
 
   /**
-   * Implied-speed ceiling for a *visual* move, ~120 km/h. A school bus does
+   * Implied-speed ceiling for a *visual* move, ~120 km/h. A KidBus run does
    * not exceed it, so a larger implied jump means the fix moved (tunnel exit,
    * urban-canyon multipath, a coarse network fix) rather than that the bus
    * travelled. Snap — never animate across the city.

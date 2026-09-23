@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
+import { APP_CONFIG } from '@school-bus-tracking/config';
 import { Providers } from '../components/Providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'School Bus Tracking',
+  title: APP_CONFIG.appName,
   description: 'Live school bus operations for admins, crew and parents',
 };
 

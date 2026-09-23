@@ -2,7 +2,7 @@
   "name": "school-bus-tracking",
   "version": "0.1.0",
   "private": true,
-  "description": "Production-grade, multi-tenant School Bus Tracking SaaS platform",
+  "description": "Production-grade, multi-tenant KidBus SaaS platform",
   "workspaces": [
     "web",
     "mobile",
