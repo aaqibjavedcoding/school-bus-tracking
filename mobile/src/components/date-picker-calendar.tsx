@@ -26,7 +26,7 @@ import { utcDateOnly } from '../lib/format';
  * `monthGrid` (see `src/lib/calendar.ts`), so February the 30th does not
  * exist as a button. That is what makes invalid dates impossible — there is
  * no text-entry path to fight. `minDate` / `maxDate` extend the guarantee:
- * out-of-window days, months and years render disabled, and the \"Today\"
+ * out-of-window days, months and years render disabled, and the "Today"
  * shortcut honours both bounds too.
  *
  * ### Month + year navigation
@@ -44,7 +44,7 @@ import { utcDateOnly } from '../lib/format';
  *
  * Single-tap confirms: pressing a day calls `onConfirm` with its
  * `YYYY-MM-DD` and closes, matching the native date pickers' form-field
- * behaviour (no extra \"OK\" step between picking and continuing).
+ * behaviour (no extra "OK" step between picking and continuing).
  *
  * ### Android device fix (field batch 3E)
  *
@@ -101,9 +101,9 @@ export interface CalendarPickerProps {
   /** Called with the picked day (`YYYY-MM-DD`) — the picker also closes. */
   onConfirm: (date: string) => void;
   onClose: () => void;
-  /** Shows the \"Clear\" action (optional date fields). */
+  /** Shows the "Clear" action (optional date fields). */
   allowClear?: boolean;
-  /** Called by \"Clear\" — removes the value and closes. */
+  /** Called by "Clear" — removes the value and closes. */
   onClear?: () => void;
   /** Inclusive lower bound; days before it are not selectable. */
   minDate?: string | null;
@@ -246,7 +246,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
     <RNModal
       visible={visible}
       transparent
-      animationType=\"fade\"
+      animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
     >
@@ -257,7 +257,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(-1)}
                 disabled={!canStepBack}
-                icon=\"chevron-back\"
+                icon="chevron-back"
                 accessibilityLabel={t('datePicker.previousYear')}
               />
               <Text style={styles.monthLabel}>
@@ -266,7 +266,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(1)}
                 disabled={!pageHasEnabledYear(yearPageStart + YEARS_PER_PAGE)}
-                icon=\"chevron-forward\"
+                icon="chevron-forward"
                 accessibilityLabel={t('datePicker.nextYear')}
               />
             </View>
@@ -275,14 +275,14 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(-1)}
                 disabled={!canStepBack}
-                icon=\"chevron-back\"
+                icon="chevron-back"
                 accessibilityLabel={t('datePicker.previousYear')}
               />
               <Pressable
                 onPress={() => setViewMode('years')}
                 hitSlop={8}
                 style={styles.headerTitleButton}
-                accessibilityRole=\"button\"
+                accessibilityRole="button"
                 accessibilityLabel={`${view.year}, ${t('datePicker.selectYear')}`}
               >
                 <Text style={styles.monthLabel}>{view.year}</Text>
@@ -290,7 +290,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(1)}
                 disabled={!yearEnabled(view.year + 1)}
-                icon=\"chevron-forward\"
+                icon="chevron-forward"
                 accessibilityLabel={t('datePicker.nextYear')}
               />
             </View>
@@ -299,7 +299,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(-1)}
                 disabled={!canStepBack}
-                icon=\"chevron-back\"
+                icon="chevron-back"
                 accessibilityLabel={t('datePicker.previousMonth')}
               />
               <View style={styles.headerTitle}>
@@ -307,7 +307,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                   onPress={() => setViewMode('months')}
                   hitSlop={8}
                   style={styles.headerTitleButton}
-                  accessibilityRole=\"button\"
+                  accessibilityRole="button"
                   accessibilityLabel={`${t(MONTH_KEYS[view.month - 1])}, ${t('datePicker.selectMonth')}`}
                 >
                   <Text style={styles.monthLabel}>{t(MONTH_KEYS[view.month - 1])}</Text>
@@ -316,7 +316,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                   onPress={() => setViewMode('years')}
                   hitSlop={8}
                   style={styles.headerTitleButton}
-                  accessibilityRole=\"button\"
+                  accessibilityRole="button"
                   accessibilityLabel={`${view.year}, ${t('datePicker.selectYear')}`}
                 >
                   <Text style={styles.yearLabel}>{view.year}</Text>
@@ -325,7 +325,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               <NavButton
                 onPress={() => step(1)}
                 disabled={!monthEnabled(nextMonth.year, nextMonth.month)}
-                icon=\"chevron-forward\"
+                icon="chevron-forward"
                 accessibilityLabel={t('datePicker.nextMonth')}
               />
             </View>
@@ -359,7 +359,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                           onClose();
                         }}
                         disabled={!selectable}
-                        accessibilityRole=\"button\"
+                        accessibilityRole="button"
                         accessibilityLabel={`${t(MONTH_KEYS[day.month - 1])} ${day.day}, ${day.year}`}
                         accessibilityState={{ selected: isSelected, disabled: !selectable }}
                         style={[
@@ -399,7 +399,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                     <Pressable
                       onPress={() => pickMonth(month)}
                       disabled={!enabled}
-                      accessibilityRole=\"button\"
+                      accessibilityRole="button"
                       accessibilityState={{ selected: isSelectedMonth, disabled: !enabled }}
                       style={[
                         styles.unit,
@@ -435,7 +435,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                     <Pressable
                       onPress={() => pickYear(year)}
                       disabled={!enabled}
-                      accessibilityRole=\"button\"
+                      accessibilityRole="button"
                       accessibilityState={{ selected: isSelectedYear, disabled: !enabled }}
                       style={[
                         styles.unit,
@@ -470,7 +470,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
               disabled={todayOutOfRange}
               style={[styles.footerButton, todayOutOfRange ? styles.footerButtonDisabled : null]}
               hitSlop={6}
-              accessibilityRole=\"button\"
+              accessibilityRole="button"
             >
               <Text style={[styles.footerText, todayOutOfRange ? styles.footerTextDisabled : null]}>
                 {t('datePicker.today')}
@@ -486,7 +486,7 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
                 disabled={value === ''}
                 style={[styles.footerButton, value === '' ? styles.footerButtonDisabled : null]}
                 hitSlop={6}
-                accessibilityRole=\"button\"
+                accessibilityRole="button"
               >
                 <Text style={[styles.footerText, value === '' ? styles.footerTextDisabled : null]}>
                   {t('datePicker.clear')}
@@ -512,7 +512,7 @@ const NavButton: React.FC<{
     disabled={disabled}
     hitSlop={8}
     style={[styles.navButton, disabled ? styles.navButtonDisabled : null]}
-    accessibilityRole=\"button\"
+    accessibilityRole="button"
     accessibilityLabel={accessibilityLabel}
     accessibilityState={{ disabled }}
   >

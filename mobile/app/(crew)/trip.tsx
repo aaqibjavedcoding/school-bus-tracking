@@ -47,13 +47,13 @@ import { crewCopy } from '../../src/features/crew/crew-copy';
 import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
- * Crew \"today\" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
+ * Crew "today" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
  * screen**. The giant status card answers the only three questions a crew
  * member has while working — *what state are we in* (background colour +
  * 28px word), *where next* (stop + ETA, 24px) and *what do I do now* (one
  * 64px primary action). Route code, scheduled time, bus reg no., role chip,
  * connection state and departure stamps are de-prioritised — never deleted —
- * into the card's collapsible \"More details\".
+ * into the card's collapsible "More details".
  *
  * Around the card: the offline-sync banner, the driver's compact GPS strip
  * (Sharing ✅/❌ + last update + Retry; full telemetry lives on the
@@ -76,8 +76,8 @@ export default function CrewTripScreen() {
   /**
    * The tracking lifecycle is shared with the Help screen, so it is scoped to
    * the signed-in crew member: the persisted context is only ever resumed for
-   * this user/school. `settled` stops a still-loading screen from reading \"no
-   * trip today\" and tearing down a run that is in fact live.
+   * this user/school. `settled` stops a still-loading screen from reading "no
+   * trip today" and tearing down a run that is in fact live.
    */
   const sharing = useCrewLocationSharing(
     trip,
@@ -94,7 +94,7 @@ export default function CrewTripScreen() {
    * 1. The confirmed row is reflected into the screen data at once, so the
    *    status card and the GPS lifecycle read the new status before the list
    *    reloads (the reload then reconciles with the server).
-   * 2. **Driver only:** \"Start boarding\" and \"Depart & drive\" are the crew's
+   * 2. **Driver only:** "Start boarding" and "Depart & drive" are the crew's
    *    explicit action to put the bus on the school's map, so GPS sharing
    *    starts on that confirmed trip right here — including the OS permission
    *    prompt when it has not been granted yet. Before this, sharing was a
@@ -124,7 +124,7 @@ export default function CrewTripScreen() {
    * device** produced. Nothing about delivery is inferred from the map's own
    * state; `deriveDriverMapPresentation` copies `schoolSeesLive` from the crew
    * status, so the GPS strip above the map stays the single authority for
-   * \"the school can see the bus\".
+   * "the school can see the bus".
    *
    * 3E throttle: only recompute when lastFix changes identity or status
    * changes, not on every 5s tick. The tick still drives the status strip via
@@ -148,7 +148,7 @@ export default function CrewTripScreen() {
   );
 
   // The ordered stops of the trip's route, used by the driver's navigation
-  // hand-off. Loading them on this screen keeps the \"Navigate\" card honest:
+  // hand-off. Loading them on this screen keeps the "Navigate" card honest:
   // it points at a real stop of this run, never at a guessed coordinate.
   const stopsLoad = useLoad<StopResponse[]>(async () => {
     if (!trip) return [];
@@ -224,7 +224,7 @@ export default function CrewTripScreen() {
       <Screen refresh={() => void refresh()} refreshing={refreshing}>
         <EmptyState
           legible
-          icon=\"bus-outline\"
+          icon="bus-outline"
           title={t('trip.empty.title')}
           description={t('trip.empty.body')}
         />
@@ -339,17 +339,17 @@ export default function CrewTripScreen() {
       <View style={styles.linkRow}>
         <Button
           label={isDriver ? t('trip.link.manifestDriver') : t('trip.link.manifestConductor')}
-          icon=\"people\"
-          variant=\"secondary\"
-          size=\"lg\"
+          icon="people"
+          variant="secondary"
+          size="lg"
           onPress={() => router.push('/manifest')}
           style={styles.linkButton}
         />
         <Button
           label={t('trip.link.stops')}
-          icon=\"location\"
-          variant=\"secondary\"
-          size=\"lg\"
+          icon="location"
+          variant="secondary"
+          size="lg"
           onPress={() => router.push('/stops')}
           style={styles.linkButton}
         />
@@ -360,9 +360,9 @@ export default function CrewTripScreen() {
 
       <Button
         label={crewCopy.help.title}
-        icon=\"help-circle\"
-        variant=\"ghost\"
-        size=\"md\"
+        icon="help-circle"
+        variant="ghost"
+        size="md"
         onPress={() => router.push('/help')}
         style={styles.helpButton}
       />

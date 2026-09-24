@@ -110,8 +110,8 @@ export function usePagedResource<T>(
     void reload();
   }, [reload, depsKey]);
 
-  // A write on any screen (this one or another) refreshes this list, so \"Add
-  // bus\" is visible on the route screen without a browser reload. Debounced so
+  // A write on any screen (this one or another) refreshes this list, so "Add
+  // bus" is visible on the route screen without a browser reload. Debounced so
   // a multi-step save reloads once. See `lib/data-updated`.
   // Use ref for reload to avoid re-subscribing on every reload identity change
   const reloadRef = useRef(reload);

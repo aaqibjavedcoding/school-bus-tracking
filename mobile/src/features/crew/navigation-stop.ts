@@ -14,13 +14,13 @@ import { isValidCoordinate, type NavigationTarget } from '../../lib/navigation.t
  *   the nearest by straight-line distance is preferred when ETA distances are
  *   available, otherwise the earliest in route order;
  * - **GPS drift / jump tolerance**: a stop behind the frontier is never
- *   re-surfaced as \"next\", and a far-ahead arrival does not cause the UI to
+ *   re-surfaced as "next", and a far-ahead arrival does not cause the UI to
  *   jump to last/middle then back to first — the fallback is always forward;
  * - **diagnostics**: every decision explains its frontier, candidate set and
  *   why a stop was chosen or why none exists.
  *
  * Kept free of React Native so it can be unit-tested with the Node runner —
- * and so the \"never navigate to a guessed coordinate\" rule is enforced in
+ * and so the "never navigate to a guessed coordinate" rule is enforced in
  * one place: a stop without real coordinates is simply not a navigation
  * target.
  */
@@ -216,10 +216,10 @@ export function deriveTripProgress(
 /**
  * Legacy entry point kept for backward compat — now delegates to
  * `deriveTripProgress` with no ETA, so it never returns a random/last stop
- * as \"next\" when server says none. When `eta` is provided (new callers),
+ * as "next" when server says none. When `eta` is provided (new callers),
  * the full monotonic + nearest-upcoming logic applies.
  *
- * The server's own \"next stop\" wins when it is navigable and ahead of the
+ * The server's own "next stop" wins when it is navigable and ahead of the
  * frontier; otherwise the first navigable stop ahead of the frontier is used.
  * `null` means the route has nothing to drive to yet, or the trip is done —
  * the card says so instead of inventing a destination.
