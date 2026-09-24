@@ -45,7 +45,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       <aside className={`sidebar ${open ? 'open' : ''}`.trim()} aria-label="Primary">
         <div className="sidebar-brand">
           <span className="brand-mark">
-            <Image src="/kidbus-logo.svg" alt="" width={34} height={34} priority />
+            <Image src="/kidbus-mark.svg" alt="" width={34} height={34} style={{ width: 'auto' }} priority />
           </span>
           <div className="brand-copy">
             <h1>{APP_CONFIG.appName}</h1>

@@ -70,7 +70,7 @@ export default function LoginPage() {
       <Card className="login-card">
         <div className="row" style={{ marginBottom: '1rem' }}>
           <span className="brand-mark">
-            <Image src="/kidbus-logo.svg" alt="" width={34} height={34} priority />
+            <Image src="/kidbus-mark.svg" alt="" width={34} height={34} style={{ width: 'auto' }} priority />
           </span>
           <div>
             <h1 style={{ fontSize: '1.2rem' }}>{APP_CONFIG.appName}</h1>
