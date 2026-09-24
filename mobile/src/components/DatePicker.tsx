@@ -28,7 +28,7 @@ export interface DatePickerProps {
   placeholder?: string;
   error?: string | null;
   hint?: string | null;
-  /** Shows the inline ✕ and the calendar's \"Clear\" action (optional dates). */
+  /** Shows the inline ✕ and the calendar's "Clear" action (optional dates). */
   allowClear?: boolean;
   /** Inclusive lower bound (`YYYY-MM-DD`). */
   minDate?: string | null;
@@ -61,11 +61,11 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         <Pressable
           onPress={() => setOpen(true)}
           style={styles.controlMain}
-          accessibilityRole=\"button\"
+          accessibilityRole="button"
           accessibilityLabel={filled ? `${label}: ${value}` : label}
           hitSlop={2}
         >
-          <Ionicons name=\"calendar-outline\" size={18} color={colors.neutral[500]} />
+          <Ionicons name="calendar-outline" size={18} color={colors.neutral[500]} />
           <Text style={filled ? styles.controlValue : styles.controlPlaceholder} numberOfLines={1}>
             {filled ? value : (placeholder ?? t('datePicker.placeholder'))}
           </Text>
@@ -74,11 +74,11 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           <Pressable
             onPress={() => onChange('')}
             hitSlop={8}
-            accessibilityRole=\"button\"
+            accessibilityRole="button"
             accessibilityLabel={t('datePicker.clear')}
             style={styles.clearButton}
           >
-            <Ionicons name=\"close-circle\" size={18} color={colors.neutral[400]} />
+            <Ionicons name="close-circle" size={18} color={colors.neutral[400]} />
           </Pressable>
         ) : null}
       </View>

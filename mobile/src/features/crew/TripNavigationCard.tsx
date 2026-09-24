@@ -57,16 +57,16 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
       {next && target ? (
         <>
           <View style={styles.row}>
-            <Ionicons name=\"navigate\" size={18} color={colors.primary[600]} />
+            <Ionicons name="navigate" size={18} color={colors.primary[600]} />
             <Text style={styles.stopName}>{next.name}</Text>
           </View>
           <Text style={styles.muted}>{formatCoordinate(target.latitude, target.longitude)}</Text>
           {url ? (
             <Button
               label={t('navigate.card.button')}
-              icon=\"navigate\"
-              variant=\"secondary\"
-              size=\"field\"
+              icon="navigate"
+              variant="secondary"
+              size="field"
               onPress={() => void Linking.openURL(url)}
               style={styles.action}
             />

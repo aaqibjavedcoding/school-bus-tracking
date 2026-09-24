@@ -632,7 +632,7 @@ function todayRange(): Record<symbol, Date> {
   return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
 }
 
-/** Picks the single \"current\" trip for a route (active runs win, then earliest). */
+/** Picks the single "current" trip for a route (active runs win, then earliest). */
 function pickTodayTrip(trips: Trip[]): Trip | null {
   if (trips.length === 0) return null;
   return [...trips].sort((a, b) => {

@@ -111,7 +111,7 @@ export const surface = {
    * surface is green.
    */
   actionPrimary: colors.secondary[700],
-  /** Solid success button (\"board\"-style confirmations): white on secondary-700 = 5.01:1. */
+  /** Solid success button ("board"-style confirmations): white on secondary-700 = 5.01:1. */
   actionSuccess: colors.secondary[700],
   /** Solid danger button: white on status.danger = 4.83:1. */
   actionDanger: colors.status.danger,
