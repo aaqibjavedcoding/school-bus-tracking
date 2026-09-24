@@ -350,5 +350,5 @@ src/
   lib/                  errors, format, geo (GPS mapping), roles
   services/             api client + base-URL/env resolution, session, socket
                        options/singletons
-scripts/generate-assets.mjs   rasterises logo/kidbus-logo.svg into every icon/splash slot
+scripts/generate-assets.mjs   rasterises logo/school_bus_logo.svg into every icon/splash slot
 ```
