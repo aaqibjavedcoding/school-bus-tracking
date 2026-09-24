@@ -12,7 +12,17 @@ import {
   UserRole,
 } from '@school-bus-tracking/shared-types';
 import { isTripStatusTransitionAllowed } from '@school-bus-tracking/validation';
-import { Bus, Route, RouteAssignment, Run, RunCrew, Trip, User } from '../../database/models';
+import {
+  Bus,
+  Route,
+  RouteAssignment,
+  Run,
+  RunCrew,
+  School,
+  Trip,
+  User,
+} from '../../database/models';
+import { addCalendarDays, dateOnlyInTimeZone, startOfDateInTimeZone } from '../../common/timezone';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
@@ -104,6 +114,7 @@ export class TripsService {
     private readonly planLimits: PlanLimitsService,
     private readonly runs: typeof Run,
     private readonly runCrew: typeof RunCrew,
+    private readonly schools?: typeof School,
   ) {}
 
   /** Dispatches a new `SCHEDULED` trip from an active roster row. */
@@ -112,7 +123,8 @@ export class TripsService {
     const scheduledEndAt = parseNullableDateTime(dto.scheduled_end_at);
     assertScheduleRange(scheduledStartAt, scheduledEndAt);
 
-    const target = await this.resolveDispatch(schoolId, dto, scheduledStartAt);
+    const timeZone = await this.schoolTimeZone(schoolId);
+    const target = await this.resolveDispatch(schoolId, dto, scheduledStartAt, timeZone);
     await this.assertNoScheduleConflict(schoolId, target, scheduledStartAt, undefined);
 
     try {
@@ -246,7 +258,10 @@ export class TripsService {
     if (query.driver_id !== undefined) where.driver_id = query.driver_id;
     if (query.conductor_id !== undefined) where.conductor_id = query.conductor_id;
 
-    const scheduledRange = buildScheduledRange(query);
+    const scheduledRange =
+      query.date !== undefined || query.date_from !== undefined || query.date_to !== undefined
+        ? buildScheduledRange(query, await this.schoolTimeZone(schoolId))
+        : null;
     if (scheduledRange) where.scheduled_start_at = scheduledRange;
 
     const search = query.search?.trim();
@@ -284,17 +299,19 @@ export class TripsService {
   }
 
   /**
-   * Number of today's (UTC) trips currently `BOARDING` or `IN_PROGRESS`.
+   * Number of today's school-local trips currently `BOARDING` or `IN_PROGRESS`.
    *
    * One indexed `COUNT(*)`, no joins — the live-trips stat card used to pay
    * for a whole enriched list response to learn this single number.
    */
   async countActiveToday(schoolId: string): Promise<number> {
+    const timeZone = await this.schoolTimeZone(schoolId);
+    const today = dateOnlyInTimeZone(new Date(), timeZone);
     return this.trips.count({
       where: {
         school_id: schoolId,
         status: { [Op.in]: [TripStatus.BOARDING, TripStatus.IN_PROGRESS] },
-        scheduled_start_at: todayRange(),
+        scheduled_start_at: buildDayRange(today, timeZone),
       } as WhereOptions,
     });
   }
@@ -347,7 +364,12 @@ export class TripsService {
 
     let target: DispatchTarget | null = null;
     if (dto.run_id !== undefined || dto.route_assignment_id !== undefined) {
-      target = await this.resolveDispatch(schoolId, dto, scheduledStartAt);
+      target = await this.resolveDispatch(
+        schoolId,
+        dto,
+        scheduledStartAt,
+        await this.schoolTimeZone(schoolId),
+      );
       // Re-dispatch replaces the whole snapshot — including clearing the run
       // when the legacy assignment path is chosen — so the trip never mixes
       // resources from two sources.
@@ -522,6 +544,24 @@ export class TripsService {
     await this.liveTracking.onTripStatusChanged(trip, { deleted: true });
     return { id, message: TRIP_DELETED_MESSAGE };
   }
+  /** Resolves the tenant's IANA timezone; legacy test harnesses default to UTC. */
+  private async schoolTimeZone(schoolId: string): Promise<string> {
+    if (!this.schools) return 'UTC';
+    const school = await this.schools.findOne({
+      where: { id: schoolId },
+      attributes: ['timezone'],
+    });
+    const timeZone = school?.timezone?.trim();
+    if (!timeZone) return 'UTC';
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone });
+      return timeZone;
+    } catch {
+      // Bad legacy data must not take down trip reads; UTC is the safe fallback.
+      return 'UTC';
+    }
+  }
+
   private async findTripOrThrow(schoolId: string, id: string): Promise<Trip> {
     const trip = await this.trips.findOne({ where: { id, school_id: schoolId } });
     if (!trip) {
@@ -540,18 +580,20 @@ export class TripsService {
     schoolId: string,
     source: { run_id?: string; route_assignment_id?: string },
     scheduledStartAt: Date,
+    timeZone: string,
   ): Promise<DispatchTarget> {
     if (source.run_id !== undefined && source.route_assignment_id !== undefined) {
       throw new BadRequestException(TRIP_DISPATCH_SOURCE_MESSAGE);
     }
     if (source.run_id !== undefined) {
-      return this.resolveRunDispatchTarget(schoolId, source.run_id, scheduledStartAt);
+      return this.resolveRunDispatchTarget(schoolId, source.run_id, scheduledStartAt, timeZone);
     }
     if (source.route_assignment_id !== undefined) {
       return this.resolveAssignmentDispatchTarget(
         schoolId,
         source.route_assignment_id,
         scheduledStartAt,
+        timeZone,
       );
     }
     throw new BadRequestException(TRIP_DISPATCH_SOURCE_MESSAGE);
@@ -572,6 +614,7 @@ export class TripsService {
     schoolId: string,
     assignmentId: string,
     scheduledStartAt: Date,
+    timeZone: string,
   ): Promise<DispatchTarget> {
     const assignment = await this.assignments.findOne({
       where: { id: assignmentId, school_id: schoolId },
@@ -586,7 +629,7 @@ export class TripsService {
       throw new BadRequestException(TRIP_ASSIGNMENT_BUS_MISSING_MESSAGE);
     }
 
-    const tripDate = toDateOnly(scheduledStartAt);
+    const tripDate = dateOnlyInTimeZone(scheduledStartAt, timeZone);
     if (!coversDate(assignment, tripDate)) {
       throw new BadRequestException(TRIP_ASSIGNMENT_PERIOD_MESSAGE);
     }
@@ -643,6 +686,7 @@ export class TripsService {
     schoolId: string,
     runId: string,
     scheduledStartAt: Date,
+    timeZone: string,
   ): Promise<DispatchTarget> {
     const run = await this.runs.findOne({ where: { id: runId, school_id: schoolId } });
     if (!run) {
@@ -670,7 +714,7 @@ export class TripsService {
       throw new BadRequestException(TRIP_INACTIVE_RESOURCE_MESSAGE);
     }
 
-    const tripDate = toDateOnly(scheduledStartAt);
+    const tripDate = dateOnlyInTimeZone(scheduledStartAt, timeZone);
     const crewRows = await this.runCrew.findAll({
       where: {
         school_id: schoolId,
@@ -966,11 +1010,13 @@ export class TripsService {
   }
 }
 
-/** Inclusive UTC-day window applied to `scheduled_start_at`. */
-function buildScheduledRange(query: ListTripsQueryDto): Record<symbol, Date> | null {
+/** Inclusive school-local day window applied to `scheduled_start_at`. */
+function buildScheduledRange(
+  query: ListTripsQueryDto,
+  timeZone: string,
+): Record<symbol, Date> | null {
   if (query.date !== undefined) {
-    const start = startOfUtcDay(query.date);
-    return { [Op.gte]: start, [Op.lt]: addDays(start, 1) };
+    return buildDayRange(query.date, timeZone);
   }
 
   if (query.date_from === undefined && query.date_to === undefined) {
@@ -987,32 +1033,19 @@ function buildScheduledRange(query: ListTripsQueryDto): Record<symbol, Date> | n
 
   const range: Record<symbol, Date> = {};
   if (query.date_from !== undefined) {
-    range[Op.gte] = startOfUtcDay(query.date_from);
+    range[Op.gte] = startOfDateInTimeZone(query.date_from, timeZone);
   }
   if (query.date_to !== undefined) {
-    range[Op.lt] = addDays(startOfUtcDay(query.date_to), 1);
+    range[Op.lt] = startOfDateInTimeZone(addCalendarDays(query.date_to, 1), timeZone);
   }
   return range;
 }
 
-function startOfUtcDay(value: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new BadRequestException(TRIP_DATE_INVALID_MESSAGE);
-  }
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    throw new BadRequestException(TRIP_DATE_INVALID_MESSAGE);
-  }
-  return date;
-}
-
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+function buildDayRange(date: string, timeZone: string): Record<symbol, Date> {
+  return {
+    [Op.gte]: startOfDateInTimeZone(date, timeZone),
+    [Op.lt]: startOfDateInTimeZone(addCalendarDays(date, 1), timeZone),
+  };
 }
 
 function parseDateTime(value: string | Date): Date {
@@ -1042,11 +1075,6 @@ function assertScheduleRange(startAt: Date, endAt: Date | null): void {
   }
 }
 
-/** Tenant-local roster periods are compared on the trip's UTC calendar day. */
-function toDateOnly(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 function coversDate(assignment: RouteAssignment, date: string): boolean {
   const from = normalizeDateOnly(assignment.effective_from);
   const to = assignment.effective_to == null ? null : normalizeDateOnly(assignment.effective_to);
@@ -1067,12 +1095,6 @@ function normalizeReason(reason: string | null | undefined): string | null {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-/** Inclusive window covering the current UTC calendar day. */
-function todayRange(): Record<symbol, Date> {
-  const start = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-  return { [Op.gte]: start, [Op.lt]: new Date(start.getTime() + 86_400_000) };
 }
 
 /**

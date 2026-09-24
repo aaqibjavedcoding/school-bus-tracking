@@ -22,6 +22,7 @@ import {
 } from '../../../components/ui';
 import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
+import { useAuth } from '../../../features/auth/AuthProvider';
 import { usePagedResource } from '../../../hooks/usePagedResource';
 import { dispatchableRuns, runLabel, tripRunBadge } from '../../../features/runs/helpers';
 import {
@@ -36,14 +37,15 @@ import {
   fromDateTimeLocalValue,
   tripStatusLabel,
   tripStatusTone,
-  utcDateOnly,
+  schoolDateOnly,
 } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 
 export default function TripsPage() {
   const toast = useToast();
+  const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState(utcDateOnly());
+  const [dateFilter, setDateFilter] = useState(schoolDateOnly(user?.school_timezone));
   const [open, setOpen] = useState(false);
   // The assignment/run pickers are only rendered inside the "Schedule trip"
   // modal — gate the lookup on it instead of fetching on every page mount.
@@ -148,9 +150,10 @@ export default function TripsPage() {
   };
 
   const routeName = (trip: TripResponse) =>
-    trip.route_name ? `${trip.route_code ?? ''} — ${trip.route_name}`.replace(/^ — /, '') : 'Route unavailable';
-  const busLabel = (trip: TripResponse) =>
-    trip.bus_number ?? trip.registration_number ?? 'No bus';
+    trip.route_name
+      ? `${trip.route_code ?? ''} — ${trip.route_name}`.replace(/^ — /, '')
+      : 'Route unavailable';
+  const busLabel = (trip: TripResponse) => trip.bus_number ?? trip.registration_number ?? 'No bus';
   const crewLabel = (driver: string | null | undefined, conductor: string | null | undefined) => {
     if (driver && conductor) return `${driver} · ${conductor}`;
     return driver ?? conductor ?? '—';
@@ -245,7 +248,9 @@ export default function TripsPage() {
                     <td>{formatDateTime(trip.scheduled_start_at)}</td>
                     <td>
                       {routeName(trip)}{' '}
-                      {tripRunBadge(trip) ? <Badge tone="neutral">{tripRunBadge(trip)}</Badge> : null}
+                      {tripRunBadge(trip) ? (
+                        <Badge tone="neutral">{tripRunBadge(trip)}</Badge>
+                      ) : null}
                     </td>
                     <td>{busLabel(trip)}</td>
                     <td>{crewLabel(trip.driver_name, trip.conductor_name)}</td>
@@ -294,8 +299,8 @@ export default function TripsPage() {
           </div>
           {source === 'run' && runs.length === 0 ? (
             <p className="muted" role="status">
-              This school has no active runs yet, so scheduling falls back to a legacy
-              route assignment.
+              This school has no active runs yet, so scheduling falls back to a legacy route
+              assignment.
             </p>
           ) : null}
           {source === 'run' && runs.length > 0 ? (

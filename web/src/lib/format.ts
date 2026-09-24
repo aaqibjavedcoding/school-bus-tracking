@@ -10,6 +10,29 @@ export function utcDateOnly(date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Calendar day in the school's timezone (or the device timezone as fallback). */
+export function schoolDateOnly(timeZone?: string | null, date = new Date()): string {
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(date);
+      const year = parts.find((part) => part.type === 'year')?.value;
+      const month = parts.find((part) => part.type === 'month')?.value;
+      const day = parts.find((part) => part.type === 'day')?.value;
+      if (year && month && day) return `${year}-${month}-${day}`;
+    } catch {
+      // A stale or unsupported timezone falls back to the device's calendar.
+    }
+  }
+
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function toDateTimeLocalValue(value: string | null | undefined): string {
   if (!value) return '';
   const date = new Date(value);

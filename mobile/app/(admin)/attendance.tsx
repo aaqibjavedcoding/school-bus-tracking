@@ -9,8 +9,9 @@ import {
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
-import { formatTime, tripStatusLabel, utcDateOnly } from '../../src/lib/format';
+import { formatTime, tripStatusLabel, schoolDateOnly } from '../../src/lib/format';
 import { useLoad } from '../../src/hooks/useLoad';
+import { useAuth } from '../../src/features/auth';
 import { isTripOpen, ManifestList } from '../../src/features/crew';
 import {
   EmptyState,
@@ -27,14 +28,19 @@ import {
  * body-less endpoints the crew uses; the server timestamps every event.
  */
 export default function AdminAttendanceScreen() {
+  const { user } = useAuth();
   const [selectedId, setSelectedId] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
 
   const tripsLoad = useLoad(async (): Promise<{ trips: TripResponse[] }> => {
-    const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() });
+    const tripsEnvelope = await apiClient.listTrips({
+      page: 1,
+      limit: 50,
+      date: schoolDateOnly(user?.school_timezone),
+    });
     return { trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items };
-  }, []);
+  }, [user?.school_timezone]);
 
   // The selection always resolves to a trip that survives the current filter,
   // otherwise the manifest below would show a trip the user just filtered out.

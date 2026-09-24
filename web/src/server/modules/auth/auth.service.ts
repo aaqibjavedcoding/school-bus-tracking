@@ -231,7 +231,7 @@ export class AuthService {
         access_token: accessToken,
         token_type: 'Bearer',
         expires_in: this.resolveExpiresIn(accessToken),
-        user: this.toAuthenticatedUser(user),
+        user: await this.toAuthenticatedUserForSession(user),
       },
       refreshToken: rawRefreshToken,
     };
@@ -350,7 +350,7 @@ export class AuthService {
         access_token: accessToken,
         token_type: 'Bearer',
         expires_in: this.resolveExpiresIn(accessToken),
-        user: this.toAuthenticatedUser(user),
+        user: await this.toAuthenticatedUserForSession(user),
       },
       refreshToken: newRawRefreshToken,
     };
@@ -488,6 +488,27 @@ export class AuthService {
       return decoded.exp - decoded.iat;
     }
     return 0;
+  }
+
+  /**
+   * Adds the server-owned school timezone to authenticated sessions. Trip
+   * calendar filters use this value so a device in another timezone still
+   * asks for the school's current date.
+   */
+  private async toAuthenticatedUserForSession(user: User): Promise<AuthenticatedUser> {
+    const authenticated = this.toAuthenticatedUser(user);
+    if (user.school_id && this.schools) {
+      try {
+        const school = await this.schools.findOne({
+          where: { id: user.school_id },
+          attributes: ['timezone'],
+        });
+        if (school?.timezone) authenticated.school_timezone = school.timezone;
+      } catch {
+        // Timezone is presentation metadata; a lookup failure must not block login.
+      }
+    }
+    return authenticated;
   }
 
   /**

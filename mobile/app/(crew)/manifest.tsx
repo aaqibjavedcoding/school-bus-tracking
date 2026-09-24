@@ -37,7 +37,7 @@ export default function CrewManifestScreen() {
     error: todayError,
     reload: reloadToday,
     refresh: refreshToday,
-  } = useCrewToday();
+  } = useCrewToday(user?.school_timezone);
   const trip = today?.trip ?? null;
 
   const manifestLoad = useLoad<TripStudentManifestResponse | null>(async () => {

@@ -20,9 +20,9 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * Query string of `GET /api/v1/trips`.
  *
- * Dispatchers filter by day (`date`) or by an inclusive day range
- * (`date_from`/`date_to`) on top of the usual status, route, bus and crew
- * filters. The tenant is never a query parameter: it comes from the JWT.
+ * Dispatchers filter by school-local calendar day (`date`) or by an inclusive
+ * school-local day range (`date_from`/`date_to`) on top of the usual status,
+ * route, bus and crew filters. The tenant and timezone come from the JWT school.
  */
 export class ListTripsQueryDto implements TripListQuery {
   @IsOptional()

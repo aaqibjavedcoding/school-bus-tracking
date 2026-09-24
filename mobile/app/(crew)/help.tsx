@@ -47,7 +47,7 @@ const noopPermissionGranted = (): void => undefined;
 export default function CrewHelpScreen() {
   const { user } = useAuth();
   const t = useTranslation();
-  const { data, loading } = useCrewToday();
+  const { data, loading } = useCrewToday(user?.school_timezone);
   const trip = data?.trip ?? null;
   // Same shared lifecycle as the trip screen: navigating here neither starts a
   // second watcher nor stops the run (see `tracking-lifecycle.ts`).
@@ -147,7 +147,12 @@ export default function CrewHelpScreen() {
        * shared lifecycle snapshot and never starts or stops anything.
        */}
       <Card title={t('help.diagnostics.title')} description={t('help.diagnostics.hint')}>
-        {buildDiagnosticsRows(sharing.trackingState, getRuntime(), API_BASE_URL, getMapIssues()).map((row) => (
+        {buildDiagnosticsRows(
+          sharing.trackingState,
+          getRuntime(),
+          API_BASE_URL,
+          getMapIssues(),
+        ).map((row) => (
           <KeyValue key={row.label} label={row.label} value={row.value} />
         ))}
       </Card>

@@ -6,15 +6,21 @@ import { Card, ErrorState, PageHeader, Select, Skeleton } from '../../../compone
 import { ManifestList } from '../../../features/attendance/ManifestList';
 import { ExportButton } from '../../../features/data-transfer';
 import { useLoad } from '../../../hooks/useLoad';
+import { useAuth } from '../../../features/auth/AuthProvider';
 import { unwrapEnvelope } from '../../../lib/errors';
-import { formatDateTime, tripStatusLabel, utcDateOnly } from '../../../lib/format';
+import { formatDateTime, tripStatusLabel, schoolDateOnly } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 
 export default function AttendancePage() {
+  const { user } = useAuth();
   const [tripId, setTripId] = useState('');
   const trips = useLoad(async () => {
     const [tripList, routeList] = await Promise.all([
-      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+      apiClient.listTrips({
+        page: 1,
+        limit: 50,
+        date: schoolDateOnly(user?.school_timezone),
+      }),
       // Only the route code is rendered as a label — skip the enrichment.
       apiClient.listRoutes({ page: 1, limit: 100, include: 'minimal' }),
     ]);
@@ -22,7 +28,7 @@ export default function AttendancePage() {
     const first = items[0]?.id ?? '';
     if (!tripId && first) setTripId(first);
     return { items, routes: unwrapEnvelope(routeList).items };
-  }, []);
+  }, [user?.school_timezone]);
 
   const manifest = useLoad(async () => {
     const id = tripId || trips.data?.items[0]?.id;

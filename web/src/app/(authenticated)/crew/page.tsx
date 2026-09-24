@@ -10,8 +10,14 @@ import { TripTracker } from '../../../features/tracking/TripTracker';
 import { useCrewLocationShare } from '../../../features/tracking/useLiveTripTracking';
 import { TripStatusActions } from '../../../features/trips/TripStatusActions';
 import { useLoad } from '../../../hooks/useLoad';
+import { useAuth } from '../../../features/auth/AuthProvider';
 import { unwrapEnvelope } from '../../../lib/errors';
-import { formatDateTime, tripStatusLabel, tripStatusTone, utcDateOnly } from '../../../lib/format';
+import {
+  formatDateTime,
+  tripStatusLabel,
+  tripStatusTone,
+  schoolDateOnly,
+} from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 
 function pickTodaysTrip<T extends { status: TripStatus; scheduled_start_at: string }>(
@@ -34,9 +40,14 @@ function pickTodaysTrip<T extends { status: TripStatus; scheduled_start_at: stri
 }
 
 export default function CrewPage() {
+  const { user } = useAuth();
   const { data, loading, error, reload, setData } = useLoad(async () => {
     const trips = unwrapEnvelope(
-      await apiClient.listTrips({ page: 1, limit: 20, date: utcDateOnly() }),
+      await apiClient.listTrips({
+        page: 1,
+        limit: 20,
+        date: schoolDateOnly(user?.school_timezone),
+      }),
     ).items;
     const trip = pickTodaysTrip(trips);
     if (!trip) {
@@ -52,7 +63,7 @@ export default function CrewPage() {
       stops: unwrapEnvelope(stops).items,
       manifest: unwrapEnvelope(manifest),
     };
-  }, []);
+  }, [user?.school_timezone]);
 
   const sharing = Boolean(data?.trip && isTripTrackingActive(data.trip.status));
   const gpsError = useCrewLocationShare(data?.trip?.id ?? null, sharing);

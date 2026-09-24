@@ -15,7 +15,7 @@ import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
 import { useAuth } from '../../src/features/auth';
-import { utcDateOnly, formatDate, formatRelative, formatTime } from '../../src/lib/format';
+import { schoolDateOnly, formatDate, formatRelative, formatTime } from '../../src/lib/format';
 import { useLoad } from '../../src/hooks/useLoad';
 import {
   Badge,
@@ -55,7 +55,7 @@ export default function AdminDashboardScreen() {
     // every enriched list projection had resolved its crew, stops, buses and
     // trips just to read `meta.total`.
     const [tripsEnvelope, statsEnvelope, emergenciesEnvelope] = await Promise.all([
-      apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() }),
+      apiClient.listTrips({ page: 1, limit: 50, date: schoolDateOnly(user?.school_timezone) }),
       apiClient.getDashboardStats(),
       apiClient.listActiveEmergencies().catch(() => null),
     ]);
@@ -69,7 +69,7 @@ export default function AdminDashboardScreen() {
         ? unwrapEnvelope<EmergencyActiveListResponse>(emergenciesEnvelope).items
         : null,
     };
-  }, []);
+  }, [user?.school_timezone]);
 
   const liveCount = useMemo(
     () =>

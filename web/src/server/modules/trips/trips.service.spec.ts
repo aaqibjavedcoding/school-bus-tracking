@@ -2,8 +2,9 @@ import { beforeEach, describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
+import { addCalendarDays, startOfDateInTimeZone } from '../../common/timezone';
 import { RouteAssignmentRole, TripStatus, UserRole } from '@school-bus-tracking/shared-types';
-import { Bus, Route, RouteAssignment, Trip, User } from '../../database/models';
+import { Bus, Route, RouteAssignment, School, Trip, User } from '../../database/models';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
@@ -204,20 +205,101 @@ interface StubRunCrew {
 
 function defaultRuns(): StubRun[] {
   return [
-    { id: RUN_A, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: BUS_A, shift_id: null, code: 'R-01', is_default: true, is_active: true },
-    { id: RUN_B, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: BUS_A, shift_id: null, code: 'R-02', is_default: false, is_active: true },
-    { id: RUN_NO_BUS, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: null, shift_id: null, code: 'R-03', is_default: false, is_active: true },
-    { id: RUN_OTHER_SCHOOL, school_id: SCHOOL_B, route_id: ROUTE_B, bus_id: BUS_B, shift_id: null, code: 'R-01', is_default: true, is_active: true },
-    { id: RUN_INACTIVE, school_id: SCHOOL_A, route_id: ROUTE_A, bus_id: BUS_A, shift_id: null, code: 'R-04', is_default: false, is_active: false },
+    {
+      id: RUN_A,
+      school_id: SCHOOL_A,
+      route_id: ROUTE_A,
+      bus_id: BUS_A,
+      shift_id: null,
+      code: 'R-01',
+      is_default: true,
+      is_active: true,
+    },
+    {
+      id: RUN_B,
+      school_id: SCHOOL_A,
+      route_id: ROUTE_A,
+      bus_id: BUS_A,
+      shift_id: null,
+      code: 'R-02',
+      is_default: false,
+      is_active: true,
+    },
+    {
+      id: RUN_NO_BUS,
+      school_id: SCHOOL_A,
+      route_id: ROUTE_A,
+      bus_id: null,
+      shift_id: null,
+      code: 'R-03',
+      is_default: false,
+      is_active: true,
+    },
+    {
+      id: RUN_OTHER_SCHOOL,
+      school_id: SCHOOL_B,
+      route_id: ROUTE_B,
+      bus_id: BUS_B,
+      shift_id: null,
+      code: 'R-01',
+      is_default: true,
+      is_active: true,
+    },
+    {
+      id: RUN_INACTIVE,
+      school_id: SCHOOL_A,
+      route_id: ROUTE_A,
+      bus_id: BUS_A,
+      shift_id: null,
+      code: 'R-04',
+      is_default: false,
+      is_active: false,
+    },
   ];
 }
 
 function defaultRunCrew(): StubRunCrew[] {
   return [
-    { id: 'crew-run-a-driver', school_id: SCHOOL_A, run_id: RUN_A, user_id: DRIVER_A, role: RouteAssignmentRole.DRIVER, effective_from: '2026-08-01', effective_to: null, is_active: true },
-    { id: 'crew-run-a-conductor', school_id: SCHOOL_A, run_id: RUN_A, user_id: CONDUCTOR_A, role: RouteAssignmentRole.CONDUCTOR, effective_from: '2026-08-01', effective_to: null, is_active: true },
-    { id: 'crew-run-b-driver', school_id: SCHOOL_A, run_id: RUN_B, user_id: DRIVER_A, role: RouteAssignmentRole.DRIVER, effective_from: '2026-08-01', effective_to: null, is_active: true },
-    { id: 'crew-run-nobus-driver', school_id: SCHOOL_A, run_id: RUN_NO_BUS, user_id: DRIVER_A, role: RouteAssignmentRole.DRIVER, effective_from: '2026-08-01', effective_to: null, is_active: true },
+    {
+      id: 'crew-run-a-driver',
+      school_id: SCHOOL_A,
+      run_id: RUN_A,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-08-01',
+      effective_to: null,
+      is_active: true,
+    },
+    {
+      id: 'crew-run-a-conductor',
+      school_id: SCHOOL_A,
+      run_id: RUN_A,
+      user_id: CONDUCTOR_A,
+      role: RouteAssignmentRole.CONDUCTOR,
+      effective_from: '2026-08-01',
+      effective_to: null,
+      is_active: true,
+    },
+    {
+      id: 'crew-run-b-driver',
+      school_id: SCHOOL_A,
+      run_id: RUN_B,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-08-01',
+      effective_to: null,
+      is_active: true,
+    },
+    {
+      id: 'crew-run-nobus-driver',
+      school_id: SCHOOL_A,
+      run_id: RUN_NO_BUS,
+      user_id: DRIVER_A,
+      role: RouteAssignmentRole.DRIVER,
+      effective_from: '2026-08-01',
+      effective_to: null,
+      is_active: true,
+    },
   ];
 }
 
@@ -236,9 +318,21 @@ function defaultResources(): {
       { ...makeResource(BUS_B, SCHOOL_B), registration_number: 'REG-B', bus_number: 'B-02' },
     ],
     users: [
-      { ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }), first_name: 'Ada', last_name: 'Driver' },
-      { ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }), first_name: 'Con', last_name: 'Ductor' },
-      { ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }), first_name: 'Bob', last_name: 'Driver' },
+      {
+        ...makeResource(DRIVER_A, SCHOOL_A, { role: UserRole.DRIVER }),
+        first_name: 'Ada',
+        last_name: 'Driver',
+      },
+      {
+        ...makeResource(CONDUCTOR_A, SCHOOL_A, { role: UserRole.CONDUCTOR }),
+        first_name: 'Con',
+        last_name: 'Ductor',
+      },
+      {
+        ...makeResource(DRIVER_B, SCHOOL_B, { role: UserRole.DRIVER }),
+        first_name: 'Bob',
+        last_name: 'Driver',
+      },
     ],
   };
 }
@@ -249,7 +343,10 @@ function defaultResources(): {
  * This keeps the in-memory repositories honest enough for the free-text
  * search and relation-lookup paths exercised by the service under test.
  */
-function matchesWhere(record: Record<string, unknown>, where: Record<PropertyKey, unknown>): boolean {
+function matchesWhere(
+  record: Record<string, unknown>,
+  where: Record<PropertyKey, unknown>,
+): boolean {
   const stringKeys = Object.entries(where).every(([key, expected]) => {
     const actual = record[key];
     if (expected instanceof Date) {
@@ -287,7 +384,9 @@ function matchesWhere(record: Record<string, unknown>, where: Record<PropertyKey
       }
       if (operators[Op.iLike] !== undefined) {
         const pattern = String(operators[Op.iLike]).replace(/^%|%$/g, '').toLowerCase();
-        return String(actual ?? '').toLowerCase().includes(pattern);
+        return String(actual ?? '')
+          .toLowerCase()
+          .includes(pattern);
       }
       return true;
     }
@@ -296,7 +395,10 @@ function matchesWhere(record: Record<string, unknown>, where: Record<PropertyKey
 
   const symbolGroups = Object.getOwnPropertySymbols(where)
     .filter((symbol) => symbol === Op.or || symbol === Op.and)
-    .map((symbol) => ({ op: symbol, clauses: where[symbol] as Array<Record<PropertyKey, unknown>> }));
+    .map((symbol) => ({
+      op: symbol,
+      clauses: where[symbol] as Array<Record<PropertyKey, unknown>>,
+    }));
   if (symbolGroups.length === 0) {
     return stringKeys;
   }
@@ -541,12 +643,20 @@ const notificationsCapture: {
   calls: Array<{ school_id: string; trip_id: string; status: TripStatus }>;
 } = { calls: [] };
 
+function makeSchoolRepository(timezone: string): typeof School {
+  return {
+    findOne: async (options: { where: { id: string } }) =>
+      options.where.id === SCHOOL_A ? ({ id: SCHOOL_A, timezone } as School) : null,
+  } as unknown as typeof School;
+}
+
 function makeService(
   repos: ReturnType<typeof makeRepositories>,
   liveTracking: LiveTrackingService = makeLiveTrackingStub(liveTrackingCapture),
   notifications: import('../notifications/notifications.service').NotificationsService = makeNotificationsStub(
     notificationsCapture,
   ),
+  schools?: typeof School,
 ): TripsService {
   return new TripsService(
     repos.tripRepo,
@@ -562,6 +672,7 @@ function makeService(
     } as unknown as PlanLimitsService,
     repos.runRepo,
     repos.runCrewRepo,
+    schools,
   );
 }
 
@@ -909,7 +1020,7 @@ describe('TripsService.findAll', () => {
     );
   });
 
-  it('filters a single UTC day and an inclusive day range', async () => {
+  it('filters a single UTC day and an inclusive day range when no tenant timezone is injected', async () => {
     const trips = [
       makeTrip({ id: TRIP_A, scheduled_start_at: new Date('2026-09-01T23:59:59.000Z') }),
       makeTrip({ id: TRIP_B, scheduled_start_at: new Date('2026-09-02T00:00:00.000Z') }),
@@ -929,6 +1040,88 @@ describe('TripsService.findAll', () => {
     rangeQuery.date_to = '2026-09-05';
     const range = await makeService(makeRepositories(trips)).findAll(SCHOOL_A, rangeQuery);
     assert.deepEqual(range.items.map((trip) => trip.id).sort(), [TRIP_B, 'third'].sort());
+  });
+
+  it('filters the school-local date even when its UTC window starts on the previous day', async () => {
+    const trips = [
+      makeTrip({ id: TRIP_A, scheduled_start_at: new Date('2026-09-23T18:29:59.999Z') }),
+      makeTrip({ id: TRIP_B, scheduled_start_at: new Date('2026-09-23T18:30:00.000Z') }),
+      makeTrip({
+        id: 'last-local-instant',
+        scheduled_start_at: new Date('2026-09-24T18:29:59.999Z'),
+      }),
+      makeTrip({ id: 'next-school-day', scheduled_start_at: new Date('2026-09-24T18:30:00.000Z') }),
+    ];
+    const query = new ListTripsQueryDto();
+    query.date = '2026-09-24';
+
+    const result = await makeService(
+      makeRepositories(trips),
+      undefined,
+      undefined,
+      makeSchoolRepository('Asia/Kolkata'),
+    ).findAll(SCHOOL_A, query);
+
+    assert.deepEqual(
+      result.items.map((trip) => trip.id),
+      [TRIP_B, 'last-local-instant'],
+    );
+  });
+
+  it('uses timezone-aware day boundaries across daylight-saving changes', () => {
+    const start = startOfDateInTimeZone('2026-03-08', 'America/New_York');
+    const end = startOfDateInTimeZone(addCalendarDays('2026-03-08', 1), 'America/New_York');
+
+    assert.equal(start.toISOString(), '2026-03-08T05:00:00.000Z');
+    assert.equal(end.toISOString(), '2026-03-09T04:00:00.000Z');
+    assert.equal(end.getTime() - start.getTime(), 23 * 60 * 60 * 1000);
+  });
+
+  it('uses the school-local date when validating run crew effective periods', async () => {
+    const crewRows: StubRunCrew[] = [
+      {
+        id: 'driver-effective-today',
+        school_id: SCHOOL_A,
+        run_id: RUN_A,
+        user_id: DRIVER_A,
+        role: RouteAssignmentRole.DRIVER,
+        effective_from: '2026-09-24',
+        effective_to: null,
+        is_active: true,
+      },
+      {
+        id: 'conductor-effective-today',
+        school_id: SCHOOL_A,
+        run_id: RUN_A,
+        user_id: CONDUCTOR_A,
+        role: RouteAssignmentRole.CONDUCTOR,
+        effective_from: '2026-09-24',
+        effective_to: null,
+        is_active: true,
+      },
+    ];
+    const repos = makeRepositories(
+      [],
+      defaultAssignments(),
+      defaultResources(),
+      {},
+      defaultRuns(),
+      crewRows,
+    );
+    const service = makeService(repos, undefined, undefined, makeSchoolRepository('Asia/Kolkata'));
+
+    const created = await service.create(
+      SCHOOL_A,
+      createDto({
+        route_assignment_id: undefined,
+        run_id: RUN_A,
+        scheduled_start_at: '2026-09-23T23:30:00.000Z',
+        scheduled_end_at: null,
+      }),
+    );
+
+    assert.equal(created.scheduled_start_at, '2026-09-23T23:30:00.000Z');
+    assert.equal(created.driver_id, DRIVER_A);
   });
 
   it('rejects an inverted day range', async () => {
@@ -1205,8 +1398,15 @@ describe('TripsService lifecycle', () => {
   it('pushes a cancellation to the rostered crew devices (Phase 4)', async () => {
     const pushes: Array<{ user_ids: string[]; type: string; data?: Record<string, unknown> }> = [];
     const notifications = Object.assign(makeNotificationsStub(), {
-      resolveCrewUserIdsForTrip: async (_schoolId: string, _tripId: string) => [DRIVER_A, CONDUCTOR_A],
-      pushToUsers: async (input: { user_ids: string[]; type: string; data?: Record<string, unknown> }) => {
+      resolveCrewUserIdsForTrip: async (_schoolId: string, _tripId: string) => [
+        DRIVER_A,
+        CONDUCTOR_A,
+      ],
+      pushToUsers: async (input: {
+        user_ids: string[];
+        type: string;
+        data?: Record<string, unknown>;
+      }) => {
         pushes.push(input);
       },
     }) as unknown as import('../notifications/notifications.service').NotificationsService;
@@ -1650,14 +1850,16 @@ describe('TripsService.update — re-dispatch across sources (Phase 3)', () => {
 describe('TripsService.findAll — run scoping (Phase 3)', () => {
   it('filters by run_id for admins', async () => {
     const capture: Capture = {};
-    const service = makeService(makeRepositories([makeTrip({ run_id: RUN_A })], [], undefined, capture));
+    const service = makeService(
+      makeRepositories([makeTrip({ run_id: RUN_A })], [], undefined, capture),
+    );
     const query = new ListTripsQueryDto();
     query.run_id = RUN_A;
     await service.findAll(SCHOOL_A, query);
     assert.equal(capture.findAndCountWhere?.run_id, RUN_A);
   });
 
-  it('narrows a parent to the trips of their child\'s run', async () => {
+  it("narrows a parent to the trips of their child's run", async () => {
     const parent: AuthenticatedRequestUser = {
       id: PARENT_FOR_SCOPE,
       school_id: SCHOOL_A,
@@ -1666,16 +1868,22 @@ describe('TripsService.findAll — run scoping (Phase 3)', () => {
     const onRun = makeTrip({ id: TRIP_A, run_id: RUN_A });
     const onOtherRun = makeTrip({ id: TRIP_B, run_id: RUN_B });
     const repos = makeRepositories([onRun, onOtherRun]);
-    const service = makeService(repos, makeLiveTrackingStub(liveTrackingCapture, {
-      parentTripScope: {
-        routeIds: [ROUTE_A],
-        runScopedRouteIds: [ROUTE_A],
-        runIds: [RUN_A],
-        defaultRiderRouteIds: [],
-      },
-    }));
+    const service = makeService(
+      repos,
+      makeLiveTrackingStub(liveTrackingCapture, {
+        parentTripScope: {
+          routeIds: [ROUTE_A],
+          runScopedRouteIds: [ROUTE_A],
+          runIds: [RUN_A],
+          defaultRiderRouteIds: [],
+        },
+      }),
+    );
     const result = await service.findAllForActor(parent, new ListTripsQueryDto());
-    assert.deepEqual(result.items.map((trip) => trip.id), [TRIP_A]);
+    assert.deepEqual(
+      result.items.map((trip) => trip.id),
+      [TRIP_A],
+    );
   });
 
   it('keeps legacy run-less trips visible to default-run riders', async () => {
@@ -1686,15 +1894,21 @@ describe('TripsService.findAll — run scoping (Phase 3)', () => {
     } as unknown as AuthenticatedRequestUser;
     const legacy = makeTrip({ id: TRIP_A, run_id: null });
     const repos = makeRepositories([legacy]);
-    const service = makeService(repos, makeLiveTrackingStub(liveTrackingCapture, {
-      parentTripScope: {
-        routeIds: [ROUTE_A],
-        runScopedRouteIds: [ROUTE_A],
-        runIds: [RUN_A],
-        defaultRiderRouteIds: [ROUTE_A],
-      },
-    }));
+    const service = makeService(
+      repos,
+      makeLiveTrackingStub(liveTrackingCapture, {
+        parentTripScope: {
+          routeIds: [ROUTE_A],
+          runScopedRouteIds: [ROUTE_A],
+          runIds: [RUN_A],
+          defaultRiderRouteIds: [ROUTE_A],
+        },
+      }),
+    );
     const result = await service.findAllForActor(parent, new ListTripsQueryDto());
-    assert.deepEqual(result.items.map((trip) => trip.id), [TRIP_A]);
+    assert.deepEqual(
+      result.items.map((trip) => trip.id),
+      [TRIP_A],
+    );
   });
 });

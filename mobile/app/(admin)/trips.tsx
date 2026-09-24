@@ -23,7 +23,7 @@ import {
   formatTime,
   fromDateTimeLocalValue,
   tripStatusLabel,
-  utcDateOnly,
+  schoolDateOnly,
 } from '../../src/lib/format';
 import {
   LIVE_FILTER,
@@ -34,6 +34,7 @@ import {
 } from '../../src/lib/trips-list';
 import { dispatchableRuns } from '../../src/lib/runs';
 import { useLoad } from '../../src/hooks/useLoad';
+import { useAuth } from '../../src/features/auth';
 import { usePagedResource } from '../../src/hooks/usePagedResource';
 import {
   Badge,
@@ -146,8 +147,9 @@ function assignmentLabel(assignment: RouteAssignmentResponse): string {
 export default function AdminTripsScreen() {
   const router = useRouter();
   const toast = useToast();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ status?: string }>();
-  const today = utcDateOnly();
+  const today = schoolDateOnly(user?.school_timezone);
 
   // Deep link from the dashboard "Live trips" card: /trips?status=IN_PROGRESS
   const initialStatus: StatusFilter =
@@ -488,6 +490,7 @@ export default function AdminTripsScreen() {
       <CalendarPicker
         visible={dayPickerOpen}
         value={day}
+        timeZone={user?.school_timezone}
         onConfirm={setDay}
         onClose={() => setDayPickerOpen(false)}
       />

@@ -10,8 +10,9 @@ import {
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
-import { formatTime, tripStatusLabel, utcDateOnly } from '../../src/lib/format';
+import { formatTime, tripStatusLabel, schoolDateOnly } from '../../src/lib/format';
 import { useLoad } from '../../src/hooks/useLoad';
+import { useAuth } from '../../src/features/auth';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { EtaSummaryCard, StopsEtaList } from '../../src/features/tracking/EtaViews';
@@ -33,15 +34,20 @@ import {
  * server-computed ETA/stop progress the web console shows.
  */
 export default function AdminTrackingScreen() {
+  const { user } = useAuth();
   const [selectedId, setSelectedId] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
 
   const { data, loading, refreshing, error, reload, refresh } = useLoad(async (): Promise<{
     trips: TripResponse[];
   }> => {
-    const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 50, date: utcDateOnly() });
+    const tripsEnvelope = await apiClient.listTrips({
+      page: 1,
+      limit: 50,
+      date: schoolDateOnly(user?.school_timezone),
+    });
     return { trips: unwrapEnvelope<TripListResponse>(tripsEnvelope).items };
-  }, []);
+  }, [user?.school_timezone]);
 
   const activeId = useMemo(() => {
     const trips = data?.trips ?? [];

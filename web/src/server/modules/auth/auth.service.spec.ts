@@ -61,10 +61,18 @@ function makeUsersRepository(
   } as unknown as typeof User;
 }
 
-/** In-memory stand-in for the `School` model used to resolve a tenant code. */
-function makeSchoolsRepository(schoolIdByCode: Record<string, string>) {
+/** In-memory stand-in for tenant-code and school-timezone lookups. */
+function makeSchoolsRepository(
+  schoolIdByCode: Record<string, string>,
+  timezone?: string,
+): typeof School {
   return {
-    findOne: (options: { where: { code: string } }) => {
+    findOne: (options: { where: Record<string, string> }) => {
+      if (options.where.id) {
+        return Promise.resolve(
+          timezone && options.where.id === SCHOOL_ID ? { id: options.where.id, timezone } : null,
+        );
+      }
       const id = schoolIdByCode[(options.where.code ?? '').toLowerCase()];
       return Promise.resolve(id ? { id } : null);
     },
@@ -202,6 +210,22 @@ describe('AuthService.login', () => {
       last_name: 'Driver',
       email: 'driver@school.org',
     });
+  });
+
+  it('includes the configured school timezone in authenticated user data', async () => {
+    const { repo: refreshRepo } = makeRefreshTokensRepository();
+    const service = new AuthService(
+      makeUsersRepository(user),
+      refreshRepo,
+      makeJwtService(),
+      makeConfigService(),
+      undefined,
+      makeSchoolsRepository({}, 'Asia/Kolkata'),
+    );
+
+    const result = await service.login(makeLoginDto());
+
+    assert.equal(result.response.user.school_timezone, 'Asia/Kolkata');
   });
 
   it('creates and persists a hashed refresh token associated with user and school', async () => {
