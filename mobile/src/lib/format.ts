@@ -12,8 +12,8 @@ import { pluralKey, t } from './i18n.ts';
  *
  * Everything renders device-local times with manual formatting (no
  * `toLocaleString`) so output is deterministic across Hermes/JSC and testable
- * under `node --test`. The only exception is `utcDateOnly`, which mirrors the
- * web helper: the API's `date` trip filter is defined on UTC calendar days.
+ * under `node --test`. `schoolDateOnly` is used for trip filtering, whose date
+ * ranges are calculated in the school's configured timezone by the API.
  */
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
@@ -37,6 +37,29 @@ const pad = (part: number): string => String(part).padStart(2, '0');
 /** UTC calendar day (`YYYY-MM-DD`) — the unit the trips `date` filter uses. */
 export function utcDateOnly(date = new Date()): string {
   return date.toISOString().slice(0, 10);
+}
+
+/** Calendar day in the school's timezone (or the device timezone as fallback). */
+export function schoolDateOnly(timeZone?: string | null, date = new Date()): string {
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(date);
+      const year = parts.find((part) => part.type === 'year')?.value;
+      const month = parts.find((part) => part.type === 'month')?.value;
+      const day = parts.find((part) => part.type === 'day')?.value;
+      if (year && month && day) return `${year}-${month}-${day}`;
+    } catch {
+      // A stale or unsupported timezone falls back to the device's calendar.
+    }
+  }
+
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /**

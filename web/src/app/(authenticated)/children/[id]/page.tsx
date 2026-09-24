@@ -7,6 +7,7 @@ import { TripStatus } from '@school-bus-tracking/shared-types';
 import { Badge, Card, ErrorState, PageHeader, Skeleton } from '../../../../components/ui';
 import { TripTracker } from '../../../../features/tracking/TripTracker';
 import { useLoad } from '../../../../hooks/useLoad';
+import { useAuth } from '../../../../features/auth/AuthProvider';
 import { unwrapEnvelope } from '../../../../lib/errors';
 import {
   attendanceStatusLabel,
@@ -16,16 +17,21 @@ import {
   fullName,
   tripStatusLabel,
   tripStatusTone,
-  utcDateOnly,
+  schoolDateOnly,
 } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
 
 export default function ChildTripPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { data, loading, error, reload } = useLoad(async () => {
     const student = unwrapEnvelope(await apiClient.getStudent(params.id));
     const trips = unwrapEnvelope(
-      await apiClient.listTrips({ page: 1, limit: 20, date: utcDateOnly() }),
+      await apiClient.listTrips({
+        page: 1,
+        limit: 20,
+        date: schoolDateOnly(user?.school_timezone),
+      }),
     ).items;
     const rank: Record<string, number> = {
       [TripStatus.IN_PROGRESS]: 0,
@@ -47,7 +53,7 @@ export default function ChildTripPage() {
       stops: unwrapEnvelope(stops).items,
       attendance: unwrapEnvelope(attendance),
     };
-  }, [params.id]);
+  }, [params.id, user?.school_timezone]);
 
   if (loading && !data) {
     return (

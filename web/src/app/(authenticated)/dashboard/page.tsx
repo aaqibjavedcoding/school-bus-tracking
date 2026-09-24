@@ -8,7 +8,12 @@ import { NavIcon } from '../../../components/layout/icons';
 import { useAuth } from '../../../features/auth/AuthProvider';
 import { useLoad } from '../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../lib/errors';
-import { formatDateTime, tripStatusLabel, tripStatusTone, utcDateOnly } from '../../../lib/format';
+import {
+  formatDateTime,
+  tripStatusLabel,
+  tripStatusTone,
+  schoolDateOnly,
+} from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 import { KpiCard, KpiGrid, KpiGridSkeleton } from '../../../features/admin/components/KpiCard';
 
@@ -16,7 +21,7 @@ const number = (value: number): string => new Intl.NumberFormat().format(value);
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const today = utcDateOnly();
+  const today = schoolDateOnly(user?.school_timezone);
   const isSchoolAdmin = user?.role === UserRole.SCHOOL_ADMIN;
   const { data, loading, error, reload } = useLoad(async () => {
     if (!isSchoolAdmin) {

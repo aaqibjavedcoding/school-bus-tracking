@@ -177,6 +177,8 @@ export interface JwtAccessTokenPayload {
 export interface AuthenticatedUser {
   id: string;
   school_id: string | null;
+  /** IANA timezone configured for the user's school, when available. */
+  school_timezone?: string | null;
   role: UserRole;
   first_name: string;
   last_name: string;
@@ -1917,8 +1919,9 @@ export interface TripDeleteResponse {
 /**
  * Query string of `GET /api/v1/trips`.
  *
- * `date` selects a single UTC calendar day, while `date_from`/`date_to` select
- * an inclusive range of UTC calendar days. All of them filter on
+ * `date` selects a single school-local calendar day, while `date_from`/`date_to`
+ * select an inclusive range of school-local calendar days. The API resolves
+ * each range using the authenticated school's IANA timezone and filters on
  * `scheduled_start_at`.
  */
 export interface TripListQuery {
@@ -2348,11 +2351,7 @@ export interface TripStopWarning {
 
 /** Why the newest evaluated fix produced no arrival evidence. */
 export type TripArrivalFixRejection =
-  | 'stale'
-  | 'future'
-  | 'inaccurate'
-  | 'missing-accuracy'
-  | 'implausible-jump';
+  'stale' | 'future' | 'inaccurate' | 'missing-accuracy' | 'implausible-jump';
 
 /** Confirmation evidence accumulated for one not-yet-reached stop. */
 export interface TripArrivalPendingStop {

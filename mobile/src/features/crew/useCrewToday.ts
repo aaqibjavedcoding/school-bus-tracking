@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import type { TripResponse } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { unwrapEnvelope } from '../../lib/errors';
-import { utcDateOnly } from '../../lib/format';
+import { schoolDateOnly } from '../../lib/format';
 import { useLoad } from '../../hooks/useLoad';
 import { mergeTripUpdate, pickCrewTrip } from './crew-trip';
 
@@ -63,14 +63,14 @@ export function buildCrewTodayData(date: string, trips: TripResponse[]): CrewTod
   };
 }
 
-export function useCrewToday() {
+export function useCrewToday(timeZone?: string | null) {
   const load = useCallback(async (): Promise<CrewTodayData> => {
-    const date = utcDateOnly();
+    const date = schoolDateOnly(timeZone);
     const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 25, date });
     return buildCrewTodayData(date, unwrapEnvelope(tripsEnvelope).items);
-  }, []);
+  }, [timeZone]);
 
-  const state = useLoad<CrewTodayData>(load, []);
+  const state = useLoad<CrewTodayData>(load, [timeZone]);
   const { setData } = state;
 
   /**

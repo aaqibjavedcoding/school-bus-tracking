@@ -9,6 +9,7 @@ import {
   formatRelative,
   tripStatusLabel,
   utcDateOnly,
+  schoolDateOnly,
 } from './format.ts';
 import { TripAttendanceStatus, TripStatus } from '@school-bus-tracking/shared-types';
 
@@ -28,7 +29,7 @@ describe('time formatting', () => {
     assert.equal(formatTime('garbage'), '—');
   });
 
-  it('produces the UTC calendar day the trips date filter expects', () => {
+  it('retains an explicit UTC calendar-day helper', () => {
     assert.equal(utcDateOnly(new Date(Date.UTC(2026, 7, 29, 23, 59))), '2026-08-29');
   });
 });
@@ -74,5 +75,18 @@ describe('status labels', () => {
     assert.equal(attendanceStatusLabel(TripAttendanceStatus.DROPPED), 'Dropped off');
     assert.equal(boardingStatusLabel(null), 'Not boarded');
     assert.equal(boardingStatusLabel(TripAttendanceStatus.BOARDED), 'Boarded');
+  });
+});
+
+describe('schoolDateOnly', () => {
+  it('uses the configured school timezone instead of the UTC date', () => {
+    assert.equal(
+      schoolDateOnly('Asia/Kolkata', new Date('2026-09-23T23:30:00.000Z')),
+      '2026-09-24',
+    );
+    assert.equal(
+      schoolDateOnly('America/Los_Angeles', new Date('2026-09-24T05:00:00.000Z')),
+      '2026-09-23',
+    );
   });
 });

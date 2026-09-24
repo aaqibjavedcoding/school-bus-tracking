@@ -71,7 +71,9 @@ export default function CrewTripScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const t = useTranslation();
-  const { data, loading, refreshing, error, reload, refresh, applyTrip } = useCrewToday();
+  const { data, loading, refreshing, error, reload, refresh, applyTrip } = useCrewToday(
+    user?.school_timezone,
+  );
   const trip = data?.trip ?? null;
   /**
    * The tracking lifecycle is shared with the Help screen, so it is scoped to

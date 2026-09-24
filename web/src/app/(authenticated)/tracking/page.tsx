@@ -8,7 +8,7 @@ import { useAuth } from '../../../features/auth/AuthProvider';
 import { TripTracker } from '../../../features/tracking/TripTracker';
 import { useLoad } from '../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../lib/errors';
-import { formatDateTime, tripStatusLabel, utcDateOnly } from '../../../lib/format';
+import { formatDateTime, tripStatusLabel, schoolDateOnly } from '../../../lib/format';
 import { apiClient } from '../../../services/api';
 
 function TrackingInner() {
@@ -22,7 +22,8 @@ function TrackingInner() {
       apiClient.listTrips({
         page: 1,
         limit: 50,
-        date: user?.role === UserRole.SCHOOL_ADMIN ? utcDateOnly() : undefined,
+        date:
+          user?.role === UserRole.SCHOOL_ADMIN ? schoolDateOnly(user.school_timezone) : undefined,
       }),
       apiClient.listRoutes({ page: 1, limit: 100 }),
     ]);
@@ -35,7 +36,7 @@ function TrackingInner() {
       selected,
       selectedId: selected?.id ?? '',
     };
-  }, [requested, user?.role]);
+  }, [requested, user?.role, user?.school_timezone]);
 
   const activeId = tripId || data?.selectedId || requested || null;
   const selected = useMemo(

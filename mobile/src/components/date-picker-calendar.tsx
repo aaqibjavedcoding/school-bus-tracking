@@ -15,7 +15,7 @@ import {
   yearOverlapsRange,
   type CalendarDate,
 } from '../lib/calendar';
-import { utcDateOnly } from '../lib/format';
+import { schoolDateOnly } from '../lib/format';
 
 /**
  * The calendar behind every date field in the app — the shared modal opened
@@ -109,6 +109,8 @@ export interface CalendarPickerProps {
   minDate?: string | null;
   /** Inclusive upper bound; days after it are not selectable (e.g. DOB ≤ today). */
   maxDate?: string | null;
+  /** IANA timezone used to calculate and highlight "today". */
+  timeZone?: string | null;
 }
 
 export const CalendarPicker: React.FC<CalendarPickerProps> = ({
@@ -121,15 +123,17 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
   onClear,
   minDate = null,
   maxDate = null,
+  timeZone,
 }) => {
   const t = useTranslation();
   const insets = useSafeAreaInsets();
-  const today = utcDateOnly();
+  const today = schoolDateOnly(timeZone);
   const todayDate = useMemo(() => parseDateOnly(today), [today]);
   const selected = useMemo(() => parseDateOnly(value), [value]);
 
   const [view, setView] = useState<CalendarDate>(
-    () => selected ?? parseDateOnly(initialDate ?? '') ?? todayDate ?? { year: 2026, month: 1, day: 1 },
+    () =>
+      selected ?? parseDateOnly(initialDate ?? '') ?? todayDate ?? { year: 2026, month: 1, day: 1 },
   );
   const [viewMode, setViewMode] = useState<PickerViewMode>('days');
 
@@ -163,7 +167,10 @@ export const CalendarPicker: React.FC<CalendarPickerProps> = ({
       Boolean,
     );
 
-  const previousMonth = useMemo(() => addMonths(view.year, view.month, -1), [view.year, view.month]);
+  const previousMonth = useMemo(
+    () => addMonths(view.year, view.month, -1),
+    [view.year, view.month],
+  );
   const nextMonth = useMemo(() => addMonths(view.year, view.month, 1), [view.year, view.month]);
   const canStepBack =
     viewMode === 'days'

@@ -22,7 +22,7 @@ import { useTranslation } from '../../src/lib/i18n-provider';
 export default function CrewSosScreen() {
   const { user } = useAuth();
   const t = useTranslation();
-  const { data, loading, refreshing, error, reload, refresh } = useCrewToday();
+  const { data, loading, refreshing, error, reload, refresh } = useCrewToday(user?.school_timezone);
   const trip = data?.trip ?? null;
   const role = user ? crewRoleLabel(user.role) : t('role.crew');
 

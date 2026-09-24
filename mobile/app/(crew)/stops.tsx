@@ -5,6 +5,7 @@ import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import { useCrewToday } from '../../src/features/crew';
+import { useAuth } from '../../src/features/auth';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { EtaSummaryCard, StopsEtaList } from '../../src/features/tracking/EtaViews';
@@ -30,6 +31,7 @@ import { useTranslation } from '../../src/lib/i18n-provider';
  */
 export default function CrewStopsScreen() {
   const t = useTranslation();
+  const { user } = useAuth();
   const {
     data: today,
     loading: todayLoading,
@@ -37,7 +39,7 @@ export default function CrewStopsScreen() {
     error: todayError,
     reload: reloadToday,
     refresh: refreshToday,
-  } = useCrewToday();
+  } = useCrewToday(user?.school_timezone);
   const trip = today?.trip ?? null;
 
   const live = useLiveTripTracking(trip?.id ?? null);
