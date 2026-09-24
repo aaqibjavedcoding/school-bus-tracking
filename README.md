@@ -503,7 +503,7 @@ school-bus-tracking/
 │   │   ├── expo-start.mjs            # runs `expo start --go` with EXPO_NO_REDIRECT_PAGE=1
 │   │   ├── expo-start.spec.ts        # …and its unit test
 │   │   ├── verify-expo-sdk.mjs       # SDK-line guardrail (runs in prestart/preandroid/preios)
-│   │   ├── generate-assets.mjs       # rasterises logo/kidbus-logo.svg into icon/splash slots
+│   │   ├── generate-assets.mjs       # rasterises logo/school_bus_logo.svg into icon/splash slots
 │   │   └── test-loaders/*.mjs        # native-module stub loader for push simulation tests
 │   ├── app/                          # expo-router file routes
 │   │   ├── _layout.tsx               # root: providers, api-env registration, splash/status bar
