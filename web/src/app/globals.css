@@ -121,8 +121,11 @@ img {
 .brand-mark {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  /* The mark's slot. The image is 303.75×364 wide-to-tall (≈0.83), so a square
+     box of the same side always contains it — the mark can never spill into
+     the brand name beside it. */
+  width: 42px;
+  height: 42px;
   flex-shrink: 0;
 }
 

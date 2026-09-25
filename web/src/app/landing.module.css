@@ -101,8 +101,8 @@
 
 .brandMark {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 52px;
+  height: 52px;
   place-items: center;
   flex-shrink: 0;
 }
@@ -789,8 +789,8 @@
 
 .previewBrandMark {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   flex-shrink: 0;
 }
@@ -1416,8 +1416,8 @@
   }
 
   .brandMark {
-    width: 37px;
-    height: 37px;
+    width: 46px;
+    height: 46px;
   }
 
   .brandName {

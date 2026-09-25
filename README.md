@@ -572,6 +572,7 @@ school-bus-tracking/
 │
 ├── scripts/
 │   ├── backup-restore.sh             # local pg_dump/pg_restore: backup | restore | verify | list
+│   ├── logo-assets.mjs               # sliver cleanup + 4x-supersampled renders of every logo PNG
 │   └── ci-enable-postgis.mjs         # installs postgis + uuid-ossp into template1 for CI
 │
 ├── .github/

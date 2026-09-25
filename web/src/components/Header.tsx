@@ -22,11 +22,14 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        <div style={{ display: 'grid', placeItems: 'center', width: 32, height: 32 }}>
+        {/* The grid box is the mark's slot: it is a touch taller than the mark
+            is wide (the mark is 303.75×364, ≈0.83 aspect), so the image stays
+            inside its box and never crowds the title beside it. */}
+        <div style={{ display: 'grid', placeItems: 'center', width: 40, height: 40 }}>
           {/* The brand mark is the shared public logo — the same file the
               sidebar, login screen and landing page render. No brand text sits
               beside it here, so the mark carries the name for assistive tech. */}
-          <Image src="/kidbus-mark.svg" alt={APP_CONFIG.appName} width={32} height={32} style={{ width: 'auto' }} priority />
+          <Image src="/kidbus-mark.svg" alt={APP_CONFIG.appName} width={40} height={40} style={{ width: 'auto' }} priority />
         </div>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>{title}</h1>
