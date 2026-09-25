@@ -17,7 +17,7 @@
         "buildType": "apk"
       },
       "env": {
-      "EXPO_PUBLIC_API_URL": "https://school-bus-tracking-tf46.onrender.com/api/v1"
+      "EXPO_PUBLIC_API_URL": "https://kidbus.onrender.com/api/v1"
       }
     },
     "production": {
