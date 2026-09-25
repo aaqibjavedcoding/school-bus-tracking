@@ -1,9 +1,8 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   UserRole,
-  type StopResponse,
   type TripResponse,
   type TripStudentManifestResponse,
 } from '@school-bus-tracking/shared-types';
@@ -27,7 +26,14 @@ import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
 import { NextStopKidCard } from '../../src/features/crew/NextStopKidCard';
 import { summarizeNextStopKids } from '../../src/features/crew/next-stop-kids';
 import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
-import { deriveTripProgress } from '../../src/features/crew/navigation-stop';
+import {
+  deriveTripProgressForTrip,
+  etaForTrip,
+  initialTripFrontier,
+  stopsForRoute,
+  type RouteStops,
+  type TripFrontierState,
+} from '../../src/features/crew/trip-progress.ts';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
@@ -66,6 +72,14 @@ import { useTranslation } from '../../src/lib/i18n-provider';
  * conductor (kids at next stop). GPS-driven re-renders throttled: map
  * presentation only updates when fix moves >10m or status changes, not on
  * every 5s tick.
+ *
+ * T1: that frontier is scoped to the **trip** (`trip-progress.ts`). A crew day
+ * is several trips and this screen never unmounts between them, so a frontier
+ * remembered across the switch made the next run derive from the previous
+ * run's progress: no next stop at all ("no candidates ahead of frontier 6" —
+ * Navigate button gone, kids card empty, voice silent, the server's own
+ * `next_stop` rejected as behind the frontier), or a plausible but wrong stop
+ * when the stale frontier was small. Only an app force-close recovered.
  */
 export default function CrewTripScreen() {
   const router = useRouter();
@@ -151,37 +165,62 @@ export default function CrewTripScreen() {
 
   // The ordered stops of the trip's route, used by the driver's navigation
   // hand-off. Loading them on this screen keeps the "Navigate" card honest:
-  // it points at a real stop of this run, never at a guessed coordinate.
-  const stopsLoad = useLoad<StopResponse[]>(async () => {
-    if (!trip) return [];
-    return unwrapEnvelope(await apiClient.listRouteStops(trip.route_id)).items;
-  }, [trip?.route_id]);
+  // it points at a real stop of this run, never at a guessed coordinate. The
+  // route id travels with the list: `useLoad` keeps the previous route's stops
+  // while the next request is in flight, and a trip switch must not derive a
+  // next stop (or draw a map) from the route the bus is no longer driving.
+  const routeId = trip?.route_id ?? null;
+  const stopsLoad = useLoad<RouteStops>(async () => {
+    if (!routeId) return { route_id: null, items: [] };
+    return {
+      route_id: routeId,
+      items: unwrapEnvelope(await apiClient.listRouteStops(routeId)).items,
+    };
+  }, [routeId]);
+  const stops = useMemo(
+    () => stopsForRoute(stopsLoad.data ?? null, routeId),
+    [stopsLoad.data, routeId],
+  );
 
   /**
-   * Robust next-stop derivation (3E) — monotonic, nearest-upcoming, drift
-   * tolerant. Used by BOTH driver (navigation) and conductor (kids at next
-   * stop). Frontier is kept in a ref so it never moves backward, even if
-   * server sends out-of-order data.
+   * Robust next-stop derivation — monotonic, nearest-upcoming, drift tolerant.
+   * Used by BOTH driver (navigation) and conductor (kids at next stop).
+   *
+   * T1: the frontier is **scoped to the trip**. It used to live in a ref that
+   * survived a trip switch, so the run after a completed one was derived with
+   * the previous run's frontier — "no candidates ahead of frontier 6" (no
+   * Navigate button, empty kids card, silent voice, the server's own
+   * `next_stop` rejected as "behind frontier, ignored") or, with a smaller
+   * stale frontier, a plausible but wrong stop. The screen never unmounts
+   * between trips, so the state itself carries the trip id it was measured on
+   * and `deriveTripProgressForTrip` resets it when they disagree.
+   *
+   * Nothing is mutated during the render: the memo derives what the state
+   * should be, an effect stores it, and the fold returns the same object when
+   * the frontier has not moved so an ETA push cannot churn re-renders. The
+   * server's `next_stop` stays the source of truth — the client frontier is
+   * only the safety net against walking backward inside one trip.
    */
-  const frontierRef = useRef(0);
-  const progress = useMemo(() => {
-    const derived = deriveTripProgress(
-      stopsLoad.data ?? [],
-      live.eta ?? null,
-      live.eta?.next_stop?.stop_id ?? null,
-      frontierRef.current,
-    );
-    // Only advance, never retreat — Google Maps style monotonic progress.
-    if (derived.frontier > frontierRef.current) {
-      frontierRef.current = derived.frontier;
-    }
-    // Return with monotonic frontier enforced
-    return {
-      ...derived,
-      frontier: frontierRef.current,
-      nextStop: derived.frontier > frontierRef.current ? derived.nextStop : derived.nextStop,
-    };
-  }, [stopsLoad.data, live.eta]);
+  const tripId = trip?.id ?? null;
+  const [frontierState, setFrontierState] = useState<TripFrontierState>(initialTripFrontier);
+  // The live hook keeps the previous trip's ETA until the new snapshot lands,
+  // so the payload is scoped to the trip on screen before anything reads it.
+  const eta = useMemo(() => etaForTrip(live.eta ?? null, tripId), [live.eta, tripId]);
+
+  const { progress, frontierState: nextFrontierState } = useMemo(
+    () =>
+      deriveTripProgressForTrip(frontierState, {
+        tripId,
+        stops,
+        eta,
+        serverNextStopId: eta?.next_stop?.stop_id ?? null,
+      }),
+    [frontierState, tripId, stops, eta],
+  );
+
+  useEffect(() => {
+    setFrontierState(nextFrontierState);
+  }, [nextFrontierState]);
 
   const nextStopId = progress.nextStop?.id ?? null;
 
@@ -190,8 +229,8 @@ export default function CrewTripScreen() {
     return unwrapEnvelope(await apiClient.listTripStudents(trip.id, { stop_id: nextStopId })).items;
   }, [trip?.id, nextStopId]);
   const nextStopKids = useMemo(
-    () => summarizeNextStopKids(kidsLoad.data ?? [], stopsLoad.data ?? [], nextStopId),
-    [kidsLoad.data, stopsLoad.data, nextStopId],
+    () => summarizeNextStopKids(kidsLoad.data ?? [], stops, nextStopId),
+    [kidsLoad.data, stops, nextStopId],
   );
 
   /**
@@ -204,11 +243,11 @@ export default function CrewTripScreen() {
    * other event (`next-stop-announcer.ts` for the policy).
    */
   useNextStopAnnouncements({
-    tripId: trip?.id ?? null,
+    tripId,
     summary: nextStopKids,
     loaded: !kidsLoad.loading,
-    etaMinutes: live.eta?.next_stop?.eta_minutes ?? null,
-    distanceMeters: live.eta?.next_stop?.distance_meters ?? null,
+    etaMinutes: eta?.next_stop?.eta_minutes ?? null,
+    distanceMeters: eta?.next_stop?.distance_meters ?? null,
   });
 
   if (loading && !data) {
@@ -282,7 +321,7 @@ export default function CrewTripScreen() {
     <Screen refresh={() => void refresh()} refreshing={refreshing}>
       <StatusCard
         trip={trip}
-        eta={live.eta}
+        eta={eta}
         details={details}
         action={
           // Exactly one forward action (spec-pinned) on a white sheet so the
@@ -313,7 +352,7 @@ export default function CrewTripScreen() {
        */}
       {isDriver ? (
         <DriverTripMap
-          stops={stopsLoad.data ?? []}
+          stops={stops}
           localFix={sharing.stats.lastFix}
           presentation={driverMapPresentation}
           tripId={trip.id}
@@ -324,10 +363,10 @@ export default function CrewTripScreen() {
       {isDriver ? (
         <TripNavigationCard
           trip={trip}
-          stops={stopsLoad.data ?? []}
+          stops={stops}
           nextStopId={nextStopId}
-          eta={live.eta}
-          previousFrontier={frontierRef.current}
+          eta={eta}
+          previousFrontier={progress.frontier}
         />
       ) : null}
 

@@ -665,6 +665,37 @@ One announcer, one call site (`app/(crew)/trip.tsx`, the screen both roles run),
 zero role branches: `crew-feedback-wiring.spec.ts` fails the build if a
 per-role copy appears or if the announcer starts reading the role.
 
+### The progress frontier belongs to one trip (T1)
+
+Everything above reads the server's `next_stop`, and the screen adds one thing
+of its own: a **client frontier** so a late, out-of-order push cannot walk the
+driver backward inside a run. That frontier used to live in a `useRef` on the
+trip screen — and the trip screen **never unmounts between trips**. When the
+morning run completed, `pickCrewTrip` selected the next run on the following
+reload and the new run was derived with the previous run's frontier:
+
+- a finished 6-stop run followed by a 5-stop run gave _"no candidates ahead of
+  frontier 6"_ — **no next stop at all**: the Navigate button disappeared, the
+  "kids at next stop" card emptied, the voice went quiet, and the server's own
+  `next_stop` was rejected as _"behind frontier, ignored"_;
+- a smaller stale frontier was worse, because it looked plausible: the new run
+  opened on its **second** stop and the bus drove past a stop full of children.
+
+Only an app force-close recovered. The frontier is therefore **scoped to a trip
+id** (`features/crew/trip-progress.ts`, spec'd by `trip-progress.spec.ts`): the
+state carries the trip it was measured on, a trip switch resets it to zero on
+the first render, and the screen derives the next state in a memo and stores it
+from an effect — nothing is mutated during a render, and an unchanged frontier
+keeps its object identity so an ETA push cannot churn re-renders.
+
+Two neighbouring leaks in the same moment were closed with it, because both
+feeds outlive a trip switch: an **ETA payload** whose `trip_id` is not the trip
+on screen is treated as "no ETA yet" (the live hook keeps the previous trip's
+payload until the new snapshot lands, and two runs can share a route), and the
+**stop list** is only used when it was loaded for the route the trip actually
+runs. The server's `next_stop` remains the source of truth throughout; the
+client frontier is a safety net for one trip, never a memory across trips.
+
 ### Never blocks, never fails an action
 
 Speech and haptics are reporting, never gating. `feedback.on()` returns `void`,
@@ -758,6 +789,7 @@ something the server refused.
 | `crew-feedback.spec.ts` (29)        | role defaults, the full role × (voice, vibration) × on/off matrix with **zero** native calls when off, persistence and cold start, non-blocking, a throwing driver never changes a result, **3C**: the same dispatcher upgrades to the native voice once measured, next-stop events obey the Voice switch and the one-item slot, and the native seam grew no probe                                                                                                                                                                                  |
 | `crew-feedback-wiring.spec.ts` (20) | only the native wrapper imports `expo-speech`/`expo-haptics`, no `await` on the speech path, every surface reports, no surface touches patterns or phrases, zero-touch boundaries hold, **3C**: only the wrapper calls `getAvailableVoicesAsync`, the probe is memoised, a failed probe is not cached as an answer, one announcer for both roles with no role branch                                                                                                                                                                                |
 | `crew-feedback.sim.spec.ts` (17)    | the **real** native wrapper against mocked `expo-speech`/`expo-haptics`: exact spoken strings, `stop`-before-`speak`, settings gating, a no-TTS-engine device, **3C**: one probe for two callers, Devanagari + `hi-IN` + the exact voice identifier reaching `Speech.speak`, Latin + `en-IN` when the locale has no voice, and the `voice` key omitted (not `undefined`) when there is no identifier                                                                                                                                                |
+| `trip-progress.spec.ts` (17)        | **T1**: the frontier is scoped to a trip — a completed 6-stop run followed by a 5-stop run opens on the **first** stop (not "no candidates ahead of frontier 6", not the second stop), monotonicity still holds inside one trip, a stale ETA payload is dropped, stops from another route are dropped, the state machine never retreats and keeps its identity when nothing moved, plus a source guard that the trip screen holds no `frontierRef` and mutates nothing during render                                                                |
 
 ---
 

@@ -393,7 +393,10 @@ paid voice service: it is the phone's own engine either way.
 2. **No trip open, or no next stop yet.** The announcement comes from the
    server's `next_stop` (the progress frontier). Before the trip is boarding,
    or once every stop has been reached, there is nothing to announce — and the
-   "kids at next stop" card on the same screen says the same thing.
+   "kids at next stop" card on the same screen says the same thing. A finished
+   run followed by the crew member's **next** run is handled: the client-side
+   frontier is scoped to the trip, so the new run opens on its first stop
+   without a force-close (`features/crew/trip-progress.ts`).
 3. **The stop has no name or its list is still loading.** The app waits rather
    than say "next stop, zero students" for a count it has not fetched. On a bad
    connection the announcement can therefore arrive a second or two after the
