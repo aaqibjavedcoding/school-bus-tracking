@@ -16,9 +16,9 @@
  * (`TripEtaResponse.next_stop`, derived from the progress frontier since batch
  * 3A) — the client never guesses which stop is next.
  */
-import type {
+import {
   TripAttendanceStatus,
-  TripStudentAttendanceResponse,
+  type TripStudentAttendanceResponse,
 } from '@school-bus-tracking/shared-types';
 import { fullName } from '../../lib/format.ts';
 
@@ -41,6 +41,12 @@ export interface NextStopKidsSummary {
   total: number;
   /** `total - kids.length`, for the "+N more" line. */
   hiddenCount: number;
+  /**
+   * Kids still PENDING at this stop, counted over **all** rows (not the
+   * window) — the "N kids waiting here" line on the next-stop card states
+   * this. A boarded/dropped kid is still on `total`, but no longer waiting.
+   */
+  pendingCount: number;
 }
 
 /**
@@ -61,6 +67,9 @@ export function summarizeNextStopKids(
     name: fullName(student),
     status: student.status,
   }));
+  const pendingCount = atStop.filter(
+    (student) => student.status === TripAttendanceStatus.PENDING,
+  ).length;
   return {
     stopId: nextStopId,
     stopName: stop?.name ?? atStop[0]?.stop_name ?? '',
@@ -68,5 +77,6 @@ export function summarizeNextStopKids(
     kids: kids.slice(0, KID_ROW_WINDOW),
     total: kids.length,
     hiddenCount: Math.max(0, kids.length - KID_ROW_WINDOW),
+    pendingCount,
   };
 }

@@ -187,6 +187,18 @@ untouched.
    it is not the road route, **Full screen**, and an explicit
    **Follow: on/off** pill — see `docs/live-tracking-map.md` → "The two lines,
    the badge and the driving card".
+   **The next-stop block (N3/N6 rework)** — the driver's navigation card is
+   now the whole "what's next" answer in one glance: stop name (18px bold),
+   **"Stop 4 of 8"** (`navigate.card.stopOf`), the server's
+   `distance · ~ETA` line, **"N kids waiting here"** (the PENDING count over
+   the whole next-stop manifest slice — all-marked reads "All kids marked at
+   this stop"), the kid **names with their ✓ marks** rendered inside the same
+   card (`NextStopKidRows` — one block, one heading, no duplicate
+   "Kids at next stop" title), and the lat/long demoted to one small muted
+   line. The old `Trip {id} · N stops` meta line (a truncated trip id) is
+   **gone** — diagnostics, not kerbside copy. The conductor keeps the
+   standalone kids card (same data, its own heading) because they do not
+   drive.
 5. Manifest / Stops & ETA links (56–60px, icon + label).
 6. **SOS quick row** — the hold-to-confirm button + its status line.
 7. "Help & support" link.

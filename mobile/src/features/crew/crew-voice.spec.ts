@@ -552,6 +552,7 @@ describe('phrase shape: first name + action + time', () => {
       { type: 'gps.off' },
       { type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 },
       { type: 'stop.approaching', stopName: 'Shivaji Chowk', studentCount: 12 },
+      { type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 12, sequenceNumber: 4 },
     ];
     const phones: Array<[string, VoiceCapabilitySet | null]> = [
       ['un-probed (Latin fallback)', null],
@@ -603,6 +604,50 @@ describe('next-stop announcements: stop + count, in the active voice', () => {
       assert.equal(
         voicePhrase({ type: 'stop.approaching', stopName: 'Shivaji Chowk', studentCount: 12 }),
         'Approaching Shivaji Chowk, 12 students',
+      );
+    });
+  });
+
+  test('the proximity line speaks the stop number, not the name', () => {
+    inLocale('en', () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 4 }),
+        'Stop 4 coming up, 5 students',
+      );
+    });
+    onPhone('hi', phoneWith('en-IN'), () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 4 }),
+        'Stop 4 aa raha hai, 5 bachche',
+      );
+    });
+    onPhone('hi', phoneWith('hi-IN'), () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 4 }),
+        'स्टॉप 4 आ रहा है, 5 बच्चे',
+      );
+    });
+    onPhone('mr', phoneWith('en-IN'), () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 4 }),
+        'Thambe 4 yet aahet, 5 balek',
+      );
+    });
+  });
+
+  test('a near line without a known stop number says nothing (never a guessed number)', () => {
+    inLocale('en', () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: null }),
+        null,
+      );
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 0 }),
+        null,
+      );
+      assert.equal(
+        voicePhrase({ type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 5, sequenceNumber: 2.5 }),
+        null,
       );
     });
   });
@@ -666,11 +711,17 @@ describe('privacy: what must never reach the speaker', () => {
   test('batch 3C added no student field: a stop event carries a name and a count', () => {
     // The next-stop announcement is the one place a *list* of children was
     // tempting. It stayed an aggregate: a stop is school data, and how many
-    // children are waiting is the fact the crew need.
+    // children are waiting is the fact the crew need. The near variant (N7)
+    // adds one more field — the stop's own sequence number, also school data.
     for (const type of STOP_ANNOUNCEMENT_EVENTS) {
       const event = { type, stopName: 'Shivaji Chowk', studentCount: 12 } as CrewFeedbackEvent;
       assert.deepEqual(Object.keys(event).sort(), ['stopName', 'studentCount', 'type']);
+      for (const denied of ['firstName', 'student', 'guardian', 'phone']) {
+        assert.ok(!(denied in event), `${type} must not carry ${denied}`);
+      }
     }
+    const near = { type: 'stop.near', stopName: 'S', studentCount: 1, sequenceNumber: 4 } as CrewFeedbackEvent;
+    assert.deepEqual(Object.keys(near).sort(), ['sequenceNumber', 'stopName', 'studentCount', 'type']);
     assert.deepEqual(
       [...SPOKEN_STUDENT_FIELDS],
       ['first_name'],

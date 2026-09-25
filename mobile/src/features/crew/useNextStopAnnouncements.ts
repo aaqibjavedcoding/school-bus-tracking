@@ -48,6 +48,10 @@ export function useNextStopAnnouncements(source: NextStopAnnouncementSource): vo
   const stopId = summary?.stopId ?? null;
   const stopName = summary?.stopName ?? '';
   const studentCount = summary?.total ?? 0;
+  // 0 is the summary's "unknown" fallback (stop missing from the list), not a
+  // real position — pass it as unknown so the near line is never a guess.
+  const sequenceNumber =
+    summary && summary.sequenceNumber >= 1 ? summary.sequenceNumber : null;
 
   useEffect(() => {
     const snapshot: NextStopSnapshot = {
@@ -58,10 +62,11 @@ export function useNextStopAnnouncements(source: NextStopAnnouncementSource): vo
       countKnown: loaded,
       etaMinutes,
       distanceMeters,
+      sequenceNumber,
     };
     const event = announcer.observe(snapshot);
     // A bare statement, never awaited: an announcement must not be able to
     // slow down or fail the screen that observed it.
     if (event !== null) feedback.on(event);
-  }, [tripId, stopId, stopName, studentCount, loaded, etaMinutes, distanceMeters]);
+  }, [tripId, stopId, stopName, studentCount, loaded, etaMinutes, distanceMeters, sequenceNumber]);
 }

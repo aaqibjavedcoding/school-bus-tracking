@@ -395,6 +395,7 @@ export const mr: Dictionary = {
   // Next-stop announcements (batch 3C) — driver AND conductor.
   'voice.stop.next': 'Pudhil stop: {name}, {count} balek',
   'voice.stop.approaching': '{name} pohochat aahot, {count} balek',
+  'voice.stop.near': 'Thambe {number} yet aahet, {count} balek',
   // Devanagari — spoken ONLY when the phone has an `mr-IN` voice installed.
   // A student's first name keeps whatever script the school typed it in; an
   // `mr-IN` engine reads a Latin name inside a Marathi sentence correctly.
@@ -417,6 +418,7 @@ export const mr: Dictionary = {
   'voice.native.time.night': 'रात्री',
   'voice.native.stop.next': 'पुढील स्टॉप: {name}, {count} मुले',
   'voice.native.stop.approaching': '{name} पोहोचत आहोत, {count} मुले',
+  'voice.native.stop.near': 'थांबे {number} येत आहेत, {count} मुले',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',
@@ -472,6 +474,20 @@ export const mr: Dictionary = {
   'eta.unavailable': 'उपलब्ध नाही',
   'eta.arrived': 'पहोचले',
   'eta.waitingForGps': 'GPS साठी वाट पाहत',
+  'eta.noData': 'सध्या ETA माहिती उपलब्ध नाही.',
+  'eta.waitingFirstFix': 'पहिल्या GPS फिक्सची वाट पाहत आहोत — सध्या ETA नाही.',
+  'eta.allDone': '✅ या प्रवासाचे सर्व थांबे पूर्ण झाले आहेत.',
+  'eta.currentStop': 'सध्याचे थांबे: {name}',
+  'eta.lastFix': 'शेवटचा GPS फिक्स {time}',
+  'eta.noStopsConfigured': 'या मार्गासाठी कोणतीही थांबे सेट केलेली नाहीत.',
+  'eta.distance': 'अंतर',
+  'eta.eta': 'ETA',
+  'eta.speed': 'गती',
+  'eta.nextBadge': 'पुढील',
+  'eta.currentBadge': 'सध्याचे',
+  'stops.kidsBadge.one': '{count} मूल',
+  'stops.kidsBadge.other': '{count} मुले',
+
 
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   'map.followBus': 'बस फॉलो करा',
@@ -605,8 +621,10 @@ export const mr: Dictionary = {
   'navigate.card.title': 'मार्गदर्शन',
   'navigate.card.description': 'पुढचा थांबा तुमच्या फोनच्या मॅप अ‍ॅपमध्ये उघडतो.',
   'navigate.card.button': 'थांब्याकडे जा',
-  'navigate.card.meta.one': 'ट्रिप {id} · या मार्गावर 1 थांबा.',
-  'navigate.card.meta.other': 'ट्रिप {id} · या मार्गावर {stops} थांबे.',
+  'navigate.card.stopOf': 'थांबे {position} / {total}',
+  'navigate.card.kidsWaiting.one': 'येथे {count} मूल प्रतीक्षा करत आहे',
+  'navigate.card.kidsWaiting.other': 'येथे {count} मुले प्रतीक्षा करत आहेत',
+  'navigate.card.kidsDone': 'या थांब्यावर सर्व मुलांची मार्किंग झाली',
   'navigate.card.noStops': 'या मार्गावर अजून कोणताही थांबा नाही.',
   'navigate.card.noGeofence':
     'या मार्गाचे थांबे GEO-फेंस केलेले नाहीत — शाळेला निर्देशक जोडण्यास सांगा.',

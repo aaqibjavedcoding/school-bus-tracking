@@ -59,6 +59,11 @@ describe('summarizeNextStopKids', () => {
     assert.equal(summary.sequenceNumber, 4);
     assert.equal(summary.total, 2);
     assert.equal(summary.hiddenCount, 0);
+    assert.equal(
+      summary.pendingCount,
+      1,
+      'only the PENDING kid is waiting — boarded kids stay on total',
+    );
     assert.deepEqual(
       summary.kids.map((kid) => [kid.studentId, kid.status]),
       [
@@ -67,6 +72,20 @@ describe('summarizeNextStopKids', () => {
       ],
     );
     assert.equal(summary.kids[0].name, 'Firsts1 Lasts1');
+  });
+
+  it('counts pending kids over ALL rows, not the windowed slice', () => {
+    // 13 PENDING + 1 BOARDED: the count line must say 13 waiting, even though
+    // only the first 8 names render.
+    const students = [
+      ...Array.from({ length: KID_ROW_WINDOW + 5 }, (_, index) => student(`s${index}`, STOP_A)),
+      student('sb', STOP_A, TripAttendanceStatus.BOARDED),
+    ];
+    const summary = summarizeNextStopKids(students, stops, STOP_A);
+    assert.ok(summary);
+    assert.equal(summary.total, KID_ROW_WINDOW + 6);
+    assert.equal(summary.pendingCount, KID_ROW_WINDOW + 5);
+    assert.equal(summary.hiddenCount, 6);
   });
 
   it('windows long lists at KID_ROW_WINDOW and reports the hidden count', () => {

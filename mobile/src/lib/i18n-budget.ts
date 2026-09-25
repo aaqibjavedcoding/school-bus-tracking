@@ -169,6 +169,11 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'map.status.approximate': 'badge',
   // Driver Trip map: the always-on "this is your device's position" chip.
   'driverMap.source': 'badge',
+  // ETA list badges + the crew stops tab's per-stop kids chip — same pill row.
+  'eta.nextBadge': 'badge',
+  'eta.currentBadge': 'badge',
+  'stops.kidsBadge.one': 'badge',
+  'stops.kidsBadge.other': 'badge',
 
   // `KeyValue` label — a full-width row above its value.
   'trip.detail.route': 'label',

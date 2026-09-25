@@ -364,22 +364,24 @@ export default function CrewTripScreen() {
         />
       ) : null}
 
+      {/**
+       * Driver: the whole next-stop block — stop name, "Stop 4 of 8",
+       * distance · ETA, who is waiting (count + names), then Navigate. One
+       * card, one heading; the kids rows render inside it (N3/N6).
+       * Conductor: the standalone kids card (they don't drive; same data).
+       */}
       {isDriver ? (
         <TripNavigationCard
-          trip={trip}
           stops={stops}
           nextStopId={nextStopId}
           eta={eta}
           previousFrontier={progress.frontier}
+          kidsSummary={nextStopKids}
+          kidsLoaded={!kidsLoad.loading}
         />
-      ) : null}
-
-      {/**
-       * Both roles: who gets on or off at the next stop (the old isDriver
-       * gate hid this from the conductor, who boards and drops the same
-       * kids). Windowed at 8 names — see `next-stop-kids.ts`.
-       */}
-      <NextStopKidCard summary={nextStopKids} loaded={!kidsLoad.loading} />
+      ) : (
+        <NextStopKidCard summary={nextStopKids} loaded={!kidsLoad.loading} />
+      )}
 
       <View style={styles.linkRow}>
         <Button

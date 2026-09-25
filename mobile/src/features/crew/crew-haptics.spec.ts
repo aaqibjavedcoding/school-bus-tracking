@@ -34,6 +34,8 @@ const ALL_EVENTS: CrewFeedbackEventType[] = [
   // Batch 3C — the next-stop announcements.
   'stop.next',
   'stop.approaching',
+  // N7 — the ~300 m proximity alert.
+  'stop.near',
 ];
 
 describe('the event → pattern table', () => {
