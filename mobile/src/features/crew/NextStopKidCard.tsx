@@ -17,6 +17,11 @@ import type { NextStopKidsSummary } from './next-stop-kids.ts';
  * States, all visible: loading is the parent's `useLoad` (never a fake list),
  * `noNext` (server says the run has no upcoming stop), `none` (a real stop
  * with nobody assigned), the rows (≤ `KID_ROW_WINDOW`) and "+N more".
+ *
+ * On the driver the same rows render **inside** the next-stop navigation card
+ * (`TripNavigationCard` renders {@link NextStopKidRows}) — one block, one
+ * heading, no duplicate "Kids at next stop" title above the same names
+ * (N6). This standalone card remains the conductor's view.
  */
 export const NextStopKidCard: React.FC<{
   summary: NextStopKidsSummary | null;
@@ -49,22 +54,7 @@ export const NextStopKidCard: React.FC<{
               <Text style={styles.count}>
                 {t(pluralKey('trip.kids.count', summary.total), { count: summary.total })}
               </Text>
-              {summary.kids.map((kid) => (
-                <Text
-                  key={kid.studentId}
-                  style={styles.row}
-                  accessibilityLabel={`${kid.name} · ${t(kidStatusLabel(kid.status))}`}
-                >
-                  <Text style={styles.mark}>{settledSymbol(kid.status)}</Text>
-                  {'  '}
-                  {kid.name}
-                </Text>
-              ))}
-              {summary.hiddenCount > 0 ? (
-                <Text style={styles.muted}>
-                  {t('trip.kids.more', { count: summary.hiddenCount })}
-                </Text>
-              ) : null}
+              <NextStopKidRows summary={summary} />
             </>
           )}
         </>
@@ -73,6 +63,38 @@ export const NextStopKidCard: React.FC<{
   );
 });
 NextStopKidCard.displayName = 'NextStopKidCard';
+
+/**
+ * The kid rows only — marks, names, and the "+N more" line. No count line and
+ * no heading: the caller states the count in its own words (the conductor's
+ * card says "{count} kids", the driver's next-stop block says "N kids waiting
+ * here"), so the two surfaces can never drift into reading the same number
+ * twice in one block.
+ */
+export const NextStopKidRows: React.FC<{
+  summary: NextStopKidsSummary;
+}> = React.memo(({ summary }) => {
+  useTranslation();
+  return (
+    <>
+      {summary.kids.map((kid) => (
+        <Text
+          key={kid.studentId}
+          style={styles.row}
+          accessibilityLabel={`${kid.name} · ${t(kidStatusLabel(kid.status))}`}
+        >
+          <Text style={styles.mark}>{settledSymbol(kid.status)}</Text>
+          {'  '}
+          {kid.name}
+        </Text>
+      ))}
+      {summary.hiddenCount > 0 ? (
+        <Text style={styles.muted}>{t('trip.kids.more', { count: summary.hiddenCount })}</Text>
+      ) : null}
+    </>
+  );
+});
+NextStopKidRows.displayName = 'NextStopKidRows';
 
 const STATUS_A11Y = {
   [TripAttendanceStatus.PENDING]: 'manifest.filter.waiting',

@@ -157,12 +157,23 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   // Live-tracking map chips: small pills floating over the map, `flexWrap`
   // row, so the same 16-char badge budget applies as to the GPS chips above.
   'map.followBus': 'badge',
+  // Driver Trip map pills (follow on/off + expand) and the NEXT badge on the
+  // next-stop pin — same floating-pill row.
+  'map.followOn': 'badge',
+  'map.followOff': 'badge',
+  'map.expand': 'badge',
+  'map.nextBadge': 'badge',
   'map.status.live': 'badge',
   'map.status.lastKnown': 'badge',
   'map.status.noLocation': 'badge',
   'map.status.approximate': 'badge',
   // Driver Trip map: the always-on "this is your device's position" chip.
   'driverMap.source': 'badge',
+  // ETA list badges + the crew stops tab's per-stop kids chip — same pill row.
+  'eta.nextBadge': 'badge',
+  'eta.currentBadge': 'badge',
+  'stops.kidsBadge.one': 'badge',
+  'stops.kidsBadge.other': 'badge',
 
   // `KeyValue` label — a full-width row above its value.
   'trip.detail.route': 'label',

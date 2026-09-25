@@ -386,6 +386,7 @@ export const hi: Dictionary = {
   // Next-stop announcements (batch 3C) — driver AND conductor.
   'voice.stop.next': 'Agla stop: {name}, {count} bachche',
   'voice.stop.approaching': '{name} pahunchne wale hain, {count} bachche',
+  'voice.stop.near': 'Stop {number} aa raha hai, {count} bachche',
   // Devanagari — spoken ONLY when the phone has a `hi-IN` voice installed.
   // A student's first name stays whatever script the school typed it in; an
   // `hi-IN` engine reads a Latin name inside a Hindi sentence correctly.
@@ -408,6 +409,7 @@ export const hi: Dictionary = {
   'voice.native.time.night': 'रात',
   'voice.native.stop.next': 'अगला स्टॉप: {name}, {count} बच्चे',
   'voice.native.stop.approaching': '{name} पहुँचने वाले हैं, {count} बच्चे',
+  'voice.native.stop.near': 'स्टॉप {number} आ रहा है, {count} बच्चे',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',
@@ -463,6 +465,20 @@ export const hi: Dictionary = {
   'eta.unavailable': 'उपलब्ध नहीं',
   'eta.arrived': 'पहुँच गए',
   'eta.waitingForGps': 'GPS का इंतज़ार',
+  'eta.noData': 'अभी ETA जानकारी उपलब्ध नहीं है।',
+  'eta.waitingFirstFix': 'पहले GPS फ़िक्स का इंतज़ार — अभी कोई ETA नहीं।',
+  'eta.allDone': '✅ इस ट्रिप के सारे स्टॉप हो चुके हैं।',
+  'eta.currentStop': 'वर्तमान स्टॉप: {name}',
+  'eta.lastFix': 'आख़िरी GPS फ़िक्स {time}',
+  'eta.noStopsConfigured': 'इस रूट के लिए कोई स्टॉप कॉन्फ़िगर नहीं है।',
+  'eta.distance': 'दूरी',
+  'eta.eta': 'ETA',
+  'eta.speed': 'रफ़्तार',
+  'eta.nextBadge': 'अगला',
+  'eta.currentBadge': 'वर्तमान',
+  'stops.kidsBadge.one': '{count} बच्चा',
+  'stops.kidsBadge.other': '{count} बच्चे',
+
 
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   'map.followBus': 'बस फ़ॉलो करें',
@@ -476,6 +492,13 @@ export const hi: Dictionary = {
   'map.staleNote': '{time} से कोई नई स्थिति नहीं।',
   'map.offlineNote': 'ऑफ़लाइन — अंतिम ज्ञात स्थिति दिखाई जा रही है।',
   'map.routeNotice': 'स्टॉप के बीच सीधी रेखाएँ — चलाया गया मार्ग नहीं।',
+  'map.plannedNotice': 'पीली रेखा: स्टॉप का तय क्रम — सड़क का रास्ता नहीं।',
+  'map.trailNotice': 'हरी बिंदीदार रेखा: तय किया हुआ रास्ता।',
+  'map.nextBadge': 'अगला',
+  'map.expand': 'फुल स्क्रीन',
+  'map.exitFullscreen': 'फुल स्क्रीन बंद करें',
+  'map.followOn': 'फ़ॉलो: चालू',
+  'map.followOff': 'फ़ॉलो: बंद',
   'map.noCoordinates': 'इस रूट में अभी कोई स्टॉप मैप नहीं है।',
   'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
   'map.needsDevBuildBody':
@@ -491,6 +514,7 @@ export const hi: Dictionary = {
    * जाती है जब वह न हुई हो — "स्कूल आपको देख रहा है" केवल `gps.status.live` कहता है।
    */
   'driverMap.source': 'आपका डिवाइस',
+  'driverMap.nextSummary': 'अगला: {name} · {distance} · ~{eta}',
   'driverMap.note.schoolStale': 'स्कूल के पास इससे पुरानी स्थिति है।',
   'driverMap.note.notDelivered': 'स्कूल को अभी नहीं भेजा गया।',
   'driverMap.note.offline': 'ऑफ़लाइन — स्कूल को यह स्थिति अभी नहीं दिख रही।',
@@ -587,8 +611,10 @@ export const hi: Dictionary = {
   'navigate.card.title': 'रास्ता',
   'navigate.card.description': 'अगला स्टॉप आपके फ़ोन के मैप ऐप में खुलेगा।',
   'navigate.card.button': 'स्टॉप तक जाएँ',
-  'navigate.card.meta.one': 'ट्रिप {id} · इस रूट पर 1 स्टॉप।',
-  'navigate.card.meta.other': 'ट्रिप {id} · इस रूट पर {stops} स्टॉप।',
+  'navigate.card.stopOf': 'स्टॉप {position} / {total}',
+  'navigate.card.kidsWaiting.one': '{count} बच्चा यहाँ रुका है',
+  'navigate.card.kidsWaiting.other': '{count} बच्चे यहाँ रुके हैं',
+  'navigate.card.kidsDone': 'इस स्टॉप पर सभी बच्चों की मार्किंग हो गई',
   'navigate.card.noStops': 'इस रूट पर अभी कोई स्टॉप नहीं है।',
   'navigate.card.noGeofence':
     'इस रूट के स्टॉप पर लोकेशन दर्ज नहीं है — स्कूल से कोऑर्डिनेट जोड़ने को कहें।',

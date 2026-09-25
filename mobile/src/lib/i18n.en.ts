@@ -433,6 +433,7 @@ export const en = {
   // never student data; the count is the same aggregate the card shows.
   'voice.stop.next': 'Next stop: {name}, {count} students',
   'voice.stop.approaching': 'Approaching {name}, {count} students',
+  'voice.stop.near': 'Stop {number} coming up, {count} students',
   'voice.native.board.done': '{name} has boarded, {time}',
   'voice.native.drop.done': '{name} has got off, {time}',
   'voice.native.board.summary': '{count} students boarded',
@@ -452,6 +453,7 @@ export const en = {
   'voice.native.time.night': 'at night',
   'voice.native.stop.next': 'Next stop: {name}, {count} students',
   'voice.native.stop.approaching': 'Approaching {name}, {count} students',
+  'voice.native.stop.near': 'Stop {number} coming up, {count} students',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'KB',
@@ -508,6 +510,22 @@ export const en = {
   'eta.unavailable': 'Unavailable',
   'eta.arrived': 'Arrived',
   'eta.waitingForGps': 'Waiting for GPS',
+  // Full-sentence ETA states (the shared ETA cards, all roles).
+  'eta.noData': 'ETA information is unavailable right now.',
+  'eta.waitingFirstFix': 'Waiting for the first GPS fix — no ETA yet.',
+  'eta.allDone': '✅ All stops on this trip have been reached.',
+  'eta.currentStop': 'Current stop: {name}',
+  'eta.lastFix': 'Last GPS fix {time}',
+  'eta.noStopsConfigured': 'No stops are configured for this route.',
+  'eta.distance': 'Distance',
+  'eta.eta': 'ETA',
+  'eta.speed': 'Speed',
+  'eta.nextBadge': 'Next',
+  'eta.currentBadge': 'Current',
+  // Crew stops tab: kids assigned per stop (manifest slice).
+  'stops.kidsBadge.one': '{count} kid',
+  'stops.kidsBadge.other': '{count} kids',
+
 
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   /**
@@ -534,6 +552,16 @@ export const en = {
    * the map says so rather than letting the eye assume a routing engine.
    */
   'map.routeNotice': 'Straight lines between stops — not the driven route.',
+  // PR N2 honesty captions: each caption is shown only while its line is on
+  // the map, so the legend can never describe a line that is not drawn.
+  'map.plannedNotice': 'Amber line: planned stop order — not the road route.',
+  'map.trailNotice': 'Green dotted line: the path already driven.',
+  // The one big pin on the driver map: the stop being driven to.
+  'map.nextBadge': 'NEXT',
+  'map.expand': 'Full screen',
+  'map.exitFullscreen': 'Exit full screen',
+  'map.followOn': 'Follow: on',
+  'map.followOff': 'Follow: off',
   'map.noCoordinates': 'This route has no mapped stops yet.',
   // The map provider is missing from this runtime itself (Expo Go on Android
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
@@ -558,6 +586,8 @@ export const en = {
    * acknowledgement and nothing else.
    */
   'driverMap.source': 'Your device',
+  /** The card's driving line: stop name, distance and ETA, all server numbers. */
+  'driverMap.nextSummary': 'Next: {name} · {distance} · ~{eta}',
   'driverMap.note.schoolStale': 'The school has an older position than this.',
   'driverMap.note.notDelivered': 'Not delivered to the school yet.',
   'driverMap.note.offline': 'Offline — the school cannot see this position yet.',
@@ -656,8 +686,10 @@ export const en = {
   'navigate.card.title': 'Navigate',
   'navigate.card.description': "Opens the next stop in your phone's map app.",
   'navigate.card.button': 'Navigate to stop',
-  'navigate.card.meta.one': 'Trip {id} · 1 stop on this route.',
-  'navigate.card.meta.other': 'Trip {id} · {stops} stops on this route.',
+  'navigate.card.stopOf': 'Stop {position} of {total}',
+  'navigate.card.kidsWaiting.one': '{count} kid waiting here',
+  'navigate.card.kidsWaiting.other': '{count} kids waiting here',
+  'navigate.card.kidsDone': 'All kids marked at this stop',
   'navigate.card.noStops': 'No stops on this route yet.',
   'navigate.card.noGeofence':
     'This route has no geofenced stops yet — ask the school to add coordinates.',

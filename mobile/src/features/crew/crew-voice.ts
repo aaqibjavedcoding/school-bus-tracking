@@ -561,14 +561,22 @@ export type CrewFeedbackEvent =
    */
   | { type: 'stop.next'; stopName: string; studentCount: number }
   /** The same stop, said again because the bus is nearly there. */
-  | { type: 'stop.approaching'; stopName: string; studentCount: number };
+  | { type: 'stop.approaching'; stopName: string; studentCount: number }
+  /**
+   * Proximity alert (N7): the server's own `distance_meters` has crossed the
+   * near threshold (~300 m) — doors-soon territory. The sequence number is
+   * the stop's own position on the route ("Stop 4 aa raha hai"), never
+   * student data; `null` never fires (see `next-stop-announcer.ts`).
+   */
+  | { type: 'stop.near'; stopName: string; studentCount: number; sequenceNumber: number | null };
 
 export type CrewFeedbackEventType = CrewFeedbackEvent['type'];
 
-/** The two next-stop announcement types, as a value for specs to assert on. */
+/** The next-stop announcement types, as a value for specs to assert on. */
 export const STOP_ANNOUNCEMENT_EVENTS: readonly CrewFeedbackEventType[] = [
   'stop.next',
   'stop.approaching',
+  'stop.near',
 ];
 
 /**
@@ -657,6 +665,8 @@ function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | nu
     case 'stop.next':
     case 'stop.approaching':
       return stopPhrase(event, script);
+    case 'stop.near':
+      return stopNearPhrase(event, script);
     default:
       return null;
   }
@@ -681,6 +691,28 @@ function stopPhrase(
   return event.type === 'stop.next'
     ? t(voiceLine(script, 'voice.native.stop.next', 'voice.stop.next'), params)
     : t(voiceLine(script, 'voice.native.stop.approaching', 'voice.stop.approaching'), params);
+}
+
+/**
+ * "Stop 4 aa raha hai, 5 bachche" — the doors-soon proximity line.
+ *
+ * Spoken by **stop number**, because that is what a driver matches against the
+ * route sheet and the "Stop 4 of 8" on the card — the name is on the screen
+ * the moment the phone buzzes. `null` when the number is unknown (a stop
+ * missing from the route list has no trustworthy position on it): the
+ * announcer never fires this event without one (`next-stop-announcer.ts`);
+ * this is the second net, same as `stopPhrase`'s empty-name net.
+ */
+function stopNearPhrase(
+  event: Extract<CrewFeedbackEvent, { type: 'stop.near' }>,
+  script: VoiceScript,
+): string | null {
+  const number = event.sequenceNumber;
+  if (number === null || !Number.isInteger(number) || number < 1) return null;
+  return t(voiceLine(script, 'voice.native.stop.near', 'voice.stop.near'), {
+    number,
+    count: event.studentCount,
+  });
 }
 
 /**

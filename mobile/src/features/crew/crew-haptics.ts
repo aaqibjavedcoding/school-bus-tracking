@@ -83,6 +83,10 @@ export const HAPTIC_BY_EVENT: Readonly<Record<CrewFeedbackEventType, HapticPatte
   // confirms the announcement is the phone's own, not a pothole.
   'stop.next': HapticPattern.light,
   'stop.approaching': HapticPattern.light,
+  // N7 proximity: the doors-soon alert is the one announcement the crew must
+  // notice over road noise, so it gets the same tap — the voice line (and the
+  // card it points at) carries the information.
+  'stop.near': HapticPattern.light,
 };
 
 /** The pattern for an event. Total — every event has one. */

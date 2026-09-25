@@ -56,6 +56,11 @@ const CREW_COMPONENTS = listFiles('src/features/crew').filter(
   (path) => path.endsWith('.tsx') && !path.endsWith('.spec.ts'),
 );
 
+/** Tracking components — the shared ETA cards live on the crew Stops tab too. */
+const TRACKING_COMPONENTS = listFiles('src/features/tracking').filter(
+  (path) => path.endsWith('.tsx') && !path.endsWith('.spec.ts'),
+);
+
 /** Strips block comments, line comments and import/export-from clauses. */
 function stripNoise(source: string): string {
   return source
@@ -279,6 +284,15 @@ describe('grep gate: no hardcoded English UI copy on crew surfaces', () => {
 
   test('crew components render copy only through t() / crewCopy', () => {
     const violations = CREW_COMPONENTS.flatMap(scan);
+    assert.deepEqual(
+      violations,
+      [],
+      `hardcoded UI copy:\n${violations.map((v) => `  ${v.file} [${v.kind}] "${v.value}"`).join('\n')}`,
+    );
+  });
+
+  test('tracking components render copy only through t() (EtaViews renders on crew surfaces)', () => {
+    const violations = TRACKING_COMPONENTS.flatMap(scan);
     assert.deepEqual(
       violations,
       [],

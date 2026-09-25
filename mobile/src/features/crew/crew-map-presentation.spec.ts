@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   deriveDriverMapPresentation,
   driverMapCopy,
+  driverStopMarkerKind,
   type DriverMapPresentationInput,
+  type DriverStopMarkerKind,
 } from './crew-map-presentation.ts';
 import type { CrewTrackingStatus, TrackingConnectionState } from './tracking-status.ts';
 import { LOCAL_FIX_FRESH_WINDOW_MS } from './tracking-status.ts';
@@ -305,5 +307,37 @@ describe('driver map — connection vocabulary stays out of the copy', () => {
         `${connection} produced an unknown delivery line`,
       );
     }
+  });
+});
+
+describe('driver map — which stop is next', () => {
+  it('marks exactly the stop the screen named as next', () => {
+    assert.equal(driverStopMarkerKind('s2', 's2'), 'next');
+    assert.equal(driverStopMarkerKind('s3', 's2'), 'plain');
+  });
+
+  it('marks nothing when there is no next stop (map never guesses)', () => {
+    for (const nextStopId of [null, undefined]) {
+      assert.equal(driverStopMarkerKind('s2', nextStopId), 'plain');
+      assert.equal(driverStopMarkerKind('s3', nextStopId), 'plain');
+    }
+  });
+
+  it('never highlights two stops at once', () => {
+    const ids = ['s1', 's2', 's3', 's4'];
+    const kinds = ids.map((id) => driverStopMarkerKind(id, 's3'));
+    assert.equal(kinds.filter((kind) => kind === 'next').length, 1);
+    assert.equal(kinds[ids.indexOf('s3')], 'next');
+  });
+
+  it('keeps the kind vocabulary to plain and next (the web twin has current too)', () => {
+    // The web map's `createStopMarkerElement` knows 'current' as well; on the
+    // driver's own map the bus marker already answers "where am I", so a
+    // third kind would be decoration, not information.
+    const kinds: DriverStopMarkerKind[] = ['plain', 'next'];
+    assert.deepEqual(
+      Object.values({ plain: 'plain', next: 'next' } as const),
+      kinds,
+    );
   });
 });

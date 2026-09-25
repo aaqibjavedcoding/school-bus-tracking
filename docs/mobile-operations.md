@@ -331,6 +331,22 @@ noisy bus does not have to read the screen to know the tap registered. Since
 batch 3C it also announces the **next stop** and how many children are on it,
 for the driver and the conductor alike.
 
+**Next-stop announcements, the three tiers.** Each fires once per stop, on the
+edge (a new tier is said only when it becomes true):
+
+1. **"Agla stop: {name}, {count} bachche"** — the moment the server's frontier
+   moves to a new stop;
+2. **"Approaching {name}"** — ETA ≤ 2 min or distance ≤ 400 m
+   (`APPROACHING_*` in `next-stop-announcer.ts`);
+3. **"Stop {number} aa raha hai, {count} bachche"** (N7 proximity) — the
+   server's own `distance_meters` ≤ 300 m (`NEAR_DISTANCE_M`, configurable on
+   the announcer, pinned at 300 by the spec). Spoken by **stop number**
+   because that is what a driver matches against the route sheet; it never
+   fires for a stop whose position on the route is unknown — the tier-2
+   reminder stays the last word then. The same event taps the haptic (the
+   "chime" is the buzz + the voice line; there is no bundled audio file —
+   adding one would need a new native module and a store rebuild).
+
 **Where the switches are**: Help & support → **Sound & vibration**, right under
 the language switch. Two independent switches, **Voice** and **Vibration**.
 They are separate on purpose — a phone with no speech engine still buzzes

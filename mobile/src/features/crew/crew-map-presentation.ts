@@ -240,3 +240,25 @@ export function driverMapCopy(
 
   return { position, delivery };
 }
+
+// ── Stop markers ───────────────────────────────────────────────────────────
+
+/**
+ * Which pin a stop gets on the Driver Trip map.
+ *
+ * `plain` is the small slate dot every stop has always been; `next` is the
+ * one big amber pin with the NEXT badge. The next-stop id is an **input** —
+ * the screen passes `deriveTripProgressForTrip(...).nextStop?.id` down — so
+ * the map can never develop a second opinion about which stop is next: the
+ * marker, the navigation card, the kids card and the voice all read the one
+ * derivation (T1). A stop id that is `null` or unknown draws `plain` pins
+ * everywhere, never a guessed highlight.
+ */
+export type DriverStopMarkerKind = 'plain' | 'next';
+
+export function driverStopMarkerKind(
+  stopId: string,
+  nextStopId: string | null | undefined,
+): DriverStopMarkerKind {
+  return nextStopId != null && stopId === nextStopId ? 'next' : 'plain';
+}

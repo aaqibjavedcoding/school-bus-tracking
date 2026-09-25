@@ -5,8 +5,10 @@ import {
   APPROACHING_DISTANCE_M,
   APPROACHING_ETA_MINUTES,
   MAX_SPOKEN_STUDENTS,
+  NEAR_DISTANCE_M,
   NextStopAnnouncer,
   isApproaching,
+  isNear,
   spokenStudentCount,
   type NextStopSnapshot,
 } from './next-stop-announcer.ts';
@@ -37,6 +39,7 @@ function snapshot(overrides: Partial<NextStopSnapshot> = {}): NextStopSnapshot {
     countKnown: true,
     etaMinutes: 8,
     distanceMeters: 2_400,
+    sequenceNumber: 4,
     ...overrides,
   };
 }
@@ -111,7 +114,9 @@ describe('"approaching" is said once per stop, when the bus is nearly there', ()
       snapshot({ etaMinutes: 1, distanceMeters: 120 }),
       snapshot({ etaMinutes: 0, distanceMeters: 30 }),
     ]);
-    assert.deepEqual(events, ['stop.approaching'], 'one reminder, not one per push');
+    // One reminder per tier: "approaching" at the ETA threshold, then the
+    // ~300 m proximity line — never one per push.
+    assert.deepEqual(events, ['stop.approaching', 'stop.near'], 'one reminder, not one per push');
   });
 
   test('distance alone triggers it when the ETA has no minutes', () => {
@@ -133,18 +138,92 @@ describe('"approaching" is said once per stop, when the bus is nearly there', ()
     assert.equal(isApproaching(snapshot({ etaMinutes: 1, distanceMeters: null })), true);
   });
 
-  test('a stop that is ALREADY close when it becomes next is announced once, as approaching', () => {
+  test('a stop that is ALREADY close when it becomes next is announced once, most urgent line', () => {
     // Hearing "Next stop: X" and then "Approaching X" a second later says one
-    // thing twice; the more urgent line wins the moment.
+    // thing twice; the most urgent line the facts support wins the moment.
     const announcer = new NextStopAnnouncer();
     const first = announcer.observe(snapshot({ etaMinutes: 1, distanceMeters: 200 }));
-    assert.equal(first?.type, 'stop.approaching');
+    assert.equal(first?.type, 'stop.near', 'inside 300 m the proximity line is the first word');
     assert.equal(announcer.observe(snapshot({ etaMinutes: 1, distanceMeters: 120 })), null);
+    // Outside the near ring the approaching reminder is still the close line.
+    const second = new NextStopAnnouncer();
+    assert.equal(
+      second.observe(snapshot({ etaMinutes: 1, distanceMeters: 350, sequenceNumber: null }))?.type,
+      'stop.approaching',
+    );
   });
 
   test('the thresholds are the ones the policy states', () => {
     assert.equal(APPROACHING_ETA_MINUTES, 2);
     assert.equal(APPROACHING_DISTANCE_M, 400);
+  });
+});
+
+describe('the ~300 m proximity alert fires once, by stop number (N7)', () => {
+  test('the pinned threshold is 300 m and it is distance-only', () => {
+    assert.equal(NEAR_DISTANCE_M, 300);
+    assert.equal(isNear(snapshot({ etaMinutes: null, distanceMeters: 300 })), true);
+    assert.equal(isNear(snapshot({ etaMinutes: 0, distanceMeters: 301 })), false);
+    assert.equal(isNear(snapshot({ etaMinutes: null, distanceMeters: null })), false);
+    assert.equal(isNear(snapshot({ etaMinutes: null, distanceMeters: -5 })), false);
+    // Tighter than the approaching reminder, never looser.
+    assert.ok(NEAR_DISTANCE_M < APPROACHING_DISTANCE_M);
+  });
+
+  test('crossing 300 m upgrades the run to "Stop {n} aa raha hai" — once', () => {
+    const announcer = new NextStopAnnouncer();
+    assert.deepEqual(announcer.observe(snapshot({ etaMinutes: 6, distanceMeters: 2_400 })), {
+      type: 'stop.next',
+      stopName: 'Shivaji Chowk',
+      studentCount: 12,
+    });
+    const events = replay(announcer, [
+      snapshot({ etaMinutes: 2, distanceMeters: 380 }), // approaching tier
+      snapshot({ etaMinutes: 1, distanceMeters: 290 }), // the near line
+      snapshot({ etaMinutes: 1, distanceMeters: 250 }),
+      snapshot({ etaMinutes: 0, distanceMeters: 90 }),
+    ]);
+    assert.deepEqual(events, ['stop.approaching', 'stop.near'], 'one reminder per tier, not per push');
+  });
+
+  test('a stop that becomes next already inside 300 m says only the near line', () => {
+    const announcer = new NextStopAnnouncer();
+    assert.equal(announcer.observe(snapshot({ etaMinutes: 1, distanceMeters: 250 }))?.type, 'stop.near');
+    assert.equal(announcer.observe(snapshot({ etaMinutes: 1, distanceMeters: 120 })), null);
+  });
+
+  test('the threshold is configurable on the announcer (spec pins the default)', () => {
+    const announcer = new NextStopAnnouncer(250);
+    // 290 m is inside the approaching ring (400) but outside this announcer's
+    // 250 m near ring — the reminder tier fires first.
+    assert.equal(announcer.observe(snapshot({ etaMinutes: null, distanceMeters: 290 }))?.type, 'stop.approaching');
+    assert.equal(announcer.observe(snapshot({ etaMinutes: null, distanceMeters: 240 }))?.type, 'stop.near');
+  });
+
+  test('an unknown stop number keeps the lower tiers — a guessed position is never spoken', () => {
+    const announcer = new NextStopAnnouncer();
+    assert.equal(
+      announcer.observe(snapshot({ distanceMeters: 200, sequenceNumber: null }))?.type,
+      'stop.approaching',
+    );
+    assert.equal(announcer.observe(snapshot({ distanceMeters: 200, sequenceNumber: null })), null);
+    assert.equal(
+      announcer.observe(snapshot({ distanceMeters: 150, sequenceNumber: 0 })),
+      null,
+      "0 is the summary's unknown fallback, not a position",
+    );
+  });
+
+  test('the approaching tier still fires when the near line is unavailable', () => {
+    // 350 m: inside approaching (400), outside near (300) — the reminder fires;
+    // crossing 300 without a sequence number changes nothing further.
+    const announcer = new NextStopAnnouncer();
+    announcer.observe(snapshot({ etaMinutes: 5, distanceMeters: 900, sequenceNumber: null }));
+    const events = replay(announcer, [
+      snapshot({ etaMinutes: 1, distanceMeters: 350, sequenceNumber: null }),
+      snapshot({ etaMinutes: 1, distanceMeters: 200, sequenceNumber: null }),
+    ]);
+    assert.deepEqual(events, ['stop.approaching']);
   });
 });
 
@@ -198,16 +277,22 @@ describe('the run scopes the memory', () => {
 });
 
 describe('the spoken payload stays inside the privacy rule', () => {
-  test('only the two stop events are ever produced', () => {
+  test('only the three stop events are ever produced', () => {
     const announcer = new NextStopAnnouncer();
     const events = [
       announcer.observe(snapshot()),
       announcer.observe(snapshot({ etaMinutes: 1 })),
+      announcer.observe(snapshot({ distanceMeters: 200 })),
       announcer.observe(snapshot({ stopId: 'stop-b', stopName: 'Depot' })),
     ].filter((event) => event !== null);
     for (const event of events) {
       assert.ok(STOP_ANNOUNCEMENT_EVENTS.includes(event.type), `${event.type} is not a stop event`);
-      assert.deepEqual(Object.keys(event).sort(), ['stopName', 'studentCount', 'type']);
+      const keys = Object.keys(event).sort();
+      const expected =
+        event.type === 'stop.near'
+          ? ['sequenceNumber', 'stopName', 'studentCount', 'type']
+          : ['stopName', 'studentCount', 'type'];
+      assert.deepEqual(keys, expected);
     }
   });
 

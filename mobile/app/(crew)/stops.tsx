@@ -9,7 +9,10 @@ import { useAuth } from '../../src/features/auth';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { EtaSummaryCard, StopsEtaList } from '../../src/features/tracking/EtaViews';
-import type { TripStopArrivalListResponse } from '@school-bus-tracking/shared-types';
+import type {
+  TripStopArrivalListResponse,
+  TripStudentManifestResponse,
+} from '@school-bus-tracking/shared-types';
 import {
   EmptyState,
   ErrorState,
@@ -51,6 +54,16 @@ export default function CrewStopsScreen() {
     return unwrapEnvelope(await apiClient.getTripArrivals(trip.id));
   }, [trip?.id]);
 
+  // The whole manifest, for the per-stop "N kids" badge and the tap-to-expand
+  // names (N6). Crew-only by construction: this screen is the only caller
+  // that passes `students`, so parent/admin lists never render children.
+  const manifestLoad = useLoad<TripStudentManifestResponse['items']>(async () => {
+    if (!trip) {
+      return [];
+    }
+    return unwrapEnvelope(await apiClient.listTripStudents(trip.id)).items;
+  }, [trip?.id]);
+
   if (todayLoading && !today) {
     return <LoadingView label={t('stops.loading')} />;
   }
@@ -85,8 +98,9 @@ export default function CrewStopsScreen() {
       refresh={() => {
         void refreshToday();
         void arrivalsLoad.refresh();
+        void manifestLoad.refresh();
       }}
-      refreshing={todayRefreshing || arrivalsLoad.refreshing}
+      refreshing={todayRefreshing || arrivalsLoad.refreshing || manifestLoad.refreshing}
     >
       <View style={styles.headerRow}>
         <ConnectionIndicator connection={live.connection} />
@@ -98,7 +112,7 @@ export default function CrewStopsScreen() {
       {live.error ? <Text style={styles.error}>{live.error}</Text> : null}
 
       <SectionTitle>{t('stops.routeStops')}</SectionTitle>
-      <StopsEtaList eta={live.eta} />
+      <StopsEtaList eta={live.eta} students={manifestLoad.data ?? undefined} />
 
       <SectionTitle>{t('stops.arrivals')}</SectionTitle>
       {arrivals.length === 0 ? (
