@@ -485,6 +485,13 @@ export const mr: Dictionary = {
   'map.staleNote': '{time} पासून नवीन स्थिती नाही।',
   'map.offlineNote': 'ऑफलाइन — शेवटची ज्ञात स्थिती दाखवत आहे।',
   'map.routeNotice': 'थांब्यांमधील सरळ रेषा — प्रत्यक्ष मार्ग नाही।',
+  'map.plannedNotice': 'पिवळी रेषा: थांब्यांचा नियोजन क्रम — रस्त्याचा मार्ग नाही.',
+  'map.trailNotice': 'हिरवी ठिपकेदार रेषा: प्रवास केलेला मार्ग.',
+  'map.nextBadge': 'पुढे',
+  'map.expand': 'फुल स्क्रीन',
+  'map.exitFullscreen': 'फुल स्क्रीन बंद करा',
+  'map.followOn': 'फॉलो: सुरू',
+  'map.followOff': 'फॉलो: बंद',
   'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
   'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
   'map.needsDevBuildBody':
@@ -501,6 +508,7 @@ export const mr: Dictionary = {
    * `gps.status.live` म्हणते.
    */
   'driverMap.source': 'तुमचे डिव्हाइस',
+  'driverMap.nextSummary': 'पुढील: {name} · {distance} · ~{eta}',
   'driverMap.note.schoolStale': 'शाळेकडे यापेक्षा जुनी स्थिती आहे.',
   'driverMap.note.notDelivered': 'शाळेला अद्याप पाठवले नाही.',
   'driverMap.note.offline': 'ऑफलाइन — शाळेला ही स्थिती अद्याप दिसत नाही.',

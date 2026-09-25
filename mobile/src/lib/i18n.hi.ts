@@ -476,6 +476,13 @@ export const hi: Dictionary = {
   'map.staleNote': '{time} से कोई नई स्थिति नहीं।',
   'map.offlineNote': 'ऑफ़लाइन — अंतिम ज्ञात स्थिति दिखाई जा रही है।',
   'map.routeNotice': 'स्टॉप के बीच सीधी रेखाएँ — चलाया गया मार्ग नहीं।',
+  'map.plannedNotice': 'पीली रेखा: स्टॉप का तय क्रम — सड़क का रास्ता नहीं।',
+  'map.trailNotice': 'हरी बिंदीदार रेखा: तय किया हुआ रास्ता।',
+  'map.nextBadge': 'अगला',
+  'map.expand': 'फुल स्क्रीन',
+  'map.exitFullscreen': 'फुल स्क्रीन बंद करें',
+  'map.followOn': 'फ़ॉलो: चालू',
+  'map.followOff': 'फ़ॉलो: बंद',
   'map.noCoordinates': 'इस रूट में अभी कोई स्टॉप मैप नहीं है।',
   'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
   'map.needsDevBuildBody':
@@ -491,6 +498,7 @@ export const hi: Dictionary = {
    * जाती है जब वह न हुई हो — "स्कूल आपको देख रहा है" केवल `gps.status.live` कहता है।
    */
   'driverMap.source': 'आपका डिवाइस',
+  'driverMap.nextSummary': 'अगला: {name} · {distance} · ~{eta}',
   'driverMap.note.schoolStale': 'स्कूल के पास इससे पुरानी स्थिति है।',
   'driverMap.note.notDelivered': 'स्कूल को अभी नहीं भेजा गया।',
   'driverMap.note.offline': 'ऑफ़लाइन — स्कूल को यह स्थिति अभी नहीं दिख रही।',

@@ -519,6 +519,53 @@ two spellings on one screen.
 Interpolated coordinates are presentation only here too: the tween is never
 written into history, ETA, attendance or notifications.
 
+### The two lines, the badge and the driving card (next-stop pass)
+
+The card is now the map a driver reads at a stop, and every new element obeys
+the same honesty rule the panel already had:
+
+- **The next stop is an input, never an opinion.** `nextStopId` arrives from the
+  screen's `deriveTripProgressForTrip(...).nextStop?.id` — the same derivation
+  the navigation card, the kids card and the voice read (T1). The map cannot
+  develop a second opinion about progress: `crew-map-presentation.ts`
+  `driverStopMarkerKind(stopId, nextStopId)` returns `'next'` for exactly that
+  one stop (`'plain'` otherwise, and everywhere when there is no next stop), and
+  `StopMarker` renders the `'next'` variant as a near-double amber pin with a
+  **NEXT** badge chip (`map.nextBadge`), mirroring the web map's
+  `'plain' | 'next' | 'current'` kinds.
+- **The trail (dotted green) is the only "driven" line.** It is built by
+  `trip-map-geometry.ts` `buildTrailLine` from the fixes the server recorded
+  (`GET /trips/:id/location/history`, up to 200), scoped to the trip on screen
+  by `historyFixesForTrip` — a history payload naming another trip draws
+  nothing, exactly like `etaForTrip` for ETAs. Fewer than two valid fixes, no
+  line.
+- **The planned legs (solid amber) are the order, not the road.**
+  `buildPlannedLegsLine` draws stop-to-stop straight segments from the next stop
+  to the end of the route, skipping stops without usable coordinates (the same
+  rule the ETA service applies to arrivals). The caption under the map
+  (`map.plannedNotice`) states it in words: planned stop order, not the road
+  route. There is **no** routing engine behind this line (see Backlog in
+  `docs/crew-navigation-audit.md`); the caption exists so the eye cannot assume
+  one. The whole-route context line stays, dimmed to neutral.
+- **Captions only describe lines that are on the map** — each of
+  `map.plannedNotice` / `map.trailNotice` / `map.routeNotice` renders only while
+  its line exists, so the legend can never describe a drawing that is not there.
+- **The driving line sits on the card**: `Next: {stop} · {distance} · ~{eta}`
+  (`driverMap.nextSummary`, all three the server's numbers, `—` when one is
+  absent) renders above the map box, so the fact survives tile failure. A
+  **Full screen** control opens the same map in a modal (re-mounting the engine,
+  which also re-reads the trail at that moment).
+- **Follow is explicit.** A `Follow: on/off` pill toggles the frame stream to
+  the camera off entirely (the gate is a ref read in the frame callback, so
+  turning it off re-renders nothing native); turning it back on re-centers. The
+  existing **Follow bus** pill still appears only when a user gesture suspended
+  following.
+
+`trip-map-geometry.ts` is pure and React-free (`trip-map-geometry.spec.ts`,
+registered in `mobile/package.json`); the map components decide colours and dash
+patterns only. The same facts render in the `.web` fallback as text (next-stop
+line, NEXT marker on the stop rows, planned-order caption) — no map engine.
+
 ## Reduced motion
 
 `AccessibilityInfo.isReduceMotionEnabled()` + `reduceMotionChanged` on native and

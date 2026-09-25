@@ -356,6 +356,10 @@ export default function CrewTripScreen() {
           localFix={sharing.stats.lastFix}
           presentation={driverMapPresentation}
           tripId={trip.id}
+          nextStopId={nextStopId}
+          nextStopName={progress.nextStop?.name ?? null}
+          nextStopDistanceMeters={eta?.next_stop?.distance_meters ?? null}
+          nextStopEtaMinutes={eta?.next_stop?.eta_minutes ?? null}
           height={200}
         />
       ) : null}

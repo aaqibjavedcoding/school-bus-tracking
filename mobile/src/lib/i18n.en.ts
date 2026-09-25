@@ -534,6 +534,16 @@ export const en = {
    * the map says so rather than letting the eye assume a routing engine.
    */
   'map.routeNotice': 'Straight lines between stops — not the driven route.',
+  // PR N2 honesty captions: each caption is shown only while its line is on
+  // the map, so the legend can never describe a line that is not drawn.
+  'map.plannedNotice': 'Amber line: planned stop order — not the road route.',
+  'map.trailNotice': 'Green dotted line: the path already driven.',
+  // The one big pin on the driver map: the stop being driven to.
+  'map.nextBadge': 'NEXT',
+  'map.expand': 'Full screen',
+  'map.exitFullscreen': 'Exit full screen',
+  'map.followOn': 'Follow: on',
+  'map.followOff': 'Follow: off',
   'map.noCoordinates': 'This route has no mapped stops yet.',
   // The map provider is missing from this runtime itself (Expo Go on Android
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
@@ -558,6 +568,8 @@ export const en = {
    * acknowledgement and nothing else.
    */
   'driverMap.source': 'Your device',
+  /** The card's driving line: stop name, distance and ETA, all server numbers. */
+  'driverMap.nextSummary': 'Next: {name} · {distance} · ~{eta}',
   'driverMap.note.schoolStale': 'The school has an older position than this.',
   'driverMap.note.notDelivered': 'Not delivered to the school yet.',
   'driverMap.note.offline': 'Offline — the school cannot see this position yet.',
