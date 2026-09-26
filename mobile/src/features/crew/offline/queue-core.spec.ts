@@ -7,13 +7,16 @@ import {
   classifySyncOutcome,
   countFailed,
   countOpen,
+  describeAction,
   getBackoffDelay,
   isDueForRetry,
+  isDuplicateOf,
   isQueuedForUser,
   MAX_RETRY_COUNT,
   normalizeQueueItem,
   recoverInterrupted,
   selectDueItems,
+  type NewQueuedAction,
   type QueuedAttendanceEvent,
 } from './queue-core.ts';
 
@@ -28,6 +31,17 @@ const OTHER = 'user-2';
 
 const board = (studentId = 's1', userId: string | null = USER) =>
   ({ kind: 'attendance', userId, tripId: 't1', studentId, eventType: 'board' }) as const;
+
+const stopMark = (
+  overrides: Partial<Extract<NewQueuedAction, { kind: 'stop_mark' }>> = {},
+): Extract<NewQueuedAction, { kind: 'stop_mark' }> => ({
+  kind: 'stop_mark',
+  userId: USER,
+  tripId: 't1',
+  stopId: 'stop-1',
+  stopAction: 'arrive',
+  ...overrides,
+});
 
 describe('addToQueue', () => {
   it('assigns one idempotency key per logical action and reuses the open item', () => {
@@ -79,6 +93,155 @@ describe('addToQueue', () => {
     const done = a.items.map((item) => applySyncOutcome(item, { action: 'success' }));
     const b = addToQueue(done, board());
     assert.equal(b.added, true);
+  });
+});
+
+/**
+ * Crew stop marking (`stop_mark`): the offline-safe Arrived / Skip buttons.
+ * Same guarantees as attendance — captured once, deduped while open,
+ * replayed under one idempotency key — plus the stop-specific fields.
+ */
+describe('stop_mark queueing', () => {
+  it('queues a skip with its stop identity and validated reason', () => {
+    const { item, added } = addToQueue(
+      [],
+      stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'Road closed' }),
+    );
+    assert.equal(added, true);
+    assert.equal(item.kind, 'stop_mark');
+    assert.equal(item.tripId, 't1');
+    assert.equal(item.stopId, 'stop-7');
+    assert.equal(item.stopAction, 'skip');
+    assert.equal(item.skipReason, 'Road closed');
+    assert.equal(item.status, 'pending');
+    assert.ok(item.idempotencyKey.length > 0);
+    // Placeholder fields for the other kinds stay inert.
+    assert.equal(item.studentId, '');
+    assert.equal(item.eventType, 'board');
+    assert.equal(item.tripStatus, undefined);
+  });
+
+  it('queues an arrive without a skipReason (no key, no garbage, no crash)', () => {
+    const { item } = addToQueue([], stopMark({ stopId: 'stop-3', stopAction: 'arrive' }));
+    assert.equal(item.stopAction, 'arrive');
+    assert.equal('skipReason' in item, false);
+    assert.equal(item.skipReason, undefined);
+    // Survives a persistence round-trip without inventing a reason.
+    const restored = normalizeQueueItem(JSON.parse(JSON.stringify(item)));
+    assert.ok(restored);
+    assert.equal('skipReason' in restored, false);
+    assert.equal(describeAction(restored), 'Mark stop arrived');
+  });
+
+  it('dedupes same stop + same action even when the reason text differs', () => {
+    // Deliberate design decision: the reason is NOT part of the identity.
+    // Two taps on the same stop with the same action are one decision, and
+    // the first reason typed is the one the crew stood by.
+    const first = addToQueue(
+      [],
+      stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'Road closed' }),
+    );
+    const again = addToQueue(
+      first.items,
+      stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'Heavy traffic today' }),
+    );
+    assert.equal(again.added, false);
+    assert.equal(again.item.id, first.item.id);
+    assert.equal(again.item.idempotencyKey, first.item.idempotencyKey);
+    assert.equal(again.item.skipReason, 'Road closed', 'the first reason wins');
+    assert.equal(again.items.length, 1);
+    assert.equal(
+      isDuplicateOf(first.item, stopMark({ stopId: 'stop-7', stopAction: 'skip' })),
+      true,
+      'reason absence does not change the identity either',
+    );
+  });
+
+  it('treats a different stop, action, trip or user as a distinct action', () => {
+    const skipped = addToQueue(
+      [],
+      stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'x' }),
+    ).item;
+    assert.equal(
+      isDuplicateOf(skipped, stopMark({ stopId: 'stop-8', stopAction: 'skip', skipReason: 'x' })),
+      false,
+      'different stop',
+    );
+    assert.equal(
+      isDuplicateOf(skipped, stopMark({ stopId: 'stop-7', stopAction: 'arrive' })),
+      false,
+      'different action on the same stop',
+    );
+    assert.equal(
+      isDuplicateOf(skipped, stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'x', tripId: 't2' })),
+      false,
+      'different trip',
+    );
+    assert.equal(
+      isDuplicateOf(skipped, stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'x', userId: OTHER })),
+      false,
+      'different user on a shared device',
+    );
+    // A resolved item never blocks a new mark of the same stop.
+    const done = applySyncOutcome(skipped, { action: 'success' });
+    assert.equal(
+      isDuplicateOf(done, stopMark({ stopId: 'stop-7', stopAction: 'skip', skipReason: 'x' })),
+      false,
+    );
+  });
+
+  it('normalizeQueueItem restores a stored stop_mark row (full and partial)', () => {
+    const stored = {
+      id: 'row-1',
+      idempotencyKey: 'key-1',
+      capturedAt: '2026-09-20T08:00:00.000Z',
+      userId: USER,
+      kind: 'stop_mark',
+      tripId: 't1',
+      studentId: '',
+      eventType: 'board',
+      stopId: 'stop-7',
+      stopAction: 'skip',
+      skipReason: 'Road closed',
+      status: 'pending',
+      retryCount: 1,
+      lastError: null,
+      lastStatusCode: null,
+      lastSyncAt: null,
+    };
+    const item = normalizeQueueItem(stored);
+    assert.ok(item);
+    assert.equal(item.kind, 'stop_mark');
+    assert.equal(item.stopId, 'stop-7');
+    assert.equal(item.stopAction, 'skip');
+    assert.equal(item.skipReason, 'Road closed');
+    assert.equal(item.idempotencyKey, 'key-1');
+
+    // Partial/corrupted row: missing key regenerated, junk stopAction and
+    // non-string skipReason dropped instead of resurfacing as garbage.
+    const partial = normalizeQueueItem({
+      id: 'row-2',
+      tripId: 't1',
+      kind: 'stop_mark',
+      stopId: 'stop-3',
+      stopAction: 'vanish',
+      skipReason: 42,
+    });
+    assert.ok(partial);
+    assert.equal(partial.kind, 'stop_mark');
+    assert.equal(partial.stopId, 'stop-3');
+    assert.equal('stopAction' in partial, false);
+    assert.equal('skipReason' in partial, false);
+    assert.ok(partial.idempotencyKey.length > 0);
+    assert.equal(partial.status, 'pending');
+  });
+
+  it('describeAction labels arrive and skip distinctly', () => {
+    const arrive = addToQueue([], stopMark({ stopAction: 'arrive' })).item;
+    const skip = addToQueue([], stopMark({ stopAction: 'skip', skipReason: 'x' })).item;
+    assert.equal(describeAction(arrive), 'Mark stop arrived');
+    assert.equal(describeAction(skip), 'Skip stop');
+    assert.notEqual(describeAction(arrive), describeAction(skip));
   });
 });
 
