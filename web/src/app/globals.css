@@ -898,6 +898,35 @@ table.data tbody tr:hover {
   overflow: visible;
 }
 
+/*
+ * Camera buttons over the map ("Fit route" always when the caller opts in,
+ * "Follow bus" while exploring). Bottom-right so they never cover the
+ * status overlay pinned top-left.
+ */
+.map-camera-controls {
+  position: absolute;
+  z-index: 6;
+  right: 12px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.map-follow-control {
+  border: 1px solid var(--color-slate-200);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-slate-700, #334155);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
 .map-follow-control:hover {
   background: var(--color-slate-100);
 }
@@ -921,8 +950,34 @@ table.data tbody tr:hover {
   box-shadow: var(--shadow-sm);
 }
 
+/*
+ * The next stop (crew console): visibly larger than the plain dots and
+ * pulsing, so the driver's target is readable at a glance from the dashboard.
+ */
 .stop-marker.next {
   background: var(--color-primary-600);
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+  border-width: 3px;
+  box-shadow: 0 0 0 0 rgb(37 99 235 / 0.55);
+  animation: next-stop-pulse 2s ease-out infinite;
+  z-index: 2;
+}
+
+@keyframes next-stop-pulse {
+  70% {
+    box-shadow: 0 0 0 10px rgb(37 99 235 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(37 99 235 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stop-marker.next {
+    animation: none;
+  }
 }
 
 .stop-marker.current {
@@ -2480,5 +2535,56 @@ table.data.compact th {
 
   .plan-card__footer .btn {
     flex: 1;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Crew console (/crew) — next-stop card, stops table, language picker.
+ * ------------------------------------------------------------------ */
+
+.next-stop-card {
+  border-left: 4px solid var(--color-primary-600);
+}
+
+.next-stop-name {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.next-stop-kids {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  columns: 2;
+  column-gap: 1.5rem;
+}
+
+.next-stop-kids li {
+  break-inside: avoid;
+  padding: 0.1rem 0;
+}
+
+.crew-stops-table td {
+  vertical-align: middle;
+}
+
+.crew-stop-next-row td {
+  background: rgb(37 99 235 / 0.08);
+  font-weight: 600;
+}
+
+.crew-skip-row td {
+  background: var(--color-slate-100);
+}
+
+.crew-language-picker .select {
+  min-width: 7.5rem;
+  padding: 0.4rem 0.6rem;
+}
+
+@media (max-width: 640px) {
+  .next-stop-kids {
+    columns: 1;
   }
 }
