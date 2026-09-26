@@ -996,3 +996,106 @@ would only scare.
 | `tracking-status.spec.ts` (extended)  | `crewTrackingStatusLine` names the server status for a refused trip and the `host:port` for a gave-up reconnect, and `apiHost()` drops query/userinfo so a token can't reach the line    |
 | `crew-diagnostics.spec.ts` (8)        | the support readout: no JWT-shaped string or secret in any row (token in query or userinfo), counter arithmetic, runtime names, null handling                                            |
 | `app-config-warnings.spec.ts` (11)    | build-time warnings: exactly once per missing fact for native Android builds, silent for Expo Go / export / iOS; a set key is injected but never logged                                  |
+
+---
+
+## Admin SOS alert loop — the phone-side siren (this branch)
+
+Until now only the **web** console answered a crew SOS properly: a tenant-room
+`emergency:new` frame starts a looping Web-Audio siren for `SCHOOL_ADMIN`
+sessions until the admin mutes or acknowledges it (`web/src/features/emergencies/`).
+The mobile admin app received the same frames (the Emergencies screen refreshes
+live) but the only audible signal was the generic one-shot push beep — identical
+to every trip alert, and silent inside an open app. This branch closes that gap
+with the hardware the app **already ships**.
+
+### The platform constraint, stated first
+
+There is **no bundled siren audio** in this pass. `expo-av` / `expo-audio` are
+not in the app, and adding them means a **native rebuild** (a new development
+build — the Expo Go shell cannot carry them), which this environment cannot do.
+That is a documented limitation, same family as the unbundled map engine
+(`map-surface-mode.ts`): rather than fake it, the loop is built from
+`expo-haptics` + `expo-speech`, both already present and Expo-Go compatible,
+and both already proven by the crew feedback layer (Phase 3b).
+
+### What an unacknowledged SOS does on an admin phone
+
+`src/features/admin/emergencies/sos-alert.ts` (pure, React-free, native-free;
+its only native calls live in `sos-alert-native.ts`, mirroring
+`crew-feedback-native.ts`). For `SCHOOL_ADMIN` only, foreground-only:
+
+- **a haptic burst every ~3.5 s** — the `Error` notification pattern, the same
+  urgent buzz the crew vocabulary reserves for "this needs you now";
+- **a short spoken line every ~10 s** (English — the admin mobile section is
+  English-only like the web admin console): _"Emergency alert. Bus MH-12
+  AB-3456, route Palava City, medical emergency. Tap to respond."_ Several
+  open SOS lead with the count (_"2 active emergencies. Latest: …"_);
+- **a safety cap** (5 min) after which an unanswered episode goes quiet — a
+  phone left on a desk does not buzz for hours, and a _new_ SOS re-arms it;
+- **an explicit Mute** on the Emergencies banner that cuts the loop
+  immediately (speech included) without touching the incident — the web
+  console's "Mute" counterpart. The banner stays either way: silencing the
+  alarm must never hide the emergency.
+
+Acknowledging, resolving or cancelling an alert stops **its** loop the same
+instant (the `emergency:updated` frame away from `OPEN` → `silence`), matching
+the web alarm exactly. The banner — danger-tinted, above the list on
+`app/(admin)/emergencies.tsx` — reads "N active emergencies" for as long as
+any SOS is open, on every filter.
+
+### The seams
+
+- `sos-alert.ts` decides everything and does nothing natively: the role gate
+  (`sosAlertEnabledForRole` — admin only, so the phone of the crew member who
+  raised the SOS stays silent), the frame policy (`sosAlertFrameDecision` —
+  only a still-`OPEN` `emergency:new` raises, anything else is `silence` or
+  `ignore`, malformed frames can never throw inside a socket handler), the
+  run/stop gate (`shouldSosAlertLoopRun` — active × foreground × unmuted ×
+  within-cap), the spoken-line builder, and the `SosAlertLoop` state machine
+  with injected drivers + scheduler;
+- `useSosAlertLoop.ts` is the thin wiring: installs the native drivers once,
+  subscribes the **existing** emergencies socket (no new room, no new
+  channel), fetches the already-open SOS once (a cold start or background gap
+  must not hide one), gates on `AppState` (a backgrounded app does no work),
+  and mirrors the snapshot for the banner. It is mounted in the **admin
+  layout** (every admin screen, one singleton) and again on the Emergencies
+  screen for the banner + mute — safe because `raise` is idempotent per
+  emergency and a second listener cannot stack a second loop;
+- signing out of the admin section stops any loop still running
+  (`stopOnUnmount` on the layout mount).
+
+### Guard spec
+
+| Spec                | Pins                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sos-alert.spec.ts` | the role gate (admin only), the run/stop gate matrix, the frame policy (raise/silence/ignore incl. malformed frames), the spoken line (full/missing details, multi-event count), and the whole loop on an injected scheduler: immediate burst + line, the 3.5 s / 10 s cadences, duplicate-raise idempotency, ack-stops-instantly, mute cuts + unmute re-arms, background stills, the cap quiets and a new SOS re-arms, a throwing driver degrades to `lastError`, snapshot fan-out |
+
+---
+
+## Cross-device attendance live-sync (this branch)
+
+A conductor marking a child "boarded" was invisible on the driver's phone
+until a pull-to-refresh or the next stop change: stop **arrivals** were
+broadcast (`trip:stop:arrived`) but student **board/drop** never was. The
+server now broadcasts every committed board/drop into the **same**
+authorization-gated trip room (`trip:<tripId>` — no new namespace, no new
+room, no new authorization rule) as `trip:student:attendance`, with the
+minimal payload a manifest invalidation needs (`student_id`, `stop_id`,
+`status`, server time — no names, no guardian detail).
+
+On the app, the shared `useLiveTripTracking` hook exposes the newest frame as
+`lastStudentAttendance`, and every manifest-bearing surface refetches its own
+list when it lands — the kids count on the **trip screen** next-stop card, the
+per-stop badges on **stops**, the full **manifest** (the driver's window onto
+the conductor's markings), and the **admin trip cockpit**. The subscription
+wiring (the six server → room events, the same-trip guard, the leak-proof
+detach) moved into the pure `src/features/tracking/trip-room-events.ts`, so it
+is spec-pinned instead of copied inline in the hook; the web hook uses a
+byte-equivalent module and the `/crew` page refetches the manifest the same
+way. The device's _own_ confirmed writes already reloaded — for them a frame
+costs at most one extra cheap read.
+
+| Spec                       | Pins                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trip-room-events.spec.ts` | exactly the six events subscribed, deliveries scoped to the same trip (other-trip and malformed frames dropped), the detacher removing exactly its own listeners — idempotently, and without starving a co-mounted screen |

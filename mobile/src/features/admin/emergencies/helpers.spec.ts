@@ -7,6 +7,7 @@ import {
   isEmergencyStatusTransitionAllowed,
 } from '@school-bus-tracking/shared-types';
 import {
+  activeEmergenciesLabel,
   emergencyActionLabel,
   emergencyStatusTone,
   isEmergencyActive,
@@ -72,5 +73,11 @@ describe('emergency lifecycle helpers', () => {
   it('agrees with the shared "needs attention" status list', () => {
     const active = Object.values(EmergencyStatus).filter(isEmergencyActive);
     assert.deepEqual(active.sort(), [...OPEN_EMERGENCY_STATUS_VALUES].sort());
+  });
+
+  it('labels the SOS alert banner with a plural-safe count', () => {
+    assert.equal(activeEmergenciesLabel(1), '1 active emergency');
+    assert.equal(activeEmergenciesLabel(0), '0 active emergencies');
+    assert.equal(activeEmergenciesLabel(3), '3 active emergencies');
   });
 });

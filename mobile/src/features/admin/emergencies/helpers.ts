@@ -58,3 +58,8 @@ export function emergencyStatusTone(status: EmergencyStatus): Tone {
 export function isEmergencyActive(status: EmergencyStatus): boolean {
   return status === EmergencyStatus.OPEN || status === EmergencyStatus.ACKNOWLEDGED;
 }
+
+/** Plural-safe count copy for the SOS alert banner ("2 active emergencies"). */
+export function activeEmergenciesLabel(count: number): string {
+  return `${count} active ${count === 1 ? 'emergency' : 'emergencies'}`;
+}
