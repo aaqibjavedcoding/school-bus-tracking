@@ -78,6 +78,8 @@ import {
   CrewPairingResponse,
   CrewPinSetRequest,
   CrewPinSetResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   LoginRequest,
   LoginResponse,
   LogoutResponse,
@@ -98,6 +100,8 @@ import {
   ParentNotificationListResponse,
   ParentTrackingResponse,
   RefreshResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
   NotificationResponse,
   DeviceTokenRegisterRequest,
   DeviceTokenResponse,
@@ -324,6 +328,12 @@ const AUTH_SKIP_PATHS = new Set([
   '/auth/crew-login',
   '/auth/refresh',
   '/auth/logout',
+  // SCHOOL_ADMIN self-service password reset. Both halves are deliberately
+  // unauthenticated (the emailed token is the credential on the second one),
+  // so neither may carry a stale bearer token — and a 4xx from either is the
+  // form's own error to show, never a trigger for a refresh loop.
+  '/auth/forgot-password',
+  '/auth/reset-password',
 ]);
 
 /** HTTP methods the API treats as safe (never CSRF-checked). */
@@ -864,6 +874,38 @@ export class ApiClient {
    */
   public refresh(): Promise<ApiResponse<RefreshResponse>> {
     return this.refreshOnce();
+  }
+
+  /**
+   * Step 1 of SCHOOL_ADMIN self-service password reset.
+   *
+   * `POST /auth/forgot-password`. Unauthenticated, and deliberately
+   * uninformative: the response is the identical generic message whether or
+   * not the `(school, email)` pair matched an account, so a caller must not
+   * try to infer existence from it (and the UI must not try to render
+   * anything conditional on it).
+   */
+  public async forgotPassword(
+    body: ForgotPasswordRequest,
+  ): Promise<ApiResponse<ForgotPasswordResponse>> {
+    return this.post<ForgotPasswordResponse>('/auth/forgot-password', body);
+  }
+
+  /**
+   * Step 2 of SCHOOL_ADMIN self-service password reset.
+   *
+   * `POST /auth/reset-password`. The emailed token is the credential, so the
+   * call is unauthenticated and mints **no** session: a successful reset
+   * revokes every existing refresh token of the account, and the user signs
+   * in again at `/login`. Any in-memory access token this client is holding
+   * is dropped for the same reason.
+   */
+  public async resetPassword(
+    body: ResetPasswordRequest,
+  ): Promise<ApiResponse<ResetPasswordResponse>> {
+    const envelope = await this.post<ResetPasswordResponse>('/auth/reset-password', body);
+    this.setAccessToken?.(null);
+    return envelope;
   }
 
   public async logout(): Promise<ApiResponse<LogoutResponse>> {

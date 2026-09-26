@@ -40,6 +40,22 @@ export interface CrewLoginBruteForceSettings {
 }
 
 /**
+ * Identity-bucket settings of the `password_reset_public` policy.
+ *
+ * Structurally the same as {@link LoginBruteForceSettings} and keyed on the
+ * same `school_id + email` identity, but configured separately
+ * (`rateLimit.passwordResetPublic.*`) because the thing being bounded is
+ * different: a login attempt costs the attacker a guess, while a
+ * forgot-password request costs the *victim* an email. The allowance is
+ * therefore much tighter than the login one — see the comment on
+ * `passwordResetPublic` in `config/rate-limit.config.ts`.
+ */
+export interface PasswordResetPublicSettings {
+  identityLimit: number;
+  identityWindowMs: number;
+}
+
+/**
  * Resolves the client IP.
  *
  * `X-Forwarded-For` is honoured **only** when the deployment declares it is
@@ -70,9 +86,11 @@ export function hashIdentity(value: string): string {
  * Buckets a request is counted against.
  *
  * Every policy gets an IP (or user) bucket. `auth_login` additionally gets an
- * **identity** bucket keyed by `school + email`, and `auth_crew_login` one keyed
- * by the crew identity (see {@link extractCrewLoginIdentity}) — which is what
- * actually stops credential stuffing distributed over many IPs. Both buckets are plain
+ * **identity** bucket keyed by `school + email`, `auth_crew_login` one keyed
+ * by the crew identity (see {@link extractCrewLoginIdentity}), and
+ * `password_reset_public` one keyed by `school + email` again — which is what
+ * actually stops credential stuffing (or reset-email flooding) distributed over
+ * many IPs. All buckets are plain
  * fixed windows: a throttled caller always recovers automatically once the
  * window rolls over, so no legitimate user can be locked out permanently.
  */
@@ -81,6 +99,7 @@ export function buildRateLimitBuckets(
   policy: RateLimitPolicySettings,
   login: LoginBruteForceSettings,
   crew: CrewLoginBruteForceSettings = login,
+  passwordResetPublic: PasswordResetPublicSettings = login,
 ): RateLimitBucket[] {
   const principal = context.userId ? `user:${context.userId}` : `ip:${context.ip}`;
   const buckets: RateLimitBucket[] = [
@@ -109,6 +128,25 @@ export function buildRateLimitBuckets(
         key: `${context.policy}|identity:${hashIdentity(identity)}`,
         limit: crew.identityLimit,
         windowMs: crew.identityWindowMs,
+      });
+    }
+  }
+
+  if (context.policy === 'password_reset_public') {
+    // Reuses the login identity extractor because it is literally the same
+    // two fields — a forgot-password body is `{ school_id, email }`. The
+    // bucket namespace is the policy name, so a reset request never consumes
+    // (or is blocked by) that identity's login allowance.
+    //
+    // `POST /auth/reset-password` carries `{ token, password }` and yields no
+    // identity, so it falls through with only the IP bucket. That is correct:
+    // redeeming a link already requires holding 256 bits of secret.
+    const identity = extractLoginIdentity(context.body);
+    if (identity) {
+      buckets.push({
+        key: `${context.policy}|identity:${hashIdentity(identity)}`,
+        limit: passwordResetPublic.identityLimit,
+        windowMs: passwordResetPublic.identityWindowMs,
       });
     }
   }

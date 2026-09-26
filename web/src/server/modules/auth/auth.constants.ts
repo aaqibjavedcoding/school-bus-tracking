@@ -53,6 +53,42 @@ export const LOGOUT_SUCCESS_MESSAGE = 'Logged out successfully';
  */
 export const DEFAULT_REFRESH_COOKIE_NAME = 'refresh_token';
 
+// ── SCHOOL_ADMIN self-service password reset ────────────────────────────────
+
+/**
+ * The **one** response `POST /auth/forgot-password` ever gives.
+ *
+ * Identical for a matching SCHOOL_ADMIN, a matching account of any other
+ * role, a matching-but-deactivated account, an unknown email, an unknown
+ * school code and a deactivated school. Anything else — a different message,
+ * a different status, a different response *shape*, even a reliably different
+ * latency — turns the endpoint into a free directory of which schools use the
+ * platform and who administers them.
+ *
+ * It is phrased so it is also the truthful thing to tell the one person who
+ * legitimately sees it: it promises an email *if* an account exists, and does
+ * not claim one was sent.
+ */
+export const FORGOT_PASSWORD_GENERIC_MESSAGE =
+  'If an account exists for that school and email, a password reset email has been sent.';
+
+/**
+ * The **one** failure message `POST /auth/reset-password` gives for a token
+ * that is unknown, expired, already used, or points at an account that may no
+ * longer be reset.
+ *
+ * Same rule as above, one step later: "expired" versus "never existed" narrows
+ * an attacker's search, and "this account can no longer be reset" would
+ * confirm the account exists. The distinct reasons survive in
+ * `inspectPasswordResetToken()` for logs and tests, never on the wire.
+ */
+export const INVALID_PASSWORD_RESET_TOKEN_MESSAGE =
+  'This password reset link is invalid or has expired. Please request a new one.';
+
+/** Confirmation returned by a successful `POST /auth/reset-password`. */
+export const PASSWORD_RESET_SUCCESS_MESSAGE =
+  'Your password has been updated. Please sign in with your new password.';
+
 // ── Crew PIN + QR login (Mobile-UX Phase 4) ─────────────────────────────────
 
 /**

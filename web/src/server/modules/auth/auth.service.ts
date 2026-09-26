@@ -444,6 +444,39 @@ export class AuthService {
     };
   }
 
+  /**
+   * Revokes **every** live refresh-token session of one user.
+   *
+   * This is the "the credential changed, nothing minted under the old one may
+   * survive" primitive. A password reset is exactly that case: the reason a
+   * reset happens is often that somebody else got in, and a reset that left
+   * their session alive would be theatre — the access token expires in
+   * minutes, but the refresh cookie they already hold would keep minting new
+   * ones for its full 7-day life.
+   *
+   * Deliberately placed here rather than in the reset service, next to
+   * `logout()` (which revokes exactly one session) and to `refresh()` (which
+   * revokes one and mints its successor), because this class owns the
+   * refresh-token lifecycle and a second copy of the rule elsewhere would be
+   * the first step to the two disagreeing.
+   *
+   * One bulk `UPDATE … WHERE user_id = ? AND revoked_at IS NULL`, so it is
+   * atomic per row, idempotent (a second call matches nothing) and costs one
+   * statement regardless of how many devices the account had. `unscoped()` is
+   * not needed: no column of the hidden `token_hash` is read.
+   *
+   * Returns the number of sessions actually ended, which the caller may audit.
+   * Note it deliberately does *not* touch the `password_hash`, the account's
+   * active flag or any cookie — a caller that wants those does them itself.
+   */
+  async revokeAllUserSessions(userId: string): Promise<number> {
+    const [affected] = await this.refreshTokens.update(
+      { revoked_at: new Date() } as Partial<RefreshToken>,
+      { where: { user_id: userId, revoked_at: null } } as never,
+    );
+    return typeof affected === 'number' ? affected : 0;
+  }
+
   getRefreshCookieName(): string {
     return this.configService?.get<string>('jwt.refreshCookieName') ?? DEFAULT_REFRESH_COOKIE_NAME;
   }

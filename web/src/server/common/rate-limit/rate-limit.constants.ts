@@ -15,6 +15,7 @@ export const RATE_LIMIT_POLICIES = [
   'auth_logout',
   'crew_pairing',
   'password_reset',
+  'password_reset_public',
   'sos_create',
   'attendance_write',
   'location_read',

@@ -71,7 +71,78 @@ IDEMPOTENCY_KEY_RETENTION_DAYS=7
 
 # Subscription
 SUBSCRIPTION_GRACE_PERIOD_DAYS=7
+
+# Email delivery (see "Email delivery and password reset" below)
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp.example.org
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=no-reply@yourschool.edu
+SMTP_PASS=app-password-not-the-account-password
+EMAIL_FROM=KidBus <no-reply@yourschool.edu>
+
+# Absolute origin for links the server emails out. Defaults to the first
+# CORS_ORIGIN entry; set it when a proxy's public URL differs.
+APP_URL=https://app.example.com
+
+# Password reset (self-service, SCHOOL_ADMIN only)
+PASSWORD_RESET_TTL_MS=2700000
+RATE_LIMIT_PASSWORD_RESET_PUBLIC_LIMIT=5
+RATE_LIMIT_PASSWORD_RESET_PUBLIC_WINDOW_MS=900000
+RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_LIMIT=3
+RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_WINDOW_MS=3600000
 ```
+
+### Email delivery and password reset
+
+School administrators reset their own password from `/forgot-password`, and
+the link that makes that possible arrives by email. **That is the only message
+this system sends by email today**, and it is the reason the SMTP settings
+above exist.
+
+**Without configuration nothing breaks and no mail is sent.** The provider
+factory (`web/src/server/modules/notifications/providers/email-provider.factory.ts`)
+returns `NoOpEmailProvider` unless `EMAIL_PROVIDER=smtp` **and** all five of
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `EMAIL_FROM` are
+present. The no-op logs what it would have sent and reports success, so local
+development, `npm test` and CI need no relay and no credentials. A deployment
+that sets `EMAIL_PROVIDER=smtp` but leaves a variable blank gets a warning —
+an **error** under `NODE_ENV=production` — naming the missing keys, and still
+falls back to the no-op rather than failing at send time. Values are never
+logged.
+
+Delivery uses [nodemailer](https://nodemailer.com) over plain SMTP, so any
+ordinary mail server works: a school's Google Workspace or Microsoft 365
+relay, a self-hosted Postfix, an ISP smarthost. There is no paid API and no
+vendor SDK. Use an **app password**, never the mailbox account's own password,
+and give the sending account no other privileges.
+
+`SMTP_SECURE` is optional: it defaults to `true` on port 465 (implicit TLS)
+and `false` otherwise (port 587, STARTTLS upgrade), which is what almost every
+relay expects.
+
+Operational notes:
+
+- **Link lifetime** — `PASSWORD_RESET_TTL_MS` is *clamped to 30–60 minutes*.
+  A value outside that band is silently pulled into it rather than rejected,
+  so a typo degrades to a safe lifetime instead of taking password reset down.
+  The email always states the number the server actually enforces.
+- **APP_URL** — the emailed link is `{APP_URL}/reset-password?token=…`. When
+  unset it falls back to the first `CORS_ORIGIN` entry, which is already "the
+  origin a browser reaches this app on"; set it explicitly when the app sits
+  behind a proxy whose public URL differs.
+- **Rate limits** — the two public endpoints use their own
+  `password_reset_public` policy, deliberately stricter than the
+  admin-initiated `password_reset` one because they are unauthenticated: 5
+  requests per 15 minutes per IP *and* 3 per hour per (school + email), so a
+  single mailbox cannot be flooded from a botnet.
+- **Enumeration** — `POST /api/v1/auth/forgot-password` always returns the
+  same message, whether or not the address matched an account. Do not
+  "improve" it with a specific one; it is asserted byte-for-byte by
+  `password-reset.service.spec.ts`.
+- **If reset emails are not arriving**, check the logs for
+  `EmailProviderSelection` at boot: it names the provider it selected and, if
+  SMTP was requested but rejected, exactly which variables were missing.
 
 ### Content-Security-Policy and map tiles
 
@@ -288,6 +359,10 @@ run if the compiled tree is incomplete.
 - [ ] HSTS enabled
 - [ ] CSRF protection enabled
 - [ ] Rate limiting configured
+- [ ] SMTP configured and a test reset email received (otherwise school admins
+      cannot recover their own accounts — check the boot log for
+      `SmtpEmailProvider active`)
+- [ ] `APP_URL` matches the public origin, so emailed reset links resolve
 - [ ] Retention policies configured
 - [ ] Backup strategy in place
 - [ ] Monitoring configured

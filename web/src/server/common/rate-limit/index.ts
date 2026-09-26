@@ -17,7 +17,9 @@ export {
   retryAfterSeconds,
 } from './rate-limit.keys';
 export type {
+  CrewLoginBruteForceSettings,
   LoginBruteForceSettings,
+  PasswordResetPublicSettings,
   RateLimitBucket,
   RateLimitPolicySettings,
   RateLimitRequestContext,

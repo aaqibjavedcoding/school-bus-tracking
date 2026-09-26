@@ -192,6 +192,107 @@ describe('buildRateLimitBuckets', () => {
     // The raw email never appears in a bucket key.
     assert.equal(buckets[1].key.includes('a@b.test'), false);
   });
+
+  /**
+   * The public password-reset pair.
+   *
+   * It reuses the login identity (school + email) but its **own** allowance,
+   * because the two bound different things: a login attempt costs the
+   * attacker a guess, a forgot-password request costs the victim an email.
+   */
+  const publicReset = { identityLimit: 3, identityWindowMs: 3_600_000 };
+
+  it('caps a forgot-password flood per mailbox, not just per IP', () => {
+    const buckets = buildRateLimitBuckets(
+      {
+        policy: 'password_reset_public',
+        ip: '9.9.9.9',
+        body: { school_id: 'lincoln-high', email: 'head@lincoln.test' },
+      },
+      policy,
+      login,
+      undefined,
+      publicReset,
+    );
+
+    assert.equal(buckets.length, 2, 'an IP bucket plus the per-identity bucket');
+    assert.equal(buckets[0].key, 'password_reset_public|ip:9.9.9.9');
+    // Its own, much tighter allowance — not the login one.
+    assert.equal(buckets[1].limit, 3);
+    assert.equal(buckets[1].windowMs, 3_600_000);
+    assert.match(buckets[1].key, /^password_reset_public\|identity:[0-9a-f]{32}$/);
+    assert.equal(buckets[1].key.includes('head@lincoln.test'), false);
+  });
+
+  it('follows the mailbox across rotating IPs, and normalises the identity', () => {
+    const bucketsFor = (ip: string, body: Record<string, string>) =>
+      buildRateLimitBuckets(
+        { policy: 'password_reset_public', ip, body },
+        policy,
+        login,
+        undefined,
+        publicReset,
+      );
+
+    const first = bucketsFor('9.9.9.9', { school_id: 'lincoln-high', email: 'head@lincoln.test' });
+    // A botnet changes the IP bucket but not the identity one — which is the
+    // bucket that stops one admin's inbox being used as a weapon.
+    const botnet = bucketsFor('8.8.8.8', { school_id: 'lincoln-high', email: 'head@lincoln.test' });
+    assert.notEqual(first[0].key, botnet[0].key);
+    assert.equal(first[1].key, botnet[1].key);
+
+    // Case and padding must not open a second bucket for the same mailbox.
+    const sloppy = bucketsFor('9.9.9.9', {
+      school_id: ' LINCOLN-HIGH ',
+      email: ' Head@Lincoln.test ',
+    });
+    assert.equal(sloppy[1].key, first[1].key);
+
+    const other = bucketsFor('9.9.9.9', { school_id: 'lincoln-high', email: 'other@lincoln.test' });
+    assert.notEqual(other[1].key, first[1].key);
+  });
+
+  it('falls back to the IP bucket alone when there is no identity to key on', () => {
+    // `POST /auth/reset-password` carries a token and a password, no mailbox:
+    // it shares the policy but can only be limited by IP. And the password
+    // must never reach a bucket key.
+    const buckets = buildRateLimitBuckets(
+      {
+        policy: 'password_reset_public',
+        ip: '9.9.9.9',
+        body: { token: 'a'.repeat(64), password: 'new-password-123' },
+      },
+      policy,
+      login,
+      undefined,
+      publicReset,
+    );
+    assert.deepEqual(
+      buckets.map((bucket) => bucket.key),
+      ['password_reset_public|ip:9.9.9.9'],
+    );
+  });
+
+  it('is distinct from the admin-initiated password_reset policy', () => {
+    // The privileged, authenticated reset keeps its own (looser) policy and
+    // gains no identity bucket from this change.
+    const admin = buildRateLimitBuckets(
+      {
+        policy: 'password_reset',
+        ip: '9.9.9.9',
+        userId: 'admin-1',
+        body: { school_id: 'lincoln-high', email: 'head@lincoln.test' },
+      },
+      policy,
+      login,
+      undefined,
+      publicReset,
+    );
+    assert.deepEqual(
+      admin.map((bucket) => bucket.key),
+      ['password_reset|user:admin-1'],
+    );
+  });
 });
 
 describe('retryAfterSeconds', () => {

@@ -162,6 +162,62 @@ export const loginSchema = z
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
+// ── SCHOOL_ADMIN self-service password reset ────────────────────────────────
+
+/**
+ * Body of `POST /api/v1/auth/forgot-password`.
+ *
+ * `school_id` is **required** here, unlike {@link loginSchema}: self-service
+ * reset is SCHOOL_ADMIN-only and a school admin always belongs to exactly one
+ * tenant. It accepts the same UUID-or-code union the login form accepts, so a
+ * school admin types the code they already know.
+ *
+ * Nothing about the *response* depends on whether this body matches an
+ * account — see `ForgotPasswordResponse`.
+ */
+export const forgotPasswordSchema = z
+  .object({
+    school_id: loginTenantIdSchema,
+    email: emailSchema,
+  })
+  .strict();
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+/**
+ * Maximum accepted length of a raw reset token.
+ *
+ * The server mints 32 random bytes rendered as 64 hex characters
+ * (`generateRefreshToken()`), so anything longer cannot be one of ours. The
+ * bound exists so a multi-megabyte "token" is rejected by the shape check
+ * before it is ever hashed and looked up.
+ */
+export const PASSWORD_RESET_TOKEN_LENGTH = 64;
+
+/** Exactly the hex shape `generateRefreshToken()` produces. */
+export const PASSWORD_RESET_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
+
+/**
+ * Body of `POST /api/v1/auth/reset-password`.
+ *
+ * The new password goes through the shared {@link passwordSchema}, so the
+ * rules the reset page enforces in the browser are byte-for-byte the rules the
+ * API enforces — a reset can never create a credential the console would have
+ * refused.
+ */
+export const resetPasswordSchema = z
+  .object({
+    token: z
+      .string({ required_error: 'Reset link is missing its token' })
+      .trim()
+      .min(1, 'Reset link is missing its token')
+      .max(PASSWORD_RESET_TOKEN_LENGTH, 'This reset link is not valid'),
+    password: passwordSchema,
+  })
+  .strict();
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
 // ── Crew PIN + QR login (Mobile-UX Phase 4) ─────────────────────────────────
 //
 // A *separate* schema family from `loginSchema` above, deliberately: that one

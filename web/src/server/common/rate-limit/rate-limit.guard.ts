@@ -83,6 +83,21 @@ export class RateLimitGuard implements CanActivate {
           900_000,
         ),
       },
+      {
+        // Public self-service password reset. Same `school + email` identity
+        // as login, far tighter numbers, because each request costs the
+        // *victim* an email rather than the attacker a guess. Defaults are
+        // the shipped ones, so an unconfigured deployment still gets the
+        // tight bucket rather than silently inheriting the login allowance.
+        identityLimit: this.configService.get<number>(
+          'rateLimit.passwordResetPublic.identityLimit',
+          3,
+        ),
+        identityWindowMs: this.configService.get<number>(
+          'rateLimit.passwordResetPublic.identityWindowMs',
+          3_600_000,
+        ),
+      },
     );
 
     let tightestRemaining = Number.POSITIVE_INFINITY;
