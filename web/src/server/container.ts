@@ -32,11 +32,13 @@ import {
   appConfig,
   crewAuthConfig,
   databaseConfig,
+  emailConfig,
   etaConfig,
   jwtConfig,
   liveTrackingConfig,
   notificationDeliveryConfig,
   notificationsConfig,
+  passwordResetConfig,
   rateLimitConfig,
   retentionConfig,
   securityConfig,
@@ -57,6 +59,7 @@ import {
   IdempotencyKey,
   ImportJob,
   Notification,
+  PasswordResetToken,
   Plan,
   RefreshToken,
   Route,
@@ -94,6 +97,7 @@ import { RouteAssignmentsService } from './modules/assignments/assignments.servi
 import { AuditService } from './modules/audit/audit.service';
 import { AuthService } from './modules/auth/auth.service';
 import { CrewAuthService } from './modules/auth/crew-auth.service';
+import { PasswordResetService } from './modules/auth/password-reset.service';
 import { BusesService } from './modules/buses/buses.service';
 import { ExportService } from './modules/data-transfer/export/export.service';
 import { ImportHistoryService } from './modules/data-transfer/import/import-history.service';
@@ -116,10 +120,13 @@ import {
 } from './modules/live-tracking/live-tracking.service';
 import { DeviceTokensService } from './modules/notifications/device-tokens.service';
 import { NotificationsService } from './modules/notifications/notifications.service';
-import { createPushProvider } from './modules/notifications/providers';
+import { createEmailProvider, createPushProvider } from './modules/notifications/providers';
 import { DeliveryWorker } from './modules/notifications/outbox';
 import type { DeliveryPolicyConfig } from './modules/notifications/outbox';
-import type { PushNotificationProvider } from './modules/notifications/providers';
+import type {
+  EmailNotificationProvider,
+  PushNotificationProvider,
+} from './modules/notifications/providers';
 import { ParentPortalService } from './modules/parent-portal/parent-portal.service';
 import { ParentGuardiansService } from './modules/parents/parent-guardians.service';
 import { ParentsService } from './modules/parents/parents.service';
@@ -173,6 +180,7 @@ export class Container {
         appConfig,
         crewAuthConfig,
         databaseConfig,
+        emailConfig,
         jwtConfig,
         liveTrackingConfig,
         etaConfig,
@@ -182,6 +190,7 @@ export class Container {
         retentionConfig,
         notificationsConfig,
         notificationDeliveryConfig,
+        passwordResetConfig,
         websocketConfig,
       ] as never),
   );
@@ -271,6 +280,27 @@ export class Container {
     }),
   );
 
+  /**
+   * Outbound email rail.
+   *
+   * Mirrors {@link pushProvider}: the factory returns the real
+   * `SmtpEmailProvider` only when `EMAIL_PROVIDER=smtp` and every SMTP
+   * variable is present, and `NoOpEmailProvider` otherwise — so CI, `npm
+   * test` and a fresh checkout need no relay and nothing downstream branches
+   * on which one is active.
+   */
+  readonly emailProvider = lazy((): EmailNotificationProvider =>
+    createEmailProvider({
+      provider: this.config().get<string>('email.provider'),
+      host: this.config().get<string | null>('email.smtpHost'),
+      port: this.config().get<string | null>('email.smtpPort'),
+      secure: this.config().get<boolean | null>('email.smtpSecure'),
+      user: this.config().get<string | null>('email.smtpUser'),
+      pass: this.config().get<string | null>('email.smtpPass'),
+      from: this.config().get<string | null>('email.from'),
+    }),
+  );
+
   /** Phase 2 durable-delivery policy (expiry / backoff / max attempts). */
   readonly deliveryPolicy = lazy((): DeliveryPolicyConfig => ({
     maxAttempts: this.config().get<number>('notificationDelivery.maxAttempts') ?? 8,
@@ -332,6 +362,25 @@ export class Container {
    */
   readonly crewAuth = lazy(
     () => new CrewAuthService(User, CrewPairingToken, this.auth(), this.config()),
+  );
+
+  /**
+   * SCHOOL_ADMIN self-service password reset.
+   *
+   * Depends on `auth()` for the two things it must not reimplement: tenant
+   * resolution (`resolveTenantId`, the same code the login form's school-code
+   * field goes through) and session revocation (`revokeAllUserSessions`, so a
+   * reset really does end every session the account had).
+   */
+  readonly passwordReset = lazy(
+    () =>
+      new PasswordResetService(
+        User,
+        PasswordResetToken,
+        this.auth(),
+        this.emailProvider(),
+        this.config(),
+      ),
   );
 
   readonly schools = lazy(() => new SchoolsService(School, User));

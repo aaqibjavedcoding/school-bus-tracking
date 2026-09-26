@@ -2,12 +2,16 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { APP_CONFIG } from '@school-bus-tracking/config';
 import { loginSchema } from '@school-bus-tracking/validation';
-import { Button, Card, Field, Input, PasswordInput } from '../../components/ui';
+import { Button, Card, Field, Input, PasswordInput, useToast } from '../../components/ui';
 import { useAuth } from '../../features/auth/AuthProvider';
+import {
+  RESET_PASSWORD_SUCCESS_TOAST,
+  isPostResetLogin,
+} from '../../features/auth/password-reset';
 import { fieldErrorsFromUnknown, fieldErrorsFromZod, submitErrorMessage } from '../../lib/errors';
 import { pickFieldLabels } from '../../lib/field-errors';
 import { homePath } from '../../lib/roles';
@@ -23,9 +27,11 @@ import { homePath } from '../../lib/roles';
  */
 const LOGIN_FIELD_LABELS = pickFieldLabels(['school_id', 'email', 'password']);
 
-export default function LoginPage() {
+function LoginForm() {
   const { login, status, user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const toast = useToast();
   const [schoolId, setSchoolId] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,6 +44,27 @@ export default function LoginPage() {
       router.replace(homePath(user.role));
     }
   }, [status, user, router]);
+
+  /**
+   * `/login?reset=1` — the landing spot after a completed password reset.
+   *
+   * The reset page redirects here rather than signing the user in, because
+   * finishing a reset revokes every session the account had and mints no new
+   * one. The flag is all that crosses: the sentence itself is a constant, so
+   * the login screen can never be made to render arbitrary text handed to it
+   * in a URL.
+   *
+   * The ref keeps React 18 StrictMode's double-invoked effect from stacking
+   * two identical toasts in development.
+   */
+  const resetToastShown = useRef(false);
+  useEffect(() => {
+    if (resetToastShown.current || !isPostResetLogin(searchParams)) {
+      return;
+    }
+    resetToastShown.current = true;
+    toast.push(RESET_PASSWORD_SUCCESS_TOAST, 'success');
+  }, [searchParams, toast]);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -125,11 +152,29 @@ export default function LoginPage() {
           </Button>
         </form>
         <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
+          <Link href="/forgot-password" className="linkish" style={{ fontSize: '0.875rem' }}>
+            Forgot password?
+          </Link>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
           <Link href="/" className="linkish" style={{ fontSize: '0.875rem' }}>
             ← Back to homepage
           </Link>
         </div>
       </Card>
     </div>
+  );
+}
+
+/**
+ * `useSearchParams()` (read above for the post-reset flag) opts the route
+ * into client-side rendering, which Next requires to sit inside a `Suspense`
+ * boundary.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

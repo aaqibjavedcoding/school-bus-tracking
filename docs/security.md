@@ -77,6 +77,38 @@ security theatre — there is no cross-site context on a native client.
 - Password complexity requirements enforced
 - Account lockout after failed attempts (rate limiting)
 
+### Self-service password reset (SCHOOL_ADMIN only)
+
+`POST /api/v1/auth/forgot-password` + `POST /api/v1/auth/reset-password`. Both
+are unauthenticated: on the second one the emailed token **is** the credential.
+Scope is deliberate — crew (DRIVER / CONDUCTOR) sign in with an admin-issued
+PIN and have no password to reset, and PARENT / SUPER_ADMIN self-service is out
+of scope.
+
+The threat model and the answer to each part of it:
+
+| Risk                                    | Control                                                                                                                                                                                 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Account enumeration**                 | One byte-identical response for a matching admin, a wrong-role account, an unknown email, an unknown school code, a deactivated account/school, and an SMTP failure. The service never throws on this path, because a 500 is also an answer. Asserted in `password-reset.service.spec.ts`. |
+| **Token theft from the database**       | Only the SHA-256 digest is stored (`password_reset_tokens.token_hash`), from a 256-bit random token — the same `generateRefreshToken()`/`hashToken()` pair as `refresh_tokens`. The plaintext exists only in the emailed link. |
+| **A link that outlives its usefulness** | TTL clamped to **30–60 minutes** (`PASSWORD_RESET_TTL_MS`, default 45). The email prints the enforced number, derived from the TTL rather than typed in. |
+| **Replay of a used link**               | `used_at` + a unique index on the digest, so concurrent clicks resolve to at most one redemption. |
+| **Several live links per account**      | Issuing a link marks every other unused row of that user used — one active link at a time. |
+| **The attacker keeps their session**    | A completed reset calls `AuthService.revokeAllUserSessions()`, killing every refresh token of the account, and mints none. The user signs in again. |
+| **Flooding a mailbox / guessing**       | The `password_reset_public` policy: 5 requests / 15 min per IP **and** 3 / hour per (school + email). Deliberately separate from — and stricter than — the admin-initiated `password_reset` policy. |
+| **Secrets in logs or the audit trail**  | The raw token is never logged, audited or returned. The success audit row (`auth.password_reset`) carries only `{ self_service, revoked_sessions }`. The *request* is intentionally not audited at all: a row naming the school and email would be the existence answer the response refuses to give. |
+
+Response **timing** is not equalized — only the matching case hashes and
+mails. The public rate limit (5/15 min per IP, 3/hour per identity) is far too
+tight to average a timing signal out of, and faking an SMTP round trip for
+unknown addresses costs more than it buys.
+
+Email leaves through `SmtpEmailProvider` (nodemailer, plain SMTP). Without
+complete `EMAIL_PROVIDER=smtp` + `SMTP_*` + `EMAIL_FROM` configuration the
+factory returns `NoOpEmailProvider`, so no deployment, test run or CI job
+needs credentials; a *partial* SMTP configuration warns (errors in production)
+rather than failing silently at send time. See `docs/deployment.md`.
+
 ## Authorization
 
 ### Role-Based Access Control
@@ -194,6 +226,8 @@ Status of `npm audit --omit=dev` after the Phase 2 hardening:
 
 - Per-endpoint rate limits (declared per route with a named policy)
 - Per-identity login brute-force protection (school + email bucket, hashed)
+- The same per-identity bucket guards the public password-reset pair
+  (`password_reset_public`: 5 / 15 min per IP **and** 3 / hour per school+email)
 - Per-user buckets for authenticated calls, per-IP for anonymous ones
 - Every number configurable via environment variables, without a redeploy
 

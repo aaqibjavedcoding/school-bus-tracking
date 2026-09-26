@@ -14,9 +14,11 @@
 import type {
   CrewLoginRequest,
   CrewLoginResponse,
+  ForgotPasswordResponse,
   LoginResponse,
   LogoutResponse,
   RefreshResponse,
+  ResetPasswordResponse,
 } from '@school-bus-tracking/shared-types';
 import { BadRequestException, ForbiddenException, HttpStatus } from '../framework';
 import { container } from '../container';
@@ -28,6 +30,7 @@ import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.consta
 import { auditRequestContext } from '../modules/audit/audit-request';
 import { LoginDto } from '../modules/auth/dto/login.dto';
 import { CrewLoginDto, narrowCrewLoginDto } from '../modules/auth/dto/crew-login.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from '../modules/auth/dto/password-reset.dto';
 import { isCrewRole } from '../modules/auth/crew-auth.service';
 import { RefreshTokenRotationConflictException } from '../modules/auth/auth.service';
 import { parseCookieHeader } from '../auth';
@@ -405,6 +408,93 @@ export const postAuthLogout: EndpointDefinition = {
         });
     }
     return response satisfies LogoutResponse;
+  },
+};
+
+/**
+ * `POST /api/v1/auth/forgot-password`
+ *
+ * Unauthenticated. Takes `{ school_id, email }` and **always** answers with
+ * the same `FORGOT_PASSWORD_GENERIC_MESSAGE`, whether or not it matched an
+ * active SCHOOL_ADMIN — see `PasswordResetService` for the full list of cases
+ * that collapse into that one response, and why they must.
+ *
+ * ### Not audited (and that is deliberate)
+ *
+ * Writing an audit row here would defeat the endpoint. `audit_logs` is
+ * readable by SUPER_ADMIN in the console, and a row that recorded "reset
+ * requested for lincoln-high / head@lincoln.edu" would be exactly the
+ * existence answer the response refuses to give — reachable by anyone who can
+ * type an email into a public form. The *successful reset* is audited
+ * instead, in `postAuthResetPassword` below: that one is an event that
+ * actually happened to an account, and by then the account is known.
+ *
+ * The request is not untraceable: the mint stores the client IP on the token
+ * row (`requested_ip`, audit-only, never returned) and the rate limiter
+ * counts it per IP and per identity.
+ */
+export const postAuthForgotPassword: EndpointDefinition<ForgotPasswordDto> = {
+  auth: false,
+  rateLimit: 'password_reset_public',
+  status: HttpStatus.OK,
+  bodyType: ForgotPasswordDto,
+  handler: async ({ body, request }: HandlerContext<ForgotPasswordDto>) => {
+    const result = await container()
+      .passwordReset()
+      .requestReset(body, { ip: typeof request.ip === 'string' ? request.ip : null });
+    return result satisfies ForgotPasswordResponse;
+  },
+};
+
+/**
+ * `POST /api/v1/auth/reset-password`
+ *
+ * Unauthenticated: the emailed token *is* the credential. Redeems it once,
+ * writes the new password hash, and revokes every live refresh token of the
+ * account so a session created under the old password cannot survive the
+ * reset.
+ *
+ * ### What the audit row may and may not contain
+ *
+ * The successful reset is recorded under the already-defined
+ * `AUTH_PASSWORD_RESET` action, with the account as both actor and entity —
+ * it is a self-service action, so there is no third-party actor to name. The
+ * metadata carries only `self_service: true` and how many sessions the reset
+ * ended.
+ *
+ * It must never carry the raw token or the new password (or a hash of
+ * either). The token is a live credential until the moment it is spent and
+ * `audit_logs` is long-lived and readable in the console; the password is
+ * obvious. `revoked_sessions` is the one number worth keeping: "this reset
+ * ended four sessions" is exactly what an investigator wants after an account
+ * takeover.
+ *
+ * No cookie is written and no session is issued — the user signs in again at
+ * `/login`, which is the only way the new password is ever exercised.
+ */
+export const postAuthResetPassword: EndpointDefinition<ResetPasswordDto> = {
+  auth: false,
+  rateLimit: 'password_reset_public',
+  status: HttpStatus.OK,
+  bodyType: ResetPasswordDto,
+  handler: async ({ body, request }: HandlerContext<ResetPasswordDto>) => {
+    const { user_id, school_id, revoked_sessions, ...response } = await container()
+      .passwordReset()
+      .resetPassword(body);
+
+    await container()
+      .audit()
+      .log({
+        school_id,
+        actor_user_id: user_id,
+        action: AUDIT_ACTIONS.AUTH_PASSWORD_RESET,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: user_id,
+        ...auditRequestContext({ request }),
+        metadata: { self_service: true, revoked_sessions },
+      });
+
+    return response satisfies ResetPasswordResponse;
   },
 };
 

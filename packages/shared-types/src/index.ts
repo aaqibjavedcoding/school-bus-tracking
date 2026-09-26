@@ -209,6 +209,61 @@ export interface LogoutResponse {
 }
 
 // ============================================================================
+// SCHOOL_ADMIN self-service password reset
+// ============================================================================
+
+/**
+ * Body of `POST /api/v1/auth/forgot-password`.
+ *
+ * Self-service reset is **SCHOOL_ADMIN only**. A school admin is always a
+ * member of exactly one tenant, so `school_id` is required (unlike
+ * {@link LoginRequest}, where it is omitted for the platform SUPER_ADMIN) and
+ * accepts the same two forms the login form accepts: the tenant UUID or the
+ * human-friendly school `code`.
+ *
+ * SUPER_ADMIN, DRIVER, CONDUCTOR and PARENT are deliberately out of scope:
+ * crew sign in with a PIN or a QR pairing code (`POST /auth/crew-login`), and
+ * the other two are reset by an administrator.
+ */
+export interface ForgotPasswordRequest {
+  /** Tenant UUID or human tenant code, exactly as for `LoginRequest`. */
+  school_id: string;
+  email: string;
+}
+
+/**
+ * Successful payload of `POST /api/v1/auth/forgot-password`.
+ *
+ * Always the **same** body, whether or not the request matched a SCHOOL_ADMIN
+ * account: a differing message (or status, or shape) would turn the endpoint
+ * into an account-enumeration oracle for every school in the platform. The
+ * server never reports whether an email was actually sent.
+ */
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+/** Body of `POST /api/v1/auth/reset-password`. */
+export interface ResetPasswordRequest {
+  /** The raw token from the emailed link. Never stored, never logged. */
+  token: string;
+  /** The new password, validated against the shared `passwordSchema`. */
+  password: string;
+}
+
+/**
+ * Successful payload of `POST /api/v1/auth/reset-password`.
+ *
+ * Carries no session: a completed reset revokes **every** existing refresh
+ * token of that account, and the user signs in again at `/login` with the new
+ * password. That is the point of the flow — a stolen session must not outlive
+ * the reset that was performed because of it.
+ */
+export interface ResetPasswordResponse {
+  message: string;
+}
+
+// ============================================================================
 // Crew PIN + QR login (Mobile-UX Phase 4)
 // ============================================================================
 

@@ -74,6 +74,37 @@ export default registerAs('rateLimit', () => ({
     auth_logout: policy('AUTH_LOGOUT', 30, 60_000),
     /** Admin-initiated password resets (privileged, low volume). */
     password_reset: policy('PASSWORD_RESET', 10, 15 * 60_000),
+    /**
+     * **Public, unauthenticated** self-service password reset —
+     * `POST /auth/forgot-password` and `POST /auth/reset-password`.
+     *
+     * A separate, stricter policy from `password_reset` on purpose. That one
+     * is documented as "admin-initiated, privileged, low volume": every call
+     * arrives with a SUPER_ADMIN or SCHOOL_ADMIN bearer token, so the guard
+     * keys it per *user id* and 10 per 15 minutes is a generous allowance for
+     * a human operator clicking a button. Reusing it here would have been a
+     * category error in three separate ways:
+     *
+     * - the caller is **anonymous**, so the bucket degrades from "per admin"
+     *   to "per IP" — one address, one budget, shared by everybody behind it,
+     *   and freshly available to every address an attacker rents;
+     * - each request **sends mail to a third party**, so the budget is also a
+     *   mailbox-flooding budget: 10 per 15 minutes per IP is 960 emails a day
+     *   at one school admin from a single host;
+     * - it has **no identity dimension**, so nothing bounds how many resets
+     *   one victim's address can be made to receive from many sources.
+     *
+     * Hence: a tighter IP bucket (5 per 15 min) *and* the per-`(school+email)`
+     * identity bucket configured in `passwordResetPublic` below, which is the
+     * half that actually protects a specific admin's inbox from a distributed
+     * spray. Both are plain fixed windows, so a throttled person always
+     * recovers on their own.
+     *
+     * Five per window per IP still covers the real interaction generously: a
+     * school admin who mistypes their school code, tries again, then asks for
+     * a second link because the first email was slow, has used three.
+     */
+    password_reset_public: policy('PASSWORD_RESET_PUBLIC', 5, 15 * 60_000),
     /** Crew SOS creation — must stay usable in a real emergency. */
     sos_create: policy('SOS_CREATE', 12, 60_000),
     /** Attendance board/drop mutations (a full bus is ~60 scans/minute). */
@@ -125,6 +156,33 @@ export default registerAs('rateLimit', () => ({
     identityWindowMs: positiveInt(
       process.env.RATE_LIMIT_CREW_LOGIN_IDENTITY_WINDOW_MS,
       15 * 60_000,
+    ),
+  },
+  /**
+   * Identity bucket of the `password_reset_public` policy.
+   *
+   * Keyed on the submitted `school_id + email` — the same identity
+   * `auth_login` uses, deliberately, because it is the same pair of fields
+   * and therefore the same person. This is the bucket that bounds what an
+   * attacker can do *to a named victim*: the IP bucket is per source and a
+   * spray from a hundred hosts walks straight past it, while this one counts
+   * every request aimed at one admin's mailbox no matter where it came from.
+   *
+   * Three per hour is the honest ceiling for a real reset: nobody needs a
+   * fourth link within the hour, because each new one invalidates the last
+   * (one active token at a time) and the previous email is still sitting in
+   * the inbox, still valid for 30–60 minutes.
+   *
+   * `POST /auth/reset-password` carries only an opaque token — no school, no
+   * email — so it has no identity bucket by construction and is bounded by
+   * the IP bucket alone. That is sufficient: redeeming a link requires
+   * already holding 256 bits of secret, so there is nothing to spray.
+   */
+  passwordResetPublic: {
+    identityLimit: positiveInt(process.env.RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_LIMIT, 3),
+    identityWindowMs: positiveInt(
+      process.env.RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_WINDOW_MS,
+      60 * 60_000,
     ),
   },
 }));

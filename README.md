@@ -28,11 +28,11 @@ plus **one Expo/React Native app** shared by drivers, conductors, parents and sc
 | Validation        | Two layers: `class-validator` DTOs (server) + **Zod** schemas in `packages/validation` (shared by server, web, mobile)                                                                    |
 | Auth              | JWT access token (default 15 m, in memory) + rotating httpOnly refresh cookie (default 7 d) + CSRF double-submit cookie; bcrypt cost 12                                                   |
 | Tenancy           | Shared database, row-level: every tenant row carries `school_id`; **composite FKs `(school_id, id)`** make cross-tenant references impossible at the DB level                             |
-| Tests             | `node:test` only (no Jest/Vitest): 195 `*.spec.ts` files — unit, real-PostgreSQL integration, real-HTTP E2E, mobile unit + simulation suites                                              |
+| Tests             | `node:test` only (no Jest/Vitest): 293 `*.spec.ts` files — unit, real-PostgreSQL integration, real-HTTP E2E, mobile unit + simulation suites                                              |
 | CI                | GitHub Actions `.github/workflows/ci.yml` — 11 independent jobs (lint, 2 typechecks, 3 unit suites, simulations, DB integration/E2E, prod build, Android Expo export, Docker image build) |
 | Deployment        | Single instance by design. `infrastructure/Dockerfile` + `docker-compose.prod.yml` prepared (not deployed)                                                                                |
-| Hard prohibitions | **No Prisma**, **no `sequelize.sync()`**, **no paid third-party service** in this phase (no Redis, no S3, no SMS/email gateway, no payment provider)                                      |
-| Scale             | ~117k lines of application TS/TSX (excluding spec files); 28 database tables; 39 migrations; 159 API route files; 187 typed api-client methods                                            |
+| Hard prohibitions | **No Prisma**, **no `sequelize.sync()`**, **no paid third-party service** in this phase (no Redis, no S3, no SMS gateway, no payment provider). Email is the one outbound channel, and only via **plain SMTP** the operator already owns (nodemailer, MIT) — opt-in, no-op by default, no vendor API |
+| Scale             | ~117k lines of application TS/TSX (excluding spec files); 30 database tables; 45 migrations; 168 API route files; 189 typed api-client methods                                            |
 
 ---
 
@@ -378,7 +378,9 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   cancel, SOS, emergency status, and socket GPS ingest (`live-tracking.location:<tripId`).
 - **Rate limiting**: global guard, process-local bounded store; policies
   `auth_login` 10/min (also keyed per school+email identity), `auth_refresh` 60/min,
-  `auth_logout` 30/min, `password_reset` 10/15 min, `sos_create` 12/min, `attendance_write`
+  `auth_logout` 30/min, `password_reset` 10/15 min (admin-initiated),
+  `password_reset_public` 5/15 min per IP **and** 3/hour per school+email (the unauthenticated
+  self-service pair), `sos_create` 12/min, `attendance_write`
   240/min, `location_read` 240/min, `read_heavy` 300/min, `device_register` 30/min,
   `data_import` 12/min, `data_export` 30/min, `report_read` 120/min — all env-tunable.
   `RATE_LIMIT_STORE=redis` **fails fast** by design (no silent degradation).
@@ -460,12 +462,12 @@ school-bus-tracking/
 │   │   └── support/{app,auth,database,env,fixtures,http,routes}.ts
 │   └── src/
 │       ├── app/
-│       │   ├── layout.tsx, globals.css, login/page.tsx
+│       │   ├── layout.tsx, globals.css, login/, forgot-password/, reset-password/  # unauthenticated
 │       │   ├── (authenticated)/       # 40 pages: admin/*, parent/*, students, buses, routes,
 │       │   │                          # staff, assignments, shifts, trips, tracking, attendance,
 │       │   │                          # documents, emergencies, reports, imports, parents,
 │       │   │                          # children, crew, drivers/, buses/…  + layout.tsx guard
-│       │   └── api/v1/**/route.ts      # 159 route files → createRouteHandler(endpointDefinition)
+│       │   └── api/v1/**/route.ts      # 168 route files → createRouteHandler(endpointDefinition)
 │       ├── components/                # AppShell, icons, ui/ primitives (Button, Modal, Badge,
 │       │                              # Pagination, Field, Skeleton, useToast, ErrorBoundary…)
 │       ├── features/                  # feature slices: admin (metrics, charts, KPI, schools,
@@ -720,7 +722,7 @@ stream (`Content-Disposition`, `nosniff`, `no-store`, `X-Total-Records`).
 | Area            | Endpoints (all under `/api/v1`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Infra           | `GET /health` · `GET /health/ready`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Auth            | `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/csrf` (plus dev-only `/auth-test/*`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Auth            | `POST /auth/login` · `POST /auth/crew-login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/csrf` · `POST /auth/forgot-password` · `POST /auth/reset-password` (SCHOOL_ADMIN self-service, unauthenticated) (plus dev-only `/auth-test/*`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Tenancy         | `POST /schools` — atomic tenant + first-`SCHOOL_ADMIN` onboarding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Fleet           | `GET` / `POST` `/buses` · `GET` / `PATCH` / `DELETE` `/buses/:busId` · `GET /buses/:busId/runs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Network         | `GET` / `POST` `/routes` · `GET` / `PATCH` / `DELETE` `/routes/:id` · `GET /routes/:id/details` · `GET` / `PUT` `/routes/:id/stops` (ordered reorder) · `GET` / `POST` `/routes/:id/runs` · `GET` / `POST` `/stops` · `GET` / `PATCH` / `DELETE` `/stops/:id`                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -776,6 +778,28 @@ Socket option builder: `mobile/src/services/socket-options.ts`, `web/src/service
   cookie → token required. The client re-seeds **once** and replays on a 403.
 - **Passwords**: bcrypt cost 12 (`BCRYPT_COST_FACTOR`), never serialized, never logged;
   `password_hash` excluded from every response contract.
+- **Self-service password reset** (`SCHOOL_ADMIN` only): `POST /auth/forgot-password`
+  (school code + email) mints one link and emails it; `POST /auth/reset-password` redeems it.
+  Both are unauthenticated and share the stricter `password_reset_public` policy (5/15 min per IP
+  **and** 3/hour per school+email). Properties that are asserted, not assumed:
+  **no enumeration** — forgot-password returns one byte-identical message for a matching admin, a
+  wrong-role account, an unknown email, an unknown school code and an SMTP outage alike, and never
+  throws; **hashed at rest** — `password_reset_tokens.token_hash` holds the SHA-256 digest of a
+  256-bit random token (the same `generateRefreshToken()`/`hashToken()` pair `refresh_tokens`
+  uses), so the plaintext exists only in the emailed link; **short-lived** — TTL is clamped to
+  30–60 minutes (`PASSWORD_RESET_TTL_MS`, default 45 min) and the email states the enforced
+  number; **single-use** — `used_at` plus a unique digest index, and issuing a new link marks the
+  previous unused one used, so an account has exactly one live link; **sessions die with the
+  password** — a completed reset revokes *every* refresh token of the account
+  (`AuthService.revokeAllUserSessions`) and mints none, so the user signs in again. The successful
+  reset is audited as `auth.password_reset` with `{ self_service, revoked_sessions }` — never the
+  token or the password. Crew (PIN/QR), PARENT and SUPER_ADMIN are deliberately out of scope.
+- **Outbound email**: `SmtpEmailProvider` (nodemailer, plain SMTP — a school's Workspace/365 relay,
+  Postfix, or an ISP smarthost; no paid API). `email-provider.factory.ts` selects it only when
+  `EMAIL_PROVIDER=smtp` **and** `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` are
+  all set, otherwise `NoOpEmailProvider` — so tests, CI and a fresh checkout need no relay, and a
+  half-configured one warns (errors in production) instead of failing silently. Credentials are
+  never logged; a failed send never changes what the caller is told.
 - **RBAC** via `RolesGuard` + `@Roles(...)`; **tenant scoping** inside every service
   (`where: { school_id }` from the JWT); **plan-limit** and **subscription** checks in
   `PlanLimitsService` / `assertSubscriptionAllows`; **inactive tenant** blocked centrally.
@@ -1091,8 +1115,10 @@ Runner is **`node --test`** everywhere (no Jest, no Vitest, no Cypress). Specs a
 (`*.spec.ts` next to the code) plus `web/test/integration` and `web/test/e2e`.
 
 - **Server unit** — `npm --prefix web run test:server`: services, guards, DTOs, middleware, rate
-  limiter, retention worker/scheduler, revalidation sweeper, gateways; run through
-  `ts-node/register/transpile-only` with `tsconfig.server.json`.
+  limiter, retention worker/scheduler, revalidation sweeper, gateways, migrations (DB-free, via a
+  recording `QueryInterface`), notification providers (SMTP driven through an injected transport,
+  so CI opens no socket); run through `ts-node/register/transpile-only` with
+  `tsconfig.server.json`.
 - **Web unit** — `test:web`: pure client helpers (cache, CSRF, error mapping, metrics, nav,
   emergency alarm state machine) via `node --experimental-strip-types`.
 - **Mobile unit** — `npm --prefix mobile test`: pure modules (geo, runs, reports, paged query,
