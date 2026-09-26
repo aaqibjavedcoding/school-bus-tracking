@@ -110,6 +110,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   fix,
   stops = [],
   highlightStopId = null,
+  nextStopId = null,
+  trail,
+  controls,
   connection = 'offline',
   onMapError,
 }) => {
@@ -157,6 +160,17 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         .sort((a, b) => a.sequence_number - b.sequence_number)
         .map((stop) => [stop.longitude, stop.latitude] as [number, number]),
     [mappedStops],
+  );
+
+  // Driven-path breadcrumb (crew console). GeoJSON expects [lng, lat].
+  const trailCoords = useMemo(
+    () =>
+      (trail ?? [])
+        .filter(
+          (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+        )
+        .map((point) => [point.longitude, point.latitude] as [number, number]),
+    [trail],
   );
 
   // Declared before the map-init effect: its deps gate map creation. The
@@ -321,6 +335,20 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     };
   }, [dispatch]);
 
+  // "Fit route" (opt-in via `controls`): fit the bounds and hand the camera
+  // to the user — entering explore mode keeps the next GPS fix from panning
+  // the freshly fitted view away; "Follow bus" hands it back.
+  const fitRouteRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    fitRouteRef.current = () => {
+      dispatch({ type: 'user-gesture' });
+      fitToData();
+    };
+    return () => {
+      fitRouteRef.current = null;
+    };
+  }, [dispatch, fitToData]);
+
   useEffect(() => {
     panRef.current = maybeFollowPan;
     return () => {
@@ -426,6 +454,34 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         });
       }
 
+      // Driven-path line source + layer (crew console). Drawn after the
+      // planned route line so the real path reads above the straight plan.
+      if (!map.getSource('sbt-trail')) {
+        map.addSource('sbt-trail', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: trailCoords.length >= 2 ? trailCoords : [],
+            },
+          },
+        });
+      }
+      if (!map.getLayer('sbt-trail-line')) {
+        map.addLayer({
+          id: 'sbt-trail-line',
+          type: 'line',
+          source: 'sbt-trail',
+          paint: {
+            'line-color': '#16a34a',
+            'line-width': 3,
+            'line-opacity': 0.85,
+          },
+        });
+      }
+
       // Accuracy circle source + layers
       if (!map.getSource('sbt-accuracy')) {
         map.addSource('sbt-accuracy', {
@@ -504,6 +560,22 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     });
   }, [lineCoords]);
 
+  // Update driven-path line when the trail grows
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource('sbt-trail') as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates: trailCoords.length >= 2 ? trailCoords : [],
+      },
+    });
+  }, [trailCoords]);
+
   // Update accuracy circle when fix or presentation changes
   useEffect(() => {
     const map = mapRef.current;
@@ -546,7 +618,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     // Add or update markers.
     for (const stop of mappedStops) {
-      const kind = highlightStopId === stop.id ? 'current' : 'plain';
+      const kind =
+        highlightStopId === stop.id ? 'current' : nextStopId === stop.id ? 'next' : 'plain';
       const entry = existing.get(stop.id);
       if (entry) {
         // Update position if changed (cheap) and kind class.
@@ -574,7 +647,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         continue;
       }
 
-      const el = createStopMarkerElement(stop.sequence_number, kind as 'plain' | 'current', stop.name);
+      const el = createStopMarkerElement(stop.sequence_number, kind, stop.name);
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([stop.longitude, stop.latitude])
         .addTo(map);
@@ -587,20 +660,21 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       marker.setPopup(popup);
       existing.set(stop.id, { marker, element: el });
     }
-  }, [mappedStops, highlightStopId]);
+  }, [mappedStops, highlightStopId, nextStopId]);
 
-  // Highlight-only update: when only highlightStopId changes, avoid re-diffing all stops
-  // by just toggling the class on the two affected markers. The main effect above already
-  // handles highlight, but this extra effect ensures we don't re-create popups.
+  // Highlight-only update: when only highlightStopId/nextStopId change, avoid
+  // re-diffing all stops by just toggling classes on the affected markers. The
+  // main effect above already handles highlight, but this extra effect ensures
+  // we don't re-create popups.
   useEffect(() => {
     for (const [id, entry] of stopMarkersRef.current) {
-      const shouldBeCurrent = id === highlightStopId;
-      const isCurrent = entry.element.classList.contains('current');
-      if (shouldBeCurrent !== isCurrent) {
-        entry.element.className = `stop-marker ${shouldBeCurrent ? 'current' : 'plain'}`;
+      const kind = id === highlightStopId ? 'current' : id === nextStopId ? 'next' : 'plain';
+      const expected = `stop-marker ${kind}`;
+      if (entry.element.className !== expected) {
+        entry.element.className = expected;
       }
     }
-  }, [highlightStopId]);
+  }, [highlightStopId, nextStopId]);
 
   // Bus marker creation / fix handling (motion machine)
   useEffect(() => {
@@ -742,16 +816,28 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         role="region"
         aria-label="Live bus map"
       />
-      {exploring ? (
-        <button
-          type="button"
-          className="map-follow-control"
-          onClick={() => recenterRef.current?.()}
-          aria-label="Follow bus"
-        >
-          Follow bus
-        </button>
-      ) : null}
+      <div className="map-camera-controls">
+        {controls ? (
+          <button
+            type="button"
+            className="map-follow-control"
+            onClick={() => fitRouteRef.current?.()}
+            aria-label={controls.fitRouteLabel}
+          >
+            {controls.fitRouteLabel}
+          </button>
+        ) : null}
+        {exploring ? (
+          <button
+            type="button"
+            className="map-follow-control"
+            onClick={() => recenterRef.current?.()}
+            aria-label={controls?.followBusLabel ?? 'Follow bus'}
+          >
+            {controls?.followBusLabel ?? 'Follow bus'}
+          </button>
+        ) : null}
+      </div>
       <span className="sr-only" aria-live="polite">
         {exploring ? 'Map exploration — follow paused' : 'Following the bus'}
       </span>

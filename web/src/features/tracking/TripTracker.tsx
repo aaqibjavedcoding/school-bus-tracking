@@ -17,6 +17,7 @@ import {
   tripStatusLabel,
 } from '../../lib/format';
 import { MapView } from '../map/MapView';
+import type { MapCameraControls, MapTrailPoint } from '../map/types';
 import { deriveTrackingPresentation } from '../map/tracking-presentation';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
@@ -26,12 +27,22 @@ export const TripTracker: React.FC<{
   tripId: string | null;
   stops?: StopResponse[];
   highlightStopId?: string | null;
+  nextStopId?: string | null;
+  trail?: readonly MapTrailPoint[];
+  mapControls?: MapCameraControls;
+  plannedLineNote?: string;
+  trailNote?: string;
   emptyTitle?: string;
   emptyDescription?: string;
 }> = ({
   tripId,
   stops,
   highlightStopId,
+  nextStopId,
+  trail,
+  mapControls,
+  plannedLineNote,
+  trailNote,
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
@@ -41,6 +52,11 @@ export const TripTracker: React.FC<{
       tripId={tripId}
       stops={stops}
       highlightStopId={highlightStopId}
+      nextStopId={nextStopId}
+      trail={trail}
+      mapControls={mapControls}
+      plannedLineNote={plannedLineNote}
+      trailNote={trailNote}
       emptyTitle={emptyTitle}
       emptyDescription={emptyDescription}
       {...live}
@@ -154,6 +170,13 @@ export const TripTrackerView: React.FC<{
   lastArrival: TripStopArrivedEvent | null;
   stops?: StopResponse[];
   highlightStopId?: string | null;
+  nextStopId?: string | null;
+  trail?: readonly MapTrailPoint[];
+  mapControls?: MapCameraControls;
+  /** Localized caption for the straight planned line (crew console). */
+  plannedLineNote?: string;
+  /** Localized caption for the driven-path line; shown when a trail exists. */
+  trailNote?: string;
   emptyTitle?: string;
   emptyDescription?: string;
 }> = ({
@@ -168,6 +191,11 @@ export const TripTrackerView: React.FC<{
   lastArrival,
   stops,
   highlightStopId,
+  nextStopId,
+  trail,
+  mapControls,
+  plannedLineNote,
+  trailNote,
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
@@ -218,6 +246,9 @@ export const TripTrackerView: React.FC<{
           fix={fix}
           stops={stops}
           highlightStopId={highlightStopId}
+          nextStopId={nextStopId}
+          trail={trail}
+          controls={mapControls}
           connection={connection}
           onMapError={setMapError}
         />
@@ -244,7 +275,12 @@ export const TripTrackerView: React.FC<{
           {fix ? <GpsStatusLine fix={fix} socketOffline={connection === 'offline'} /> : null}
           {stops && stops.length > 1 ? (
             <p className="muted" style={{ marginTop: '0.35rem' }}>
-              Straight lines between stops — not the driven route.
+              {plannedLineNote ?? 'Straight lines between stops — not the driven route.'}
+            </p>
+          ) : null}
+          {trailNote && trail && trail.length > 1 ? (
+            <p className="muted" style={{ marginTop: '0.35rem' }}>
+              {trailNote}
             </p>
           ) : null}
         </div>
