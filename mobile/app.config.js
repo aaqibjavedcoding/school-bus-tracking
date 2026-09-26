@@ -171,6 +171,54 @@ function resolveGoogleServicesFile(warn) {
   return null;
 }
 
+/**
+ * ### Map-app hand-off (PR 3) — manifest visibility, not a dependency
+ *
+ * Turn-by-turn is a **link**, not an SDK: `src/lib/navigation.ts` builds a
+ * `maps/dir/?api=1…&dir_action=navigate` https URL, and on Android the free
+ * `google.navigation:q=` intent. Two platform rules make those links openable
+ * from a release build:
+ *
+ * - **Android 11+ package visibility**: `Linking.canOpenURL` / an implicit
+ *   intent returns nothing unless the target is declared in `<queries>`, so
+ *   the maps package and the navigation scheme are declared here;
+ * - **iOS**: `LSApplicationQueriesSchemes` lists the schemes the app may probe.
+ *   Only `https`/`maps` are listed — the vendor's app-specific `comgoogle…`
+ *   URL scheme is deliberately absent (it is on the banned-pattern list
+ *   enforced by `scripts/map-provider-policy.spec.ts`).
+ *
+ * These entries declare *which app may be opened*; they never contain a URL,
+ * a key or an account. Nothing here costs anything.
+ */
+const MAP_APP_QUERY_SCHEMES_IOS = ['https', 'maps'];
+
+const MAP_APP_QUERIES_ANDROID = [
+  { package: 'com.google.android.apps.maps' },
+  {
+    intent: {
+      action: 'android.intent.action.VIEW',
+      data: { scheme: 'google.navigation' },
+    },
+  },
+  {
+    intent: {
+      action: 'android.intent.action.VIEW',
+      data: { scheme: 'geo' },
+    },
+  },
+];
+
+/** Adds a value to an array once (config is evaluated many times). */
+function withUnique(list, values, isEqual) {
+  const out = Array.isArray(list) ? [...list] : [];
+  for (const value of values) {
+    if (!out.some((existing) => isEqual(existing, value))) {
+      out.push(value);
+    }
+  }
+  return out;
+}
+
 module.exports = ({ config }) => {
   // This file is evaluated in the CLI's own process, so process.argv is the
   // command being run and the warnings can be aimed at the native Android
@@ -181,6 +229,24 @@ module.exports = ({ config }) => {
   const googleServicesFile = resolveGoogleServicesFile(warn);
 
   const android = { ...config.android };
+
+  // Android 11+ package visibility for the map-app hand-off (see above).
+  android.queries = withUnique(
+    android.queries,
+    MAP_APP_QUERIES_ANDROID,
+    (a, b) => JSON.stringify(a) === JSON.stringify(b),
+  );
+
+  // iOS: the schemes the app is allowed to probe before opening a map link.
+  const ios = { ...config.ios };
+  ios.infoPlist = {
+    ...(ios.infoPlist ?? {}),
+    LSApplicationQueriesSchemes: withUnique(
+      ios.infoPlist?.LSApplicationQueriesSchemes,
+      MAP_APP_QUERY_SCHEMES_IOS,
+      (a, b) => a === b,
+    ),
+  };
 
   if (googleServicesFile) {
     android.googleServicesFile = googleServicesFile;
@@ -197,6 +263,7 @@ module.exports = ({ config }) => {
   return {
     ...config,
     android,
+    ios,
     plugins,
   };
 };

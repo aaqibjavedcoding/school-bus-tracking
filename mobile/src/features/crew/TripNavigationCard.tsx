@@ -1,10 +1,16 @@
-import React, { useMemo } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import type { StopResponse, TripEtaResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { Button, Card } from '../../components';
-import { buildNavigationUrl, formatCoordinate } from '../../lib/navigation';
+import {
+  buildDirectionsUrlChunks,
+  buildTurnByTurnUrl,
+  formatCoordinate,
+  type NavigationTarget,
+} from '../../lib/navigation';
 import {
   formatDistanceMeters,
   formatEtaMinutes,
@@ -78,9 +84,81 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
     () => deriveTripProgress(stops, eta ?? null, nextStopId ?? null, previousFrontier),
     [stops, eta, nextStopId, previousFrontier],
   );
+  const router = useRouter();
   const next = derived.nextStop;
   const target = next ? navigationTargetOf(next) : null;
-  const url = target ? buildNavigationUrl(target) : null;
+
+  /**
+   * PR 3 — the buttons hand off to real turn-by-turn.
+   *
+   * `single` starts guidance to the next stop only (on Android via the free
+   * navigation intent, which skips the preview screen); `routeChunks` is the
+   * rest of the run as waypoints, split into as many links as the URL API
+   * allows. Both are plain links: no SDK, no key, no metered request.
+   */
+  const single = target ? buildTurnByTurnUrl(target, Platform.OS) : null;
+
+  const routeChunks = useMemo(() => {
+    if (!target || !next) return [];
+    const later: NavigationTarget[] = [...stops]
+      .sort((a, b) => a.sequence_number - b.sequence_number)
+      .filter((stop) => stop.sequence_number > next.sequence_number)
+      .map((stop) => navigationTargetOf(stop))
+      .filter((candidate): candidate is NavigationTarget => candidate !== null);
+    return buildDirectionsUrlChunks({ destination: target, waypoints: later, travelmode: 'driving' });
+  }, [stops, next, target]);
+
+  /**
+   * Coming back from the map app with kids still unmarked.
+   *
+   * The crew leaves the app to drive and returns at the kerb; the one thing
+   * that is easy to forget then is attendance. So the card remembers that it
+   * launched a map link, and when the app becomes active again it shows a
+   * small prompt (never a blocking modal) that jumps straight to the manifest
+   * for that stop. It only appears when there is something to do — pending
+   * kids at the stop the driver just drove to.
+   */
+  const launchedRef = useRef(false);
+  const [returnedFromMaps, setReturnedFromMaps] = useState(false);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && launchedRef.current) {
+        launchedRef.current = false;
+        setReturnedFromMaps(true);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // A new stop clears the prompt — it always refers to the current stop.
+  useEffect(() => {
+    setReturnedFromMaps(false);
+  }, [next?.id]);
+
+  const openLink = useCallback(
+    async (link: string, fallback?: string | null) => {
+      launchedRef.current = true;
+      try {
+        await Linking.openURL(link);
+      } catch {
+        if (fallback && fallback !== link) {
+          try {
+            await Linking.openURL(fallback);
+            return;
+          } catch {
+            /* fall through to the message below */
+          }
+        }
+        launchedRef.current = false;
+        Alert.alert(t('navigate.card.title'), t('navigate.card.openFailed'));
+      }
+    },
+    [],
+  );
+
+  const showAttendancePrompt =
+    returnedFromMaps && Boolean(next) && (kidsSummary?.pendingCount ?? 0) > 0;
 
   const distanceEta = next
     ? [
@@ -124,15 +202,53 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
             <NextStopKidRows summary={kidsSummary} />
           ) : null}
           <Text style={styles.coords}>{formatCoordinate(target.latitude, target.longitude)}</Text>
-          {url ? (
+          {single ? (
             <Button
-              label={t('navigate.card.button')}
+              label={t('navigate.card.buttonNext')}
               icon="navigate"
-              variant="secondary"
+              variant="primary"
               size="field"
-              onPress={() => void Linking.openURL(url)}
+              onPress={() => void openLink(single, routeChunks[0] ?? null)}
               style={styles.action}
             />
+          ) : null}
+          {routeChunks.length > 0 ? (
+            <Button
+              label={t('navigate.card.buttonRoute')}
+              icon="map"
+              variant="secondary"
+              size="field"
+              onPress={() => void openLink(routeChunks[0])}
+              style={styles.action}
+            />
+          ) : null}
+          {routeChunks.length > 1 ? (
+            <Text style={styles.muted}>
+              {t('navigate.card.routeParts', { index: 1, total: routeChunks.length })}
+            </Text>
+          ) : null}
+          {showAttendancePrompt && next ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('navigate.attendance.action')}
+              onPress={() => {
+                setReturnedFromMaps(false);
+                router.push({ pathname: '/manifest', params: { stopId: next.id } });
+              }}
+              style={styles.prompt}
+            >
+              <Ionicons name="people" size={18} color={colors.primary[700]} />
+              <View style={styles.promptText}>
+                <Text style={styles.promptTitle}>{t('navigate.attendance.title')}</Text>
+                <Text style={styles.promptBody}>
+                  {t(
+                    pluralKey('navigate.attendance.body', kidsSummary?.pendingCount ?? 0),
+                    { count: kidsSummary?.pendingCount ?? 0, stop: next.name },
+                  )}
+                </Text>
+              </View>
+              <Text style={styles.promptAction}>{t('navigate.attendance.action')}</Text>
+            </Pressable>
           ) : null}
         </View>
       ) : (
@@ -188,5 +304,33 @@ const styles = StyleSheet.create({
   action: {
     marginTop: spacing.md,
     borderRadius: borderRadius.md,
+  },
+  prompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+  },
+  promptText: {
+    flex: 1,
+  },
+  promptTitle: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.neutral[900],
+  },
+  promptBody: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[700],
+  },
+  promptAction: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.primary[700],
   },
 });

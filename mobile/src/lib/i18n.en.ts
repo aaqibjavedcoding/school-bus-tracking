@@ -129,6 +129,8 @@ export const en = {
   'manifest.filter.waiting': 'Waiting',
   'manifest.filter.boarded': 'On board',
   'manifest.filter.dropped': 'Dropped',
+  'manifest.filter.stopOnly': 'Showing {stop} only',
+  'manifest.filter.showAll': 'Show all kids',
   'manifest.empty.searchTitle': 'No students match',
   'manifest.empty.searchBody': 'No students match the current search or filter.',
   'manifest.clearFilters': 'Clear filters',
@@ -693,6 +695,15 @@ export const en = {
   'navigate.card.noStops': 'No stops on this route yet.',
   'navigate.card.noGeofence':
     'This route has no geofenced stops yet — ask the school to add coordinates.',
+  'navigate.card.buttonNext': 'Navigate to next stop',
+  'navigate.card.buttonRoute': 'Open full route',
+  'navigate.card.routeParts': 'Long route: opening part {index} of {total}.',
+  'navigate.card.openFailed': 'Could not open the map app on this phone.',
+  'navigate.attendance.title': 'Mark attendance',
+  'navigate.attendance.body.one': '{count} kid at {stop} is still unmarked.',
+  'navigate.attendance.body.other': '{count} kids at {stop} are still unmarked.',
+  'navigate.attendance.action': 'Open manifest',
+  'navigate.attendance.dismiss': 'Not now',
 
   // ── Relative time ──────────────────────────────────────────────────────
   'time.justNow': 'just now',
