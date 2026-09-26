@@ -104,6 +104,33 @@ export default function CrewPage() {
   // table and the map all read the same socket-pushed ETA snapshot.
   const live = useLiveTripTracking(tripId);
 
+  // Cross-device attendance: when the *other* crew device (or the school
+  // office) records a board/drop, the server broadcasts it into this trip's
+  // room. Refetch just the manifest — the next-stop card, the stops table
+  // and the passenger list all render from it — instead of waiting for the
+  // crew member to pull-to-refresh. A failed refetch keeps the current data:
+  // the next event (or the next pull) heals it.
+  useEffect(() => {
+    const frame = live.lastStudentAttendance;
+    if (!frame) return;
+    let cancelled = false;
+    void apiClient
+      .listTripStudents(frame.trip_id)
+      .then((envelope) => {
+        if (cancelled) return;
+        const manifest = unwrapEnvelope(envelope);
+        setData((current) =>
+          current && current.trip !== null && current.trip.id === frame.trip_id
+            ? { ...current, manifest }
+            : current,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [live.lastStudentAttendance, setData]);
+
   // Driven path: seeded from the server's location history, then extended by
   // every live fix — a separate line from the straight planned polyline.
   const [trail, setTrail] = useState<readonly TrailPoint[]>([]);

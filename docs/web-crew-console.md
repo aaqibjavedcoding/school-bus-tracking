@@ -101,6 +101,28 @@ The straight blue line between stops is captioned honestly on the crew page
 (localized): it is the planned stop order drawn as straight lines, **not the
 real road** — same disclaimer the tracking pages already carry.
 
+## Cross-device attendance live-sync
+
+A board/drop recorded on **one** device now reaches every other observer of
+that trip without a manual refresh. The attendance service
+(`TripAttendanceService`) broadcasts the committed change over the **same**
+live-tracking room the stop arrivals already use (`trip:<tripId>` — no new
+namespace, no new room, and the same authorization-gated join, so no new
+security surface): `trip:student:attendance` with a deliberately minimal
+payload (`student_id`, `stop_id`, the new `status` and the server time — no
+student name, no guardian detail).
+
+On `/crew` the shared `useLiveTripTracking` hook exposes the newest frame as
+`lastStudentAttendance`; the page then refetches **just the manifest**
+(`GET /trips/:tripId/students`) and patches it into the loaded data, so the
+next-stop card, the stops table and the passenger manifest all move the
+instant the other device records a boarding. The subscription wiring itself
+(the six server → room events, the same-trip guard, the leak-proof detach)
+is the pure, spec-pinned `web/src/features/tracking/trip-room-events.ts`
+(mobile keeps a byte-equivalent port, consumed by its own hook and screens).
+A failed refetch keeps the current data — the next frame or pull-to-refresh
+heals it.
+
 ## Languages (en / hi / mr)
 
 `web/src/features/crew/crew-i18n.ts`: every string this feature adds ships in
@@ -126,3 +148,5 @@ introduced.
 | `web/src/features/crew/navigation.spec.ts`           | Contract tests, registered in `test:web`.                     |
 | `web/src/features/map/types.ts` + `MapViewInner.tsx` | Optional `nextStopId` / `trail` / `controls` props.           |
 | `web/src/features/tracking/TripTracker.tsx`          | Pass-through of the new optional props + localized captions.  |
+| `web/src/features/tracking/trip-room-events.ts`      | Pure trip-room subscription incl. `trip:student:attendance`.  |
+| `web/src/features/tracking/trip-room-events.spec.ts` | Contract tests, registered in `test:web`.                     |

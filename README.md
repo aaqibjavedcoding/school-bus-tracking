@@ -167,6 +167,10 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - **Manifest endpoints** give per-trip rosters ordered by stop sequence, with a `summary` of
   `total` / `pending` / `boarded` / `dropped` counts over the whole visible manifest.
 - Each write is scoped to the caller's own trips for crew, and to the tenant for admins.
+- Every committed board/drop is broadcast into the trip's live room as `trip:student:attendance`
+  (minimal payload: ids, stop, new status, server time — see §9), so the **other** crew device and
+  every authorized observer see the manifest move instantly; clients refetch the manifest on that
+  frame instead of waiting for a pull-to-refresh.
 - Parents get a notification per board/drop (see §3.9).
 
 ### 3.6a Crew stop marking (Arrived / Skip)
@@ -739,12 +743,12 @@ real boundary. Client-side nav guards are UX only.
 
 ## 9. Realtime contract
 
-| Namespace        | Rooms (built server-side only) | Events                                                                                                                                                                                     |
-| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/live-tracking` | `trip:<tripId>`                | `tracking:join` / `tracking:leave` (+ ack `denial_reason`), `trip:location:update` (crew → room), `trip:tracking:started`, `trip:tracking:stopped`, `trip:stop:arrived`, `trip:eta:update` |
-| `/notifications` | `notification:user:<userId>`   | `notification:new`                                                                                                                                                                         |
-| `/emergencies`   | school room for the tenant     | `emergency:new`, `emergency:updated`                                                                                                                                                       |
-| all              | —                              | `session:revoked` (revalidation sweeper)                                                                                                                                                   |
+| Namespace        | Rooms (built server-side only) | Events                                                                                                                                                                                                                |
+| ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/live-tracking` | `trip:<tripId>`                | `tracking:join` / `tracking:leave` (+ ack `denial_reason`), `trip:location:update` (crew → room), `trip:tracking:started`, `trip:tracking:stopped`, `trip:stop:arrived`, `trip:eta:update`, `trip:student:attendance` |
+| `/notifications` | `notification:user:<userId>`   | `notification:new`                                                                                                                                                                                                    |
+| `/emergencies`   | school room for the tenant     | `emergency:new`, `emergency:updated`                                                                                                                                                                                  |
+| all              | —                              | `session:revoked` (revalidation sweeper)                                                                                                                                                                              |
 
 Handshake runs the same JWT verification as HTTP (`web/src/services/socket-auth.ts`,
 `mobile/src/services/socket-auth.ts`), plus tenant/user activation checks. Namespace + event + room

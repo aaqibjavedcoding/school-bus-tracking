@@ -1,12 +1,19 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ConflictException, InternalServerErrorException, NotFoundException } from '../../framework';
+import {
+  ConflictException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '../../framework';
 import { Op, UniqueConstraintError } from 'sequelize';
 import {
+  LIVE_TRACKING_EVENTS,
   RouteAssignmentRole,
   TripAttendanceStatus,
+  TripStudentAttendanceEvent,
   TripStatus,
   UserRole,
+  liveTrackingRoomName,
 } from '@school-bus-tracking/shared-types';
 import {
   RouteAssignment,
@@ -413,10 +420,12 @@ function makeAttendanceRow(overrides: Partial<StubAttendance> = {}): StubAttenda
 function makeRepositories(
   attendanceRows: StubAttendance[] = [],
   capture: Capture = emptyCapture(),
-  options: { withSequelize?: boolean; createError?: Error } = {},
+  options: { withSequelize?: boolean; createError?: Error; attachBroadcaster?: boolean } = {},
 ) {
   const rows = [...attendanceRows];
   const withSequelize = options.withSequelize !== false;
+  const attachBroadcaster = options.attachBroadcaster !== false;
+  const broadcasts: Array<{ room: string; event: string; payload: unknown }> = [];
 
   const attendanceRepo = {
     sequelize: withSequelize
@@ -521,20 +530,24 @@ function makeRepositories(
 
   const notifications = makeNotificationsStub();
 
-  return {
-    rows,
-    capture,
-    notifications,
-    service: new TripAttendanceService(
-      attendanceRepo,
-      tripRepo,
-      stopRepo,
-      studentRepo,
-      guardianRepo,
-      assignmentRepo,
-      notifications.stub as unknown as NotificationsService,
-    ),
-  };
+  const service = new TripAttendanceService(
+    attendanceRepo,
+    tripRepo,
+    stopRepo,
+    studentRepo,
+    guardianRepo,
+    assignmentRepo,
+    notifications.stub as unknown as NotificationsService,
+  );
+  if (attachBroadcaster) {
+    // The same capture shape the stop-arrivals crew-marking spec uses: room,
+    // event name and payload of every broadcast the gateway would emit.
+    service.attachBroadcaster((room, event, payload) => {
+      broadcasts.push({ room, event, payload });
+    });
+  }
+
+  return { rows, capture, notifications, broadcasts, service };
 }
 
 /**
@@ -1187,5 +1200,93 @@ describe('TripAttendanceService parent notifications (Task 21)', () => {
     );
 
     assert.deepEqual(notifications.calls, []);
+  });
+});
+
+describe('TripAttendanceService room broadcasts (cross-device attendance sync)', () => {
+  /**
+   * The board/drop counterpart of the stop-arrival broadcast: a crew write
+   * on one phone must reach the other crew device (and any trip observer)
+   * through the already authorization-gated trip room, without a manual
+   * refresh. Pinned here because it fails silently: attendance still
+   * records, the other device just never moves.
+   */
+
+  it('broadcasts a committed boarding into the trip room with the minimal payload', async () => {
+    const { service, broadcasts } = makeRepositories();
+
+    const response = await service.board(DRIVER, TRIP_A, STUDENT_EARLY);
+
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0]!.room, liveTrackingRoomName(TRIP_A));
+    assert.equal(broadcasts[0]!.event, LIVE_TRACKING_EVENTS.studentAttendance);
+    const payload = broadcasts[0]!.payload as TripStudentAttendanceEvent;
+    assert.equal(payload.trip_id, TRIP_A);
+    assert.equal(payload.school_id, SCHOOL_A);
+    assert.equal(payload.student_id, STUDENT_EARLY);
+    assert.equal(payload.stop_id, STOP_1);
+    assert.equal(payload.status, TripAttendanceStatus.BOARDED);
+    assert.equal(payload.occurred_at, response.boarded_at);
+    // Deliberately minimal: nothing about the student or the guardians
+    // beyond the identifiers the manifest invalidation needs.
+    assert.deepEqual(Object.keys(payload).sort(), [
+      'occurred_at',
+      'school_id',
+      'status',
+      'stop_id',
+      'student_id',
+      'trip_id',
+    ]);
+  });
+
+  it('broadcasts a committed drop-off with the DROPPED status and drop time', async () => {
+    const { service, broadcasts } = makeRepositories([makeAttendanceRow()]);
+
+    const response = await service.drop(CONDUCTOR, TRIP_A, STUDENT_EARLY);
+
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0]!.room, liveTrackingRoomName(TRIP_A));
+    assert.equal(broadcasts[0]!.event, LIVE_TRACKING_EVENTS.studentAttendance);
+    const payload = broadcasts[0]!.payload as TripStudentAttendanceEvent;
+    assert.equal(payload.student_id, STUDENT_EARLY);
+    assert.equal(payload.status, TripAttendanceStatus.DROPPED);
+    assert.equal(payload.occurred_at, response.dropped_at);
+  });
+
+  it('broadcasts nothing when the boarding is rejected', async () => {
+    const { service, broadcasts } = makeRepositories([makeAttendanceRow()]);
+
+    await rejectsWith(
+      service.board(DRIVER, TRIP_A, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_ALREADY_BOARDED_MESSAGE,
+    );
+
+    assert.deepEqual(broadcasts, []);
+  });
+
+  it('broadcasts nothing when the drop is rejected or the write fails', async () => {
+    const rejected = makeRepositories();
+    await rejectsWith(
+      rejected.service.drop(DRIVER, TRIP_A, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_NOT_BOARDED_MESSAGE,
+    );
+    assert.deepEqual(rejected.broadcasts, []);
+
+    const failing = makeRepositories([], emptyCapture(), {
+      createError: new Error('database unavailable'),
+    });
+    await assert.rejects(failing.service.board(DRIVER, TRIP_A, STUDENT_EARLY), Error);
+    assert.deepEqual(failing.broadcasts, []);
+  });
+
+  it('still records attendance when no broadcaster is attached (write path unaffected)', async () => {
+    const { service } = makeRepositories([], emptyCapture(), { attachBroadcaster: false });
+
+    const response = await service.board(DRIVER, TRIP_A, STUDENT_EARLY);
+
+    assert.equal(response.status, TripAttendanceStatus.BOARDED);
+    assert.equal(response.student_id, STUDENT_EARLY);
   });
 });

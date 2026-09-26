@@ -3,20 +3,19 @@ import {
   LIVE_TRACKING_EVENTS,
   type TrackingJoinAck,
   type TripEtaResponse,
-  type TripEtaUpdateEvent,
   type TripLocationLatestResponse,
   type TripLocationUpdateEvent,
   type TripStatus,
   type TripStopArrivedEvent,
-  type TripTrackingStartedEvent,
+  type TripStudentAttendanceEvent,
   type TripTrackingState,
-  type TripTrackingStoppedEvent,
 } from '@school-bus-tracking/shared-types';
 import { ApiClientError } from '@school-bus-tracking/api-client';
 import { apiClient } from '../../services/api';
 import { getLiveTrackingSocket } from '../../services/live-tracking-socket';
 import { connectAuthenticatedSocket } from '../../services/socket-auth';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { attachTripRoomEvents } from './trip-room-events';
 
 /**
  * Live trip observer (mobile port of the web hook).
@@ -62,6 +61,11 @@ export function useLiveTripTracking(tripId: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [eta, setEta] = useState<TripEtaResponse | null>(null);
   const [lastArrival, setLastArrival] = useState<TripStopArrivedEvent | null>(null);
+  // Cross-device attendance: the latest board/drop broadcast of this trip
+  // (made on the other crew device). The manifest/kids screens refresh when
+  // it changes instead of waiting for a pull-to-refresh.
+  const [lastStudentAttendance, setLastStudentAttendance] =
+    useState<TripStudentAttendanceEvent | null>(null);
   const joinedRef = useRef<string | null>(null);
   const network = useNetworkStatus();
   const networkRef = useRef(network);
@@ -76,6 +80,7 @@ export function useLiveTripTracking(tripId: string | null) {
       setError(null);
       setEta(null);
       setLastArrival(null);
+      setLastStudentAttendance(null);
       setConnection('offline');
       return undefined;
     }
@@ -150,45 +155,44 @@ export function useLiveTripTracking(tripId: string | null) {
       setConnection(networkRef.current === 'offline' ? 'offline' : 'reconnecting');
     };
     const onReconnectAttempt = () => setConnection('reconnecting');
-    const onLocation = (payload: TripLocationUpdateEvent) => {
-      if (payload.trip_id !== tripId) return;
-      setFix(toFix(payload));
-      setTrackingState(payload.tracking_state);
-      setTripStatus(payload.trip_status);
-      setNoLocationYet(false);
-    };
-    const onStarted = (payload: TripTrackingStartedEvent) => {
-      if (payload.trip_id !== tripId) return;
-      setTrackingState(payload.tracking_state);
-      setTripStatus(payload.trip_status);
-    };
-    const onStopped = (payload: TripTrackingStoppedEvent) => {
-      if (payload.trip_id !== tripId) return;
-      setTrackingState(payload.tracking_state);
-      setTripStatus(payload.trip_status);
-    };
-    const onEtaUpdate = (payload: TripEtaUpdateEvent) => {
-      if (payload.trip_id !== tripId) return;
-      setEta(payload.eta);
-      setTripStatus(payload.eta.trip_status);
-      setTrackingState(payload.eta.tracking_state);
-      setNoLocationYet(payload.eta.latest === null);
-    };
-    const onStopArrived = (payload: TripStopArrivedEvent) => {
-      if (payload.trip_id !== tripId) return;
-      setLastArrival(payload);
-      setTripStatus(payload.trip_status);
-      setTrackingState(payload.tracking_state);
-    };
+
+    // The six server → room events live in `trip-room-events.ts` (the pure,
+    // spec-pinned seam); the trip guard is applied there, so these handlers
+    // only ever see frames of this trip.
+    const detachRoomEvents = attachTripRoomEvents(socket, tripId, {
+      onLocation: (payload) => {
+        setFix(toFix(payload));
+        setTrackingState(payload.tracking_state);
+        setTripStatus(payload.trip_status);
+        setNoLocationYet(false);
+      },
+      onTrackingStarted: (payload) => {
+        setTrackingState(payload.tracking_state);
+        setTripStatus(payload.trip_status);
+      },
+      onTrackingStopped: (payload) => {
+        setTrackingState(payload.tracking_state);
+        setTripStatus(payload.trip_status);
+      },
+      onEtaUpdate: (payload) => {
+        setEta(payload.eta);
+        setTripStatus(payload.eta.trip_status);
+        setTrackingState(payload.eta.tracking_state);
+        setNoLocationYet(payload.eta.latest === null);
+      },
+      onStopArrived: (payload) => {
+        setLastArrival(payload);
+        setTripStatus(payload.trip_status);
+        setTrackingState(payload.tracking_state);
+      },
+      onStudentAttendance: (payload) => {
+        setLastStudentAttendance(payload);
+      },
+    });
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.io.on('reconnect_attempt', onReconnectAttempt);
-    socket.on(LIVE_TRACKING_EVENTS.locationUpdate, onLocation);
-    socket.on(LIVE_TRACKING_EVENTS.trackingStarted, onStarted);
-    socket.on(LIVE_TRACKING_EVENTS.trackingStopped, onStopped);
-    socket.on(LIVE_TRACKING_EVENTS.etaUpdate, onEtaUpdate);
-    socket.on(LIVE_TRACKING_EVENTS.stopArrived, onStopArrived);
 
     void loadRestSnapshot();
 
@@ -205,11 +209,7 @@ export function useLiveTripTracking(tripId: string | null) {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.io.off('reconnect_attempt', onReconnectAttempt);
-      socket.off(LIVE_TRACKING_EVENTS.locationUpdate, onLocation);
-      socket.off(LIVE_TRACKING_EVENTS.trackingStarted, onStarted);
-      socket.off(LIVE_TRACKING_EVENTS.trackingStopped, onStopped);
-      socket.off(LIVE_TRACKING_EVENTS.etaUpdate, onEtaUpdate);
-      socket.off(LIVE_TRACKING_EVENTS.stopArrived, onStopArrived);
+      detachRoomEvents();
       if (joinedRef.current === tripId) {
         socket.emit(LIVE_TRACKING_EVENTS.leave, { trip_id: tripId });
         joinedRef.current = null;
@@ -225,5 +225,15 @@ export function useLiveTripTracking(tripId: string | null) {
     }
   }, [network]);
 
-  return { connection, fix, trackingState, tripStatus, noLocationYet, error, eta, lastArrival };
+  return {
+    connection,
+    fix,
+    trackingState,
+    tripStatus,
+    noLocationYet,
+    error,
+    eta,
+    lastArrival,
+    lastStudentAttendance,
+  };
 }

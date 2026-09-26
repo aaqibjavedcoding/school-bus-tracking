@@ -64,6 +64,15 @@ export default function CrewStopsScreen() {
     return unwrapEnvelope(await apiClient.listTripStudents(trip.id)).items;
   }, [trip?.id]);
 
+  // Cross-device attendance: a board/drop recorded on the other crew device
+  // arrives over the shared trip room (`trip:student:attendance`); the
+  // per-stop badges refetch instead of waiting for a manual refresh.
+  const lastStudentAttendance = live.lastStudentAttendance;
+  React.useEffect(() => {
+    if (!lastStudentAttendance) return;
+    void manifestLoad.reload();
+  }, [lastStudentAttendance, manifestLoad.reload]);
+
   if (todayLoading && !today) {
     return <LoadingView label={t('stops.loading')} />;
   }

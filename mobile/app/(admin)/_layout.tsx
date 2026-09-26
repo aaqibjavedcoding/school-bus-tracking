@@ -3,9 +3,10 @@ import { Tabs } from 'expo-router';
 import { flushPendingRoute } from '../../src/features/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@school-bus-tracking/design-tokens';
-import { RoleGate } from '../../src/features/auth';
+import { RoleGate, useAuth } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
 import { useBottomBarMetrics } from '../../src/theme/layout';
+import { useSosAlertLoop } from '../../src/features/admin/emergencies/useSosAlertLoop';
 
 /**
  * School-admin mobile experience — full feature parity with the web console.
@@ -149,9 +150,27 @@ function AdminTabs() {
   );
 }
 
+/**
+ * The phone-side end of the crew SOS (SCHOOL_ADMIN only).
+ *
+ * Lives above the tab navigator so the alert loop runs on *every* admin
+ * screen — a school admin reading reports when a driver presses SOS must be
+ * told there, not only on the Emergencies screen. The loop itself (haptic
+ * bursts + a spoken line, foreground-gated, mutable, self-capping) is the
+ * pure `sos-alert.ts`; this is just the mount point, and unmounting it on
+ * sign-out stops any siren still running. The matching visible banner is on
+ * `emergencies.tsx`, where the incidents are answered.
+ */
+function SosAlertLoopController() {
+  const { user } = useAuth();
+  useSosAlertLoop(user?.role ?? null, { stopOnUnmount: true });
+  return null;
+}
+
 export default function AdminLayout() {
   return (
     <RoleGate group="admin">
+      <SosAlertLoopController />
       <AdminTabs />
     </RoleGate>
   );

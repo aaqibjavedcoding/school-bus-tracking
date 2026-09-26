@@ -151,6 +151,19 @@ function makeSocket(auth: unknown = { access_token: 'x' }): FakeSocket {
   return socket;
 }
 
+/** Records every broadcaster handed to a room-emitting service. */
+function makeBroadcasterAttachment() {
+  const attached: Array<(room: string, event: string, payload: unknown) => void> = [];
+  return {
+    attached,
+    stub: {
+      attachBroadcaster: (broadcaster: (room: string, event: string, payload: unknown) => void) => {
+        attached.push(broadcaster);
+      },
+    },
+  };
+}
+
 function makeGateway() {
   const { service, store, capture } = makeService();
   // Tests cover school-scoped (active) tenants; the access stub always
@@ -159,9 +172,21 @@ function makeGateway() {
   const schoolAccess = {
     isSchoolAccessible: async (): Promise<boolean> => true,
   };
+  // The two room-broadcast collaborators the gateway attaches in afterInit:
+  // the geofence/ETA side (real noop + a recording attach method) and the
+  // trip-attendance side (only the attachment surface matters for sockets).
+  const noopArrivals = makeNoopArrivalsStub() as unknown as {
+    attachBroadcaster: (
+      broadcaster: (room: string, event: string, payload: unknown) => void,
+    ) => void;
+  };
+  const arrivalsAttachment = makeBroadcasterAttachment();
+  noopArrivals.attachBroadcaster = arrivalsAttachment.stub.attachBroadcaster;
+  const attendanceAttachment = makeBroadcasterAttachment();
   const gateway = new LiveTrackingGateway(
     service,
-    makeNoopArrivalsStub(),
+    noopArrivals as never,
+    attendanceAttachment.stub as never,
     jwtService,
     schoolAccess as never,
   );
@@ -178,7 +203,15 @@ function makeGateway() {
     handleLocationUpdate: (socket: FakeSocket, payload: unknown) =>
       gateway.handleLocationUpdate(socket as unknown as Socket, payload),
   };
-  return { gateway: facade, service, store, capture };
+  return {
+    gateway: facade,
+    raw: gateway,
+    service,
+    store,
+    capture,
+    arrivalsAttachment,
+    attendanceAttachment,
+  };
 }
 
 type GatewayFacade = ReturnType<typeof makeGateway>['gateway'];
@@ -505,5 +538,43 @@ describe('LiveTrackingGateway — disconnect and reconnect', () => {
 
     assert.equal(bad.rooms.has(room), false);
     assert.equal(capture.emitted.length, 0);
+  });
+});
+
+describe('LiveTrackingGateway — room broadcaster wiring (afterInit)', () => {
+  it('attaches one shared room broadcaster to tracking, arrivals and trip attendance', () => {
+    const { raw, arrivalsAttachment, attendanceAttachment } = makeGateway();
+    const emitted: Array<{ room: string; event: string; payload: unknown }> = [];
+    raw.server = {
+      to: (room: string) => ({
+        emit: (event: string, payload: unknown) => {
+          emitted.push({ room, event, payload });
+        },
+      }),
+    } as never;
+
+    raw.afterInit();
+
+    // All three broadcast sources speak through the same attached function —
+    // the attendance service included, so a board/drop REST write can reach
+    // the other crew device without any socket of its own.
+    assert.equal(arrivalsAttachment.attached.length, 1);
+    assert.equal(attendanceAttachment.attached.length, 1);
+    assert.equal(
+      attendanceAttachment.attached[0],
+      arrivalsAttachment.attached[0],
+      'every service shares the one gateway broadcaster',
+    );
+
+    attendanceAttachment.attached[0]?.('trip:any', LIVE_TRACKING_EVENTS.studentAttendance, {
+      student_id: 's-1',
+    });
+    assert.deepEqual(emitted, [
+      {
+        room: 'trip:any',
+        event: LIVE_TRACKING_EVENTS.studentAttendance,
+        payload: { student_id: 's-1' },
+      },
+    ]);
   });
 });

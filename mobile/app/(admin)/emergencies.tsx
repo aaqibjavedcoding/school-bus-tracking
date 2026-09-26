@@ -13,11 +13,14 @@ import { apiClient } from '../../src/services/api';
 import { getEmergenciesSocket } from '../../src/services/emergencies-socket';
 import { connectAuthenticatedSocket } from '../../src/services/socket-auth';
 import { getApiErrorMessage, unwrapEnvelope } from '../../src/lib/errors';
+import { useAuth } from '../../src/features/auth';
 import {
+  activeEmergenciesLabel,
   emergencyActionLabel,
   emergencyStatusTone,
   nextEmergencyActions,
 } from '../../src/features/admin/emergencies/helpers';
+import { useSosAlertLoop } from '../../src/features/admin/emergencies/useSosAlertLoop';
 import { formatDateTime, formatRelative } from '../../src/lib/format';
 import { buildNavigationUrl } from '../../src/lib/navigation';
 import { useLoad } from '../../src/hooks/useLoad';
@@ -58,6 +61,14 @@ const FILTER_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
 
 export default function AdminEmergenciesScreen() {
   const toast = useToast();
+  const { user } = useAuth();
+  /**
+   * The phone-side SOS siren (see `sos-alert.ts`): drives the shared alert
+   * loop for this screen's banner and its mute control. The admin layout
+   * mounts the same hook for the loop's ambient half (every other screen),
+   * which is safe — the loop is a singleton and `raise` is idempotent.
+   */
+  const sosAlert = useSosAlertLoop(user?.role ?? null);
   const [filter, setFilter] = useState<StatusFilter>('active');
   const [note, setNote] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -80,7 +91,10 @@ export default function AdminEmergenciesScreen() {
     return data.items;
   }, [filter]);
 
-  const { data, loading, refreshing, error, reload, refresh } = useLoad<EmergencyEventResponse[]>(load, [load]);
+  const { data, loading, refreshing, error, reload, refresh } = useLoad<EmergencyEventResponse[]>(
+    load,
+    [load],
+  );
 
   // Live feed: the gateway puts this socket in the school's room from the
   // verified JWT, so a new SOS or a status change arrives without polling.
@@ -118,7 +132,6 @@ export default function AdminEmergenciesScreen() {
   };
 
   const events = data ?? [];
-  const openCount = events.filter((event) => event.status === EmergencyStatus.OPEN).length;
 
   return (
     <>
@@ -194,15 +207,39 @@ export default function AdminEmergenciesScreen() {
               onChange={setFilter}
               options={FILTER_OPTIONS}
             />
-            {openCount > 0 ? (
-              <Card title="Unacknowledged now" description="Crew are waiting for a response.">
-                <View style={styles.alertRow}>
-                  <Ionicons name="alert-circle" size={20} color={colors.status.danger} />
-                  <Text style={styles.alertText}>
-                    {openCount} alert{openCount === 1 ? '' : 's'} not yet acknowledged.
+            {/**
+             * The SOS alert banner — the visible half of the phone-side
+             * siren (`sos-alert.ts`). It stays up for as long as any SOS is
+             * unacknowledged, on every filter, *including while muted*:
+             * silencing the alarm must never hide the incident. The mute
+             * only cuts the haptic/spoken loop; acknowledging an alert below
+             * stops its loop for everyone.
+             */}
+            {sosAlert.activeCount > 0 ? (
+              <View style={styles.sosBanner}>
+                <Ionicons
+                  name={sosAlert.muted ? 'notifications-off' : 'warning'}
+                  size={22}
+                  color={colors.status.danger}
+                />
+                <View style={styles.sosBannerBody}>
+                  <Text style={styles.sosBannerTitle}>
+                    {activeEmergenciesLabel(sosAlert.activeCount)} — tap an alert to respond
+                  </Text>
+                  <Text style={styles.sosBannerHint}>
+                    {sosAlert.muted
+                      ? 'Alarm muted on this phone. The list keeps updating.'
+                      : 'Alarm sounding on this phone until acknowledged.'}
                   </Text>
                 </View>
-              </Card>
+                <Button
+                  label={sosAlert.muted ? 'Unmute' : 'Mute alarm'}
+                  variant="secondary"
+                  small
+                  onPress={sosAlert.toggleMuted}
+                  style={styles.sosMute}
+                />
+              </View>
             ) : null}
           </>
         }
@@ -304,16 +341,32 @@ const OpenInMaps: React.FC<{ latitude: number; longitude: number; label: string 
 };
 
 const styles = StyleSheet.create({
-  alertRow: {
+  sosBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginTop: spacing.sm,
   },
-  alertText: {
+  sosBannerBody: {
     flex: 1,
-    fontSize: typography.fontSizes.sm,
+  },
+  sosBannerTitle: {
+    fontSize: typography.fontSizes.base,
     fontWeight: '700',
-    color: colors.neutral[900],
+    color: colors.status.danger,
+  },
+  sosBannerHint: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[700],
+    marginTop: 2,
+  },
+  sosMute: {
+    alignSelf: 'center',
   },
   metaRow: {
     flexDirection: 'row',

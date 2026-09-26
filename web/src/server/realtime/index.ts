@@ -7,13 +7,14 @@
  * every `@SubscribeMessage` handler. All of that is done explicitly here.
  *
  * CRITICAL — shared singletons. The gateways attach broadcasters to
- * `LiveTrackingService`, `NotificationsService` and `EmergenciesService`. If
- * this wiring ran against a different instance of those services than the
- * HTTP route handlers use, every realtime broadcast triggered by a REST call
- * would silently go nowhere. That is why the gateways are built from the same
- * process-wide {@link getContainer} the route handlers use, and why this
- * function is invoked from Next's `instrumentation.ts` (same module graph as
- * the route handlers) rather than from the custom server bundle.
+ * `LiveTrackingService`, `StopArrivalsService`, `TripAttendanceService`,
+ * `NotificationsService` and `EmergenciesService`. If this wiring ran against
+ * a different instance of those services than the HTTP route handlers use,
+ * every realtime broadcast triggered by a REST call would silently go
+ * nowhere. That is why the gateways are built from the same process-wide
+ * {@link getContainer} the route handlers use, and why this function is
+ * invoked from Next's `instrumentation.ts` (same module graph as the route
+ * handlers) rather than from the custom server bundle.
  */
 import type { Server, Socket } from 'socket.io';
 import {
@@ -111,6 +112,7 @@ export function wireRealtimeGateways(io: Server): void {
   const liveTracking = new LiveTrackingGateway(
     c.liveTracking(),
     c.stopArrivals(),
+    c.tripAttendance(),
     c.jwt(),
     c.schoolAccess(),
   );

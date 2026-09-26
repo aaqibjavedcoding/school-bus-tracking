@@ -16,6 +16,7 @@ import { resolveTokenExpiry } from '../../common/websocket';
 
 import { LiveTrackingService, extractTripId } from './live-tracking.service';
 import { StopArrivalsService } from '../eta/stop-arrivals.service';
+import { TripAttendanceService } from '../trip-attendance/trip-attendance.service';
 
 /**
  * Socket.IO gateway for live GPS tracking (Phase 5).
@@ -57,6 +58,10 @@ export class LiveTrackingGateway {
     // broadcaster as location updates — one authenticated channel, one
     // authorization-gated room.
     private readonly arrivals: StopArrivalsService,
+    // Board/drop attendance changes reuse the same room again, so a second
+    // crew device watches the manifest move without a new namespace, a new
+    // room or a new authorization rule.
+    private readonly tripAttendance: TripAttendanceService,
     private readonly jwtService: JwtService,
     // Centralized inactive-school enforcement at the socket handshake; the
     // global AccessModule injects the same instance the HTTP guard uses.
@@ -70,6 +75,7 @@ export class LiveTrackingGateway {
     };
     this.liveTracking.attachBroadcaster(broadcaster);
     this.arrivals.attachBroadcaster(broadcaster);
+    this.tripAttendance.attachBroadcaster(broadcaster);
   }
 
   /**
