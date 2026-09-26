@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type {
@@ -98,6 +98,15 @@ export default function AdminTripDetailScreen() {
 
   const live = useLiveTripTracking(usableId ? tripId : null);
   const trip = data?.trip ?? null;
+
+  // A crew board/drop on any device arrives over the trip room
+  // (`trip:student:attendance`); the cockpit's manifest is part of the same
+  // load, so a reload reconciles it without a manual refresh.
+  const lastStudentAttendance = live.lastStudentAttendance;
+  useEffect(() => {
+    if (!lastStudentAttendance) return;
+    void reload();
+  }, [lastStudentAttendance, reload]);
 
   const withAttendance = async (studentId: string, action: 'board' | 'drop') => {
     if (!trip) return;

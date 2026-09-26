@@ -2151,6 +2151,13 @@ export const LIVE_TRACKING_EVENTS = {
   stopArrived: 'trip:stop:arrived',
   /** Server → room: the approximate trip ETA was recomputed (Task 22). */
   etaUpdate: 'trip:eta:update',
+  /**
+   * Server → room: one manifest student's board/drop attendance changed.
+   * Broadcast into the same authorization-gated trip room as positions and
+   * ETAs, so the other crew device (and any observer of the trip) sees a
+   * boarding without waiting for a manual refresh.
+   */
+  studentAttendance: 'trip:student:attendance',
 } as const;
 
 export type LiveTrackingEvent = (typeof LIVE_TRACKING_EVENTS)[keyof typeof LIVE_TRACKING_EVENTS];
@@ -2554,6 +2561,26 @@ export interface TripEtaUpdateEvent {
   trip_id: string;
   school_id: string;
   eta: TripEtaResponse;
+}
+
+/**
+ * Server → room: one manifest student's attendance changed on this trip.
+ *
+ * Deliberately minimal — ids, the stop, the new status and the server clock
+ * are everything a second crew device needs to invalidate its manifest view.
+ * No student name and no guardian detail: the payload travels in the same
+ * authorization-gated `trip:<tripId>` room as positions and ETAs, whose
+ * membership the server has already proven for this specific trip, but the
+ * smallest sufficient payload is still the safest one.
+ */
+export interface TripStudentAttendanceEvent {
+  trip_id: string;
+  school_id: string;
+  student_id: string;
+  stop_id: string;
+  status: TripAttendanceStatus;
+  /** ISO-8601 server time at which the board/drop write was recorded. */
+  occurred_at: string;
 }
 
 /**

@@ -10,6 +10,7 @@ import { isTripOpen, ManifestList, manifestCounts, useCrewToday } from '../../sr
 import { OfflineSyncBanner, useOfflineAction } from '../../src/features/crew/offline';
 import { useToast } from '../../src/components';
 import { useAuth } from '../../src/features/auth';
+import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
 import { crewRoleLabel } from '../../src/lib/roles';
 import {
   Button,
@@ -61,6 +62,25 @@ export default function CrewManifestScreen() {
     }
     return unwrapEnvelope(await apiClient.listTripStudents(trip.id));
   }, [trip?.id]);
+
+  /**
+   * Cross-device attendance (the whole point of the shared trip room).
+   *
+   * The conductor boards a child on their phone; the driver's manifest was
+   * the one surface that stayed frozen until a pull-to-refresh, because the
+   * REST write lives on the other device. The server now broadcast the
+   * change into `trip:<tripId>` (`trip:student:attendance`) — the same room
+   * the stop arrivals already travel through — so this screen refetches the
+   * manifest the moment a frame lands. The device's *own* writes already
+   * reload below after a confirmed action, so for them this is one extra
+   * cheap read at most.
+   */
+  const live = useLiveTripTracking(trip?.id ?? null);
+  const lastStudentAttendance = live.lastStudentAttendance;
+  React.useEffect(() => {
+    if (!lastStudentAttendance) return;
+    void manifestLoad.reload();
+  }, [lastStudentAttendance, manifestLoad.reload]);
 
   const [busyStudentId, setBusyStudentId] = useState<string | null>(null);
   // Students whose action currently sits in the offline queue — the row shows

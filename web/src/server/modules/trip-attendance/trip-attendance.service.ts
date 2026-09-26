@@ -5,12 +5,16 @@ import {
 } from '../../framework';
 import { Op, Transaction, UniqueConstraintError } from 'sequelize';
 import {
+  LIVE_TRACKING_EVENTS,
   RouteAssignmentRole,
   TripAttendanceStatus,
+  TripStudentAttendanceEvent,
   TripStudentAttendanceResponse,
   TripStudentManifestResponse,
   TripStudentManifestSummary,
   UserRole,
+  liveTrackingRoomName,
+  type LiveTrackingEvent,
 } from '@school-bus-tracking/shared-types';
 import { isTripOpenForAttendance } from '@school-bus-tracking/validation';
 import {
@@ -44,6 +48,18 @@ interface ManifestSeat {
 }
 
 /**
+ * Room-scoped broadcast sink attached by the live-tracking gateway once the
+ * sockets are up — the exact shape `StopArrivalsService` and
+ * `LiveTrackingService` already broadcast with, so all three services speak
+ * into the trip room through one attached function.
+ */
+export type TripAttendanceRoomBroadcaster = (
+  room: string,
+  event: LiveTrackingEvent,
+  payload: unknown,
+) => void;
+
+/**
  * Tenant-safe trip student attendance (boarding / drop management).
  *
  * The manifest is **derived, never trusted**: from the trip (resolved with the
@@ -65,6 +81,9 @@ interface ManifestSeat {
  * that a resource exists.
  */
 export class TripAttendanceService {
+  /** Broadcaster attached by the tracking gateway; `undefined` in unit tests. */
+  private broadcaster: TripAttendanceRoomBroadcaster | undefined;
+
   constructor(
     private readonly attendance: typeof TripStudentAttendance,
     private readonly trips: typeof Trip,
@@ -74,6 +93,16 @@ export class TripAttendanceService {
     private readonly assignments: typeof RouteAssignment,
     private readonly notifications: NotificationsService,
   ) {}
+
+  /** Attach (or replace) the room broadcaster; the gateway does this once. */
+  attachBroadcaster(broadcaster: TripAttendanceRoomBroadcaster): void {
+    this.broadcaster = broadcaster;
+  }
+
+  /** Drop the broadcaster (used in tests); emissions become no-ops. */
+  detachBroadcaster(): void {
+    this.broadcaster = undefined;
+  }
 
   /**
    * `GET /api/v1/trips/:tripId/students`
@@ -198,6 +227,11 @@ export class TripAttendanceService {
       }
     });
 
+    // A committed boarding is announced into the trip's live room before the
+    // parent notification: the other crew device sees the manifest move the
+    // instant the write lands, without waiting for a manual refresh.
+    this.emitAttendanceChanged(response);
+
     // Only a committed boarding notifies the parents — and a notification
     // failure never rolls the attendance back (the service is best-effort).
     await this.notifyParents(
@@ -249,6 +283,10 @@ export class TripAttendanceService {
       return this.toResponse(trip, seat, existing);
     });
 
+    // Same cross-device announcement as the boarding path: the drop belongs
+    // to the trip room as soon as its transaction has committed.
+    this.emitAttendanceChanged(response);
+
     // Only a committed drop notifies the parents; failures never undo the
     // attendance record itself.
     await this.notifyParents(
@@ -260,6 +298,46 @@ export class TripAttendanceService {
       response.dropped_at ? new Date(response.dropped_at) : new Date(),
     );
     return response;
+  }
+
+  /**
+   * Broadcasts a **committed** attendance change into the trip's Socket.IO
+   * room (`trip:student:attendance`).
+   *
+   * This is the board/drop counterpart of the stop-arrival broadcast: the
+   * payload is what a second crew device needs to invalidate its manifest
+   * (ids, stop, new status, server time) and nothing more — no student name,
+   * no guardian detail. Authorization is unchanged: the event travels in the
+   * existing `trip:<tripId>` room, whose membership
+   * `LiveTrackingService.authorizeObservation` already gates for this exact
+   * trip, so no new room and no new authorization surface is created.
+   *
+   * Called only after the attendance transaction has committed, so a
+   * rejected write (409 duplicate, 500 failure) can never announce a change
+   * that did not happen; and fire-and-forget by construction, so the absence
+   * of a broadcaster (unit tests, gateway not yet up) can never fail the
+   * attendance write itself.
+   */
+  private emitAttendanceChanged(response: TripStudentAttendanceResponse): void {
+    const occurredAt =
+      response.status === TripAttendanceStatus.DROPPED
+        ? response.dropped_at
+        : (response.boarded_at ?? response.dropped_at);
+    const event: TripStudentAttendanceEvent = {
+      trip_id: response.trip_id,
+      school_id: response.school_id,
+      student_id: response.student_id,
+      stop_id: response.stop_id,
+      status: response.status,
+      occurred_at: occurredAt ?? new Date().toISOString(),
+    };
+    this.emitToTrip(response.trip_id, LIVE_TRACKING_EVENTS.studentAttendance, event);
+  }
+
+  private emitToTrip(tripId: string, event: LiveTrackingEvent, payload: unknown): void {
+    // Without an attached broadcaster (unit tests, gateway not yet up) the
+    // event is simply dropped — persistence and the REST reads are unaffected.
+    this.broadcaster?.(liveTrackingRoomName(tripId), event, payload);
   }
 
   /**

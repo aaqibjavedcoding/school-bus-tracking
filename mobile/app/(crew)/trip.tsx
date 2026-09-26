@@ -234,6 +234,16 @@ export default function CrewTripScreen() {
     [kidsLoad.data, stops, nextStopId],
   );
 
+  // Cross-device attendance: a board/drop on the other crew device is
+  // broadcast into this trip's room (`trip:student:attendance`); the kids
+  // count on the next-stop card must move with it, not on the next manual
+  // refresh. The payload only carries ids, so the card refetches its list.
+  const lastStudentAttendance = live.lastStudentAttendance;
+  useEffect(() => {
+    if (!lastStudentAttendance) return;
+    void kidsLoad.reload();
+  }, [lastStudentAttendance, kidsLoad.reload]);
+
   /**
    * Batch 3C — **both roles** hear the next stop, in the app's language and in
    * the voice this phone actually has. The announcer reuses the card's own
