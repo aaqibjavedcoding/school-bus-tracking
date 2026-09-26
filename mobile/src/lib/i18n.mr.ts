@@ -92,6 +92,22 @@ export const mr: Dictionary = {
   'trip.kids.none': 'या थांब्यावर कोणतीही मुले नाहीत',
   'trip.kids.noNext': 'पुढे थांबा नाही',
   'trip.kids.more': '+{count} आणखी',
+  // ── क्रू थांबा नोंद (पोहोचलो / वगळा) ────────────────────────────────
+  'trip.stopMark.title': 'हा थांबा नोंदवा',
+  'trip.stopMark.hint': 'GPS बंद किंवा कमजोर असेल आणि थांबा आपोआप नोंदला नसेल तेव्हा वापरा.',
+  'trip.stopMark.arrived': 'पोहोचलो',
+  'trip.stopMark.skip': 'थांबा वगळा',
+  'trip.stopMark.reasonLabel': 'हा थांबा का वगळत आहात?',
+  'trip.stopMark.reasonPlaceholder': 'उदा. रस्ता बंद, कोणी नव्हते',
+  'trip.stopMark.reasonTooShort': 'किमान 3 अक्षरे लिहा.',
+  'trip.stopMark.confirmSkip': 'वगळणे निश्चित करा',
+  'trip.stopMark.cancel': 'रद्द करा',
+  'trip.stopMark.recorded': 'थांबा {number} नोंदला · येथे {count} मुले',
+  'trip.stopMark.recordedNoKids': 'थांबा {number} नोंदला गेला',
+  'trip.stopMark.alreadyRecorded': 'थांबा {number} आधीच नोंदला होता',
+  'trip.stopMark.skipped': 'थांबा {number} वगळला',
+  'trip.stopMark.queued': 'या फोनवर जतन झाले — इंटरनेट मिळताच पाठवले जाईल.',
+  'trip.stopMark.failed': 'हा थांबा नोंदवता आला नाही.',
 
   // ── Trip lifecycle actions ─────────────────────────────────────────────
   'trip.action.boarding': 'बोर्डिंग सुरू करा',
@@ -293,6 +309,8 @@ export const mr: Dictionary = {
   'stops.arrivals': 'पहुँचणीची नोंद',
   'stops.noArrivals': 'या ट्रिपसाठी अजून कोणताही थांबा नोंदवलेला नाही.',
   'stops.arrivalMeta': '{time} · थांब्यापासून {distance}',
+  'stops.arrivalMetaCrew': '{time} · क्रूने नोंदवले',
+  'stops.arrivalMetaSkipped': '{time} · वगळले: {reason}',
   'stops.empty.title': 'आज कोणतीही ट्रिप नाही',
   'stops.empty.body': 'ट्रिप पाठवली की थांबे आणि ETA दिसू लागतात.',
 
@@ -398,6 +416,8 @@ export const mr: Dictionary = {
   'voice.stop.next': 'Pudhil stop: {name}, {count} balek',
   'voice.stop.approaching': '{name} pohochat aahot, {count} balek',
   'voice.stop.near': 'Thambe {number} yet aahet, {count} balek',
+  'voice.stop.recorded': 'Thamba {number} nond zala, ithe {count} balek chadhtil',
+  'voice.stop.skipped': 'Thamba {number} vagalla',
   // Devanagari — spoken ONLY when the phone has an `mr-IN` voice installed.
   // A student's first name keeps whatever script the school typed it in; an
   // `mr-IN` engine reads a Latin name inside a Marathi sentence correctly.
@@ -421,6 +441,8 @@ export const mr: Dictionary = {
   'voice.native.stop.next': 'पुढील स्टॉप: {name}, {count} मुले',
   'voice.native.stop.approaching': '{name} पोहोचत आहोत, {count} मुले',
   'voice.native.stop.near': 'थांबे {number} येत आहेत, {count} मुले',
+  'voice.native.stop.recorded': 'थांबा {number} नोंदला गेला, येथे {count} मुले चढतील',
+  'voice.native.stop.skipped': 'थांबा {number} वगळला',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',

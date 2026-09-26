@@ -50,6 +50,15 @@ export const AUDIT_ACTIONS = {
   ROUTE_UPDATE: 'route.update',
   ROUTE_DEACTIVATE: 'route.deactivate',
   STOP_CREATE: 'stop.create',
+  /**
+   * Crew marked a stop by hand (GPS off / weak). A distinct action from the
+   * management verbs below it so an auditor can answer "which stops of this
+   * run were recorded by a person rather than by the geofence?" with one
+   * filter.
+   */
+  STOP_CREW_ARRIVE: 'stop.crew_arrive',
+  /** Crew declared a stop passed without serving it, with their reason. */
+  STOP_CREW_SKIP: 'stop.crew_skip',
   STOP_UPDATE: 'stop.update',
   STOP_DEACTIVATE: 'stop.deactivate',
 
@@ -132,6 +141,8 @@ export const AUDIT_ENTITY_TYPES = {
   BUS: 'bus',
   ROUTE: 'route',
   STOP: 'stop',
+  /** One recorded stop-arrival row (geofence or crew-marked). */
+  TRIP_STOP_ARRIVAL: 'trip_stop_arrival',
   ASSIGNMENT: 'assignment',
   SHIFT: 'shift',
   RUN: 'run',

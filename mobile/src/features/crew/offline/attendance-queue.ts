@@ -8,6 +8,7 @@ import {
   recoverInterrupted,
   type NewQueuedAction,
   type QueuedAttendanceEvent,
+  type StopMarkAction,
   type SyncOutcome,
 } from './queue-core.ts';
 
@@ -19,11 +20,12 @@ export {
   type QueuedActionKind,
   type QueuedAttendanceEvent,
   type QueueItemStatus,
+  type StopMarkAction,
 } from './queue-core.ts';
 
 /**
- * Persistent offline queue for crew actions (attendance board/drop + trip
- * status transitions).
+ * Persistent offline queue for crew actions (attendance board/drop, trip
+ * status transitions and stop marking).
  *
  * Every mutation goes through one serialised read-modify-write so two taps
  * in the same tick cannot lose each other's write. The decisions themselves
@@ -130,6 +132,30 @@ export async function queueTripStatus(params: {
     userId: params.userId ?? null,
     tripId: params.tripId,
     tripStatus: params.status,
+  });
+}
+
+/**
+ * Enqueues a crew stop mark ("Arrived" / "Skip").
+ *
+ * The reason belongs to the queued item, not to the moment of sending: a
+ * skip typed in a tunnel must replay with the words the crew actually chose,
+ * hours later if need be.
+ */
+export async function queueStopMark(params: {
+  tripId: string;
+  stopId: string;
+  action: StopMarkAction;
+  skipReason?: string;
+  userId?: string | null;
+}): Promise<QueuedAttendanceEvent> {
+  return enqueue({
+    kind: 'stop_mark',
+    userId: params.userId ?? null,
+    tripId: params.tripId,
+    stopId: params.stopId,
+    stopAction: params.action,
+    ...(params.skipReason === undefined ? {} : { skipReason: params.skipReason }),
   });
 }
 

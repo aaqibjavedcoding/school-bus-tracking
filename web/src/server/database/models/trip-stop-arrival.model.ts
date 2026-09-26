@@ -1,9 +1,11 @@
 import { BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
+import type { TripStopArrivalSource } from '@school-bus-tracking/shared-types';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
 import { School } from './school.model';
 import { Trip } from './trip.model';
 import { Stop } from './stop.model';
+import { User } from './user.model';
 
 export interface TripStopArrivalAttributes extends BaseModelAttributes {
   school_id: string;
@@ -11,16 +13,37 @@ export interface TripStopArrivalAttributes extends BaseModelAttributes {
   stop_id: string;
   /** Server clock at which the bus entered the stop's geofence. */
   arrived_at: Date;
-  /** WGS-84 position of the bus at the moment of the arrival event. */
-  latitude: number;
-  longitude: number;
-  /** Straight-line (Haversine) metres between the bus and the stop at arrival. */
-  distance_meters: number;
+  /**
+   * WGS-84 position of the bus at the moment of the arrival event. `null`
+   * for a crew-marked stop: nothing was measured, and a stand-in coordinate
+   * would be indistinguishable from a real fix downstream.
+   */
+  latitude: number | null;
+  longitude: number | null;
+  /** Straight-line (Haversine) metres to the stop; `null` when crew-marked. */
+  distance_meters: number | null;
+  /** `geofence` (the GPS pipeline) or `crew` (a driver/conductor tap). */
+  source: TripStopArrivalSource;
+  /**
+   * The crew's own words for why the stop was skipped — non-null **only** on
+   * a skip, which is what makes `skip_reason !== null` the single test for
+   * "the run passed this stop without serving it".
+   */
+  skip_reason: string | null;
+  /** The crew member who marked it; `null` for a geofence arrival. */
+  recorded_by: string | null;
 }
 
 export type TripStopArrivalCreationAttributes = Optional<
   TripStopArrivalAttributes,
-  BaseModelManagedFields | 'arrived_at'
+  | BaseModelManagedFields
+  | 'arrived_at'
+  | 'latitude'
+  | 'longitude'
+  | 'distance_meters'
+  | 'source'
+  | 'skip_reason'
+  | 'recorded_by'
 >;
 
 /**
@@ -83,14 +106,24 @@ export class TripStopArrival extends BaseModel<
   @Column({ type: DataType.DATE, allowNull: false })
   declare arrived_at: Date;
 
-  @Column({ type: DataType.DOUBLE, allowNull: false })
-  declare latitude: number;
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare latitude: number | null;
 
-  @Column({ type: DataType.DOUBLE, allowNull: false })
-  declare longitude: number;
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare longitude: number | null;
 
-  @Column({ type: DataType.DOUBLE, allowNull: false })
-  declare distance_meters: number;
+  @Column({ type: DataType.DOUBLE, allowNull: true })
+  declare distance_meters: number | null;
+
+  @Column({ type: DataType.STRING(16), allowNull: false, defaultValue: 'geofence' })
+  declare source: TripStopArrivalSource;
+
+  @Column({ type: DataType.TEXT, allowNull: true })
+  declare skip_reason: string | null;
+
+  @ForeignKey(() => User)
+  @Column({ type: DataType.UUID, allowNull: true })
+  declare recorded_by: string | null;
 
   @BelongsTo(() => School, { foreignKey: 'school_id', as: 'school' })
   declare school?: School;
@@ -100,4 +133,7 @@ export class TripStopArrival extends BaseModel<
 
   @BelongsTo(() => Stop, { foreignKey: 'stop_id', as: 'stop' })
   declare stop?: Stop;
+
+  @BelongsTo(() => User, { foreignKey: 'recorded_by', as: 'recorder' })
+  declare recorder?: User;
 }

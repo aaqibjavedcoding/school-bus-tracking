@@ -146,6 +146,8 @@ import {
   TripProgressResponse,
   TripStatusUpdateRequest,
   TripStopArrivalListResponse,
+  TripStopCrewMarkResponse,
+  TripStopSkipRequest,
   TripStudentAttendanceResponse,
   TripStudentManifestQuery,
   TripStudentManifestResponse,
@@ -1992,6 +1994,49 @@ export class ApiClient {
   /** Every recorded stop arrival of the trip (`GET /trips/:tripId/arrivals`). */
   public async getTripArrivals(tripId: string): Promise<ApiResponse<TripStopArrivalListResponse>> {
     return this.get<TripStopArrivalListResponse>(`/trips/${encodeURIComponent(tripId)}/arrivals`);
+  }
+
+  /**
+   * Crew stop marking — the manual fallback for a stop the 100 m geofence
+   * never saw (GPS off, weak signal, bus parked across the road).
+   *
+   * `POST /trips/:tripId/stops/:stopId/arrive`. Crew of the trip only, open
+   * trips only, and **idempotent**: pass the offline queue's key through
+   * `withIdempotencyKey(...)` so a replay returns the original answer instead
+   * of recording the stop twice. A stop already recorded (by GPS, or by an
+   * earlier tap) answers `200` with `created: false` — not an error.
+   */
+  public async markTripStopArrived(
+    tripId: string,
+    stopId: string,
+    options?: RequestInit,
+  ): Promise<ApiResponse<TripStopCrewMarkResponse>> {
+    return this.post<TripStopCrewMarkResponse>(
+      `/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/arrive`,
+      undefined,
+      options,
+    );
+  }
+
+  /**
+   * Records that the run passed a stop **without serving it**
+   * (`POST /trips/:tripId/stops/:stopId/skip`).
+   *
+   * The reason is required (at least 3 characters after trimming) and is
+   * stored verbatim: it is what the school reads later. Parents are not
+   * notified about a skip — nobody's child was picked up or dropped.
+   */
+  public async skipTripStop(
+    tripId: string,
+    stopId: string,
+    payload: TripStopSkipRequest,
+    options?: RequestInit,
+  ): Promise<ApiResponse<TripStopCrewMarkResponse>> {
+    return this.post<TripStopCrewMarkResponse>(
+      `/trips/${encodeURIComponent(tripId)}/stops/${encodeURIComponent(stopId)}/skip`,
+      payload,
+      options,
+    );
   }
 
   /**

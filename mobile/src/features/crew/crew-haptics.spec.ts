@@ -36,6 +36,9 @@ const ALL_EVENTS: CrewFeedbackEventType[] = [
   'stop.approaching',
   // N7 — the ~300 m proximity alert.
   'stop.near',
+  // Crew stop marking — the server-confirmed receipts.
+  'stop.recorded',
+  'stop.skipped',
 ];
 
 describe('the event → pattern table', () => {

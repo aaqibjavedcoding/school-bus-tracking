@@ -79,6 +79,8 @@ export { SosPanel, SosQuickPanel, SosStatusLine, useCrewSos } from './SosPanel';
 export type { SosPanelProps } from './SosPanel';
 export { TripNavigationCard } from './TripNavigationCard';
 export type { TripNavigationCardProps } from './TripNavigationCard';
+export { StopMarkActions } from './StopMarkActions';
+export type { StopMarkActionsProps } from './StopMarkActions';
 export { navigationTargetOf, pickNextStop } from './navigation-stop';
 export { tripStatusStyle, primaryTripAction } from './trip-status-style';
 export { crewCopy } from './crew-copy';

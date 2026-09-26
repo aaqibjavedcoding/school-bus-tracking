@@ -133,6 +133,7 @@ import { StaffService } from './modules/staff/staff.service';
 import { StopsService } from './modules/stops/stops.service';
 import { StudentsService } from './modules/students/students.service';
 import { TripAttendanceService } from './modules/trip-attendance/trip-attendance.service';
+import { CrewStopMarkingService } from './modules/crew-stops/crew-stop-marking.service';
 import { TripsService } from './modules/trips/trips.service';
 
 /** Memoizes a factory so each singleton is constructed at most once. */
@@ -438,6 +439,15 @@ export class Container {
         RouteAssignment,
         this.notifications(),
       ),
+  );
+
+  /**
+   * Crew stop marking (Arrived / Skip). It writes through
+   * {@link StopArrivalsService} so manual and geofence arrivals land in one
+   * table, behind one duplicate rule.
+   */
+  readonly crewStopMarking = lazy(
+    () => new CrewStopMarkingService(Trip, Stop, Student, RouteAssignment, this.stopArrivals()),
   );
 
   readonly liveTracking = lazy(
