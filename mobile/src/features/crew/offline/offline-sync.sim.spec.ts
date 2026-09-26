@@ -50,6 +50,8 @@ mock.module(pathToFileURL(ROOT + 'src/services/api.ts').href, { namedExports: { 
   boardTripStudent: async (_t: string, s: string, o: RequestInit) => serverPost(`board:${s}`, h(o)),
   dropTripStudent: async (_t: string, s: string, o: RequestInit) => serverPost(`drop:${s}`, h(o)),
   updateTripStatus: async (_t: string, b: { status: string }, o: RequestInit) => serverPost(`status:${b.status}`, h(o)),
+  markTripStopArrived: async (_t: string, s: string, o: RequestInit) => serverPost(`stop-arrive:${s}`, h(o)),
+  skipTripStop: async (_t: string, s: string, b: { reason: string }, o: RequestInit) => serverPost(`stop-skip:${s}:${b.reason}`, h(o)),
 }}});
 
 const queue = await import(pathToFileURL(ROOT + 'src/features/crew/offline/attendance-queue.ts').href);
@@ -160,6 +162,40 @@ test('permanent rejection (400) surfaces as failed, retry/dismiss work', async (
   await queue.retryFailed(USER); await sync.refreshCounts(); await sync.syncNow(); await tick();
   assert.equal(sync.getSyncState().failedCount, 0);
   assert.equal((await queue.loadQueue()).length, 0);
+});
+
+test('stop mark: queued offline, deduped on double tap, synced with the original key across a retry', async () => {
+  net(false); await tick();
+  // Double tap on the same skip with a different reason → one queue item, first reason wins.
+  const skip = await queue.enqueue({ kind: 'stop_mark', userId: USER, tripId: 't1', stopId: 'stop-7', stopAction: 'skip', skipReason: 'Road closed' });
+  const dup = await queue.enqueue({ kind: 'stop_mark', userId: USER, tripId: 't1', stopId: 'stop-7', stopAction: 'skip', skipReason: 'Traffic' });
+  assert.equal(dup.id, skip.id);
+  assert.equal(dup.idempotencyKey, skip.idempotencyKey);
+  const arrive = await queue.enqueue({ kind: 'stop_mark', userId: USER, tripId: 't1', stopId: 'stop-8', stopAction: 'arrive' });
+  assert.notEqual(arrive.id, skip.id);
+  await sync.refreshCounts();
+  assert.equal(sync.getSyncState().pendingCount, 2);
+  // Reconnect, but the first replay attempt 502s → nothing lost, retried later.
+  const callsBefore = serverCalls.length;
+  state.failNext = 1;
+  net(true); await tick(); await tick();
+  const stillQueued = await queue.loadQueue();
+  assert.equal(stillQueued.length, 2, 'transient failure keeps both stop marks');
+  // Force the backoff window shut and sync again.
+  const raw = JSON.parse(store.get('@sbt/offline-attendance-queue')!);
+  for (const it of raw.items) it.lastSyncAt = new Date(Date.now() - 60_000).toISOString();
+  store.set('@sbt/offline-attendance-queue', JSON.stringify(raw));
+  const mutationsBefore = applied.size;
+  await sync.syncNow(); await tick();
+  assert.equal((await queue.loadQueue()).length, 0);
+  const replayed = serverCalls.slice(callsBefore).map((c) => c.kind);
+  assert.ok(replayed.includes('stop-skip:stop-7:Road closed'), 'skip posted with the first reason');
+  assert.ok(replayed.includes('stop-arrive:stop-8'), 'arrive posted without a reason');
+  const skipCalls = serverCalls.slice(callsBefore).filter((c) => c.kind.startsWith('stop-skip:'));
+  assert.ok(skipCalls.length >= 2, 'the failed attempt was retried');
+  assert.ok(skipCalls.every((c) => c.key === skip.idempotencyKey), 'every replay reuses the captured key');
+  assert.equal(applied.size - mutationsBefore, 2, 'exactly one server mutation per stop mark');
+  assert.equal(sync.getSyncState().pendingCount, 0);
 });
 
 test('user isolation: another user’s pending items are never replayed under this session', async () => {
