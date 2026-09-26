@@ -199,6 +199,38 @@ untouched.
    **gone** — diagnostics, not kerbside copy. The conductor keeps the
    standalone kids card (same data, its own heading) because they do not
    drive.
+
+   **Turn-by-turn hand-off (PR 3)** — the card used to open a _preview_ link,
+   which showed the route and left the driver to press Start at the kerb.
+   It now opens **real guidance**, with two buttons:
+
+   - **Navigate to next stop** (`navigate.card.buttonNext`) — the single stop,
+     turn-by-turn. On Android it uses the free `google.navigation:q=lat,lng`
+     intent (no preview screen); on iOS the `https://…/maps/dir/?api=1…
+&dir_action=navigate` link. The vendor's app-specific `comgoogle…` URL
+     scheme is **never** used — it is on the banned-pattern list in
+     `scripts/map-provider-policy.spec.ts`.
+   - **Open full route** (`navigate.card.buttonRoute`) — the next stop as the
+     destination and the stops after it as waypoints. The URL API takes at
+     most 9 waypoints and links are capped at 2048 characters, so a long run
+     is split into consecutive links (`buildDirectionsUrlChunks`) and the card
+     says which part it opened (`navigate.card.routeParts`).
+
+   Both are plain links: **no map SDK, no API key, no billing** — the same
+   product rule the map itself follows. A stop with unusable coordinates is
+   skipped; when nothing is navigable there is no button, never a button to a
+   guessed point. A failed `Linking.openURL` falls back to the https link and,
+   if that fails too, says so once (`navigate.card.openFailed`).
+
+   **Coming back with attendance pending** — when the app becomes active again
+   after a map hand-off and the next stop still has PENDING kids, the card
+   shows a small inline prompt (not a modal): _Mark attendance_ →
+   `/manifest?stopId=…`, which opens the manifest **filtered to that stop**
+   with a one-tap **Show all kids** escape. The prompt clears when the next
+   stop changes or the driver taps it. Copy: `navigate.attendance.*`,
+   `manifest.filter.stopOnly`, `manifest.filter.showAll` — en/hi/mr, Hindi
+   being the crew default.
+
 5. Manifest / Stops & ETA links (56–60px, icon + label).
 6. **SOS quick row** — the hold-to-confirm button + its status line.
 7. "Help & support" link.

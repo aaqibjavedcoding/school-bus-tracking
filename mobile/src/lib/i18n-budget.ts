@@ -146,6 +146,13 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'trip.cancel.confirm': 'buttonWide',
   'trip.cancel.keep': 'buttonWide',
 
+  // The next-stop card's two hand-off buttons (full-width field buttons) and
+  // the return-from-maps attendance prompt's action row.
+  'navigate.card.buttonNext': 'buttonFull',
+  'navigate.card.buttonRoute': 'buttonFull',
+  'navigate.attendance.action': 'buttonRow',
+  'navigate.attendance.dismiss': 'buttonRow',
+
   // Full-width 64px field buttons.
   'trip.action.boarding': 'buttonFull',
   'trip.action.inProgress': 'buttonFull',

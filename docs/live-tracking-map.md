@@ -519,6 +519,25 @@ two spellings on one screen.
 Interpolated coordinates are presentation only here too: the tween is never
 written into history, ETA, attendance or notifications.
 
+### Navigation is a hand-off, not a routing engine (PR 3)
+
+The map in the app **never routes**. Road routing needs a directions service,
+and every free-to-start one is metered — so the driver's turn-by-turn comes
+from the map application the phone already has, opened with a link:
+`src/lib/navigation.ts` builds
+`https://www.google.com/maps/dir/?api=1&destination=…&waypoints=a|b|c&travelmode=driving&dir_action=navigate`
+(no `origin`, so the map app uses the live position) and, on Android, the free
+`google.navigation:q=lat,lng` intent for a single stop. `app.config.js`
+declares only the *visibility* entries that make those links openable from a
+release build (Android 11+ `<queries>`, iOS `LSApplicationQueriesSchemes`) —
+no URL, no key, no account. The vendor's `comgoogle…` scheme stays banned.
+
+This is why the planned amber line on the driving card is still labelled as
+**stop order, not the road route**: the only real road route lives in the map
+app, one tap away. Pinned by `src/lib/navigation-directions.spec.ts` (order,
+chunking, the 2048-character ceiling, invalid coordinates, the Android intent
+format) and by the provider policy spec.
+
 ### The two lines, the badge and the driving card (next-stop pass)
 
 The card is now the map a driver reads at a stop, and every new element obeys

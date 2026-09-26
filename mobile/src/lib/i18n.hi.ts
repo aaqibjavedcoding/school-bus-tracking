@@ -124,6 +124,8 @@ export const hi: Dictionary = {
   'manifest.filter.waiting': 'बाकी',
   'manifest.filter.boarded': 'सवार',
   'manifest.filter.dropped': 'उतरे',
+  'manifest.filter.stopOnly': 'सिर्फ़ {stop} दिख रहा है',
+  'manifest.filter.showAll': 'सभी बच्चे दिखाएँ',
   'manifest.empty.searchTitle': 'कोई बच्चा नहीं मिला',
   'manifest.empty.searchBody': 'इस खोज या फ़िल्टर से कोई बच्चा नहीं मिलता।',
   'manifest.clearFilters': 'फ़िल्टर हटाएँ',
@@ -618,6 +620,15 @@ export const hi: Dictionary = {
   'navigate.card.noStops': 'इस रूट पर अभी कोई स्टॉप नहीं है।',
   'navigate.card.noGeofence':
     'इस रूट के स्टॉप पर लोकेशन दर्ज नहीं है — स्कूल से कोऑर्डिनेट जोड़ने को कहें।',
+  'navigate.card.buttonNext': 'अगले स्टॉप तक चलें',
+  'navigate.card.buttonRoute': 'पूरा रूट खोलें',
+  'navigate.card.routeParts': 'लंबा रूट: भाग {index}/{total} खुल रहा है।',
+  'navigate.card.openFailed': 'इस फ़ोन पर मैप ऐप नहीं खुल सका।',
+  'navigate.attendance.title': 'हाज़िरी लगाएँ',
+  'navigate.attendance.body.one': '{stop} पर {count} बच्चे की मार्किंग बाकी है।',
+  'navigate.attendance.body.other': '{stop} पर {count} बच्चों की मार्किंग बाकी है।',
+  'navigate.attendance.action': 'सूची खोलें',
+  'navigate.attendance.dismiss': 'अभी नहीं',
 
   // ── Relative time ──────────────────────────────────────────────────────
   'time.justNow': 'अभी',

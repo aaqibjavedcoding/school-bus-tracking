@@ -11,8 +11,16 @@ import { OfflineSyncBanner, useOfflineAction } from '../../src/features/crew/off
 import { useToast } from '../../src/components';
 import { useAuth } from '../../src/features/auth';
 import { crewRoleLabel } from '../../src/lib/roles';
-import { EmptyState, ErrorState, LoadingView, Screen, TripStatusBadge } from '../../src/components';
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  LoadingView,
+  Screen,
+  TripStatusBadge,
+} from '../../src/components';
 import { useTranslation } from '../../src/lib/i18n-provider';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 /**
  * Student manifest of the crew member's today trip, with board/drop.
@@ -28,6 +36,13 @@ import { useTranslation } from '../../src/lib/i18n-provider';
  */
 export default function CrewManifestScreen() {
   const { user } = useAuth();
+  /**
+   * `?stopId=` — the next-stop deep link from the navigation card's
+   * "mark attendance" prompt (PR 3). It only narrows the list; the full
+   * manifest is one tap away, so nothing is ever hidden for good.
+   */
+  const { stopId } = useLocalSearchParams<{ stopId?: string }>();
+  const router = useRouter();
   const t = useTranslation();
   const isDriver = user?.role === UserRole.DRIVER;
   const {
@@ -123,7 +138,15 @@ export default function CrewManifestScreen() {
     );
   }
 
-  const manifest = manifestLoad.data;
+  const loaded = manifestLoad.data;
+  const stopFilterName =
+    stopId && loaded
+      ? (loaded.items.find((item) => item.stop_id === stopId)?.stop_name ?? null)
+      : null;
+  const manifest =
+    loaded && stopId
+      ? { ...loaded, items: loaded.items.filter((item) => item.stop_id === stopId) }
+      : loaded;
   const counts = manifest ? manifestCounts(manifest.items) : null;
 
   if (manifest && manifest.items.length > 0) {
@@ -146,6 +169,19 @@ export default function CrewManifestScreen() {
               <Text style={styles.hint}>
                 {isDriver ? t('manifest.hint.driver') : t('manifest.hint.conductor')}
               </Text>
+              {stopId ? (
+                <Text style={styles.hint}>
+                  {t('manifest.filter.stopOnly', { stop: stopFilterName ?? '' })}
+                </Text>
+              ) : null}
+              {stopId ? (
+                <Button
+                  label={t('manifest.filter.showAll')}
+                  icon="people"
+                  variant="ghost"
+                  onPress={() => router.setParams({ stopId: '' })}
+                />
+              ) : null}
               <TripStatusBadge size="lg" status={manifest.trip_status} />
               {counts ? (
                 <Text style={styles.counts}>
