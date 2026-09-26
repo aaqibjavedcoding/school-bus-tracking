@@ -22,6 +22,14 @@ export const IDEMPOTENCY_ENDPOINTS = {
   SOS: 'emergencies.sos',
   EMERGENCY_STATUS: 'emergencies.status',
   TRIP_STATUS: 'trips.status',
+  /**
+   * Crew stop marking. Separate scopes for the two actions on purpose: the
+   * same key replayed against `arrive` and `skip` must stay two independent
+   * operations, so a queued "Arrived" can never be satisfied by a "Skip"
+   * receipt (or the reverse) after a retry.
+   */
+  STOP_ARRIVE: 'crew-stops.arrive',
+  STOP_SKIP: 'crew-stops.skip',
   TRIP_CANCEL: 'trips.cancel',
   TRIP_LOCATION: 'live-tracking.location',
 } as const;

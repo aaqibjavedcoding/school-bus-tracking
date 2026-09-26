@@ -717,6 +717,55 @@ One announcer, one call site (`app/(crew)/trip.tsx`, the screen both roles run),
 zero role branches: `crew-feedback-wiring.spec.ts` fails the build if a
 per-role copy appears or if the announcer starts reading the role.
 
+### Crew stop marking: "Arrived" / "Skip" (offline-safe)
+
+The next-stop card tells the crew where they are going. Until now it was the
+only thing they could do about a stop — the record itself was written by GPS
+alone, when a fix landed inside the stop's 100 m geofence. On a budget Android
+with the battery optimiser on, in an urban canyon, or parked across the road,
+that fix never comes, and the whole run sticks: `next_stop` stops advancing,
+the kids card keeps showing a stop already served, and the parents further down
+the route hear nothing. The crew could see it happening and had no button.
+
+`StopMarkActions.tsx` is the button — for **both** roles, under the next-stop
+block it refers to:
+
+- **Arrived** — one tap, no body. Records the stop on the crew's word
+  (`source: 'crew'`, no coordinates: nothing was measured, and inventing the
+  stop's own position would be indistinguishable from a real fix downstream).
+  Parents are notified exactly as for a geofence arrival — the bus really did
+  serve the stop; only the evidence differs.
+- **Skip stop** — opens a reason field and refuses anything under 3 characters
+  after trimming, using `isValidStopSkipReason` from the shared validation
+  package, i.e. **the same predicate the server DTO applies**. The crew learns
+  it locally instead of spending a round trip to be told. A skip notifies no
+  parent (nobody was served) and shows up on the admin trip detail with its
+  reason.
+
+**Offline-first, because bad coverage is the failure this feature exists for.**
+The tap goes through the same queue as attendance (`useOfflineAction` →
+`kind: 'stop_mark'`): the item and its idempotency key are reserved _before_
+the request, so "reached the server, answer lost" replays as a dedupe hit
+rather than a second arrival row. `MAX_QUEUE_SIZE`, the backoff, the same-user
+rule and the sync banner all apply unchanged.
+
+**The confirmation is a receipt, not a flourish.** The written line and the
+spoken one — _"Stop 3 record ho gaya, 5 bachche chadhenge yahan"_ — fire only
+after the server answered, and they read their numbers (`stop_sequence_number`,
+`students_expected`) off **that answer**, never off the phone's possibly-stale
+manifest slice. A busload of people must not hear a stop announced as recorded
+because a button was pressed, so the queued path stays silent and says "saved
+on this phone — it will sync when you are back online". A stop that was already
+recorded (the geofence caught up, or the queue replayed) gets the written line
+without the announcement: true, but not news.
+
+Two new feedback events carry it, `stop.recorded` and `stop.skipped`, so the
+Voice switch, the 600 ms floor, latest-wins and the haptic table all apply with
+no new machinery — the receipt earns the `success` pattern (the crew asked for
+it and is waiting), the skip the `warning` one (accepted, but nobody served).
+Both refuse to speak without a real stop number, the same net the proximity
+line uses.
+
 ### The progress frontier belongs to one trip (T1)
 
 Everything above reads the server's `next_stop`, and the screen adds one thing

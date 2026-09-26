@@ -1247,6 +1247,50 @@ export const isTripOpenForAttendance = (status: TripStatus): boolean =>
   TRIP_ATTENDANCE_OPEN_TRIP_STATUSES.includes(status);
 
 /**
+ * Crew stop marking ("Arrived" / "Skip") — the manual counterpart of the
+ * geofence pipeline.
+ *
+ * The window is exactly the attendance window: a stop belongs to a run that
+ * is still being driven, and a `COMPLETED`/`CANCELLED` run's stop record is
+ * an audit artefact. Keeping the two rules the *same* function rather than a
+ * parallel copy is deliberate — "the trip is open" must never mean two
+ * different things on two endpoints the same crew member taps seconds apart.
+ */
+export const isTripOpenForCrewStopMarking = (status: TripStatus): boolean =>
+  isTripOpenForAttendance(status);
+
+/**
+ * Minimum length of a stop-skip reason.
+ *
+ * A skip is the one crew action with no physical evidence behind it — no GPS
+ * fix, no boarding, nothing. The reason is what the school reads later, so an
+ * empty or single-character placeholder ("x") is rejected. Three characters
+ * is the smallest bar that still admits genuine short answers ("jam", "band")
+ * in the languages this app ships.
+ */
+export const STOP_SKIP_REASON_MIN_LENGTH = 3;
+
+/** Upper bound — a reason is a note, not an essay (and bounds the column). */
+export const STOP_SKIP_REASON_MAX_LENGTH = 500;
+
+/**
+ * True when `reason` is an acceptable skip reason, measured **after**
+ * trimming: "   " is blank, not three characters. Shared by the mobile button
+ * (so the crew is told before the request leaves the phone) and the server
+ * DTO (so a hand-rolled client cannot bypass it).
+ */
+export const isValidStopSkipReason = (reason: unknown): reason is string => {
+  if (typeof reason !== 'string') {
+    return false;
+  }
+  const trimmed = reason.trim();
+  return (
+    trimmed.length >= STOP_SKIP_REASON_MIN_LENGTH &&
+    trimmed.length <= STOP_SKIP_REASON_MAX_LENGTH
+  );
+};
+
+/**
  * Phase 5 — Live GPS tracking.
  *
  * These schemas guard the Socket.IO payload surface, which has no global

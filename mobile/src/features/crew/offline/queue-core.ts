@@ -6,7 +6,10 @@ import { sanitizeUserFacingMessage, statusFallbackMessage } from '../../../lib/e
  * Pure offline-queue logic (no native imports — unit-testable in plain Node).
  *
  * The queue holds the crew actions that must never be lost when the bus is
- * out of coverage: attendance (board / drop) and trip lifecycle transitions.
+ * out of coverage: attendance (board / drop), trip lifecycle transitions and
+ * stop marking (arrived / skip — the manual fallback for a geofence that
+ * never fired, which is by definition most needed exactly where coverage is
+ * worst).
  * Every item carries **one** idempotency key generated when it is captured
  * and reused on every replay, so the API's `x-idempotency-key` deduplication
  * guarantees a retried sync can never create a second server mutation.
@@ -22,8 +25,17 @@ export type QueueItemStatus = 'pending' | 'syncing' | 'success' | 'failed';
 /** Attendance actions. */
 export type AttendanceEventType = 'board' | 'drop';
 
+/**
+ * Crew stop marking: "we were here" / "we passed this one".
+ *
+ * Queued like attendance because it is the same kind of promise — the crew
+ * tapped it at a kerb with no coverage, and it has to survive the tunnel, the
+ * app being killed and the phone being handed over.
+ */
+export type StopMarkAction = 'arrive' | 'skip';
+
 /** What a queued item does on the server. */
-export type QueuedActionKind = 'attendance' | 'trip_status';
+export type QueuedActionKind = 'attendance' | 'trip_status' | 'stop_mark';
 
 /** A single queued crew action. */
 export interface QueuedAttendanceEvent {
@@ -49,6 +61,15 @@ export interface QueuedAttendanceEvent {
   eventType: AttendanceEventType;
   /** Target trip status (trip_status only). */
   tripStatus?: TripStatus;
+  /** Route stop being marked (stop_mark only). */
+  stopId?: string;
+  /** Which mark (stop_mark only). */
+  stopAction?: StopMarkAction;
+  /**
+   * The crew's reason for a skip (stop_mark + `skip` only). Validated before
+   * the item is ever queued, so a replay can never post an invalid body.
+   */
+  skipReason?: string;
   /** Current sync status. */
   status: QueueItemStatus;
   /** Number of sync attempts. */
@@ -78,6 +99,15 @@ export type NewQueuedAction =
       userId: string | null;
       tripId: string;
       tripStatus: TripStatus;
+    }
+  | {
+      kind: 'stop_mark';
+      userId: string | null;
+      tripId: string;
+      stopId: string;
+      stopAction: StopMarkAction;
+      /** Required for `skip`, absent for `arrive`. */
+      skipReason?: string;
     };
 
 /** Restores rows written by older app versions (no `kind` / `userId`). */
@@ -97,11 +127,17 @@ export function normalizeQueueItem(raw: unknown): QueuedAttendanceEvent | null {
         : generateIdempotencyKey(),
     capturedAt: typeof item.capturedAt === 'string' ? item.capturedAt : new Date(0).toISOString(),
     userId: typeof item.userId === 'string' ? item.userId : null,
-    kind: item.kind === 'trip_status' ? 'trip_status' : 'attendance',
+    kind:
+      item.kind === 'trip_status' || item.kind === 'stop_mark' ? item.kind : 'attendance',
     tripId: item.tripId,
     studentId: typeof item.studentId === 'string' ? item.studentId : '',
     eventType: item.eventType === 'drop' ? 'drop' : 'board',
     ...(item.tripStatus ? { tripStatus: item.tripStatus } : {}),
+    ...(typeof item.stopId === 'string' ? { stopId: item.stopId } : {}),
+    ...(item.stopAction === 'arrive' || item.stopAction === 'skip'
+      ? { stopAction: item.stopAction }
+      : {}),
+    ...(typeof item.skipReason === 'string' ? { skipReason: item.skipReason } : {}),
     status:
       item.status === 'failed' || item.status === 'success' ? item.status : 'pending',
     retryCount: typeof item.retryCount === 'number' ? item.retryCount : 0,
@@ -127,6 +163,12 @@ export function isDuplicateOf(item: QueuedAttendanceEvent, candidate: NewQueuedA
   }
   if (candidate.kind === 'attendance') {
     return item.studentId === candidate.studentId && item.eventType === candidate.eventType;
+  }
+  if (candidate.kind === 'stop_mark') {
+    // The reason is deliberately NOT part of the identity: two taps on the
+    // same stop with the same action are one decision, and the first reason
+    // typed is the one the crew stood by.
+    return item.stopId === candidate.stopId && item.stopAction === candidate.stopAction;
   }
   return item.tripStatus === candidate.tripStatus;
 }
@@ -157,6 +199,13 @@ export function addToQueue(
     studentId: action.kind === 'attendance' ? action.studentId : '',
     eventType: action.kind === 'attendance' ? action.eventType : 'board',
     ...(action.kind === 'trip_status' ? { tripStatus: action.tripStatus } : {}),
+    ...(action.kind === 'stop_mark'
+      ? {
+          stopId: action.stopId,
+          stopAction: action.stopAction,
+          ...(action.skipReason === undefined ? {} : { skipReason: action.skipReason }),
+        }
+      : {}),
     status: 'pending',
     retryCount: 0,
     lastError: null,
@@ -319,6 +368,9 @@ export function countFailed(items: QueuedAttendanceEvent[], userId: string | nul
 export function describeAction(item: QueuedAttendanceEvent): string {
   if (item.kind === 'trip_status') {
     return `Trip → ${item.tripStatus ?? 'status'}`;
+  }
+  if (item.kind === 'stop_mark') {
+    return item.stopAction === 'skip' ? 'Skip stop' : 'Mark stop arrived';
   }
   return item.eventType === 'board' ? 'Board student' : 'Drop student';
 }

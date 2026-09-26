@@ -250,6 +250,162 @@ export class StopArrivalsService {
     }
   }
 
+  /**
+   * Crew stop marking — the manual write path behind
+   * `POST /trips/:tripId/stops/:stopId/arrive` and `.../skip`.
+   *
+   * It lands in the **same** `trip_stop_arrivals` table as the geofence
+   * pipeline, so the progress frontier, the ETA's `next_stop` and the
+   * arrivals read all keep exactly one source of truth; the new `source`
+   * column is what tells the two apart afterwards.
+   *
+   * Authorisation, the trip's open state and the reason's shape are the
+   * caller's job (`CrewStopMarkingService`) — this method is the writer.
+   *
+   * **Idempotent by construction.** A stop that already has a row (recorded
+   * by GPS seconds earlier, or by a replayed offline-queue tap) is returned
+   * as-is with `created: false`: no second row, no second notification, no
+   * second broadcast. The unique `(school_id, trip_id, stop_id)` index is the
+   * cross-process backstop for the same rule, and a racing insert is caught
+   * and re-read rather than surfaced as a 500.
+   *
+   * Notifications and the `trip:stop:arrived` broadcast run for an **arrival**
+   * only. A skip means the bus did not serve the stop, so telling a parent
+   * "the bus reached your stop" would be a lie; the school still sees it,
+   * because the row (and its `skip_reason`) is in the arrivals read the trip
+   * detail already uses.
+   */
+  async recordCrewStopMark(args: {
+    trip: Trip;
+    stop: { id: string; name: string; sequence_number: number };
+    actorUserId: string;
+    /** Non-null makes this a skip; null is a plain crew-marked arrival. */
+    skipReason: string | null;
+    now?: Date;
+  }): Promise<{ row: TripStopArrival; created: boolean }> {
+    const { trip, stop, actorUserId, skipReason } = args;
+    const now = args.now ?? new Date();
+
+    const existing = await this.findArrival(trip, stop.id);
+    if (existing) {
+      this.markSeen(trip.id, stop.id);
+      return { row: existing, created: false };
+    }
+
+    let row: TripStopArrival;
+    try {
+      row = await this.persistCrewMark({ trip, stop, actorUserId, skipReason, now });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        // Another device (or the geofence evaluator) recorded the same visit
+        // first. The caller asked for "this stop is recorded"; it is.
+        const raced = await this.findArrival(trip, stop.id);
+        if (raced) {
+          this.markSeen(trip.id, stop.id);
+          return { row: raced, created: false };
+        }
+      }
+      throw error;
+    }
+
+    // The evaluator must not re-record what the crew just recorded.
+    this.markSeen(trip.id, stop.id);
+    this.insideForTrip(trip.id).delete(stop.id);
+
+    if (skipReason === null) {
+      const event: TripStopArrivedEvent = {
+        trip_id: trip.id,
+        school_id: trip.school_id,
+        trip_status: trip.status,
+        tracking_state: getTripTrackingState(trip.status),
+        stop_id: stop.id,
+        stop_name: stop.name,
+        sequence_number: stop.sequence_number,
+        arrived_at: toIsoString(row.arrived_at),
+        latitude: null,
+        longitude: null,
+        distance_meters: null,
+        source: 'crew',
+      };
+      this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
+    }
+
+    return { row, created: true };
+  }
+
+  /** The existing arrival row of one trip-stop, tenant-pinned. */
+  private async findArrival(trip: Trip, stopId: string): Promise<TripStopArrival | null> {
+    return this.arrivals.findOne({
+      where: { school_id: trip.school_id, trip_id: trip.id, stop_id: stopId },
+    });
+  }
+
+  /**
+   * Writes one crew-marked row — and, for an arrival, its parent
+   * notifications in the same transaction, for the same reason the geofence
+   * path does it (fix D): a committed arrival always has its alert intent,
+   * and a rollback leaves neither.
+   *
+   * No coordinates are stored. The crew pressed a button; the phone's GPS may
+   * have been off, and inventing a position (the stop's own, or 0/0) would be
+   * indistinguishable from a measured fix in every downstream read.
+   */
+  private async persistCrewMark(args: {
+    trip: Trip;
+    stop: { id: string; name: string };
+    actorUserId: string;
+    skipReason: string | null;
+    now: Date;
+  }): Promise<TripStopArrival> {
+    const { trip, stop, actorUserId, skipReason, now } = args;
+
+    const create = (transaction?: Transaction): Promise<TripStopArrival> =>
+      this.arrivals.create(
+        {
+          school_id: trip.school_id,
+          trip_id: trip.id,
+          stop_id: stop.id,
+          arrived_at: now,
+          latitude: null,
+          longitude: null,
+          distance_meters: null,
+          source: 'crew',
+          skip_reason: skipReason,
+          recorded_by: actorUserId,
+        },
+        ...(transaction ? [{ transaction }] : []),
+      );
+
+    const notify = (transaction?: Transaction): Promise<void> => {
+      if (skipReason !== null) {
+        // A skipped stop was not served: no parent is told anything.
+        return Promise.resolve();
+      }
+      return this.notifications.notifyStopArrival(
+        {
+          school_id: trip.school_id,
+          trip_id: trip.id,
+          stop: { id: stop.id, name: stop.name },
+          occurred_at: now,
+        },
+        transaction ? { transaction } : {},
+      );
+    };
+
+    const sequelize =
+      this.sequelize ?? (this.arrivals as unknown as { sequelize?: Sequelize }).sequelize;
+    if (!sequelize) {
+      const row = await create();
+      await notify();
+      return row;
+    }
+    return sequelize.transaction(async (transaction) => {
+      const row = await create(transaction);
+      await notify(transaction);
+      return row;
+    });
+  }
+
   /** Drops the per-process arrival memory once a trip becomes terminal. */
   resetForTrip(tripId: string): void {
     this.seenByTrip.delete(tripId);
@@ -502,9 +658,10 @@ export class StopArrivalsService {
       stop_name: candidate.name,
       sequence_number: candidate.sequence_number,
       arrived_at: toIsoString(row.arrived_at),
-      latitude: row.latitude,
-      longitude: row.longitude,
-      distance_meters: row.distance_meters,
+      latitude: row.latitude ?? null,
+      longitude: row.longitude ?? null,
+      distance_meters: row.distance_meters ?? null,
+      source: 'geofence',
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
 
@@ -560,6 +717,11 @@ export class StopArrivalsService {
           latitude: fix.latitude,
           longitude: fix.longitude,
           distance_meters: distanceMeters,
+          // Stated, never defaulted: the row's provenance is a fact of the
+          // write, and the crew path sets its own value the same way.
+          source: 'geofence',
+          skip_reason: null,
+          recorded_by: null,
         },
         ...(transaction ? [{ transaction }] : []),
       );
@@ -616,9 +778,15 @@ export class StopArrivalsService {
       stop_id: arrival.stop_id,
       stop_name: stopById.get(arrival.stop_id)?.name ?? 'Unknown stop',
       arrived_at: toIsoString(arrival.arrived_at),
-      latitude: arrival.latitude,
-      longitude: arrival.longitude,
-      distance_meters: arrival.distance_meters,
+      latitude: arrival.latitude ?? null,
+      longitude: arrival.longitude ?? null,
+      distance_meters: arrival.distance_meters ?? null,
+      // Rows written before crew marking existed have no `source` value in
+      // memory until the column default is read back; `geofence` is what
+      // every one of them is, so the projection is stable either way.
+      source: arrival.source ?? 'geofence',
+      skip_reason: arrival.skip_reason ?? null,
+      recorded_by: arrival.recorded_by ?? null,
       created_at: toIsoString(arrival.created_at),
     }));
   }

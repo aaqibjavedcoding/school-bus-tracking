@@ -89,6 +89,25 @@ export const en = {
   'trip.kids.none': 'No kids at this stop',
   'trip.kids.noNext': 'No upcoming stop',
   'trip.kids.more': '+{count} more',
+  // ── Crew stop marking (Arrived / Skip) ────────────────────────────────
+  // The manual fallback for a stop the 100 m geofence never saw. The block
+  // states why it is there, because a button that writes an arrival by hand
+  // needs the crew to understand when to use it.
+  'trip.stopMark.title': 'Mark this stop',
+  'trip.stopMark.hint': 'Use this when GPS is off or weak and the stop did not record itself.',
+  'trip.stopMark.arrived': 'Arrived',
+  'trip.stopMark.skip': 'Skip stop',
+  'trip.stopMark.reasonLabel': 'Why are you skipping this stop?',
+  'trip.stopMark.reasonPlaceholder': 'e.g. road closed, nobody waiting',
+  'trip.stopMark.reasonTooShort': 'Please write at least 3 characters.',
+  'trip.stopMark.confirmSkip': 'Confirm skip',
+  'trip.stopMark.cancel': 'Cancel',
+  'trip.stopMark.recorded': 'Stop {number} recorded · {count} kids here',
+  'trip.stopMark.recordedNoKids': 'Stop {number} recorded',
+  'trip.stopMark.alreadyRecorded': 'Stop {number} was already recorded',
+  'trip.stopMark.skipped': 'Stop {number} skipped',
+  'trip.stopMark.queued': 'Saved on this phone — it will sync when you are back online.',
+  'trip.stopMark.failed': 'Could not mark this stop.',
 
   // ── Trip lifecycle actions ─────────────────────────────────────────────
   'trip.action.boarding': 'Start boarding',
@@ -314,6 +333,10 @@ export const en = {
   'stops.arrivals': 'Arrivals',
   'stops.noArrivals': 'No stop has been recorded yet for this trip.',
   'stops.arrivalMeta': '{time} · {distance} from stop',
+  // A crew-marked stop has no measured distance — saying "— from stop"
+  // would read as missing data rather than as "nobody measured it".
+  'stops.arrivalMetaCrew': '{time} · marked by crew',
+  'stops.arrivalMetaSkipped': '{time} · skipped: {reason}',
   'stops.empty.title': 'No trip today',
   'stops.empty.body': 'Stops and ETAs appear once a trip is dispatched.',
 
@@ -436,6 +459,10 @@ export const en = {
   'voice.stop.next': 'Next stop: {name}, {count} students',
   'voice.stop.approaching': 'Approaching {name}, {count} students',
   'voice.stop.near': 'Stop {number} coming up, {count} students',
+  // The receipt for a stop the crew marked by hand, spoken only after the
+  // server confirmed it (never on the optimistic tap).
+  'voice.stop.recorded': 'Stop {number} recorded, {count} students board here',
+  'voice.stop.skipped': 'Stop {number} skipped',
   'voice.native.board.done': '{name} has boarded, {time}',
   'voice.native.drop.done': '{name} has got off, {time}',
   'voice.native.board.summary': '{count} students boarded',
@@ -456,6 +483,8 @@ export const en = {
   'voice.native.stop.next': 'Next stop: {name}, {count} students',
   'voice.native.stop.approaching': 'Approaching {name}, {count} students',
   'voice.native.stop.near': 'Stop {number} coming up, {count} students',
+  'voice.native.stop.recorded': 'Stop {number} recorded, {count} students board here',
+  'voice.native.stop.skipped': 'Stop {number} skipped',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'KB',

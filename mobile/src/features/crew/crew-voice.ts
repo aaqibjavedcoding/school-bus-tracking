@@ -568,7 +568,19 @@ export type CrewFeedbackEvent =
    * the stop's own position on the route ("Stop 4 aa raha hai"), never
    * student data; `null` never fires (see `next-stop-announcer.ts`).
    */
-  | { type: 'stop.near'; stopName: string; studentCount: number; sequenceNumber: number | null };
+  | { type: 'stop.near'; stopName: string; studentCount: number; sequenceNumber: number | null }
+  /**
+   * The server confirmed a **crew-marked** stop ("Stop 3 record ho gaya, 5
+   * bachche chadhenge yahan").
+   *
+   * Only ever reported after the API answered — never on the optimistic tap
+   * and never on the offline-queued path. A stop the bus has not actually
+   * been recorded at must not be announced to a busload of people, and the
+   * queued case has its own quiet "saved, will sync" note on screen.
+   */
+  | { type: 'stop.recorded'; sequenceNumber: number | null; studentCount: number }
+  /** The same confirmation for a skip — no head count, nobody was served. */
+  | { type: 'stop.skipped'; sequenceNumber: number | null };
 
 export type CrewFeedbackEventType = CrewFeedbackEvent['type'];
 
@@ -577,6 +589,17 @@ export const STOP_ANNOUNCEMENT_EVENTS: readonly CrewFeedbackEventType[] = [
   'stop.next',
   'stop.approaching',
   'stop.near',
+];
+
+/**
+ * The crew's own stop marking, confirmed by the server. Kept apart from
+ * {@link STOP_ANNOUNCEMENT_EVENTS} on purpose: those are the announcer's
+ * edge-triggered predictions about where the bus is going, these are receipts
+ * for something a person did.
+ */
+export const STOP_MARK_EVENTS: readonly CrewFeedbackEventType[] = [
+  'stop.recorded',
+  'stop.skipped',
 ];
 
 /**
@@ -667,6 +690,9 @@ function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | nu
       return stopPhrase(event, script);
     case 'stop.near':
       return stopNearPhrase(event, script);
+    case 'stop.recorded':
+    case 'stop.skipped':
+      return stopMarkPhrase(event, script);
     default:
       return null;
   }
@@ -710,6 +736,31 @@ function stopNearPhrase(
   const number = event.sequenceNumber;
   if (number === null || !Number.isInteger(number) || number < 1) return null;
   return t(voiceLine(script, 'voice.native.stop.near', 'voice.stop.near'), {
+    number,
+    count: event.studentCount,
+  });
+}
+
+/**
+ * "Stop 3 record ho gaya, 5 bachche chadhenge yahan" — the receipt for a
+ * crew-marked stop, and its no-count twin for a skip.
+ *
+ * Spoken by **stop number** for the same reason as the proximity line: that
+ * is what the driver matches against the route sheet and the "Stop 4 of 8"
+ * on the card. `null` when the number is unknown — a receipt that says
+ * "Stop , recorded" is worse than silence, and the button already showed a
+ * written confirmation.
+ */
+function stopMarkPhrase(
+  event: Extract<CrewFeedbackEvent, { type: 'stop.recorded' } | { type: 'stop.skipped' }>,
+  script: VoiceScript,
+): string | null {
+  const number = event.sequenceNumber;
+  if (number === null || !Number.isInteger(number) || number < 1) return null;
+  if (event.type === 'stop.skipped') {
+    return t(voiceLine(script, 'voice.native.stop.skipped', 'voice.stop.skipped'), { number });
+  }
+  return t(voiceLine(script, 'voice.native.stop.recorded', 'voice.stop.recorded'), {
     number,
     count: event.studentCount,
   });

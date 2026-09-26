@@ -85,6 +85,22 @@ export const hi: Dictionary = {
   'trip.kids.none': 'इस स्टॉप पर कोई बच्चा नहीं',
   'trip.kids.noNext': 'कोई अगला स्टॉप नहीं',
   'trip.kids.more': '+{count} और',
+  // ── क्रू स्टॉप मार्किंग (पहुँचे / छोड़ें) ────────────────────────────────
+  'trip.stopMark.title': 'यह स्टॉप दर्ज करें',
+  'trip.stopMark.hint': 'GPS बंद या कमज़ोर हो और स्टॉप खुद दर्ज न हो, तब इसका उपयोग करें।',
+  'trip.stopMark.arrived': 'पहुँच गए',
+  'trip.stopMark.skip': 'स्टॉप छोड़ें',
+  'trip.stopMark.reasonLabel': 'यह स्टॉप क्यों छोड़ रहे हैं?',
+  'trip.stopMark.reasonPlaceholder': 'जैसे रास्ता बंद, कोई नहीं था',
+  'trip.stopMark.reasonTooShort': 'कम से कम 3 अक्षर लिखें।',
+  'trip.stopMark.confirmSkip': 'छोड़ना पक्का करें',
+  'trip.stopMark.cancel': 'रद्द करें',
+  'trip.stopMark.recorded': 'स्टॉप {number} दर्ज · यहाँ {count} बच्चे',
+  'trip.stopMark.recordedNoKids': 'स्टॉप {number} दर्ज हो गया',
+  'trip.stopMark.alreadyRecorded': 'स्टॉप {number} पहले ही दर्ज था',
+  'trip.stopMark.skipped': 'स्टॉप {number} छोड़ा गया',
+  'trip.stopMark.queued': 'इस फ़ोन में सहेजा गया — इंटरनेट आते ही भेज दिया जाएगा।',
+  'trip.stopMark.failed': 'यह स्टॉप दर्ज नहीं हो सका।',
 
   // ── Trip lifecycle actions ─────────────────────────────────────────────
   'trip.action.boarding': 'बोर्डिंग शुरू करें',
@@ -286,6 +302,8 @@ export const hi: Dictionary = {
   'stops.arrivals': 'पहुँचने का रिकॉर्ड',
   'stops.noArrivals': 'इस ट्रिप में अभी कोई स्टॉप दर्ज नहीं हुआ।',
   'stops.arrivalMeta': '{time} · स्टॉप से {distance}',
+  'stops.arrivalMetaCrew': '{time} · क्रू ने दर्ज किया',
+  'stops.arrivalMetaSkipped': '{time} · छोड़ा गया: {reason}',
   'stops.empty.title': 'आज कोई ट्रिप नहीं है',
   'stops.empty.body': 'ट्रिप भेजते ही स्टॉप और ETA दिखने लगेंगे।',
 
@@ -389,6 +407,8 @@ export const hi: Dictionary = {
   'voice.stop.next': 'Agla stop: {name}, {count} bachche',
   'voice.stop.approaching': '{name} pahunchne wale hain, {count} bachche',
   'voice.stop.near': 'Stop {number} aa raha hai, {count} bachche',
+  'voice.stop.recorded': 'Stop {number} record ho gaya, {count} bachche chadhenge yahan',
+  'voice.stop.skipped': 'Stop {number} chhod diya gaya',
   // Devanagari — spoken ONLY when the phone has a `hi-IN` voice installed.
   // A student's first name stays whatever script the school typed it in; an
   // `hi-IN` engine reads a Latin name inside a Hindi sentence correctly.
@@ -412,6 +432,8 @@ export const hi: Dictionary = {
   'voice.native.stop.next': 'अगला स्टॉप: {name}, {count} बच्चे',
   'voice.native.stop.approaching': '{name} पहुँचने वाले हैं, {count} बच्चे',
   'voice.native.stop.near': 'स्टॉप {number} आ रहा है, {count} बच्चे',
+  'voice.native.stop.recorded': 'स्टॉप {number} दर्ज हो गया, यहाँ {count} बच्चे चढ़ेंगे',
+  'voice.native.stop.skipped': 'स्टॉप {number} छोड़ दिया गया',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',

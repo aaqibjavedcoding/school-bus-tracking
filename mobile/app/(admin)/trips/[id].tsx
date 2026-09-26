@@ -7,6 +7,7 @@ import type {
   RouteStopsListResponse,
   StopResponse,
   TripResponse,
+  TripStopArrivalListResponse,
   TripStudentManifestResponse,
 } from '@school-bus-tracking/shared-types';
 import { colors, spacing } from '@school-bus-tracking/design-tokens';
@@ -30,12 +31,19 @@ import {
   TrackingStateBadge,
   TripStatusBadge,
 } from '../../../src/components';
-import { formatDate, formatTime } from '../../../src/lib/format';
+import { formatDate, formatDistanceMeters, formatTime } from '../../../src/lib/format';
 
 /**
  * Admin trip cockpit: lifecycle control (including cancellation with a
- * reason), the live map + ETA stream, recorded geofence arrivals and the
+ * reason), the live map + ETA stream, the trip's stop records and the
  * student manifest with the same board/drop endpoints the crew uses.
+ *
+ * The stop records section answers the school's question after the fact:
+ * which stops the run actually served, and — since crew stop marking — which
+ * ones the crew marked by hand because GPS never saw them, and which ones
+ * they **skipped** and why. A skip sends no parent notification by design, so
+ * this list is the only place it surfaces; leaving it out would make the
+ * quietest event of the run also the invisible one.
  *
  * **One scroll owner.** The manifest is a `SectionList`, so as soon as it has
  * rows it owns the screen's scrolling and the cockpit above it is passed in
@@ -57,15 +65,20 @@ export default function AdminTripDetailScreen() {
     trip: TripResponse;
     route: RouteResponse | null;
     stops: StopResponse[];
+    arrivals: TripStopArrivalListResponse | null;
     manifest: TripStudentManifestResponse | null;
   }> => {
     if (!usableId) {
       throw new Error(invalidIdMessage('trip'));
     }
     const trip = unwrapEnvelope<TripResponse>(await apiClient.getTrip(tripId));
-    const [routeEnvelope, stopsEnvelope, manifestEnvelope] = await Promise.all([
+    const [routeEnvelope, stopsEnvelope, arrivalsEnvelope, manifestEnvelope] = await Promise.all([
       apiClient.listRoutes({ page: 1, limit: 100 }),
       apiClient.listRouteStops(trip.route_id),
+      apiClient
+        .getTripArrivals(trip.id)
+        .then((envelope) => unwrapEnvelope<TripStopArrivalListResponse>(envelope))
+        .catch(() => null),
       apiClient
         .listTripStudents(trip.id)
         .then((envelope) => unwrapEnvelope<TripStudentManifestResponse>(envelope))
@@ -78,6 +91,7 @@ export default function AdminTripDetailScreen() {
           (route) => route.id === trip.route_id,
         ) ?? null,
       stops: unwrapEnvelope<RouteStopsListResponse>(stopsEnvelope).items,
+      arrivals: arrivalsEnvelope,
       manifest: manifestEnvelope,
     };
   }, [tripId, usableId]);
@@ -168,6 +182,28 @@ export default function AdminTripDetailScreen() {
       <SectionTitle>Route stops</SectionTitle>
       <StopsEtaList eta={live.eta} />
 
+      <SectionTitle>Stop records</SectionTitle>
+      {(data.arrivals?.items.length ?? 0) === 0 ? (
+        <Text style={styles.muted}>No stop has been recorded on this trip yet.</Text>
+      ) : (
+        <Card title="Recorded stops">
+          {data.arrivals!.items.map((arrival) => (
+            <View key={arrival.id} style={styles.arrivalRow}>
+              <Text style={styles.arrivalName}>{arrival.stop_name}</Text>
+              <Text style={styles.arrivalMeta}>
+                {arrival.skip_reason !== null
+                  ? `${formatTime(arrival.arrived_at)} · Skipped by crew: ${arrival.skip_reason}`
+                  : arrival.source === 'crew'
+                    ? `${formatTime(arrival.arrived_at)} · Marked arrived by crew`
+                    : `${formatTime(arrival.arrived_at)} · Geofence · ${formatDistanceMeters(
+                        arrival.distance_meters,
+                      )} from stop`}
+              </Text>
+            </View>
+          ))}
+        </Card>
+      )}
+
       <SectionTitle>Student manifest</SectionTitle>
     </>
   );
@@ -242,6 +278,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.lg,
+  },
+  arrivalRow: {
+    gap: 2,
+    paddingVertical: spacing.xs,
+  },
+  arrivalName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.neutral[900],
+  },
+  arrivalMeta: {
+    fontSize: 14,
+    color: colors.neutral[600],
   },
   etaWrap: {
     marginTop: spacing.sm,

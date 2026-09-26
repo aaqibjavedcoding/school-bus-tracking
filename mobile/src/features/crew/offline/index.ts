@@ -3,6 +3,7 @@ export {
   queueBoard,
   queueDrop,
   queueTripStatus,
+  queueStopMark,
   enqueue,
   markSuccess,
   markFailed,
@@ -16,6 +17,7 @@ export {
   type QueueItemStatus,
   type AttendanceEventType,
   type QueuedActionKind,
+  type StopMarkAction,
 } from './attendance-queue';
 
 export {

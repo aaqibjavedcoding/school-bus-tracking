@@ -12,6 +12,7 @@ import {
   GpsShareStrip,
   SosQuickPanel,
   StatusCard,
+  StopMarkActions,
   TripStatusActions,
   TripNavigationCard,
   isTripShareable,
@@ -382,6 +383,31 @@ export default function CrewTripScreen() {
       ) : (
         <NextStopKidCard summary={nextStopKids} loaded={!kidsLoad.loading} />
       )}
+
+      {/**
+       * The manual stop record — both roles, right under the next-stop block
+       * it refers to. The geofence stays the default; this is what the crew
+       * reaches for when it did not fire, which is exactly when the run would
+       * otherwise stick. Offline-safe by construction (see
+       * `StopMarkActions`), and its confirmation only speaks once the server
+       * has actually recorded the stop.
+       */}
+      <StopMarkActions
+        tripId={trip.id}
+        stop={
+          progress.nextStop
+            ? {
+                id: progress.nextStop.id,
+                name: progress.nextStop.name,
+                sequence_number: progress.nextStop.sequence_number,
+              }
+            : null
+        }
+        onMarked={() => {
+          void refresh();
+          void kidsLoad.refresh();
+        }}
+      />
 
       <View style={styles.linkRow}>
         <Button

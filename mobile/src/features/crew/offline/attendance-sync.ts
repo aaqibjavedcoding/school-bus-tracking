@@ -17,7 +17,7 @@ import { getApiErrorMessage } from '../../../lib/errors.ts';
  * Offline crew-action sync manager.
  *
  * Monitors connectivity and replays queued actions (attendance board/drop,
- * trip status transitions) **sequentially, oldest first** through the same
+ * trip status transitions, crew stop marking) **sequentially, oldest first** through the same
  * `apiClient` methods the online path uses, each with the idempotency key
  * captured when the action was queued. The API deduplicates on that key, so
  * a replay that already reached the server (response lost in transit, app
@@ -235,6 +235,21 @@ async function runOnePass(userId: string): Promise<void> {
   publish();
 }
 
+/**
+ * Replays one queued stop mark.
+ *
+ * The endpoints are idempotent on the item's own key, so a mark that already
+ * reached the server (response lost, app killed mid-flight) comes back as the
+ * original answer rather than a second arrival row.
+ */
+async function replayStopMark(item: QueuedAttendanceEvent, options: RequestInit) {
+  const stopId = item.stopId ?? '';
+  if (item.stopAction === 'skip') {
+    return apiClient.skipTripStop(item.tripId, stopId, { reason: item.skipReason ?? '' }, options);
+  }
+  return apiClient.markTripStopArrived(item.tripId, stopId, options);
+}
+
 /** Sends one queued action to the API and classifies the result. */
 async function replayItem(item: QueuedAttendanceEvent) {
   await markSyncing(item.id);
@@ -243,9 +258,11 @@ async function replayItem(item: QueuedAttendanceEvent) {
     const envelope =
       item.kind === 'trip_status'
         ? await apiClient.updateTripStatus(item.tripId, { status: item.tripStatus! }, options)
-        : item.eventType === 'board'
-          ? await apiClient.boardTripStudent(item.tripId, item.studentId, options)
-          : await apiClient.dropTripStudent(item.tripId, item.studentId, options);
+        : item.kind === 'stop_mark'
+          ? await replayStopMark(item, options)
+          : item.eventType === 'board'
+            ? await apiClient.boardTripStudent(item.tripId, item.studentId, options)
+            : await apiClient.dropTripStudent(item.tripId, item.studentId, options);
     return classifySyncOutcome({
       ok: envelope.success !== false,
       status: envelope.success === false ? 500 : 200,

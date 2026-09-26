@@ -123,10 +123,24 @@ export default function CrewStopsScreen() {
             <View key={arrival.id} style={styles.arrivalRow}>
               <Text style={styles.arrivalName}>{arrival.stop_name}</Text>
               <Text style={styles.arrivalMeta}>
-                {t('stops.arrivalMeta', {
-                  time: formatTime(arrival.arrived_at),
-                  distance: formatDistanceMeters(arrival.distance_meters),
-                })}
+                {/*
+                 * Three shapes, because the row now has three provenances.
+                 * A crew-marked stop has no measured distance and a skipped
+                 * one was not served at all — rendering either as
+                 * "— from stop" would read as missing data instead of as
+                 * what actually happened.
+                 */}
+                {arrival.skip_reason !== null
+                  ? t('stops.arrivalMetaSkipped', {
+                      time: formatTime(arrival.arrived_at),
+                      reason: arrival.skip_reason,
+                    })
+                  : arrival.source === 'crew'
+                    ? t('stops.arrivalMetaCrew', { time: formatTime(arrival.arrived_at) })
+                    : t('stops.arrivalMeta', {
+                        time: formatTime(arrival.arrived_at),
+                        distance: formatDistanceMeters(arrival.distance_meters),
+                      })}
               </Text>
             </View>
           ))}

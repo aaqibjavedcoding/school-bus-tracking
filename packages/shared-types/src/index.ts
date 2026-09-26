@@ -2411,6 +2411,19 @@ export interface TripEtaResponse {
   warnings?: TripStopWarning[];
 }
 
+/**
+ * How a stop-arrival row came to exist.
+ *
+ * - `geofence` — the Task 22 GPS pipeline matched an accepted fix against the
+ *   stop's `geofence_radius_meters`. Every row written before crew marking
+ *   existed is this, and the column defaults to it, so historical data keeps
+ *   its exact previous meaning.
+ * - `crew` — the driver/conductor pressed **Arrived** or **Skip** on the
+ *   mobile trip screen. GPS may have been off, weak or simply wrong; the row
+ *   is the crew's testimony, not a measurement, so it carries no position.
+ */
+export type TripStopArrivalSource = 'geofence' | 'crew';
+
 /** One persisted stop-arrival event of a trip. */
 export interface TripStopArrivalResponse {
   id: string;
@@ -2420,12 +2433,60 @@ export interface TripStopArrivalResponse {
   stop_name: string;
   /** ISO-8601 server time at which the arrival was recorded. */
   arrived_at: string;
-  /** GPS position of the bus at the moment it entered the stop's geofence. */
-  latitude: number;
-  longitude: number;
-  /** Straight-line (Haversine) metres between the bus and the stop at arrival. */
-  distance_meters: number;
+  /**
+   * GPS position of the bus at the moment it entered the stop's geofence.
+   * `null` for a crew-marked stop — nothing was measured, and a fabricated
+   * coordinate would be indistinguishable from a real fix downstream.
+   */
+  latitude: number | null;
+  longitude: number | null;
+  /**
+   * Straight-line (Haversine) metres between the bus and the stop at arrival;
+   * `null` for a crew-marked stop (see `latitude`).
+   */
+  distance_meters: number | null;
+  /** Whether the geofence pipeline or the crew produced this row. */
+  source: TripStopArrivalSource;
+  /**
+   * Why the crew skipped this stop, verbatim as they typed it. Non-null
+   * **only** on a skip — a normal arrival (geofence or crew-marked) leaves it
+   * null, so `skip_reason !== null` is the single test for "passed without
+   * serving". Parents are never notified about a skip; the admin sees it on
+   * the trip detail through this field.
+   */
+  skip_reason: string | null;
+  /** The crew member who marked it, or null for a geofence arrival. */
+  recorded_by: string | null;
   created_at: string;
+}
+
+/** Body of `POST /api/v1/trips/:tripId/stops/:stopId/skip`. */
+export interface TripStopSkipRequest {
+  /** Free text, at least 3 characters — why the stop was not served. */
+  reason: string;
+}
+
+/**
+ * Successful payload of the two crew stop-marking endpoints
+ * (`POST /trips/:tripId/stops/:stopId/arrive` and `.../skip`).
+ *
+ * The arrival row plus the two facts the crew's confirmation is spoken from
+ * ("Stop 3 recorded, 5 children board here"), so the phone reads them off the
+ * server's answer instead of its own possibly-stale manifest slice.
+ */
+export interface TripStopCrewMarkResponse {
+  arrival: TripStopArrivalResponse;
+  /** The stop's 1-based position on the route. */
+  stop_sequence_number: number;
+  /** Active students whose home stop this is — the count worth announcing. */
+  students_expected: number;
+  /**
+   * False when the stop was already recorded (by the geofence pipeline or an
+   * earlier tap) and this call changed nothing. The endpoint still answers
+   * `200` with the existing row: a replayed offline-queue item must never
+   * create a second arrival, and must never look like a failure to the crew.
+   */
+  created: boolean;
 }
 
 /** Successful payload of `GET /api/v1/trips/:tripId/arrivals`. */
@@ -2473,11 +2534,19 @@ export interface TripStopArrivedEvent {
   sequence_number: number;
   /** ISO-8601 server time at which the arrival was recorded. */
   arrived_at: string;
-  /** GPS position of the bus when it entered the geofence. */
-  latitude: number;
-  longitude: number;
-  /** Straight-line (Haversine) metres between the bus and the stop at arrival. */
-  distance_meters: number;
+  /** GPS position of the bus when it entered the geofence; null when crew-marked. */
+  latitude: number | null;
+  longitude: number | null;
+  /**
+   * Straight-line (Haversine) metres between the bus and the stop at arrival;
+   * null when crew-marked (nothing was measured).
+   */
+  distance_meters: number | null;
+  /**
+   * Whether the geofence pipeline or the crew produced this arrival. A skip
+   * never broadcasts this event — the bus did not stop there.
+   */
+  source: TripStopArrivalSource;
 }
 
 /** Server → room: the approximate ETA of the trip was recomputed after a fix. */

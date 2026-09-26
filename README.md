@@ -169,6 +169,38 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
 - Each write is scoped to the caller's own trips for crew, and to the tenant for admins.
 - Parents get a notification per board/drop (see §3.9).
 
+### 3.6a Crew stop marking (Arrived / Skip)
+
+- A stop used to become "reached" **only** through the GPS geofence (100 m). With location off,
+  the signal weak or the bus parked across the road the run stuck: `next_stop` never advanced and
+  parents further down the route were never alerted. Two crew endpoints are the manual fallback:
+  - `POST /trips/:tripId/stops/:stopId/arrive` — body-less;
+  - `POST /trips/:tripId/stops/:stopId/skip` — `{ "reason": "…" }`, **required**, at least 3
+    characters after trimming (`isValidStopSkipReason` in `@school-bus-tracking/validation`, used by
+    both the server DTO and the mobile button).
+- **Crew of that trip only** (`DRIVER` / `CONDUCTOR`) — proven by the trip's dispatch snapshot or an
+  active `RouteAssignment` effective on the trip date; a `SCHOOL_ADMIN` is deliberately excluded,
+  because marking a stop is testimony about where a bus physically was. Everything a caller may not
+  see is the same generic `404`. Open trips only (the attendance window) — otherwise `409`.
+- **Idempotent** in the same way board/drop are: the `x-idempotency-key` header (scopes
+  `crew-stops.arrive` / `crew-stops.skip`) plus the `(school_id, trip_id, stop_id)` unique index. A
+  stop already recorded — by the geofence, or by a replay of the same offline-queue item — answers
+  `200` with the existing row and `created: false`. Never a second row, notification or broadcast.
+- Both writes land in the **same** `trip_stop_arrivals` table as the geofence pipeline, so the
+  progress frontier, `next_stop` and `GET /trips/:tripId/arrivals` keep one source of truth. New
+  columns: `source` (`geofence` | `crew`, defaulting to `geofence` so every existing row keeps its
+  meaning), `skip_reason` (non-null only on a skip) and `recorded_by`. A crew mark stores **no**
+  coordinates — nothing was measured — so `latitude` / `longitude` / `distance_meters` are now
+  nullable and the response types read `number | null`.
+- A crew-marked **arrival** notifies parents and broadcasts `trip:stop:arrived` exactly like a
+  geofence arrival. A **skip** does neither — nobody's child was served — but it is visible to the
+  school on the trip detail through the arrivals read, carrying its reason. Every call writes an
+  audit row (`stop.crew_arrive` / `stop.crew_skip`).
+- Mobile: the buttons go through the crew offline queue, so a tap with no coverage is saved and
+  replayed with its own idempotency key. The written confirmation and the spoken line ("Stop 3
+  recorded, 5 children board here") fire **only** once the server has answered, and read their
+  numbers off that answer — the queued path stays silent and says "saved on this phone".
+
 ### 3.7 Live tracking & GPS
 
 - Crew publishes fixes over **Socket.IO `/live-tracking`** as `trip:location:update`, validated
@@ -691,7 +723,7 @@ stream (`Content-Disposition`, `nosniff`, `no-store`, `X-Total-Records`).
 | Operating model | `GET` / `POST` `/shifts` and `/shifts/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs` · `/runs/:id` (+ PATCH, DELETE) · `GET` / `POST` `/runs/:id/crew` · `GET` / `PATCH` / `DELETE` `/run-crew/:id` · `GET /users/:userId/run-crew` · `GET` / `PATCH` / `DELETE` `/route-assignments[/:id]` (declared writes respond `410 Gone` with `Deprecation` headers) · `GET` / `POST` `/assignments` · `GET` / `PATCH` / `DELETE` `/assignments/:id`                                                                                                                                                                                                                                    |
 | People          | `GET` / `POST` `/students` · `GET` / `PATCH` / `DELETE` `/students/:studentId` · `GET` / `POST` / `PATCH` / `DELETE` `/students/:studentId/guardians[/:parentId]` · `GET` / `POST` `/parents` · `/parents/:parentId/students[/:studentId]` · `GET /parents/me/students` · `GET` / `POST` `/drivers` · `/drivers/:driverId` · `GET` / `POST` `/conductors` · `/conductors/:id`                                                                                                                                                                                                                                                                                                   |
 | Trips           | `GET` / `POST` `/trips` · `GET` / `PATCH` / `DELETE` `/trips/:tripId` · `PATCH /trips/:tripId/status` · `POST /trips/:tripId/cancel` · `GET /trips/:tripId/students` (manifest + summary) · `GET /trips/:tripId/students/:studentId` · `POST .../board` · `POST .../drop`                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Tracking / ETA  | `POST` / `GET` `/trips/:tripId/location` · `GET /trips/:tripId/location/history` · `GET /trips/:tripId/eta` · `GET /trips/:tripId/arrivals` · `GET /trips/:tripId/progress`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Tracking / ETA  | `POST` / `GET` `/trips/:tripId/location` · `GET /trips/:tripId/location/history` · `GET /trips/:tripId/eta` · `GET /trips/:tripId/arrivals` · `GET /trips/:tripId/progress` · `POST /trips/:tripId/stops/:stopId/arrive` · `POST /trips/:tripId/stops/:stopId/skip` (crew stop marking)                                                                                                                                                                                                                                                                                                                                                                                         |
 | Parent portal   | `GET /parent/dashboard` · `GET /parent/children` · `GET /parent/children/:id` · `.../today` · `.../tracking` · `GET /parent/notifications` · `PATCH /parent/notifications/:id/read` · `PATCH /parent/notifications/read-all`                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Notifications   | `POST /notifications/devices` · `DELETE /notifications/devices/:token`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Emergencies     | `POST /emergencies/sos` · `GET /emergencies` · `GET /emergencies/active` · `GET /emergencies/mine` · `GET /emergencies/:id` · `PATCH /emergencies/:id/status` · `POST /emergencies/:id/cancel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
