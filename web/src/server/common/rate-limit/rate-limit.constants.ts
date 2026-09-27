@@ -24,6 +24,7 @@ export const RATE_LIMIT_POLICIES = [
   'data_import',
   'data_export',
   'report_read',
+  'marketing_public',
 ] as const;
 
 export type RateLimitPolicyName = (typeof RATE_LIMIT_POLICIES)[number];

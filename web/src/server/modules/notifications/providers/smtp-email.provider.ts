@@ -60,6 +60,14 @@ export interface SmtpMessage {
   subject: string;
   text: string;
   html?: string;
+  /** Optional `Reply-To` (marketing campaigns point replies at a mailbox). */
+  replyTo?: string;
+  /**
+   * Optional extra headers — the marketing rail's `List-Unsubscribe` /
+   * `List-Unsubscribe-Post`. Nodemailer writes them verbatim, so only
+   * server-built values are ever passed here.
+   */
+  headers?: Record<string, string>;
 }
 
 /** Connection settings resolved from the `SMTP_*` environment. */
@@ -127,6 +135,10 @@ export class SmtpEmailProvider implements EmailNotificationProvider {
       subject: payload.subject,
       text: payload.body,
       ...(payload.html ? { html: payload.html } : {}),
+      ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
+      ...(payload.headers && Object.keys(payload.headers).length > 0
+        ? { headers: { ...payload.headers } }
+        : {}),
     };
 
     try {

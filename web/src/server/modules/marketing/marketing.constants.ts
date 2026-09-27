@@ -51,6 +51,35 @@ export const MARKETING_CAMPAIGN_TRANSITION_INVALID =
 export const MARKETING_CAMPAIGN_EMPTY_AUDIENCE =
   'The audience filter resolved to zero recipients; refusing to schedule an empty campaign';
 
+// ------------------------------------------------------- delivery worker
+
+/** Rejected before a single message leaves (see `marketing-message.builder`). */
+export const MARKETING_RENDER_UNKNOWN_VARIABLE =
+  'The template version uses variables the delivery worker cannot fill';
+
+/** Advisory-lock class id of the marketing sweep (distinct from the outbox's). */
+export const MARKETING_DELIVERY_LOCK_CLASS = 714_290_002;
+
+/** Advisory-lock key of the global claim sweep. */
+export const MARKETING_DELIVERY_LOCK_KEY = 1;
+
+// -------------------------------------------------------- public tracking
+
+/**
+ * The single answer every invalid/expired/cancelled token gets.
+ *
+ * Deliberately identical for "no such token", "campaign cancelled" and
+ * "malformed": a public endpoint that distinguished them would let anyone
+ * probe which tokens exist.
+ */
+export const MARKETING_TRACKING_TOKEN_INVALID = 'This link is no longer valid';
+
+export const MARKETING_UNSUBSCRIBED_MESSAGE =
+  'You have been unsubscribed from Zero Mile Systems marketing email. Account and service notifications are unaffected.';
+
+export const MARKETING_ALREADY_UNSUBSCRIBED_MESSAGE =
+  'This address was already unsubscribed from Zero Mile Systems marketing email.';
+
 // ---------------------------------------------------------------- audience
 
 /** How many masked recipients the preview sample returns. */

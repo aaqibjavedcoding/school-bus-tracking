@@ -11,7 +11,13 @@ import { School } from './school.model';
 import { User } from './user.model';
 
 export interface IdempotencyKeyAttributes extends BaseModelAttributes {
-  school_id: string;
+  /**
+   * Owning tenant, or `NULL` for the **platform scope**: SUPER_ADMIN records
+   * (marketing templates, campaigns, delivery jobs) belong to no school, and
+   * a platform key must never collide with a tenant key that happens to use
+   * the same client-generated string. See `idempotency.service.ts`.
+   */
+  school_id: string | null;
   user_id: string;
   endpoint: string;
   idempotency_key: string;
@@ -33,7 +39,10 @@ export type IdempotencyKeyCreationAttributes = Omit<
  * with the same key return the original logical result.
  *
  * Scoped to (school_id, user_id, endpoint, idempotency_key) so keys are
- * tenant- and user-isolated.
+ * tenant- and user-isolated. `school_id IS NULL` is the explicit **platform**
+ * scope used by SUPER_ADMIN records; the `endpoint` value additionally names
+ * the resource type (`platform:marketing.campaign_schedule`), so the same
+ * client key used for two different platform resources stays two operations.
  */
 @Table({
   tableName: 'idempotency_keys',
@@ -43,10 +52,10 @@ export type IdempotencyKeyCreationAttributes = Omit<
   paranoid: false,
 })
 export class IdempotencyKey extends BaseModel<IdempotencyKeyAttributes, IdempotencyKeyCreationAttributes> {
-  @AllowNull(false)
+  @AllowNull(true)
   @ForeignKey(() => School)
   @Column({ type: DataType.UUID, field: 'school_id' })
-  declare school_id: string;
+  declare school_id: string | null;
 
   @AllowNull(false)
   @ForeignKey(() => User)

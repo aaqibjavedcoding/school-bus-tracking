@@ -58,6 +58,7 @@ import {
   DriverDocument,
   EmailCampaign,
   EmailCampaignRecipient,
+  EmailEvent,
   EmailTemplate,
   EmailTemplateVersion,
   EmergencyEvent,
@@ -109,7 +110,11 @@ import { BusesService } from './modules/buses/buses.service';
 import { ExportService } from './modules/data-transfer/export/export.service';
 import { ImportHistoryService } from './modules/data-transfer/import/import-history.service';
 import { ImportService } from './modules/data-transfer/import/import.service';
+import { MarketingAdminAlerts } from './modules/marketing/marketing-admin-alerts';
 import { MarketingAudienceService } from './modules/marketing/marketing-audience.service';
+import { MarketingDeliveryWorker } from './modules/marketing/marketing-delivery.worker';
+import { MarketingTrackingService } from './modules/marketing/marketing-tracking.service';
+import type { MarketingDeliveryPolicy } from './modules/marketing/marketing-delivery.policy';
 import { MarketingCampaignsService } from './modules/marketing/marketing-campaigns.service';
 import { MarketingTemplatesService } from './modules/marketing/marketing-templates.service';
 import { ImportTemplateService } from './modules/data-transfer/import/import-template.service';
@@ -404,6 +409,69 @@ export class Container {
         this.marketingAudience(),
         this.sequelize,
       ),
+  );
+
+  /**
+   * Operational alert rail for marketing. Sends only to
+   * `MARKETING_ADMIN_EMAILS`, read at call time so the address list is pure
+   * configuration and never compiled into business logic.
+   */
+  readonly marketingAlerts = lazy(
+    () =>
+      new MarketingAdminAlerts({
+        emailProvider: this.emailProvider(),
+        adminEmails: () => this.config().get<string[]>('marketing.adminEmails') ?? [],
+      }),
+  );
+
+  /** Delivery knobs (batch size, rate, backoff, lease) straight from config. */
+  readonly marketingDeliveryPolicy = lazy((): MarketingDeliveryPolicy => {
+    const config = this.config();
+    return {
+      batchSize: config.get<number>('marketing.worker.batchSize') ?? 25,
+      maxAttempts: config.get<number>('marketing.delivery.maxAttempts') ?? 5,
+      retryBaseMs: config.get<number>('marketing.delivery.baseBackoffMs') ?? 60_000,
+      ratePerMinute: config.get<number>('marketing.delivery.ratePerMinute') ?? 60,
+      concurrency: config.get<number>('marketing.delivery.concurrency') ?? 3,
+      sendDelayMs: config.get<number>('marketing.delivery.sendDelayMs') ?? 250,
+      sendJitterMs: config.get<number>('marketing.delivery.sendJitterMs') ?? 250,
+      expiryMs: config.get<number>('marketing.delivery.expiryMs') ?? 72 * 60 * 60 * 1000,
+      leaseMs: config.get<number>('marketing.delivery.leaseMs') ?? 120_000,
+    };
+  });
+
+  /**
+   * The campaign delivery worker. Constructed lazily and owned by the
+   * scheduler in `server.js`; no HTTP handler ever calls it, which is what
+   * keeps bulk sending out of the request path.
+   */
+  readonly marketingDeliveryWorker = lazy(
+    () =>
+      new MarketingDeliveryWorker({
+        campaigns: EmailCampaign,
+        recipients: EmailCampaignRecipient,
+        versions: EmailTemplateVersion,
+        events: EmailEvent,
+        suppressions: MarketingSuppression,
+        emailProvider: this.emailProvider(),
+        sequelize: this.sequelize,
+        policy: this.marketingDeliveryPolicy(),
+        appUrl: this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
+        replyTo: this.config().get<string[]>('marketing.adminEmails')?.[0] ?? null,
+        alerts: this.marketingAlerts(),
+      }),
+  );
+
+  /** Public click/unsubscribe handling (no auth, opaque tokens only). */
+  readonly marketingTracking = lazy(
+    () =>
+      new MarketingTrackingService({
+        recipients: EmailCampaignRecipient,
+        campaigns: EmailCampaign,
+        events: EmailEvent,
+        suppressions: MarketingSuppression,
+        appUrl: () => this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
+      }),
   );
 
   /**

@@ -49,12 +49,28 @@ export interface EmailCampaignAttributes extends BaseModelAttributes {
   // console's list view so it never counts the recipient table per row) ----
   /** Rows in the recipient snapshot. */
   recipient_count: number;
+  /** Snapshotted rows still waiting for their first claim. */
+  queued_count: number;
+  /** Rows claimed by a worker under a live lease. */
+  processing_count: number;
   /** Provider-accepted sends. */
   sent_count: number;
+  /** Rows waiting out a transient-failure backoff. */
+  retrying_count: number;
   /** Terminal failures (incl. attempts exhausted). */
   failed_count: number;
-  /** Recipients who followed at least one tracked link. */
+  /** Rows skipped because the address was suppressed at send time. */
+  suppressed_count: number;
+  /** Rows skipped for another safe reason. */
+  skipped_count: number;
+  /** Rows abandoned because the campaign was cancelled. */
+  cancelled_count: number;
+  /** Rows abandoned because the delivery window closed. */
+  expired_count: number;
+  /** Recipients who followed at least one tracked link (unique clicks). */
   clicked_count: number;
+  /** Every tracked click, including repeats by the same recipient. */
+  total_click_count: number;
   /** Recipients who unsubscribed from this campaign. */
   unsubscribed_count: number;
   /** SUPER_ADMIN who created the campaign (nullable: history survives account removal). */
@@ -70,9 +86,17 @@ export type EmailCampaignCreationAttributes = Optional<
   | 'started_at'
   | 'completed_at'
   | 'recipient_count'
+  | 'queued_count'
+  | 'processing_count'
   | 'sent_count'
+  | 'retrying_count'
   | 'failed_count'
+  | 'suppressed_count'
+  | 'skipped_count'
+  | 'cancelled_count'
+  | 'expired_count'
   | 'clicked_count'
+  | 'total_click_count'
   | 'unsubscribed_count'
   | 'created_by'
 >;
@@ -164,7 +188,19 @@ export class EmailCampaign extends BaseModel<
 
   @AllowNull(false)
   @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare queued_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare processing_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
   declare sent_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare retrying_count: number;
 
   @AllowNull(false)
   @Column({ type: DataType.INTEGER, defaultValue: 0 })
@@ -172,7 +208,27 @@ export class EmailCampaign extends BaseModel<
 
   @AllowNull(false)
   @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare suppressed_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare skipped_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare cancelled_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare expired_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
   declare clicked_count: number;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare total_click_count: number;
 
   @AllowNull(false)
   @Column({ type: DataType.INTEGER, defaultValue: 0 })

@@ -4518,15 +4518,21 @@ export const MARKETING_TEMPLATE_STATUS_VALUES: MarketingTemplateStatus[] =
  *             start it when due
  * SENDING   → the worker has started delivery and recipients are still owed
  *             attempts
- * PAUSED    → delivery interrupted by a Super Admin; can be resumed
- * COMPLETED → every snapshotted recipient reached a terminal status
+ * PAUSED    → delivery interrupted by a Super Admin; can be resumed. New
+ *             claims stop immediately; work already in flight finishes
+ * COMPLETED → every snapshotted recipient reached a terminal status and none
+ *             of them failed
+ * PARTIALLY_FAILED → every recipient reached a terminal status, but at least
+ *             one of them failed/bounced/expired while at least one was sent
  * CANCELLED → aborted by a Super Admin before completion; remaining pending
  *             recipients are never sent
- * FAILED    → delivery aborted by the system (e.g. the email rail reported a
- *             configuration failure); retryable by operator action only
+ * FAILED    → delivery finished with no successful send at all (e.g. the email
+ *             rail reported a configuration failure); retryable by operator
+ *             action only
  *
- * `COMPLETED`, `CANCELLED` and `FAILED` are terminal. Transitions are
- * enforced by the API service layer (Phase 3), not by the database.
+ * `COMPLETED`, `PARTIALLY_FAILED`, `CANCELLED` and `FAILED` are terminal.
+ * Transitions are enforced by the API service layer and the delivery worker,
+ * not by the database. `SENDING` is the state the console labels "running".
  */
 export enum MarketingCampaignStatus {
   DRAFT = 'DRAFT',
@@ -4534,6 +4540,7 @@ export enum MarketingCampaignStatus {
   SENDING = 'SENDING',
   PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
+  PARTIALLY_FAILED = 'PARTIALLY_FAILED',
   CANCELLED = 'CANCELLED',
   FAILED = 'FAILED',
 }
@@ -4547,11 +4554,37 @@ export const SCHEDULED_MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus
 ];
 
 /**
+ * Campaign statuses the delivery worker may claim recipients for: a frozen
+ * snapshot that is due (`SCHEDULED`) or already in flight (`SENDING`).
+ * `PAUSED` is deliberately absent — pausing stops new claims at the source.
+ */
+export const DELIVERABLE_MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus[] = [
+  MarketingCampaignStatus.SCHEDULED,
+  MarketingCampaignStatus.SENDING,
+];
+
+/** Campaign statuses that can never change again. */
+export const TERMINAL_MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus[] = [
+  MarketingCampaignStatus.COMPLETED,
+  MarketingCampaignStatus.PARTIALLY_FAILED,
+  MarketingCampaignStatus.CANCELLED,
+  MarketingCampaignStatus.FAILED,
+];
+
+/**
  * Lifecycle state of one campaign recipient row
  * (`email_campaign_recipients.status`).
  *
- * PENDING    → snapshotted, delivery not yet accepted by the provider
+ * PENDING    → **queued**: snapshotted, waiting for a worker claim. This is
+ *              the "queued" state the delivery worker documentation refers to;
+ *              the name predates the worker and is kept because it is the
+ *              column default in a shipped migration.
+ * PROCESSING → claimed by a worker under a time-bounded lease; a lease that
+ *              expires (crash, restart, killed container) makes the row
+ *              claimable again, which is what gives the queue crash recovery
  * SENT       → the provider accepted the message for this address
+ * RETRYING   → the last attempt failed transiently; `next_attempt_at` holds
+ *              the backoff deadline
  * FAILED     → terminal failure (permanent rejection or attempts exhausted)
  * BOUNCED    → the provider (or a later bounce signal) reported the address as
  *              undeliverable; the address is also suppressed for future
@@ -4560,21 +4593,54 @@ export const SCHEDULED_MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus
  *              when the send was attempted
  * SKIPPED    → skipped for another reason (e.g. the school was deactivated
  *              between snapshot and send)
+ * CANCELLED  → the campaign was cancelled before this row was delivered
+ * EXPIRED    → the campaign's delivery window closed before this row was
+ *              delivered (`MARKETING_EXPIRY_MS` after `scheduled_at`)
  *
  * `SENT` is provider acceptance, never proof the mailbox displayed the
  * message — the same honest semantics the push outbox applies.
  */
 export enum MarketingRecipientStatus {
   PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
   SENT = 'SENT',
+  RETRYING = 'RETRYING',
   FAILED = 'FAILED',
   BOUNCED = 'BOUNCED',
   SUPPRESSED = 'SUPPRESSED',
   SKIPPED = 'SKIPPED',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
 }
 
 export const MARKETING_RECIPIENT_STATUS_VALUES: MarketingRecipientStatus[] =
   Object.values(MarketingRecipientStatus);
+
+/**
+ * Recipient states the delivery worker may still act on — everything else is
+ * terminal and must never be re-sent. `PROCESSING` is in the set because a
+ * lease can expire; the claim query additionally requires an expired lease
+ * before it re-claims such a row.
+ */
+export const MARKETING_CLAIMABLE_RECIPIENT_STATUS_VALUES: MarketingRecipientStatus[] = [
+  MarketingRecipientStatus.PENDING,
+  MarketingRecipientStatus.RETRYING,
+  MarketingRecipientStatus.PROCESSING,
+];
+
+/**
+ * Recipient states that can never change again. A campaign is only complete
+ * once every snapshotted row is in one of them.
+ */
+export const MARKETING_TERMINAL_RECIPIENT_STATUS_VALUES: MarketingRecipientStatus[] = [
+  MarketingRecipientStatus.SENT,
+  MarketingRecipientStatus.FAILED,
+  MarketingRecipientStatus.BOUNCED,
+  MarketingRecipientStatus.SUPPRESSED,
+  MarketingRecipientStatus.SKIPPED,
+  MarketingRecipientStatus.CANCELLED,
+  MarketingRecipientStatus.EXPIRED,
+];
 
 /**
  * Event types recorded in the append-only `email_events` table.
@@ -5013,10 +5079,31 @@ export interface MarketingCampaignResponse {
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+  /** Rows in the frozen audience snapshot. */
   recipient_count: number;
+  /** Snapshotted rows still waiting for their first claim. */
+  queued_count: number;
+  /** Rows claimed by a worker under a live lease. */
+  processing_count: number;
+  /** Provider-accepted sends. */
   sent_count: number;
+  /** Rows waiting out a transient-failure backoff. */
+  retrying_count: number;
+  /** Terminal failures (permanent rejection or attempts exhausted). */
   failed_count: number;
+  /** Rows skipped because the address was suppressed at send time. */
+  suppressed_count: number;
+  /** Rows skipped for another safe reason (school deactivated, …). */
+  skipped_count: number;
+  /** Rows abandoned because the campaign was cancelled. */
+  cancelled_count: number;
+  /** Rows abandoned because the delivery window closed. */
+  expired_count: number;
+  /** Recipients who followed at least one tracked link (unique clicks). */
   clicked_count: number;
+  /** Every tracked click, including repeats by the same recipient. */
+  total_click_count: number;
+  /** Recipients who unsubscribed from this campaign. */
   unsubscribed_count: number;
   created_by: string | null;
   created_at: string;
@@ -5140,3 +5227,45 @@ export interface MarketingAudiencePreviewResponse {
   /** SHA-256 of the canonicalized snapshot — stable for a stable audience. */
   snapshot_hash: string;
 }
+
+// ============================================================================
+// Marketing communications — public tracking contracts (Session 3)
+// ============================================================================
+//
+// The two unauthenticated endpoints a recipient's mail client can reach:
+// `GET /api/v1/public/marketing/click/:token` (redirects) and
+// `GET|POST /api/v1/public/marketing/unsubscribe/:token`. Both take an opaque
+// per-recipient token, resolve it against a stored SHA-256 digest and answer
+// without ever echoing an address, a campaign id or a token back.
+
+/**
+ * Payload of the one-click / confirmation unsubscribe response.
+ *
+ * Deliberately anaemic: a confirmation message and nothing else. Anyone
+ * holding the link is *probably* the recipient, but the endpoint is
+ * unauthenticated, so it must not become a lookup oracle for "does this
+ * address exist" or "which campaign was this".
+ */
+export interface MarketingUnsubscribeResponse {
+  /** Always true once the address is suppressed (the call is idempotent). */
+  unsubscribed: boolean;
+  /** `true` when the address was already suppressed before this call. */
+  already_unsubscribed: boolean;
+  /** Safe, user-facing confirmation text. */
+  message: string;
+}
+
+/**
+ * The UTM keys a tracked click may carry through to the landing page.
+ *
+ * Everything else in the query string is dropped: the redirect target is
+ * fixed to the configured `APP_URL`, and an attacker-supplied parameter must
+ * not be able to ride along into it.
+ */
+export const MARKETING_SAFE_UTM_PARAMETERS: readonly string[] = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+];

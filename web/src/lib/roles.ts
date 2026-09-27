@@ -78,6 +78,11 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
         // Backed by the existing dashboard aggregate endpoint — estimates
         // derived from plan prices, never collected payments.
         { href: '/admin/revenue', label: 'Revenue', icon: 'tag' },
+        // Marketing communications (platform scope, SUPER_ADMIN only).
+        // Templates are the reusable content; campaigns send a published
+        // version to a frozen audience of schools.
+        { href: '/admin/marketing/templates', label: 'Email templates', icon: 'doc' },
+        { href: '/admin/marketing/campaigns', label: 'Campaigns', icon: 'bell' },
       ];
     case UserRole.SCHOOL_ADMIN:
       return [

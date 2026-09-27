@@ -17,7 +17,7 @@
  * body and query, `TransformInterceptor`'s success envelope, and
  * `HttpExceptionFilter`'s error envelope.
  */
-import type { UserRole } from '@school-bus-tracking/shared-types';
+import { UserRole as UserRoleEnum, type UserRole } from '@school-bus-tracking/shared-types';
 import {
   BadRequestException,
   HttpStatus,
@@ -60,7 +60,10 @@ import {
   structuredLogger,
   type LoggableRequest,
 } from '../common/interceptors/structured-logging.interceptor';
-import { IDEMPOTENCY_HEADER } from '../common/idempotency/idempotency.constants';
+import {
+  IDEMPOTENCY_HEADER,
+  buildIdempotencyScope,
+} from '../common/idempotency/idempotency.constants';
 import {
   REQUEST_ID_HEADER,
   REQUEST_ID_PROPERTY,
@@ -430,9 +433,10 @@ function successStatusFor(request: Request, definition: ErasedEndpointDefinition
   return definition.status ?? (request.method === 'POST' ? HttpStatus.CREATED : HttpStatus.OK);
 }
 
-/** One idempotent request: tenant + user + endpoint scope plus the client key. */
+/** One idempotent request: scope + user + endpoint scope plus the client key. */
 interface IdempotencyRequest {
-  schoolId: string;
+  /** `null` = platform scope (SUPER_ADMIN records that have no tenant). */
+  schoolId: string | null;
   userId: string;
   endpoint: string;
   idempotencyKey: string;
@@ -466,15 +470,34 @@ function resolveIdempotencyRequest(
     );
   }
   const user = adapted.user;
-  const schoolId = user?.school_id;
   const userId = user?.id;
-  if (typeof schoolId !== 'string' || schoolId.length === 0) {
-    return null;
-  }
   if (typeof userId !== 'string' || userId.length === 0) {
     return null;
   }
-  return { schoolId, userId, endpoint: definition.idempotency, idempotencyKey: key };
+
+  // The scope comes from the **verified token**, never from the body, the
+  // query or a header: a SUPER_ADMIN cannot be talked into borrowing a
+  // tenant's key space (or the reverse) by sending a `school_id`. A platform
+  // principal has no `school_id` claim at all, and that absence is the
+  // explicit platform scope rather than a reason to skip deduplication —
+  // which is what the previous `return null` did, silently disabling
+  // idempotency for every SUPER_ADMIN mutation.
+  const claimedSchoolId = user?.school_id;
+  const isPlatformPrincipal = user?.role === UserRoleEnum.SUPER_ADMIN;
+  const schoolId =
+    typeof claimedSchoolId === 'string' && claimedSchoolId.length > 0 ? claimedSchoolId : null;
+  if (schoolId === null && !isPlatformPrincipal) {
+    // A tenant role with no tenant is a malformed token, not a platform
+    // action; the guards already rejected it, so this is defence in depth.
+    return null;
+  }
+
+  return {
+    schoolId: isPlatformPrincipal ? null : schoolId,
+    userId,
+    endpoint: buildIdempotencyScope(definition.idempotency, isPlatformPrincipal ? null : schoolId),
+    idempotencyKey: key,
+  };
 }
 
 /**

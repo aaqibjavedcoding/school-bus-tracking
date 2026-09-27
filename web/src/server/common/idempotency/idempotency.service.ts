@@ -23,8 +23,15 @@ export type IdempotencyResult =
  *
  * The key is scoped to (school_id, user_id, endpoint) so:
  * - Different users can use the same key independently
- * - Different endpoints are isolated
+ * - Different endpoints (and therefore different resource types) are isolated
  * - Tenant isolation is maintained
+ *
+ * `schoolId === null` is the explicit **platform** scope used by SUPER_ADMIN
+ * records, which belong to no tenant. It is not an absence of scoping: the
+ * caller passes an `endpoint` built by `buildIdempotencyScope()`, which
+ * carries both the resource type and a `platform:` / `school:` marker, and
+ * the database enforces uniqueness with two partial indexes (one per scope)
+ * because `NULL != NULL` in PostgreSQL.
  *
  * Concurrency safety: the unique constraint on the lookup index ensures
  * that concurrent requests with the same key are serialized by PostgreSQL.
@@ -45,13 +52,16 @@ export class IdempotencyService {
    * if it does. Returns `{ status: 'new' }` if the key is fresh.
    */
   async check(params: {
-    schoolId: string;
+    /** `null` = platform scope (SUPER_ADMIN records with no tenant). */
+    schoolId: string | null;
     userId: string;
     endpoint: string;
     idempotencyKey: string;
   }): Promise<IdempotencyResult> {
     const existing = await this.idempotencyKeys.findOne({
       where: {
+        // Sequelize renders `null` as `IS NULL`, which is exactly the
+        // platform-scope predicate the partial unique index uses.
         school_id: params.schoolId,
         user_id: params.userId,
         endpoint: params.endpoint,
@@ -82,7 +92,8 @@ export class IdempotencyService {
    * should re-check and return the existing result.
    */
   async store(params: {
-    schoolId: string;
+    /** `null` = platform scope (SUPER_ADMIN records with no tenant). */
+    schoolId: string | null;
     userId: string;
     endpoint: string;
     idempotencyKey: string;

@@ -131,6 +131,26 @@ export default registerAs('rateLimit', () => ({
     data_export: policy('DATA_EXPORT', 30, 60_000),
     /** Report queries and report exports (heavy aggregation, read-only). */
     report_read: policy('REPORT_READ', 120, 60_000),
+    /**
+     * **Public, unauthenticated** marketing tracking: the click redirect and
+     * the unsubscribe endpoints a recipient's mail client reaches.
+     *
+     * Strict on purpose, and for different reasons than the other public
+     * policy (`password_reset_public`, which is a mailbox-flooding budget):
+     *
+     * - each request does a digest lookup and writes an analytics row, so an
+     *   unthrottled endpoint is a cheap way to make the database write for
+     *   free;
+     * - clicks are attribution data, and an attacker who can replay a link a
+     *   thousand times can distort a campaign's reported engagement;
+     * - the tokens are unguessable (256 bits), so a *high* limit buys nothing
+     *   legitimate — a real recipient clicks once, twice if the page was
+     *   slow, and their mail client may pre-fetch the link once more.
+     *
+     * 20 per minute per IP covers a whole school behind one NAT address
+     * opening the same campaign, and stops a scripted sweep dead.
+     */
+    marketing_public: policy('MARKETING_PUBLIC', 20, 60_000),
   },
   /**
    * Login brute-force protection is *windowed*, never a permanent lockout: a

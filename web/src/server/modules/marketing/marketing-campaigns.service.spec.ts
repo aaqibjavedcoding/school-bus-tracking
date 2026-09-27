@@ -1,9 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { Op } from 'sequelize';
 import { ConflictException } from '../../framework';
 import {
   MarketingCampaignStatus,
   MarketingRecipientSource,
+  MarketingRecipientStatus,
   MarketingTemplateStatus,
 } from '@school-bus-tracking/shared-types';
 import type { MarketingCampaignAudienceFilter } from '@school-bus-tracking/shared-types';
@@ -40,9 +42,17 @@ interface CampaignRow {
   started_at: Date | null;
   completed_at: Date | null;
   recipient_count: number;
+  queued_count?: number;
+  processing_count?: number;
   sent_count: number;
+  retrying_count?: number;
   failed_count: number;
+  suppressed_count?: number;
+  skipped_count?: number;
+  cancelled_count?: number;
+  expired_count?: number;
   clicked_count: number;
+  total_click_count?: number;
   unsubscribed_count: number;
   created_by: string | null;
   created_at: Date;
@@ -85,6 +95,7 @@ function makeComputation(
     final_recipient_count: recipients.length,
     recipients: recipients.map((recipient) => ({
       school_id: recipient.school_id,
+      school_name: 'Test School',
       normalized_email: recipient.normalized_email,
       recipient_name: null,
       recipient_source: MarketingRecipientSource.SCHOOL_EMAIL,
@@ -118,7 +129,14 @@ function makeService(options: {
     },
   };
 
+  const recipientUpdates: Array<{ values: unknown; options: unknown }> = [];
   const recipientsRepo = {
+    // Cancelling a campaign also cancels its un-sent recipient rows; the stub
+    // reports two affected rows so the counter arithmetic is exercised.
+    update: async (values: unknown, updateOptions: unknown) => {
+      recipientUpdates.push({ values, options: updateOptions });
+      return [2];
+    },
     bulkCreate: async (rows: unknown[], bulkOptions: unknown) => {
       if (options.failBulkCreate) {
         const { UniqueConstraintError } = await import('sequelize');
@@ -203,7 +221,7 @@ function makeService(options: {
     sequelizeStub as never,
   );
 
-  return { service, campaignRows, bulkCreateCalls, transactions };
+  return { service, campaignRows, bulkCreateCalls, transactions, recipientUpdates };
 }
 
 function attachMethods(row: Record<string, unknown>) {
@@ -511,6 +529,41 @@ describe('MarketingCampaignsService — state transitions', () => {
     const campaign = await service.cancel(CAMPAIGN_ID);
     assert.equal(campaign.status, MarketingCampaignStatus.CANCELLED);
     assert.ok(campaignRows[0].completed_at instanceof Date);
+  });
+
+  it('cancelling also cancels every recipient the worker has not sent yet', async () => {
+    const { service, campaignRows, recipientUpdates, transactions } = makeService({
+      campaign: makeCampaignRow({ status: MarketingCampaignStatus.SENDING }),
+    });
+
+    await service.cancel(CAMPAIGN_ID);
+
+    assert.equal(recipientUpdates.length, 1, 'recipients are cancelled in one statement');
+    const values = recipientUpdates[0].values as Record<string, unknown>;
+    assert.equal(values.status, MarketingRecipientStatus.CANCELLED);
+    assert.equal(values.locked_by, null, 'a cancelled row holds no lease');
+    assert.equal(values.next_attempt_at, null, 'a cancelled row is never retried');
+
+    const where = (recipientUpdates[0].options as { where: Record<string, unknown> }).where;
+    assert.equal(where.campaign_id, CAMPAIGN_ID);
+    assert.strictEqual(
+      (recipientUpdates[0].options as { transaction?: unknown }).transaction,
+      transactions[0],
+      'the status flip and the row cancellation share one transaction',
+    );
+
+    // SENT rows are historical fact and PROCESSING rows belong to a worker
+    // that still has to record an outcome, so only queued/retrying move.
+    const statuses = (where.status as { [key: symbol]: unknown })[Op.in as unknown as symbol] as
+      | string[]
+      | undefined;
+    assert.deepEqual(statuses, [
+      MarketingRecipientStatus.PENDING,
+      MarketingRecipientStatus.RETRYING,
+    ]);
+
+    assert.equal(campaignRows[0].queued_count, 0, 'nothing is left queued after a cancel');
+    assert.equal(campaignRows[0].cancelled_count, 2, 'the cancelled rows are counted');
   });
 
   it('rejects invalid transitions with 409', async () => {
