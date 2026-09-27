@@ -16,6 +16,8 @@ import {
   MarketingErrorCategory,
   MarketingEventType,
   MarketingLeadStatus,
+  MARKETING_RECIPIENT_SOURCE_VALUES,
+  MarketingRecipientSource,
   MarketingRecipientStatus,
   MarketingTemplateStatus,
   PlanBillingPeriod,
@@ -2949,7 +2951,22 @@ export type MarketingTemplateVariableInput = z.infer<typeof marketingTemplateVar
 /** The full `allowed_variables` payload of a template version (bounded). */
 export const marketingTemplateVariablesSchema = z
   .array(marketingTemplateVariableSchema)
-  .max(50, 'A template version may declare at most 50 variables');
+  .max(50, 'A template version may declare at most 50 variables')
+  .superRefine((variables, context) => {
+    // Two entries with the same `name` would make "which value substitutes
+    // this placeholder" ambiguous — reject instead of last-write-wins.
+    const seen = new Set<string>();
+    for (const variable of variables) {
+      if (seen.has(variable.name)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [String(variables.indexOf(variable)), 'name'],
+          message: `Duplicate variable name: ${variable.name}`,
+        });
+      }
+      seen.add(variable.name);
+    }
+  });
 
 export type MarketingTemplateVariablesInput = z.infer<typeof marketingTemplateVariablesSchema>;
 
@@ -2984,6 +3001,10 @@ export const marketingCampaignAudienceFilterSchema = z
       .array(z.string().trim().min(1).max(100))
       .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 cities may be selected')
       .optional(),
+    states: z
+      .array(z.string().trim().min(1).max(100))
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 states/regions may be selected')
+      .optional(),
     subscription_statuses: z
       .array(persistedSubscriptionStatusSchema)
       .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 subscription statuses may be selected')
@@ -2997,6 +3018,17 @@ export const marketingCampaignAudienceFilterSchema = z
       .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 schools may be excluded')
       .optional(),
     active_only: z.boolean().optional(),
+    /**
+     * Which address sources may contribute recipients. `SCHOOL_EMAIL` (the
+     * school's primary contact address) is the default; `SCHOOL_ADMIN` must be
+     * requested explicitly. The snapshot builder still enforces the eligibility
+     * rules (only **active** SCHOOL_ADMIN accounts) server-side — the client
+     * selects the *sources*, never the addresses.
+     */
+    recipient_sources: z
+      .array(z.nativeEnum(MarketingRecipientSource))
+      .max(MARKETING_RECIPIENT_SOURCE_VALUES.length)
+      .optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -3009,6 +3041,24 @@ export const marketingCampaignAudienceFilterSchema = z
           code: z.ZodIssueCode.custom,
           path: ['exclude_school_ids'],
           message: 'exclude_school_ids must not overlap include_school_ids',
+        });
+      }
+    }
+    // A duplicate entry inside one array is either a client bug or a probe;
+    // either way the stored filter should read exactly as the audience.
+    for (const key of [
+      'countries',
+      'cities',
+      'states',
+      'subscription_statuses',
+      'recipient_sources',
+    ] as const) {
+      const entries = value[key];
+      if (entries && new Set(entries).size !== entries.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} must not contain duplicate values`,
         });
       }
     }
@@ -3084,3 +3134,240 @@ export const marketingLeadStatusUpdateSchema = z
   .strict();
 
 export type MarketingLeadStatusUpdateInput = z.infer<typeof marketingLeadStatusUpdateSchema>;
+
+// ============================================================================
+// Marketing communications — template & campaign management (Session 2)
+// ============================================================================
+//
+// Request schemas for the SUPER_ADMIN template/campaign endpoints. They reuse
+// the Session 1 value schemas above (`marketingTemplateSlugSchema`,
+// `marketingTemplateVariablesSchema`, `marketingCampaignAudienceFilterSchema`)
+// — no parallel definition of the same contract exists.
+//
+// Division of labour, mirroring the admin-plans pattern: the class-validator
+// DTO at the HTTP layer bounds the payload's shape cheaply, and these zod
+// schemas are the deep validation the services run before touching the
+// database. HTML **sanitization** itself is deliberately *not* a zod concern —
+// it is a server-side tokenizer (see
+// `web/src/server/modules/marketing/marketing-html.sanitizer.ts`), because
+// regex-only HTML filtering is exactly the unsafe pattern this feature must
+// not use.
+
+/** Subject line of a template version (may contain `{{placeholders}}`). */
+export const marketingTemplateSubjectSchema = z
+  .string()
+  .trim()
+  .min(1, 'Subject is required')
+  .max(200, 'Subject must be at most 200 characters');
+
+/** Upper bound for either body part (HTML or plain text). */
+export const MARKETING_TEMPLATE_BODY_MAX_LENGTH = 100_000;
+
+export const marketingTemplateBodySchema = z
+  .string()
+  .min(1, 'Body is required')
+  .max(MARKETING_TEMPLATE_BODY_MAX_LENGTH, 'Body must be at most 100,000 characters');
+
+/** Sample-variable map for preview/test-send: declared names, string values. */
+export const marketingSampleVariablesSchema = z.record(
+  z
+    .string()
+    .regex(
+      MARKETING_TEMPLATE_VARIABLE_NAME_PATTERN,
+      'Variable keys must be lowercase letters, digits and underscores',
+    ),
+  z.string().max(2000, 'Sample variable values must be at most 2000 characters'),
+);
+
+export type MarketingSampleVariablesInput = z.infer<typeof marketingSampleVariablesSchema>;
+
+/**
+ * The content payload of a template version (create + draft save).
+ *
+ * `superRefine` enforces the placeholder contract: every `{{placeholder}}`
+ * appearing in the subject or either body must be declared in
+ * `allowed_variables`. An undeclared placeholder is a template-author mistake
+ * that would otherwise surface as a half-rendered email at send time.
+ */
+export const marketingTemplateContentSchema = z
+  .object({
+    subject: marketingTemplateSubjectSchema,
+    html_body: marketingTemplateBodySchema,
+    text_body: marketingTemplateBodySchema,
+    allowed_variables: marketingTemplateVariablesSchema.optional(),
+  })
+  .strict()
+  .superRefine((content, context) => {
+    const declared = new Set((content.allowed_variables ?? []).map((variable) => variable.name));
+    const unknown = new Set<string>();
+    for (const field of ['subject', 'html_body', 'text_body'] as const) {
+      for (const name of extractMarketingTemplatePlaceholders(content[field])) {
+        if (!declared.has(name)) {
+          unknown.add(name);
+        }
+      }
+    }
+    if (unknown.size > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['allowed_variables'],
+        message: `Unknown template variable(s): ${[...unknown].sort().join(', ')}`,
+      });
+    }
+  });
+
+export type MarketingTemplateContentInputPayload = z.infer<typeof marketingTemplateContentSchema>;
+
+/** Body of `POST /api/v1/marketing/templates`. */
+export const marketingTemplateCreateSchema = z
+  .object({
+    name: marketingTemplateNameSchema,
+    slug: marketingTemplateSlugSchema,
+    content: marketingTemplateContentSchema,
+  })
+  .strict();
+
+export type MarketingTemplateCreateInputPayload = z.infer<typeof marketingTemplateCreateSchema>;
+
+/** Body of `PATCH /api/v1/marketing/templates/:id` (metadata only). */
+export const marketingTemplateUpdateSchema = z
+  .object({
+    name: marketingTemplateNameSchema.optional(),
+  })
+  .strict();
+
+export type MarketingTemplateUpdateInputPayload = z.infer<typeof marketingTemplateUpdateSchema>;
+
+/** Body of `PUT /api/v1/marketing/templates/:id/content`. */
+export const marketingTemplateContentSaveSchema = marketingTemplateContentSchema;
+
+export type MarketingTemplateContentSaveInputPayload = z.infer<
+  typeof marketingTemplateContentSaveSchema
+>;
+
+/** Body of the template preview endpoint. */
+export const marketingTemplatePreviewSchema = z
+  .object({
+    version_id: z.string().uuid('version id must be a valid UUID').nullish(),
+    variables: marketingSampleVariablesSchema.nullish(),
+  })
+  .strict();
+
+export type MarketingTemplatePreviewInputPayload = z.infer<typeof marketingTemplatePreviewSchema>;
+
+/**
+ * Body of the test-send endpoint.
+ *
+ * There is **no recipient field on purpose** — the browser may never choose a
+ * test target. Recipients resolve server-side from `MARKETING_TEST_RECIPIENTS`
+ * (`isMarketingTestRecipient` in `marketing.config.ts` is the gate).
+ */
+export const marketingTemplateTestSendSchema = z
+  .object({
+    version_id: z.string().uuid('version id must be a valid UUID').nullish(),
+    variables: marketingSampleVariablesSchema.nullish(),
+  })
+  .strict();
+
+export type MarketingTemplateTestSendInputPayload = z.infer<typeof marketingTemplateTestSendSchema>;
+
+/** How far a schedule timestamp may lie in the past before it is rejected. */
+export const MARKETING_SCHEDULE_MAX_PAST_MS = 5 * 60 * 1000;
+
+/** ISO-8601 instant, validated and not (meaningfully) in the past. */
+export const marketingScheduleAtSchema = z
+  .string()
+  .datetime({ offset: true, message: 'scheduled_at must be an ISO 8601 date-time' })
+  .superRefine((value, context) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'scheduled_at must be a valid date-time',
+      });
+      return;
+    }
+    if (parsed.getTime() < Date.now() - MARKETING_SCHEDULE_MAX_PAST_MS) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'scheduled_at may not lie in the past',
+      });
+    }
+  });
+
+/** Body of `POST /api/v1/marketing/campaigns`. */
+export const marketingCampaignCreateSchema = z
+  .object({
+    name: marketingTemplateNameSchema,
+    template_version_id: z.string().uuid('template version id must be a valid UUID'),
+    audience_filter: marketingCampaignAudienceFilterSchema,
+  })
+  .strict();
+
+export type MarketingCampaignCreateInputPayload = z.infer<typeof marketingCampaignCreateSchema>;
+
+/** Body of `PATCH /api/v1/marketing/campaigns/:id`. */
+export const marketingCampaignUpdateSchema = z
+  .object({
+    name: marketingTemplateNameSchema.optional(),
+    template_version_id: z.string().uuid('template version id must be a valid UUID').optional(),
+    audience_filter: marketingCampaignAudienceFilterSchema.optional(),
+  })
+  .strict();
+
+export type MarketingCampaignUpdateInputPayload = z.infer<typeof marketingCampaignUpdateSchema>;
+
+/** Body of `POST /api/v1/marketing/campaigns/:id/schedule`. */
+export const marketingCampaignScheduleSchema = z
+  .object({
+    scheduled_at: marketingScheduleAtSchema.nullish(),
+  })
+  .strict();
+
+export type MarketingCampaignScheduleInputPayload = z.infer<typeof marketingCampaignScheduleSchema>;
+
+/** Body of `POST /api/v1/marketing/campaigns/audience-preview`. */
+export const marketingAudiencePreviewSchema = z
+  .object({
+    campaign_id: z.string().uuid('campaign id must be a valid UUID').nullish(),
+    audience_filter: marketingCampaignAudienceFilterSchema.nullish(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.campaign_id && !value.audience_filter) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['audience_filter'],
+        message: 'Either campaign_id or audience_filter is required',
+      });
+    }
+  });
+
+export type MarketingAudiencePreviewInputPayload = z.infer<typeof marketingAudiencePreviewSchema>;
+
+/**
+ * The `{{placeholder}}` syntax template authors use.
+ *
+ * Whitespace-tolerant on both sides of the name. This is a *placeholder
+ * scanner*, not an HTML sanitizer — extracting candidates from prose is safe;
+ * deciding what HTML is safe is the tokenizer's job.
+ */
+const MARKETING_PLACEHOLDER_PATTERN = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g;
+
+/**
+ * Every placeholder name used in a piece of template text, in order of first
+ * appearance, deduplicated. Shared by content validation (unknown placeholder
+ * rejection) and the renderer (substitution).
+ */
+export function extractMarketingTemplatePlaceholders(text: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(MARKETING_PLACEHOLDER_PATTERN)) {
+    const name = match[1];
+    if (!seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
+}
