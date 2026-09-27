@@ -38,6 +38,11 @@ export interface HandlerCallOptions<TBody = unknown, TQuery = unknown> {
   params?: Record<string, string>;
   /** Extra properties merged onto the adapted request (ip, managedSchool, …). */
   request?: Record<string, unknown>;
+  /**
+   * The raw Web request handed to the handler — multipart bodies. Defaults to
+   * a plain `GET /` placeholder, exactly as before.
+   */
+  raw?: Request;
   cookies?: CookieJar;
 }
 
@@ -74,7 +79,7 @@ export function callHandler<TBody, TQuery>(
     query: (options.query ?? {}) as TQuery,
     params,
     request: request as unknown as HandlerContext<TBody, TQuery>['request'],
-    raw: new Request('http://localhost/'),
+    raw: options.raw ?? new Request('http://localhost/'),
     cookies,
   } satisfies HandlerContext<TBody, TQuery>;
 

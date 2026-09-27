@@ -214,16 +214,16 @@ describe('migration 20260926150000-create-password-reset-tokens', () => {
   });
 
   it('runs after every migration that existed before it', async () => {
-    // Sequelize orders by filename, so a new migration must sort last or it
-    // will be skipped on an already-migrated database.
+    // Sequelize orders by filename, so a migration must sort after the ones
+    // that shipped before it or it would be skipped on already-migrated
+    // databases. (Newer migrations since — e.g. the profile-photo columns —
+    // are checked by their own specs.)
     const dir = path.join(__dirname, 'migrations');
     const names = readdirSync(dir)
       .filter((name) => /^\d{14}-.+\.[cm]?[jt]s$/.test(name))
       .sort();
-    assert.equal(
-      names[names.length - 1],
-      '20260926150000-create-password-reset-tokens.ts',
-      'this migration must be the newest one',
-    );
+    const index = names.indexOf('20260926150000-create-password-reset-tokens.ts');
+    assert.ok(index > 0, 'this migration must be present');
+    assert.equal(names[index - 1], '20260926120000-add-crew-stop-marking-to-trip-stop-arrivals.ts');
   });
 });

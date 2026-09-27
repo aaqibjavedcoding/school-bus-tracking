@@ -60,6 +60,17 @@ export interface UserAttributes extends BaseModelAttributes {
    * "PIN set 3 days ago" truthfully.
    */
   pin_updated_at: Date | null;
+  /**
+   * Storage key of the crew member's profile photo (DRIVER / CONDUCTOR
+   * self-service via `PUT /account/me/photo`). A *reference* into the
+   * configured document-storage provider — never a URL and never the bytes.
+   * `null` when no photo has been set (or after `DELETE /account/me/photo`).
+   * Not a credential: readable in the default scope and exposed to parents as
+   * part of the crew summary of the live-trip payload.
+   */
+  profile_photo_key: string | null;
+  /** When the profile photo was last set or cleared (`null` = never set). */
+  profile_photo_updated_at: Date | null;
   /** Set when the email address has been verified. Null until then. */
   email_verified_at: Date | null;
   phone: string | null;
@@ -76,6 +87,8 @@ export type UserCreationAttributes = Optional<
   | 'password_hash'
   | 'pin_hash'
   | 'pin_updated_at'
+  | 'profile_photo_key'
+  | 'profile_photo_updated_at'
   | 'email_verified_at'
 >;
 
@@ -167,6 +180,12 @@ export class User extends BaseModel<UserAttributes, UserCreationAttributes> {
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare pin_updated_at: Date | null;
+
+  @Column({ type: DataType.STRING(512), allowNull: true })
+  declare profile_photo_key: string | null;
+
+  @Column({ type: DataType.DATE, allowNull: true })
+  declare profile_photo_updated_at: Date | null;
 
   @Column({ type: DataType.DATE, allowNull: true })
   declare email_verified_at: Date | null;
