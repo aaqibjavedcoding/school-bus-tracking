@@ -95,13 +95,13 @@ function LoginForm() {
   return (
     <div className="login-screen">
       <Card className="login-card">
-        <div className="row" style={{ marginBottom: '1rem' }}>
+        <div className="auth-card-header">
           <span className="brand-mark">
             <Image src="/kidbus-mark.svg" alt="" width={42} height={42} style={{ width: 'auto' }} priority />
           </span>
           <div>
-            <h1 style={{ fontSize: '1.2rem' }}>{APP_CONFIG.appName}</h1>
-            <p className="muted">Sign in with your school account</p>
+            <h1>{APP_CONFIG.appName}</h1>
+            <p>Sign in with your school account</p>
           </div>
         </div>
         <form className="form-grid" onSubmit={(event) => void onSubmit(event)} noValidate>
@@ -132,7 +132,16 @@ function LoginForm() {
               onChange={(event) => setEmail(event.target.value)}
             />
           </Field>
-          <Field id="password" label="Password" error={fieldErrors.password}>
+          <Field
+            id="password"
+            label="Password"
+            action={
+              <Link href="/forgot-password" className="auth-forgot-link linkish">
+                Forgot password?
+              </Link>
+            }
+            error={fieldErrors.password}
+          >
             <PasswordInput
               id="password"
               name="password"
@@ -151,14 +160,22 @@ function LoginForm() {
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
-        <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
-          <Link href="/forgot-password" className="linkish" style={{ fontSize: '0.875rem' }}>
-            Forgot password?
-          </Link>
-        </div>
-        <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-          <Link href="/" className="linkish" style={{ fontSize: '0.875rem' }}>
-            ← Back to homepage
+        <div className="auth-footer">
+          <Link href="/" className="auth-back-link linkish">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Back to homepage</span>
           </Link>
         </div>
       </Card>

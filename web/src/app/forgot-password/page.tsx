@@ -75,24 +75,26 @@ export default function ForgotPasswordPage() {
   return (
     <div className="login-screen">
       <Card className="login-card">
-        <div className="row" style={{ marginBottom: '1rem' }}>
+        <div className="auth-card-header">
           <span className="brand-mark">
             <Image src="/kidbus-mark.svg" alt="" width={42} height={42} style={{ width: 'auto' }} priority />
           </span>
           <div>
-            <h1 style={{ fontSize: '1.2rem' }}>{APP_CONFIG.appName}</h1>
-            <p className="muted">Reset your school administrator password</p>
+            <h1>{APP_CONFIG.appName}</h1>
+            <p>Reset your school administrator password</p>
           </div>
         </div>
 
         {submitted ? (
-          <>
-            <p role="status">{FORGOT_PASSWORD_GENERIC_MESSAGE}</p>
+          <div className="stack" style={{ gap: '0.75rem' }}>
+            <p role="status" style={{ fontWeight: 500, color: 'var(--color-slate-900)' }}>
+              {FORGOT_PASSWORD_GENERIC_MESSAGE}
+            </p>
             <p className="muted" style={{ fontSize: '0.875rem' }}>
               The link in the email can only be used once and expires shortly after it is sent. If
               it does not arrive, check your spam folder before requesting another.
             </p>
-          </>
+          </div>
         ) : (
           <form className="form-grid" onSubmit={(event) => void onSubmit(event)} noValidate>
             <Field
@@ -133,9 +135,22 @@ export default function ForgotPasswordPage() {
           </form>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
-          <Link href="/login" className="linkish" style={{ fontSize: '0.875rem' }}>
-            ← Back to sign in
+        <div className="auth-footer">
+          <Link href="/login" className="auth-back-link linkish">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Back to sign in</span>
           </Link>
         </div>
       </Card>
