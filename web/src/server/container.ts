@@ -35,6 +35,7 @@ import {
   emailConfig,
   etaConfig,
   jwtConfig,
+  marketingConfig,
   liveTrackingConfig,
   notificationDeliveryConfig,
   notificationsConfig,
@@ -195,6 +196,7 @@ export class Container {
         notificationDeliveryConfig,
         passwordResetConfig,
         websocketConfig,
+        marketingConfig,
       ] as never),
   );
 

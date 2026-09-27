@@ -7,6 +7,8 @@ export { default as securityConfig, parseOriginList } from './security.config';
 export { default as rateLimitConfig } from './rate-limit.config';
 export { default as crewAuthConfig } from './crew-auth.config';
 export { default as emailConfig } from './email.config';
+export { default as marketingConfig } from './marketing.config';
+export { isMarketingTestRecipient, parseEmailList } from './marketing.config';
 export { default as passwordResetConfig } from './password-reset.config';
 export type { RateLimitPolicyConfig } from './rate-limit.config';
 export { default as subscriptionConfig } from './subscription.config';

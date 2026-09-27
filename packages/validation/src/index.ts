@@ -12,6 +12,12 @@ import {
   EmergencyType,
   ImportJobStatus,
   ImportModule,
+  MarketingCampaignStatus,
+  MarketingErrorCategory,
+  MarketingEventType,
+  MarketingLeadStatus,
+  MarketingRecipientStatus,
+  MarketingTemplateStatus,
   PlanBillingPeriod,
   PlanFeature,
   PlanLimitResource,
@@ -2861,3 +2867,220 @@ export const importJobListQuerySchema = paginationSchema.extend({
 });
 
 export type ImportJobListQueryInput = z.infer<typeof importJobListQuerySchema>;
+
+// ============================================================================
+// Marketing communications (email templates, campaigns, demo leads)
+// ============================================================================
+
+/**
+ * A marketing recipient address.
+ *
+ * Normalized exactly the way `email_campaign_recipients.normalized_email`
+ * and `marketing_suppressions.normalized_email` store it: trimmed,
+ * lowercased, bounded to the 254-character RFC limit for addresses (the
+ * schema columns use the same bound).
+ */
+export const marketingEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email('A valid email address is required')
+  .max(254, 'Email address must be at most 254 characters');
+
+export type MarketingEmailInput = z.infer<typeof marketingEmailSchema>;
+
+/** Template slug: lowercase kebab-case (`welcome-email`, `spring-promo-2027`). */
+export const MARKETING_TEMPLATE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export const marketingTemplateSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(2, 'Template slug must be at least 2 characters')
+  .max(80, 'Template slug must be at most 80 characters')
+  .regex(
+    MARKETING_TEMPLATE_SLUG_PATTERN,
+    'Template slug must be lowercase alphanumeric segments separated by hyphens',
+  );
+
+export type MarketingTemplateSlugInput = z.infer<typeof marketingTemplateSlugSchema>;
+
+export const marketingTemplateNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Template name is required')
+  .max(150, 'Template name must be at most 150 characters');
+
+export const marketingTemplateStatusSchema = z.nativeEnum(MarketingTemplateStatus);
+export const marketingCampaignStatusSchema = z.nativeEnum(MarketingCampaignStatus);
+export const marketingRecipientStatusSchema = z.nativeEnum(MarketingRecipientStatus);
+export const marketingLeadStatusSchema = z.nativeEnum(MarketingLeadStatus);
+export const marketingEventTypeSchema = z.nativeEnum(MarketingEventType);
+export const marketingErrorCategorySchema = z.nativeEnum(MarketingErrorCategory);
+
+/**
+ * One allowed template placeholder (`allowed_variables` entry).
+ *
+ * The name is the literal key the renderer substitutes (`school_name`), not
+ * a free-form label — that is what makes "which variables may this template
+ * use" a checkable contract instead of prose.
+ */
+export const MARKETING_TEMPLATE_VARIABLE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
+
+export const marketingTemplateVariableSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, 'Variable name is required')
+      .max(64, 'Variable name must be at most 64 characters')
+      .regex(
+        MARKETING_TEMPLATE_VARIABLE_NAME_PATTERN,
+        'Variable name must be lowercase letters, digits and underscores, starting with a letter',
+      ),
+    description: z.string().trim().max(200).nullish(),
+    required: z.boolean(),
+    example: z.string().trim().max(200).nullish(),
+  })
+  .strict();
+
+export type MarketingTemplateVariableInput = z.infer<typeof marketingTemplateVariableSchema>;
+
+/** The full `allowed_variables` payload of a template version (bounded). */
+export const marketingTemplateVariablesSchema = z
+  .array(marketingTemplateVariableSchema)
+  .max(50, 'A template version may declare at most 50 variables');
+
+export type MarketingTemplateVariablesInput = z.infer<typeof marketingTemplateVariablesSchema>;
+
+/** ISO 3166-1 alpha-2 country code, uppercased (`IN`, `AE`, `GB`). */
+export const ISO_COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
+
+export const isoCountryCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(ISO_COUNTRY_CODE_PATTERN, 'Country must be an ISO 3166-1 alpha-2 code (e.g. IN)');
+
+/** Upper bound for every array inside an audience filter. */
+const AUDIENCE_FILTER_ARRAY_LIMIT = 100;
+
+/**
+ * The campaign audience filter (`email_campaigns.audience_filter`).
+ *
+ * Every array is bounded so a filter can never encode an unbounded query,
+ * and `.strict()` rejects unknown keys so a stale client cannot smuggle a
+ * filter dimension the server does not implement (which would silently widen
+ * or narrow the real audience).
+ */
+export const marketingCampaignAudienceFilterSchema = z
+  .object({
+    search: z.string().trim().max(100).nullish(),
+    countries: z
+      .array(isoCountryCodeSchema)
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 countries may be selected')
+      .optional(),
+    cities: z
+      .array(z.string().trim().min(1).max(100))
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 cities may be selected')
+      .optional(),
+    subscription_statuses: z
+      .array(persistedSubscriptionStatusSchema)
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 subscription statuses may be selected')
+      .optional(),
+    include_school_ids: z
+      .array(z.string().uuid('school ids must be valid UUIDs'))
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 schools may be included')
+      .optional(),
+    exclude_school_ids: z
+      .array(z.string().uuid('school ids must be valid UUIDs'))
+      .max(AUDIENCE_FILTER_ARRAY_LIMIT, 'At most 100 schools may be excluded')
+      .optional(),
+    active_only: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    // include ∩ exclude makes the exclusion meaningless — reject it so the
+    // stored filter always reads as the audience it will actually produce.
+    if (value.include_school_ids && value.exclude_school_ids) {
+      const included = new Set(value.include_school_ids);
+      if (value.exclude_school_ids.some((id) => included.has(id))) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['exclude_school_ids'],
+          message: 'exclude_school_ids must not overlap include_school_ids',
+        });
+      }
+    }
+  });
+
+export type MarketingCampaignAudienceFilterInput = z.infer<
+  typeof marketingCampaignAudienceFilterSchema
+>;
+
+/** UTM attribution echoed by the landing page demo form. */
+export const marketingUtmParametersSchema = z
+  .object({
+    utm_source: z.string().trim().max(120).nullish(),
+    utm_medium: z.string().trim().max(120).nullish(),
+    utm_campaign: z.string().trim().max(120).nullish(),
+    utm_content: z.string().trim().max(120).nullish(),
+    utm_term: z.string().trim().max(120).nullish(),
+  })
+  .strict();
+
+export type MarketingUtmParametersInput = z.infer<typeof marketingUtmParametersSchema>;
+
+/**
+ * The **public** demo-request payload (landing page form).
+ *
+ * `consent: true` is mandatory — a missing or false consent is a rejection,
+ * not a warning, because `marketing_leads.consent_at` is the record of the
+ * data-subject's permission to be contacted. Everything else is optional
+ * contact context the sales operator needs.
+ */
+export const marketingDemoLeadInputSchema = z
+  .object({
+    full_name: z
+      .string()
+      .trim()
+      .min(2, 'Full name must be at least 2 characters')
+      .max(120, 'Full name must be at most 120 characters'),
+    email: marketingEmailSchema,
+    institution_name: z
+      .string()
+      .trim()
+      .min(2, 'School / institution name must be at least 2 characters')
+      .max(200, 'School / institution name must be at most 200 characters'),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^[0-9+()\-.\s]{5,32}$/, 'Phone must be 5-32 digits and standard separators')
+      .nullish(),
+    city: z.string().trim().min(1).max(100).nullish(),
+    country: isoCountryCodeSchema.nullish(),
+    message: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2000, 'Message must be at most 2000 characters')
+      .nullish(),
+    preferred_contact_time: z.string().trim().min(1).max(100).nullish(),
+    utm: marketingUtmParametersSchema.nullish(),
+    consent: z.literal(true, {
+      errorMap: () => ({ message: 'Consent is required to submit a demo request' }),
+    }),
+  })
+  .strict();
+
+export type MarketingDemoLeadInputPayload = z.infer<typeof marketingDemoLeadInputSchema>;
+
+/** Lead status transition payload (Super Admin console, Phase 4). */
+export const marketingLeadStatusUpdateSchema = z
+  .object({
+    status: marketingLeadStatusSchema,
+    note: z.string().trim().min(1).max(2000).optional(),
+  })
+  .strict();
+
+export type MarketingLeadStatusUpdateInput = z.infer<typeof marketingLeadStatusUpdateSchema>;

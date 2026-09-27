@@ -29,6 +29,14 @@ import { AuditLog } from './audit-log.model';
 import { IdempotencyKey } from './idempotency-key.model';
 import { ImportJob } from './import-job.model';
 import { AssistedManagementSession } from './assisted-management-session.model';
+import { EmailTemplate } from './marketing-template.model';
+import { EmailTemplateVersion } from './marketing-template-version.model';
+import { EmailCampaign } from './marketing-campaign.model';
+import { EmailCampaignRecipient } from './marketing-campaign-recipient.model';
+import { EmailEvent } from './marketing-event.model';
+import { MarketingSuppression } from './marketing-suppression.model';
+import { MarketingLead } from './marketing-lead.model';
+import { MarketingLeadEvent } from './marketing-lead-event.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -39,6 +47,17 @@ export {
   DRIVER_DOCUMENT_TYPE_VALUES,
   EMERGENCY_STATUS_VALUES,
   EMERGENCY_TYPE_VALUES,
+  MARKETING_TEMPLATE_STATUS_VALUES,
+  MARKETING_CAMPAIGN_STATUS_VALUES,
+  MARKETING_RECIPIENT_STATUS_VALUES,
+  MARKETING_EVENT_TYPE_VALUES,
+  MARKETING_ERROR_CATEGORY_VALUES,
+  MARKETING_RECIPIENT_SOURCE_VALUES,
+  MARKETING_SUPPRESSION_REASON_VALUES,
+  MARKETING_SUPPRESSION_SOURCE_VALUES,
+  MARKETING_LEAD_STATUS_VALUES,
+  MARKETING_LEAD_SOURCE_VALUES,
+  MARKETING_LEAD_EVENT_TYPE_VALUES,
   ROUTE_ASSIGNMENT_ROLE_VALUES,
   RUN_CREW_ROLE_VALUES,
   STUDENT_GENDER_VALUES,
@@ -55,7 +74,21 @@ export {
   TripStatus,
   UserRole,
 } from './enums';
-export type { DocumentOwnerType } from './enums';
+export type {
+  DocumentOwnerType,
+  MarketingCampaignStatus,
+  MarketingErrorCategory,
+  MarketingEventType,
+  MarketingLeadEventActor,
+  MarketingLeadEventType,
+  MarketingLeadSource,
+  MarketingLeadStatus,
+  MarketingRecipientSource,
+  MarketingRecipientStatus,
+  MarketingSuppressionReason,
+  MarketingSuppressionSource,
+  MarketingTemplateStatus,
+} from './enums';
 
 export { School } from './school.model';
 export type { SchoolAttributes, SchoolCreationAttributes } from './school.model';
@@ -157,6 +190,43 @@ export type {
   AssistedManagementSessionCreationAttributes,
   AssistedSessionEndReasonValue,
 } from './assisted-management-session.model';
+export { EmailTemplate } from './marketing-template.model';
+export type {
+  EmailTemplateAttributes,
+  EmailTemplateCreationAttributes,
+} from './marketing-template.model';
+export { EmailTemplateVersion } from './marketing-template-version.model';
+export type {
+  EmailTemplateVersionAttributes,
+  EmailTemplateVersionCreationAttributes,
+} from './marketing-template-version.model';
+export { EmailCampaign } from './marketing-campaign.model';
+export type {
+  EmailCampaignAttributes,
+  EmailCampaignCreationAttributes,
+} from './marketing-campaign.model';
+export { EmailCampaignRecipient } from './marketing-campaign-recipient.model';
+export type {
+  EmailCampaignRecipientAttributes,
+  EmailCampaignRecipientCreationAttributes,
+} from './marketing-campaign-recipient.model';
+export { EmailEvent } from './marketing-event.model';
+export type { EmailEventAttributes, EmailEventCreationAttributes } from './marketing-event.model';
+export { MarketingSuppression } from './marketing-suppression.model';
+export type {
+  MarketingSuppressionAttributes,
+  MarketingSuppressionCreationAttributes,
+} from './marketing-suppression.model';
+export { MarketingLead } from './marketing-lead.model';
+export type {
+  MarketingLeadAttributes,
+  MarketingLeadCreationAttributes,
+} from './marketing-lead.model';
+export { MarketingLeadEvent } from './marketing-lead-event.model';
+export type {
+  MarketingLeadEventAttributes,
+  MarketingLeadEventCreationAttributes,
+} from './marketing-lead-event.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -204,4 +274,12 @@ export const models: ModelCtor<Model>[] = [
   IdempotencyKey,
   ImportJob,
   AssistedManagementSession,
+  EmailTemplate,
+  EmailTemplateVersion,
+  EmailCampaign,
+  EmailCampaignRecipient,
+  EmailEvent,
+  MarketingSuppression,
+  MarketingLead,
+  MarketingLeadEvent,
 ];
