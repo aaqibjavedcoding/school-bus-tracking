@@ -33,9 +33,9 @@ export const TRIP_ATTENDANCE_TRIP_NOT_FOUND_MESSAGE = 'Trip not found';
 export const TRIP_ATTENDANCE_STUDENT_NOT_ON_TRIP_MESSAGE =
   'Student is not on the manifest of this trip';
 
-/** Lifecycle guard: attendance is immutable once the run is closed. */
+/** Lifecycle guard: a dispatch cannot record pickups before boarding begins. */
 export const TRIP_ATTENDANCE_TRIP_CLOSED_MESSAGE =
-  'Attendance can only be recorded while the trip is scheduled, boarding or in progress';
+  'Attendance can only be recorded after boarding has started (boarding or in progress).';
 
 /** Attendance transition guards. */
 export const TRIP_ATTENDANCE_ALREADY_BOARDED_MESSAGE =

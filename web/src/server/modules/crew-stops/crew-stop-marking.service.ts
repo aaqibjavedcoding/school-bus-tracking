@@ -41,8 +41,9 @@ import {
  *   dispatch snapshot or by an active `RouteAssignment` effective on the trip
  *   date — exactly the rule `TripAttendanceService` already applies, because
  *   "am I the crew of this trip?" must not have two answers.
- * - **open trips only**. A `COMPLETED` / `CANCELLED` run's stop record is an
- *   audit artefact (`isTripOpenForCrewStopMarking`, the attendance window).
+ * - **boarding/in-progress trips only**. `SCHEDULED` has not started picking
+ *   children up; `COMPLETED` / `CANCELLED` records are audit artefacts
+ *   (`isTripOpenForCrewStopMarking`, the shared attendance window).
  * - **the stop must be on this trip's route**, resolved through the trip —
  *   never from the client's id alone — so no cross-route or cross-tenant stop
  *   can be attached to a run.

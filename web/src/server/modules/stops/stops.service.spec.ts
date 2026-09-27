@@ -10,6 +10,7 @@ import {
   STOP_NOT_FOUND_MESSAGE,
   STOP_ROUTE_INVALID_MESSAGE,
   STOP_SEQUENCE_TAKEN_MESSAGE,
+  STOP_TOO_CLOSE_MESSAGE,
 } from './stops.constants';
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
@@ -95,6 +96,14 @@ function makeStopsRepository(
         );
         return (match ?? null) as unknown as Stop;
       },
+      findAll: async (options: { where: Record<PropertyKey, unknown> }) =>
+        all.filter(
+          (record) =>
+            record.deleted_at === null &&
+            record.school_id === options.where.school_id &&
+            record.route_id === options.where.route_id &&
+            (options.where.is_active === undefined || record.is_active === options.where.is_active),
+        ) as unknown as Stop[],
       create: async (payload: Partial<StubStopRecord>) => {
         capture.createPayload = payload;
         const record = makeStopRecord({
@@ -166,7 +175,6 @@ function makeRoutesRepository(records: Array<{ id: string; school_id: string }> 
     } as unknown as typeof Route,
   };
 }
-
 
 function allowAllPlanLimits(): PlanLimitsService {
   return {
@@ -294,6 +302,103 @@ describe('StopsService.create', () => {
     );
   });
 
+  it('rejects a new stop one metre inside the geofence spacing limit', async () => {
+    const existing = makeStopRecord({
+      id: 'main-gate',
+      name: 'Main Gate',
+      latitude: 0,
+      longitude: 0,
+      geofence_radius_meters: 100,
+    });
+    const { repo: stops } = makeStopsRepository([existing]);
+    const service = new StopsService(
+      stops,
+      makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
+    );
+    const oneMeterInsideDegrees = (199 / 6_371_000) * (180 / Math.PI);
+
+    await expectConflict(
+      service.create(
+        SCHOOL_A,
+        makeCreateDto({
+          name: 'Central Park',
+          latitude: oneMeterInsideDegrees,
+          longitude: 0,
+          geofence_radius_meters: 100,
+        }),
+      ),
+      STOP_TOO_CLOSE_MESSAGE('Central Park', 'Main Gate', 199, 200),
+    );
+  });
+
+  it('allows a stop exactly at the geofence spacing limit', async () => {
+    const existing = makeStopRecord({
+      id: 'main-gate',
+      name: 'Main Gate',
+      latitude: 0,
+      longitude: 0,
+      geofence_radius_meters: 100,
+    });
+    const { repo: stops } = makeStopsRepository([existing]);
+    const service = new StopsService(
+      stops,
+      makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
+    );
+    const exactLimitDegrees = (200 / 6_371_000) * (180 / Math.PI);
+
+    const created = await service.create(
+      SCHOOL_A,
+      makeCreateDto({
+        name: 'Central Park',
+        latitude: exactLimitDegrees,
+        longitude: 0,
+        geofence_radius_meters: 100,
+      }),
+    );
+    assert.equal(created.name, 'Central Park');
+  });
+
+  it('skips the spacing check when either stop has no coordinates', async () => {
+    const existing = makeStopRecord({
+      id: 'main-gate',
+      name: 'Main Gate',
+      latitude: null,
+      longitude: null,
+    });
+    const { repo: stops } = makeStopsRepository([existing]);
+    const service = new StopsService(
+      stops,
+      makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
+    );
+
+    const created = await service.create(
+      SCHOOL_A,
+      makeCreateDto({ name: 'Central Park', latitude: 0, longitude: 0 }),
+    );
+    assert.equal(created.name, 'Central Park');
+
+    const surveyedExisting = makeStopRecord({
+      id: 'surveyed-main-gate',
+      name: 'Surveyed Main Gate',
+      latitude: 0,
+      longitude: 0,
+    });
+    const { repo: surveyedStops } = makeStopsRepository([surveyedExisting]);
+    const serviceWithUnsurveyedCandidate = new StopsService(
+      surveyedStops,
+      makeRoutesRepository([{ id: ROUTE_A, school_id: SCHOOL_A }]).repo,
+      allowAllPlanLimits(),
+    );
+    const unsurveyed = await serviceWithUnsurveyedCandidate.create(
+      SCHOOL_A,
+      makeCreateDto({ name: 'No GPS Pin' }),
+    );
+    assert.equal(unsurveyed.name, 'No GPS Pin');
+  });
+
   it('maps a sequence collision to a conflict', async () => {
     const { repo: base } = makeStopsRepository();
     const stops = {
@@ -403,6 +508,54 @@ describe('StopsService.update', () => {
     assert.equal(response.geofence_radius_meters, 250);
     assert.equal(response.is_active, false);
     assert.equal(response.school_id, SCHOOL_A);
+  });
+
+  it('excludes the stop itself when an existing geofenced stop is moved or resized', async () => {
+    const stop = makeStopRecord({
+      id: STOP_A,
+      name: 'Main Gate',
+      latitude: 0,
+      longitude: 0,
+      geofence_radius_meters: 100,
+    });
+    const { repo: stops } = makeStopsRepository([stop]);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
+
+    const response = await service.update(
+      SCHOOL_A,
+      STOP_A,
+      makeUpdateDto({ latitude: 0, longitude: 0, geofence_radius_meters: 200 }),
+    );
+
+    assert.equal(response.geofence_radius_meters, 200);
+  });
+
+  it("rejects moving an existing stop inside another active stop's spacing limit", async () => {
+    const stop = makeStopRecord({
+      id: STOP_A,
+      name: 'Central Park',
+      latitude: 0.01,
+      longitude: 0,
+      geofence_radius_meters: 100,
+    });
+    const other = makeStopRecord({
+      id: 'main-gate',
+      name: 'Main Gate',
+      latitude: 0,
+      longitude: 0,
+      geofence_radius_meters: 100,
+    });
+    const { repo: stops } = makeStopsRepository([stop, other]);
+    const service = new StopsService(stops, makeRoutesRepository().repo, allowAllPlanLimits());
+
+    await expectConflict(
+      service.update(
+        SCHOOL_A,
+        STOP_A,
+        makeUpdateDto({ latitude: (199 / 6_371_000) * (180 / Math.PI), longitude: 0 }),
+      ),
+      STOP_TOO_CLOSE_MESSAGE('Central Park', 'Main Gate', 199, 200),
+    );
   });
 
   it('clears nullable fields when null is sent', async () => {

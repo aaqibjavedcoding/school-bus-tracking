@@ -2324,6 +2324,11 @@ export interface TrackingLeaveAck {
 export interface TripLocationUpdatePayload extends GpsLocationFix {
   trip_id: string;
   /**
+   * Android/device signal that this fix came from a mock or developer location
+   * provider. The API rejects `true`; it remains optional for older clients.
+   */
+  mocked?: boolean;
+  /**
    * Optional client-generated idempotency key (max 255 chars). When present,
    * a redelivered fix (background-task double delivery, socket retry) returns
    * the original ack without inserting a duplicate `trip_locations` row. Keys
@@ -2341,6 +2346,7 @@ export type TripLocationUpdateRejectionReason =
   | 'invalid_payload'
   | 'invalid_timestamp'
   | 'future_timestamp'
+  | 'mock_location'
   | 'throttled';
 
 /** Ack of `trip:location:update`. */

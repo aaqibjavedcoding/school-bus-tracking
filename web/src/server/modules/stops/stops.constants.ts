@@ -32,5 +32,22 @@ export const STOP_ROUTE_INVALID_MESSAGE = 'Referenced route does not belong to t
  */
 export const STOP_SEQUENCE_TAKEN_MESSAGE = 'A stop already exists at this position on the route';
 
+/**
+ * Builds the spacing-guard error with the real conflicting stop and the two
+ * measured distances. Distances are rounded only for display; the guard itself
+ * compares full-precision metre values, so an exact boundary remains allowed.
+ */
+export const STOP_TOO_CLOSE_MESSAGE = (
+  stopName: string,
+  conflictingStopName: string,
+  distanceMeters: number,
+  minimumDistanceMeters: number,
+): string =>
+  `${stopName} stop is too close to '${conflictingStopName}' (${Math.round(
+    distanceMeters,
+  )} m apart). Stops must be at least ${Math.round(minimumDistanceMeters)} m apart for a ${Math.round(
+    minimumDistanceMeters / 2,
+  )} m radius.`;
+
 /** Confirmation message returned by soft delete. */
 export const STOP_DELETED_MESSAGE = 'Stop deleted successfully';

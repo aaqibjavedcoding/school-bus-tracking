@@ -205,6 +205,8 @@ export interface CrewLocationStats {
     recorded_at: string;
     heading: number | null;
     speed: number | null;
+    /** The OS identified this newest fix as a mock/developer location. */
+    mocked: boolean;
   } | null;
 }
 
@@ -883,6 +885,7 @@ export function deliverCrewDeviceFix(fix: DeviceLocationFix): PushFixResult {
         // fix in `lib/geo.ts` omits it) — held as `null`, never as 0.
         heading: payload.heading ?? null,
         speed: payload.speed ?? null,
+        mocked: payload.mocked === true,
       },
     });
   }
@@ -1513,6 +1516,7 @@ export async function runHeadlessCrewLocationTask(
           recorded_at: payload.recorded_at,
           heading: payload.heading ?? null,
           speed: payload.speed ?? null,
+          mocked: payload.mocked === true,
         },
       });
     }

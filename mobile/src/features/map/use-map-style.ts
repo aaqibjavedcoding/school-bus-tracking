@@ -5,9 +5,10 @@
  *
  * On mount (per style URL) it:
  *
- * 1. fetches the style JSON in JS and repairs a missing/non-https `glyphs`
- *    template (`inspectMapStyle`) — a repaired style is passed to the map as
- *    an object, an intact one keeps its URL (and its CDN caching);
+ * 1. fetches the style JSON in JS (retrying once after a short backoff) and
+ *    repairs a missing/non-https `glyphs` template (`inspectMapStyle`); the
+ *    inspected object is passed to the map so the successful retry is the
+ *    request MapLibre actually uses;
  * 2. registers one percent-encoded fontstack rewrite per declared `text-font`
  *    stack (`TransformRequestManager`), so the Android glyph fetch asks for
  *    `Noto%20Sans%20Regular` instead of a space-broken path;
@@ -31,17 +32,38 @@ import {
   resolveMapStyleUrl,
   type MapStyleIssueCode,
 } from './map-style.ts';
-import {
-  getMapIssues,
-  reportMapIssue,
-  subscribeMapIssues,
-} from './map-diagnostics.ts';
+import { getMapIssues, reportMapIssue, subscribeMapIssues } from './map-diagnostics.ts';
 
 export interface MapStyleState {
-  /** Value for the map's `mapStyle` prop: the URL, or the repaired style. */
+  /** Value for the map's `mapStyle` prop: URL while loading, then the inspected style object. */
   mapStyle: MapProps['mapStyle'];
   /** Issues reported so far (also mirrored in the map-diagnostics store). */
   issues: readonly MapStyleIssueCode[];
+}
+
+/** One short retry absorbs a transient tile-CDN/network wake-up without looping forever. */
+const STYLE_FETCH_RETRY_BACKOFF_MS = 600;
+
+async function fetchStyleWithOneRetry(styleUrl: string): Promise<Response> {
+  let firstError: unknown;
+  try {
+    const first = await fetch(styleUrl);
+    if (first.ok) return first;
+    firstError = new Error(`style HTTP ${first.status}`);
+  } catch (error) {
+    firstError = error;
+  }
+
+  await new Promise<void>((resolve) => setTimeout(resolve, STYLE_FETCH_RETRY_BACKOFF_MS));
+  try {
+    const second = await fetch(styleUrl);
+    if (second.ok) return second;
+    throw new Error(`style HTTP ${second.status}`);
+  } catch (secondError) {
+    // Preserve that two requests were attempted while still exposing one
+    // concise diagnostic to the driver surface.
+    throw secondError ?? firstError;
+  }
 }
 
 /** Classifies a native log line into a map issue code, or `null` to ignore. */
@@ -73,8 +95,7 @@ export function useMapStyle(
 
     void (async () => {
       try {
-        const response = await fetch(styleUrl);
-        if (!response.ok) throw new Error(`style HTTP ${response.status}`);
+        const response = await fetchStyleWithOneRetry(styleUrl);
         const inspection = inspectMapStyle(await response.json());
         if (cancelled) return;
         if (inspection.glyphsTemplate === null) throw new Error('style JSON is not an object');
@@ -96,7 +117,10 @@ export function useMapStyle(
           if (!probe.ok) reportMapIssue('glyphs');
         }
 
-        if (!cancelled && inspection.glyphsRepaired) {
+        if (!cancelled) {
+          // Passing the inspected object means a successful second JS fetch is
+          // the style MapLibre uses; leaving the URL here would ask the native
+          // map to make a separate, un-retried style request.
           setMapStyle(inspection.style as unknown as StyleSpecification);
         }
       } catch {

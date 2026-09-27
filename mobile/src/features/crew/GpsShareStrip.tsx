@@ -5,6 +5,7 @@ import { Button } from '../../components';
 import { crewCopy } from './crew-copy';
 import { feedback } from './crew-feedback.ts';
 import { gpsStripActions } from './gps-strip-action.ts';
+import { shouldWarnAboutMockLocation } from './tracking-status.ts';
 import type { CrewLocationSharing } from './useCrewLocationSharing';
 
 /**
@@ -83,6 +84,7 @@ export const GpsShareStrip: React.FC<{
    * by screen readers the moment it appears (`accessibilityLiveRegion`).
    */
   const failureLine = sharing.message;
+  const mockLocationWarning = shouldWarnAboutMockLocation(sharing.stats.lastFix);
 
   return (
     <View style={styles.card}>
@@ -150,6 +152,11 @@ export const GpsShareStrip: React.FC<{
           />
         )}
       </View>
+      {mockLocationWarning ? (
+        <Text style={styles.mockLocationWarning} accessibilityLiveRegion="assertive">
+          {crewCopy.gps.mockLocationWarning}
+        </Text>
+      ) : null}
       {failureLine ? (
         <Text style={styles.failureLine} accessibilityLiveRegion="polite">
           {failureLine}
@@ -206,6 +213,11 @@ const styles = StyleSheet.create({
   // white) — the error tone is stated by the colour table, not by eye.
   failureLine: {
     fontSize: 14,
+    color: '#b91c1c',
+  },
+  mockLocationWarning: {
+    fontSize: 14,
+    fontWeight: '700',
     color: '#b91c1c',
   },
   helpLink: {

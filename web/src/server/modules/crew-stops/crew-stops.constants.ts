@@ -12,6 +12,6 @@ export const CREW_STOPS_TRIP_NOT_FOUND_MESSAGE = 'Trip not found.';
 /** The stop is not on this trip's route (or belongs to another tenant). */
 export const CREW_STOPS_STOP_NOT_ON_TRIP_MESSAGE = 'Stop not found on this trip.';
 
-/** The run is finished or cancelled — its stop record is now an audit trail. */
+/** The run has not reached boarding yet, or is already an immutable audit trail. */
 export const CREW_STOPS_TRIP_CLOSED_MESSAGE =
-  'This trip is closed, so its stops can no longer be marked.';
+  'Stops can be marked only after boarding has started (boarding or in progress).';

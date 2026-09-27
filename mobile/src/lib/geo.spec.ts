@@ -64,7 +64,17 @@ describe('buildLocationPayload', () => {
     assert.equal(payload!.accuracy, 12.5);
     assert.equal(payload!.speed, 8.2 * 3.6); // converted to km/h
     assert.equal(payload!.heading, 270);
+    assert.equal(payload!.mocked, false);
     assert.equal(payload!.recorded_at, '2026-08-29T08:30:00.000Z');
+  });
+
+  it('preserves the OS mock-location signal for the server rejection and driver warning', () => {
+    const payload = buildLocationPayload('11111111-1111-4111-8111-111111111111', {
+      ...fix,
+      mocked: true,
+    });
+    assert.ok(payload);
+    assert.equal(payload!.mocked, true);
   });
 
   /**

@@ -248,7 +248,7 @@ describe('buildDiagnosticsRows — Map labels row', () => {
     const broken = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, issues);
     assert.equal(
       valueOf(broken, 'Map labels'),
-      'Map labels unavailable · Map failed to load',
+      'Map labels unavailable · Map failed to load — check your network connection and map tiles.',
     );
     // The row sits next to the socket row (map transport facts together).
     const labels = broken.map((row) => row.label);

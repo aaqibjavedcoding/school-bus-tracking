@@ -53,6 +53,8 @@ export interface DeviceLocationFix {
     heading?: number | null;
   };
   timestamp: number | string;
+  /** Android/Expo flags fixes from a mock or developer location provider. */
+  mocked?: boolean | null;
 }
 
 /**
@@ -114,6 +116,9 @@ export function normalizeDeviceHeading(value: number | null | undefined): number
  *
  * `idempotencyKey` (one UUID per fix) lets the server recognise a redelivered
  * fix and replay the original ack instead of inserting a duplicate row.
+ * `mocked` is passed through from the OS instead of being hidden: the API
+ * rejects mock-provider fixes and the trip screen can tell the driver how to
+ * correct the device setting.
  */
 export function buildLocationPayload(
   tripId: string,
@@ -145,6 +150,7 @@ export function buildLocationPayload(
     ...(accuracy !== null ? { accuracy } : {}),
     ...(speedMs !== null ? { speed: speedMs * 3.6 } : {}),
     ...(heading !== null ? { heading } : {}),
+    mocked: fix.mocked === true,
     ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
   };
 

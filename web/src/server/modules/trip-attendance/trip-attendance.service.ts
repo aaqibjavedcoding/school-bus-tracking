@@ -575,7 +575,7 @@ export class TripAttendanceService {
   }
 }
 
-/** Attendance is an audit record once the run is completed or cancelled. */
+/** Attendance opens at BOARDING; scheduled and terminal runs are immutable here. */
 function assertTripOpen(trip: Trip): void {
   if (!isTripOpenForAttendance(trip.status)) {
     throw new ConflictException(TRIP_ATTENDANCE_TRIP_CLOSED_MESSAGE);

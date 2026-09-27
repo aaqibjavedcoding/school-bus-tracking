@@ -30,6 +30,18 @@ const ADMIN_A = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const ACTOR = { schoolId: SCHOOL_A, userId: ADMIN_A };
 
+const STOP_HEADERS = [
+  'Route Code',
+  'Stop Name',
+  'Sequence Number',
+  'Address',
+  'Latitude',
+  'Longitude',
+  'Geofence Radius (m)',
+  'Estimated Arrival Time',
+  'Active',
+];
+
 const STUDENT_HEADERS = [
   'Admission Number',
   'First Name',
@@ -60,6 +72,14 @@ function studentFile(rows: Array<Record<string, string>>, name = 'students.csv')
   return csvFile(
     STUDENT_HEADERS,
     rows.map((row) => STUDENT_HEADERS.map((header) => row[header] ?? '')),
+    name,
+  );
+}
+
+function stopFile(rows: Array<Record<string, string>>, name = 'stops.csv') {
+  return csvFile(
+    STOP_HEADERS,
+    rows.map((row) => STOP_HEADERS.map((header) => row[header] ?? '')),
     name,
   );
 }
@@ -617,6 +637,50 @@ describe('ImportService.validate — reference resolution and tenancy', () => {
 
     assert.equal(result.summary.invalid_rows, 1);
     assert.match(result.preview[0].issues[0].message, /No parent account exists/);
+  });
+});
+
+describe('ImportService.validate — stop spacing', () => {
+  it('rejects a too-close stop import with its spreadsheet row context', async () => {
+    const local = makeHarness({
+      routes: [ROUTE_NORTH],
+      stops: [
+        {
+          id: 'main-gate',
+          school_id: SCHOOL_A,
+          route_id: ROUTE_NORTH.id,
+          name: 'Main Gate',
+          latitude: 0,
+          longitude: 0,
+          geofence_radius_meters: 100,
+          sequence_number: 1,
+          is_active: true,
+        },
+      ],
+    });
+
+    const result = await local.service.validate(
+      ACTOR,
+      ImportModule.STOPS,
+      ImportMode.CREATE,
+      stopFile([
+        {
+          'Route Code': 'NORTH-AM',
+          'Stop Name': 'Central Park',
+          'Sequence Number': '2',
+          Latitude: String((199 / 6_371_000) * (180 / Math.PI)),
+          Longitude: '0',
+          'Geofence Radius (m)': '100',
+        },
+      ]),
+    );
+
+    assert.equal(result.summary.invalid_rows, 1);
+    const row = result.preview.find((candidate) => candidate.row_number === 1);
+    assert.equal(row?.status, ImportRowStatus.INVALID);
+    assert.ok(row?.issues.some((issue) => issue.column === 'Latitude'));
+    assert.match(row?.issues[0]?.message ?? '', /Central Park stop is too close to 'Main Gate'/);
+    assert.match(row?.issues[0]?.message ?? '', /at least 200 m apart/);
   });
 });
 

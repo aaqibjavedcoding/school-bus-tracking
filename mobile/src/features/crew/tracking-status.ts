@@ -92,6 +92,17 @@ export const SERVER_ACK_STALE_WINDOW_MS = GPS_STALE_WINDOW_MS;
  */
 export const LOCAL_FIX_FRESH_WINDOW_MS = 30_000;
 
+/**
+ * The mock-location warning is deliberately a pure latest-fix rule: a new
+ * genuine OS fix clears it, while the current mock fix remains visible for as
+ * long as the trip screen stays open.
+ */
+export function shouldWarnAboutMockLocation(
+  lastFix: { mocked: boolean } | null | undefined,
+): boolean {
+  return lastFix?.mocked === true;
+}
+
 export interface CrewTrackingStatusInput {
   foregroundActive: boolean;
   backgroundActive: boolean;

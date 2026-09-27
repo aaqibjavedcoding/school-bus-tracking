@@ -16,6 +16,7 @@ import {
   StudentGuardian,
   TripLocation,
 } from '../../database/models';
+import { tripLocationUpdateSchema } from '@school-bus-tracking/validation';
 import { LiveTrackingService } from './live-tracking.service';
 import {
   LIVE_TRACKING_NO_LOCATION_MESSAGE,
@@ -226,6 +227,34 @@ describe('LiveTrackingService.recordLocation — validation', () => {
     assert.equal(payload.tracking_state, 'active');
     assert.equal(payload.received_at, ack.received_at);
     assert.ok(broadcast !== undefined);
+  });
+
+  it('accepts the optional mocked payload flag, then rejects a reported mock before persistence or arrivals', async () => {
+    const parsed = tripLocationUpdateSchema.safeParse({
+      ...locationPayload(TRIP_A),
+      mocked: true,
+    });
+    assert.equal(parsed.success, true, 'the shared schema must retain the OS signal');
+
+    let arrivalsEvaluated = 0;
+    const arrivals = {
+      onAcceptedFix: async () => {
+        arrivalsEvaluated += 1;
+        return null;
+      },
+      clearTrip: () => undefined,
+    } as unknown as import('../eta/stop-arrivals.service').StopArrivalsService;
+    const { service, store, capture } = makeService({ arrivals });
+
+    const { ack } = await service.recordLocation(DRIVER, {
+      ...locationPayload(TRIP_A),
+      mocked: true,
+    });
+
+    assert.deepEqual(ack, { status: 'rejected', trip_id: TRIP_A, reason: 'mock_location' });
+    assert.equal(store.createPayloads.length, 0);
+    assert.equal(capture.emitted.length, 0);
+    assert.equal(arrivalsEvaluated, 0);
   });
 
   it('accepts a fix from the assigned conductor too', async () => {

@@ -75,6 +75,7 @@ const DRIVER_UNRELATED = '44444444-4444-4444-8444-444444440004';
 const DRIVER_EXPIRED = '44444444-4444-4444-8444-444444440005';
 
 const TRIP_A = '55555555-5555-4555-8555-555555550001';
+const TRIP_SCHEDULED = '55555555-5555-4555-8555-555555550004';
 const TRIP_COMPLETED = '55555555-5555-4555-8555-555555550002';
 const TRIP_OTHER_SCHOOL = '55555555-5555-4555-8555-555555550003';
 
@@ -136,6 +137,15 @@ const TRIPS: StubTrip[] = [
     driver_id: DRIVER_DISPATCHED,
     conductor_id: CONDUCTOR_DISPATCHED,
     status: TripStatus.IN_PROGRESS,
+    scheduled_start_at: SCHEDULED_START,
+  },
+  {
+    id: TRIP_SCHEDULED,
+    school_id: SCHOOL_A,
+    route_id: ROUTE_A,
+    driver_id: DRIVER_DISPATCHED,
+    conductor_id: CONDUCTOR_DISPATCHED,
+    status: TripStatus.SCHEDULED,
     scheduled_start_at: SCHEDULED_START,
   },
   {
@@ -427,6 +437,23 @@ describe('crew stop marking — authorization', () => {
         return true;
       },
     );
+  });
+
+  it('returns 409 for arrive and skip while the trip is still scheduled', async () => {
+    const harness = makeHarness();
+    const crew = actor(DRIVER_DISPATCHED, UserRole.DRIVER);
+
+    for (const action of [
+      () => harness.service.markArrived(crew, TRIP_SCHEDULED, STOP_1),
+      () => harness.service.markSkipped(crew, TRIP_SCHEDULED, STOP_1, 'road closed'),
+    ]) {
+      await assert.rejects(action(), (error: ConflictException) => {
+        assert.equal(error.getStatus(), 409);
+        assert.equal(error.message, CREW_STOPS_TRIP_CLOSED_MESSAGE);
+        return true;
+      });
+    }
+    assert.equal(harness.arrivals.rows.length, 0);
   });
 
   it('refuses a closed trip with 409 — its stop record is an audit artefact', async () => {

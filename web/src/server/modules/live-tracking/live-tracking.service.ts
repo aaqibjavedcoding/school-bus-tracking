@@ -571,6 +571,14 @@ export class LiveTrackingService {
       return reject(payload.trip_id, 'trip_not_open');
     }
 
+    // A platform-identified mock/developer location must never become live
+    // history, a broadcast position, or geofence-arrival evidence. The signal
+    // is client supplied and can be omitted by old apps, but a reported mock is
+    // always rejected before idempotency, throttling and persistence.
+    if (payload.mocked === true) {
+      return reject(payload.trip_id, 'mock_location');
+    }
+
     // Redelivered fix with a known key: replay the original ack. No row, no
     // broadcast, no throttle interaction — the first delivery already did all
     // of that.

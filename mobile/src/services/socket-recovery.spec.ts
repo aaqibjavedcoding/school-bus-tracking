@@ -138,6 +138,7 @@ describe('classifyLocationAck', () => {
     assert.equal(classifyLocationAck(ack('rejected', { reason: 'trip_not_found' })), 'permanent');
     assert.equal(classifyLocationAck(ack('rejected', { reason: 'invalid_payload' })), 'invalid');
     assert.equal(classifyLocationAck(ack('rejected', { reason: 'future_timestamp' })), 'invalid');
+    assert.equal(classifyLocationAck(ack('rejected', { reason: 'mock_location' })), 'invalid');
     assert.equal(isPermanentLocationRejection('permanent'), true);
     assert.equal(isPermanentLocationRejection('throttled'), false);
   });

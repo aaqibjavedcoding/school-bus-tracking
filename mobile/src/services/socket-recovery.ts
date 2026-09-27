@@ -192,6 +192,11 @@ export function classifyLocationAck(ack: TripLocationUpdateAck): LocationAckClas
     case 'trip_not_found':
     case 'trip_not_open':
       return 'permanent';
+    // The OS marked this coordinate as fake. Drop this one fix; the persistent
+    // trip-screen warning tells the driver to disable mock locations, while a
+    // later genuine fix can flow normally without stopping the whole trip.
+    case 'mock_location':
+      return 'invalid';
     default:
       return 'invalid';
   }
