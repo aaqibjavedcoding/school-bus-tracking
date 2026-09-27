@@ -4,6 +4,17 @@ import {
   DriverDocumentType,
   EmergencyStatus,
   EmergencyType,
+  MarketingCampaignStatus,
+  MarketingErrorCategory,
+  MarketingEventType,
+  MarketingLeadEventType,
+  MarketingLeadSource,
+  MarketingLeadStatus,
+  MarketingRecipientSource,
+  MarketingRecipientStatus,
+  MarketingSuppressionReason,
+  MarketingSuppressionSource,
+  MarketingTemplateStatus,
   RouteAssignmentRole,
   StudentGender,
   TripAttendanceStatus,
@@ -149,3 +160,62 @@ export { EmergencyStatus, EmergencyType };
 export const EMERGENCY_TYPE_VALUES: EmergencyType[] = Object.values(EmergencyType);
 
 export const EMERGENCY_STATUS_VALUES: EmergencyStatus[] = Object.values(EmergencyStatus);
+
+/**
+ * Marketing communications (email templates, campaigns, demo leads).
+ *
+ * Every value set below is owned by `@school-bus-tracking/shared-types` (like
+ * every other enum in this file) so the database, the API and both clients can
+ * never drift; they are only re-exported here. The physical columns are plain
+ * VARCHARs (the `import_jobs` pattern), validated by the API layer against
+ * these values before any write — adding a value stays a code-only change,
+ * with no PostgreSQL enum type to migrate.
+ */
+export {
+  MarketingCampaignStatus,
+  MarketingErrorCategory,
+  MarketingEventType,
+  MarketingLeadEventType,
+  MarketingLeadSource,
+  MarketingLeadStatus,
+  MarketingRecipientSource,
+  MarketingRecipientStatus,
+  MarketingSuppressionReason,
+  MarketingSuppressionSource,
+  MarketingTemplateStatus,
+};
+export type { MarketingLeadEventActor } from '@school-bus-tracking/shared-types';
+
+export const MARKETING_TEMPLATE_STATUS_VALUES: MarketingTemplateStatus[] =
+  Object.values(MarketingTemplateStatus);
+
+export const MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus[] =
+  Object.values(MarketingCampaignStatus);
+
+export const MARKETING_RECIPIENT_STATUS_VALUES: MarketingRecipientStatus[] =
+  Object.values(MarketingRecipientStatus);
+
+export const MARKETING_EVENT_TYPE_VALUES: MarketingEventType[] = Object.values(MarketingEventType);
+
+export const MARKETING_ERROR_CATEGORY_VALUES: MarketingErrorCategory[] =
+  Object.values(MarketingErrorCategory);
+
+export const MARKETING_RECIPIENT_SOURCE_VALUES: MarketingRecipientSource[] =
+  Object.values(MarketingRecipientSource);
+
+export const MARKETING_SUPPRESSION_REASON_VALUES: MarketingSuppressionReason[] = Object.values(
+  MarketingSuppressionReason,
+);
+
+export const MARKETING_SUPPRESSION_SOURCE_VALUES: MarketingSuppressionSource[] = Object.values(
+  MarketingSuppressionSource,
+);
+
+export const MARKETING_LEAD_STATUS_VALUES: MarketingLeadStatus[] =
+  Object.values(MarketingLeadStatus);
+
+export const MARKETING_LEAD_SOURCE_VALUES: MarketingLeadSource[] =
+  Object.values(MarketingLeadSource);
+
+export const MARKETING_LEAD_EVENT_TYPE_VALUES: MarketingLeadEventType[] =
+  Object.values(MarketingLeadEventType);

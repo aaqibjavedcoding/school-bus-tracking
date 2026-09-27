@@ -4480,3 +4480,329 @@ export interface AssistedSessionEndResponse {
   session: AssistedManagementSessionResponse | null;
   school: ManagedSchoolSummary;
 }
+
+// ============================================================================
+// Marketing communications (email templates, campaigns, demo leads)
+// ============================================================================
+
+/**
+ * Lifecycle state of a marketing email template (`email_templates.status`).
+ *
+ * DRAFT     → editable; no published version exists yet (or a newer draft is
+ *             being edited beside the published one)
+ * PUBLISHED → at least one immutable version has been published; campaigns may
+ *             reference it
+ * ARCHIVED  → retired; existing campaigns keep their snapshot references, no
+ *             new campaign may be created against it
+ *
+ * The value set is deliberately small: *which* content a campaign sends is a
+ * property of the immutable {@link EmailTemplateVersion} row it pins, not of
+ * the template's status.
+ */
+export enum MarketingTemplateStatus {
+  DRAFT = 'DRAFT',
+  PUBLISHED = 'PUBLISHED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export const MARKETING_TEMPLATE_STATUS_VALUES: MarketingTemplateStatus[] =
+  Object.values(MarketingTemplateStatus);
+
+/**
+ * Lifecycle state of a marketing email campaign (`email_campaigns.status`).
+ *
+ * DRAFT     → being configured; the audience filter may still change and no
+ *             recipient snapshot exists
+ * SCHEDULED → scheduled_at is set and the server-side audience snapshot has
+ *             been frozen (audience_snapshot_hash written); the worker may
+ *             start it when due
+ * SENDING   → the worker has started delivery and recipients are still owed
+ *             attempts
+ * PAUSED    → delivery interrupted by a Super Admin; can be resumed
+ * COMPLETED → every snapshotted recipient reached a terminal status
+ * CANCELLED → aborted by a Super Admin before completion; remaining pending
+ *             recipients are never sent
+ * FAILED    → delivery aborted by the system (e.g. the email rail reported a
+ *             configuration failure); retryable by operator action only
+ *
+ * `COMPLETED`, `CANCELLED` and `FAILED` are terminal. Transitions are
+ * enforced by the API service layer (Phase 3), not by the database.
+ */
+export enum MarketingCampaignStatus {
+  DRAFT = 'DRAFT',
+  SCHEDULED = 'SCHEDULED',
+  SENDING = 'SENDING',
+  PAUSED = 'PAUSED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  FAILED = 'FAILED',
+}
+
+export const MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus[] =
+  Object.values(MarketingCampaignStatus);
+
+/** Campaign statuses the scheduler picks up (i.e. ones with a frozen snapshot). */
+export const SCHEDULED_MARKETING_CAMPAIGN_STATUS_VALUES: MarketingCampaignStatus[] = [
+  MarketingCampaignStatus.SCHEDULED,
+];
+
+/**
+ * Lifecycle state of one campaign recipient row
+ * (`email_campaign_recipients.status`).
+ *
+ * PENDING    → snapshotted, delivery not yet accepted by the provider
+ * SENT       → the provider accepted the message for this address
+ * FAILED     → terminal failure (permanent rejection or attempts exhausted)
+ * BOUNCED    → the provider (or a later bounce signal) reported the address as
+ *              undeliverable; the address is also suppressed for future
+ *              campaigns
+ * SUPPRESSED → skipped because the address was on `marketing_suppressions`
+ *              when the send was attempted
+ * SKIPPED    → skipped for another reason (e.g. the school was deactivated
+ *              between snapshot and send)
+ *
+ * `SENT` is provider acceptance, never proof the mailbox displayed the
+ * message — the same honest semantics the push outbox applies.
+ */
+export enum MarketingRecipientStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  FAILED = 'FAILED',
+  BOUNCED = 'BOUNCED',
+  SUPPRESSED = 'SUPPRESSED',
+  SKIPPED = 'SKIPPED',
+}
+
+export const MARKETING_RECIPIENT_STATUS_VALUES: MarketingRecipientStatus[] =
+  Object.values(MarketingRecipientStatus);
+
+/**
+ * Event types recorded in the append-only `email_events` table.
+ *
+ * SENT         → the provider accepted the message for one recipient
+ * FAILED       → one delivery attempt failed (safe error category in metadata)
+ * CLICKED      → the recipient followed a personalized tracked link
+ * UNSUBSCRIBED → the recipient used the one-click/List-Unsubscribe token
+ * BOUNCED      → undeliverable address signal (Phase 4 feedback loop)
+ * COMPLAINED   → spam-complaint signal (Phase 4 feedback loop)
+ *
+ * Opened/pixel tracking is deliberately absent: a tracking pixel is a
+ * privacy cost this system does not ask its recipients to pay. Engagement is
+ * measured by clicks and replies (demo leads) only.
+ */
+export enum MarketingEventType {
+  SENT = 'SENT',
+  FAILED = 'FAILED',
+  CLICKED = 'CLICKED',
+  UNSUBSCRIBED = 'UNSUBSCRIBED',
+  BOUNCED = 'BOUNCED',
+  COMPLAINED = 'COMPLAINED',
+}
+
+export const MARKETING_EVENT_TYPE_VALUES: MarketingEventType[] = Object.values(MarketingEventType);
+
+/**
+ * Safe, non-sensitive classification of a delivery failure
+ * (`email_campaign_recipients.last_error_category`). The raw provider error
+ * string is never persisted here — SMTP transcripts can echo credentials,
+ * message bodies and internal hostnames. Only this category is stored.
+ */
+export enum MarketingErrorCategory {
+  TRANSIENT = 'TRANSIENT',
+  RATE_LIMITED = 'RATE_LIMITED',
+  PERMANENT = 'PERMANENT',
+  INVALID_ADDRESS = 'INVALID_ADDRESS',
+  SUPPRESSED = 'SUPPRESSED',
+  NOT_CONFIGURED = 'NOT_CONFIGURED',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export const MARKETING_ERROR_CATEGORY_VALUES: MarketingErrorCategory[] =
+  Object.values(MarketingErrorCategory);
+
+/**
+ * Where a snapshotted recipient address came from
+ * (`email_campaign_recipients.recipient_source`).
+ *
+ * SCHOOL_ADMIN → the school's admin user account email (`users.email` of the
+ *                SCHOOL_ADMIN role for that tenant)
+ * SCHOOL_EMAIL → the school's primary contact address (`schools.email`)
+ */
+export enum MarketingRecipientSource {
+  SCHOOL_ADMIN = 'SCHOOL_ADMIN',
+  SCHOOL_EMAIL = 'SCHOOL_EMAIL',
+}
+
+export const MARKETING_RECIPIENT_SOURCE_VALUES: MarketingRecipientSource[] =
+  Object.values(MarketingRecipientSource);
+
+/** Why an address is on `marketing_suppressions`. */
+export enum MarketingSuppressionReason {
+  /** The recipient asked to stop receiving marketing email. */
+  UNSUBSCRIBED = 'UNSUBSCRIBED',
+  /** Hard bounce reported by the provider; sending again damages reputation. */
+  HARD_BOUNCE = 'HARD_BOUNCE',
+  /** Spam complaint; removing the address is the required response. */
+  COMPLAINED = 'COMPLAINED',
+  /** Manually added by a Super Admin. */
+  MANUAL = 'MANUAL',
+}
+
+export const MARKETING_SUPPRESSION_REASON_VALUES: MarketingSuppressionReason[] = Object.values(
+  MarketingSuppressionReason,
+);
+
+/** Who created a suppression row. */
+export enum MarketingSuppressionSource {
+  /** The recipient, via their personalized unsubscribe token. */
+  RECIPIENT_LINK = 'RECIPIENT_LINK',
+  /** The system (bounce/complaint feedback loop). */
+  SYSTEM = 'SYSTEM',
+  /** A Super Admin through the platform console. */
+  SUPER_ADMIN = 'SUPER_ADMIN',
+}
+
+export const MARKETING_SUPPRESSION_SOURCE_VALUES: MarketingSuppressionSource[] = Object.values(
+  MarketingSuppressionSource,
+);
+
+/**
+ * Lifecycle state of a marketing lead (`marketing_leads.status`).
+ *
+ * NEW          → captured, waiting for first contact
+ * CONTACTED    → a Zero Mile Systems operator has reached out
+ * QUALIFIED    → evaluated as a real opportunity
+ * UNQUALIFIED  → evaluated as not a fit (kept for the record)
+ * ARCHIVED     → closed / no longer worked (duplicate, spam, withdrawn)
+ */
+export enum MarketingLeadStatus {
+  NEW = 'NEW',
+  CONTACTED = 'CONTACTED',
+  QUALIFIED = 'QUALIFIED',
+  UNQUALIFIED = 'UNQUALIFIED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+export const MARKETING_LEAD_STATUS_VALUES: MarketingLeadStatus[] =
+  Object.values(MarketingLeadStatus);
+
+/**
+ * Where a marketing lead came from (`marketing_leads.source`).
+ *
+ * LANDING_PAGE   → the public landing page demo-request form
+ * CAMPAIGN_REPLY → a reply to a marketing campaign email (attribution to the
+ *                  campaign/recipient is stored on the lead)
+ * MANUAL         → entered by a Super Admin
+ */
+export enum MarketingLeadSource {
+  LANDING_PAGE = 'LANDING_PAGE',
+  CAMPAIGN_REPLY = 'CAMPAIGN_REPLY',
+  MANUAL = 'MANUAL',
+}
+
+export const MARKETING_LEAD_SOURCE_VALUES: MarketingLeadSource[] =
+  Object.values(MarketingLeadSource);
+
+/** Event types recorded in the append-only `marketing_lead_events` table. */
+export enum MarketingLeadEventType {
+  CREATED = 'CREATED',
+  STATUS_CHANGED = 'STATUS_CHANGED',
+  CONTACTED = 'CONTACTED',
+  NOTE_ADDED = 'NOTE_ADDED',
+}
+
+export const MARKETING_LEAD_EVENT_TYPE_VALUES: MarketingLeadEventType[] =
+  Object.values(MarketingLeadEventType);
+
+/**
+ * Metadata describing one allowed template placeholder
+ * (`email_template_versions.allowed_variables` entries).
+ *
+ * The renderer (Phase 3) only substitutes variables that appear in this list
+ * — unknown `{{placeholders}}` are left untouched rather than guessed at, and
+ * missing required variables fail the send before any email leaves.
+ */
+export interface MarketingTemplateVariable {
+  /** Placeholder key as it appears in the template, e.g. `school_name`. */
+  name: string;
+  /** Human explanation shown in the template editor. */
+  description?: string | null;
+  /** Whether the renderer requires a value for this variable. */
+  required: boolean;
+  /** Example rendering, shown in the editor. */
+  example?: string | null;
+}
+
+/** UTM attribution captured with a demo request. */
+export interface MarketingUtmParameters {
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+}
+
+/**
+ * The audience definition stored on `email_campaigns.audience_filter`.
+ *
+ * All fields are AND-combined; `include_school_ids` is applied before
+ * `exclude_school_ids`. The filter is just the *question* — the answer is the
+ * immutable recipient snapshot frozen when the campaign is scheduled.
+ * Validation bounds every array so a filter cannot encode an unbounded
+ * query.
+ */
+export interface MarketingCampaignAudienceFilter {
+  /** Case-insensitive substring match on school name / code / email. */
+  search?: string | null;
+  /** ISO 3166-1 alpha-2 country codes (`schools.country`). */
+  countries?: string[];
+  /** Case-insensitive city names (`schools.city`). */
+  cities?: string[];
+  /** Persisted subscription statuses of the school's current subscription. */
+  subscription_statuses?: string[];
+  /** Restrict to (or start from) these school ids. */
+  include_school_ids?: string[];
+  /** Remove these school ids from the result. */
+  exclude_school_ids?: string[];
+  /** Only schools with `is_active = true` (default true when creating). */
+  active_only?: boolean;
+}
+
+/**
+ * Input accepted by the **public** demo-request endpoint
+ * (`POST /api/v1/marketing/demo-request`, Phase 4).
+ *
+ * `consent` must be explicitly `true` — it is the checkbox on the landing
+ * page form. The server records `consent_at = now()`; the client never
+ * supplies a timestamp. UTM parameters are read from the landing page URL by
+ * the client and echoed here for attribution.
+ */
+export interface MarketingDemoLeadInput {
+  full_name: string;
+  email: string;
+  institution_name: string;
+  phone?: string | null;
+  city?: string | null;
+  /** ISO 3166-1 alpha-2. */
+  country?: string | null;
+  message?: string | null;
+  preferred_contact_time?: string | null;
+  utm?: MarketingUtmParameters | null;
+  /** Must be true; the submission is rejected otherwise. */
+  consent: boolean;
+}
+
+/**
+ * Who performed a lead event (`marketing_lead_events.actor`).
+ *
+ * Stored as a short, safe, non-PII label — never an email address or a raw
+ * token: `system` (automatic capture), `public-form` (the unauthenticated
+ * landing page submission) or `super-admin` (platform console action).
+ */
+export type MarketingLeadEventActor = 'system' | 'public-form' | 'super-admin';
+
+export const MARKETING_LEAD_EVENT_ACTOR_VALUES: MarketingLeadEventActor[] = [
+  'system',
+  'public-form',
+  'super-admin',
+];
