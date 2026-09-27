@@ -54,6 +54,12 @@ import {
 /** One resolved recipient of a campaign snapshot. */
 export interface MarketingAudienceRecipient {
   school_id: string | null;
+  /**
+   * School name *as it is right now*. Copied into the snapshot so the
+   * rendered message shows the name the campaign was approved against, even
+   * if the school is renamed before the worker reaches this row.
+   */
+  school_name: string | null;
   normalized_email: string;
   recipient_name: string | null;
   recipient_source: MarketingRecipientSource;
@@ -294,6 +300,7 @@ export class MarketingAudienceService {
           }
           candidates.push({
             school_id: school.id,
+            school_name: school.name || null,
             normalized_email: normalized as string,
             recipient_name: `${admin.first_name} ${admin.last_name}`.trim() || null,
             recipient_source: MarketingRecipientSource.SCHOOL_ADMIN,
@@ -311,6 +318,7 @@ export class MarketingAudienceService {
         }
         candidates.push({
           school_id: school.id,
+          school_name: school.name || null,
           normalized_email: normalized as string,
           recipient_name: school.name || null,
           recipient_source: MarketingRecipientSource.SCHOOL_EMAIL,

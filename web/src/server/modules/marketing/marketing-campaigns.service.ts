@@ -33,7 +33,7 @@
  */
 
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
-import { Transaction, UniqueConstraintError, type Sequelize, type WhereOptions } from 'sequelize';
+import { Op, Transaction, UniqueConstraintError, type Sequelize, type WhereOptions } from 'sequelize';
 import {
   MarketingCampaignStatus,
   MarketingRecipientStatus,
@@ -143,9 +143,17 @@ function toCampaignResponse(campaign: EmailCampaign): MarketingCampaignResponse 
     started_at: campaign.started_at ? campaign.started_at.toISOString() : null,
     completed_at: campaign.completed_at ? campaign.completed_at.toISOString() : null,
     recipient_count: campaign.recipient_count ?? 0,
+    queued_count: campaign.queued_count ?? 0,
+    processing_count: campaign.processing_count ?? 0,
     sent_count: campaign.sent_count ?? 0,
+    retrying_count: campaign.retrying_count ?? 0,
     failed_count: campaign.failed_count ?? 0,
+    suppressed_count: campaign.suppressed_count ?? 0,
+    skipped_count: campaign.skipped_count ?? 0,
+    cancelled_count: campaign.cancelled_count ?? 0,
+    expired_count: campaign.expired_count ?? 0,
     clicked_count: campaign.clicked_count ?? 0,
+    total_click_count: campaign.total_click_count ?? 0,
     unsubscribed_count: campaign.unsubscribed_count ?? 0,
     created_by: campaign.created_by ?? null,
     created_at: campaign.created_at.toISOString(),
@@ -369,6 +377,7 @@ export class MarketingCampaignsService {
           computation.recipients.map((recipient) => ({
             campaign_id: current.id,
             school_id: recipient.school_id,
+            school_name: recipient.school_name,
             normalized_email: recipient.normalized_email,
             recipient_name: recipient.recipient_name,
             recipient_source: recipient.recipient_source,
@@ -392,6 +401,8 @@ export class MarketingCampaignsService {
           scheduled_at: scheduledAt,
           audience_snapshot_hash: computation.snapshot_hash,
           recipient_count: computation.final_recipient_count,
+          // Every snapshotted row starts queued; the worker moves them.
+          queued_count: computation.final_recipient_count,
         },
         { transaction: transaction ?? undefined },
       );
@@ -414,7 +425,17 @@ export class MarketingCampaignsService {
 
   // ------------------------------------------------------ lifecycle moves
 
-  /** Pauses a scheduled/sending campaign. */
+  /**
+   * Pauses a scheduled/sending campaign.
+   *
+   * Pause stops **new claims** and nothing else: the worker's claim query
+   * only considers `SCHEDULED`/`SENDING` campaigns, so the next sweep takes
+   * no further rows. Recipients a worker is already processing finish and
+   * record their outcome — aborting them would leave leased rows with no
+   * result, and a message the relay has already accepted cannot be unsent
+   * anyway. The counters therefore keep moving for a few seconds after a
+   * pause, which is the honest behaviour.
+   */
   async pause(campaignId: string): Promise<MarketingCampaignLifecycleResponse> {
     const campaign = await this.requireCampaign(campaignId);
     this.assertTransitionAllowed('pause', campaign.status);
@@ -432,14 +453,61 @@ export class MarketingCampaignsService {
     return toLifecycleResponse(campaign, MARKETING_CAMPAIGN_RESUMED_MESSAGE);
   }
 
-  /** Cancels a non-terminal campaign. Remaining pending recipients are never sent. */
+  /**
+   * Cancels a non-terminal campaign.
+   *
+   * Cancelling is not only a status change: every recipient that has not
+   * gone out yet is moved to `CANCELLED` in the same transaction, so the
+   * delivery worker has nothing left to claim even if it is mid-sweep. The
+   * worker re-checks the campaign status before each send as well — two
+   * independent stops, because "one more email went out after I pressed
+   * cancel" is the kind of failure an operator never forgives.
+   *
+   * Rows already `SENT` (and rows a worker is actively `PROCESSING`) are
+   * left alone: the first are historical fact, the second are finished by
+   * the worker that owns their lease and would otherwise lose their outcome.
+   */
   async cancel(campaignId: string): Promise<MarketingCampaignLifecycleResponse> {
     const campaign = await this.requireCampaign(campaignId);
     this.assertTransitionAllowed('cancel', campaign.status);
-    await campaign.update({
-      status: MarketingCampaignStatus.CANCELLED,
-      completed_at: campaign.completed_at ?? new Date(),
-    });
+
+    const cancelRows = async (transaction: Transaction | null): Promise<number> => {
+      const [affected] = await this.recipients.update(
+        {
+          status: MarketingRecipientStatus.CANCELLED,
+          next_attempt_at: null,
+          locked_by: null,
+          lease_expires_at: null,
+        } as never,
+        {
+          where: {
+            campaign_id: campaign.id,
+            status: {
+              [Op.in]: [MarketingRecipientStatus.PENDING, MarketingRecipientStatus.RETRYING],
+            },
+          } as never,
+          ...(transaction ? { transaction } : {}),
+        },
+      );
+      const cancelled = affected ?? 0;
+      await campaign.update(
+        {
+          status: MarketingCampaignStatus.CANCELLED,
+          completed_at: campaign.completed_at ?? new Date(),
+          queued_count: 0,
+          retrying_count: 0,
+          cancelled_count: (campaign.cancelled_count ?? 0) + cancelled,
+        },
+        transaction ? { transaction } : {},
+      );
+      return cancelled;
+    };
+
+    if (this.sequelize) {
+      await this.sequelize.transaction((transaction) => cancelRows(transaction));
+    } else {
+      await cancelRows(null);
+    }
     await campaign.reload();
     return toLifecycleResponse(campaign, MARKETING_CAMPAIGN_CANCELLED_MESSAGE);
   }

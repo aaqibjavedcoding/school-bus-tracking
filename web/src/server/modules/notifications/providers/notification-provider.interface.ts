@@ -223,6 +223,26 @@ export interface EmailNotificationPayload extends NotificationPayload {
   to: string;
   subject: string;
   html?: string;
+  /**
+   * `Reply-To` header. Marketing campaigns point replies at a monitored
+   * mailbox instead of the (often unattended) `EMAIL_FROM` sender; the
+   * transactional rails leave it unset and keep their current behaviour.
+   */
+  replyTo?: string | null;
+  /**
+   * Extra message headers, used by the marketing rail for the RFC 8058 /
+   * RFC 2369 unsubscribe headers (`List-Unsubscribe`,
+   * `List-Unsubscribe-Post`).
+   *
+   * Two rules make this safe to pass straight to a transport:
+   *
+   * - **Values are built by the server**, never echoed from a request. The
+   *   only dynamic part is an opaque token the worker just minted.
+   * - **Nothing secret goes in a header.** Headers travel in plaintext
+   *   through every hop and land in mailbox provider logs; an unsubscribe
+   *   URL carries a single-purpose token, never an address or a session.
+   */
+  headers?: Record<string, string> | null;
 }
 
 /** An SMS notification. */

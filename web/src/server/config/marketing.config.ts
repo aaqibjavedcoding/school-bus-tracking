@@ -12,12 +12,28 @@ import { registerAs } from '../framework';
  * MARKETING_WORKER_ENABLED      false → never schedule the campaign worker
  * MARKETING_WORKER_INTERVAL_MS  sweep cadence (default 15000)
  * MARKETING_WORKER_INITIAL_DELAY_MS  delay before the first sweep (default 30000)
- * MARKETING_WORKER_BATCH_SIZE   recipients processed per sweep (default 25)
- * MARKETING_DELIVERY_MAX_ATTEMPTS    recipient attempts before terminal FAIL
- *                                    (default 5)
- * MARKETING_DELIVERY_BASE_BACKOFF_MS first retry delay; doubles per attempt,
- *                                    capped at 15 min (default 60000)
+ * MARKETING_BATCH_SIZE          recipients claimed per sweep (default 25)
+ * MARKETING_RATE_PER_MINUTE     hard ceiling of messages handed to the relay
+ *                               in any rolling minute (default 60)
+ * MARKETING_CONCURRENCY         messages in flight at once (default 3)
+ * MARKETING_SEND_DELAY_MS       base pause between sends (default 250)
+ * MARKETING_SEND_JITTER_MS      random extra pause, 0..n (default 250)
+ * MARKETING_MAX_ATTEMPTS        recipient attempts before terminal FAIL
+ *                               (default 5)
+ * MARKETING_RETRY_BASE_MS       first retry delay; doubles per attempt,
+ *                               capped at 15 min (default 60000)
+ * MARKETING_EXPIRY_MS           how long after `scheduled_at` a campaign may
+ *                               still deliver (default 72h)
+ * MARKETING_LEASE_MS            how long a claimed row stays leased before a
+ *                               crashed worker's claim is recoverable
+ *                               (default 120000)
  * ```
+ *
+ * `MARKETING_WORKER_BATCH_SIZE`, `MARKETING_DELIVERY_MAX_ATTEMPTS` and
+ * `MARKETING_DELIVERY_BASE_BACKOFF_MS` remain accepted as the Session 2
+ * spellings of `MARKETING_BATCH_SIZE`, `MARKETING_MAX_ATTEMPTS` and
+ * `MARKETING_RETRY_BASE_MS` so an existing `.env` keeps working; the new
+ * names win when both are set.
  *
  * ### Recipient policy (who may receive what)
  *
@@ -104,6 +120,20 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+/** Like {@link positiveInt} but `0` is a legal value (delays and jitter). */
+function nonNegativeInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/** First non-empty of the accepted spellings (new name wins). */
+function firstSet(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value !== undefined && value.trim() !== '');
+}
+
 export default registerAs('marketing', () => ({
   /** Super Admin notification addresses (operational mail). */
   adminEmails: parseEmailList(process.env.MARKETING_ADMIN_EMAILS),
@@ -113,12 +143,37 @@ export default registerAs('marketing', () => ({
   worker: {
     enabled: process.env.MARKETING_WORKER_ENABLED?.trim().toLowerCase() !== 'false',
     intervalMs: positiveInt(process.env.MARKETING_WORKER_INTERVAL_MS, 15_000),
-    initialDelayMs: positiveInt(process.env.MARKETING_WORKER_INITIAL_DELAY_MS, 30_000),
-    batchSize: positiveInt(process.env.MARKETING_WORKER_BATCH_SIZE, 25),
+    initialDelayMs: nonNegativeInt(process.env.MARKETING_WORKER_INITIAL_DELAY_MS, 30_000),
+    batchSize: positiveInt(
+      firstSet(process.env.MARKETING_BATCH_SIZE, process.env.MARKETING_WORKER_BATCH_SIZE),
+      25,
+    ),
   },
-  /** Recipient delivery policy (exponential backoff, bounded attempts). */
+  /**
+   * Recipient delivery policy: bounded attempts, exponential backoff with
+   * jitter, a rolling per-minute ceiling, bounded concurrency and a delivery
+   * window after which a campaign stops sending entirely.
+   */
   delivery: {
-    maxAttempts: positiveInt(process.env.MARKETING_DELIVERY_MAX_ATTEMPTS, 5),
-    baseBackoffMs: positiveInt(process.env.MARKETING_DELIVERY_BASE_BACKOFF_MS, 60_000),
+    maxAttempts: positiveInt(
+      firstSet(process.env.MARKETING_MAX_ATTEMPTS, process.env.MARKETING_DELIVERY_MAX_ATTEMPTS),
+      5,
+    ),
+    baseBackoffMs: positiveInt(
+      firstSet(process.env.MARKETING_RETRY_BASE_MS, process.env.MARKETING_DELIVERY_BASE_BACKOFF_MS),
+      60_000,
+    ),
+    /** Messages handed to the relay per rolling minute, across the process. */
+    ratePerMinute: positiveInt(process.env.MARKETING_RATE_PER_MINUTE, 60),
+    /** Messages in flight at once inside one sweep. */
+    concurrency: positiveInt(process.env.MARKETING_CONCURRENCY, 3),
+    /** Base pause between two sends of the same worker slot. */
+    sendDelayMs: nonNegativeInt(process.env.MARKETING_SEND_DELAY_MS, 250),
+    /** Random extra pause (0..n) so parallel instances do not lock-step. */
+    sendJitterMs: nonNegativeInt(process.env.MARKETING_SEND_JITTER_MS, 250),
+    /** Delivery window measured from `scheduled_at` (default 72 hours). */
+    expiryMs: positiveInt(process.env.MARKETING_EXPIRY_MS, 72 * 60 * 60 * 1000),
+    /** Claim lease; an expired lease makes a `PROCESSING` row recoverable. */
+    leaseMs: positiveInt(process.env.MARKETING_LEASE_MS, 120_000),
   },
 }));

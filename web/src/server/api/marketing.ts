@@ -53,6 +53,11 @@ export const postMarketingTemplates: EndpointDefinition<CreateMarketingTemplateD
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateMarketingTemplateDto,
+  // Platform scope (`school_id IS NULL`): the console's retry of a create
+  // must return the first template, not a second one. The scope string names
+  // the resource type, so the same client key used for a campaign create is a
+  // different operation.
+  idempotency: IDEMPOTENCY_ENDPOINTS.MARKETING_TEMPLATE_CREATE,
   handler: async ({ user, body, request }) => {
     const result = await container()
       .marketingTemplates()
@@ -140,6 +145,9 @@ export const putMarketingTemplatesByIdContent: EndpointDefinition<SaveMarketingT
 
 /** `POST /api/v1/marketing/templates/:id/versions/:versionId/publish` */
 export const postMarketingTemplatesByIdVersionsByVersionIdPublish: EndpointDefinition = {
+  // Publishing freezes an immutable version; a double submit must not create
+  // two of them.
+  idempotency: IDEMPOTENCY_ENDPOINTS.MARKETING_TEMPLATE_VERSION_PUBLISH,
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, params, request }) => {
@@ -256,6 +264,7 @@ export const postMarketingCampaigns: EndpointDefinition<CreateMarketingCampaignD
   roles: [UserRole.SUPER_ADMIN],
   status: HttpStatus.CREATED,
   bodyType: CreateMarketingCampaignDto,
+  idempotency: IDEMPOTENCY_ENDPOINTS.MARKETING_CAMPAIGN_CREATE,
   handler: async ({ user, body, request }) => {
     const campaign = await container()
       .marketingCampaigns()

@@ -74,6 +74,10 @@ async function main() {
   const { startDeliveryScheduler, stopRegisteredDeliveryScheduler } = require(
     path.join(serverDist, 'modules/notifications/outbox'),
   );
+  const {
+    startMarketingDeliveryScheduler,
+    stopRegisteredMarketingDeliveryScheduler,
+  } = require(path.join(serverDist, 'modules/marketing/marketing-delivery.scheduler'));
 
   const logger = new Logger('Bootstrap');
   const container = getContainer();
@@ -232,6 +236,20 @@ async function main() {
   // schedule it, and the NoOp provider marks rows `not_configured` up front.
   startDeliveryScheduler({ configService, sequelize }, container.deliveryWorker());
 
+  // --- Session 3: marketing campaign delivery -----------------------------
+  // The *only* place campaign email is sent. HTTP handlers freeze an audience
+  // snapshot and schedule; this worker claims those recipient rows one at a
+  // time (`FOR UPDATE SKIP LOCKED` + a lease), renders per recipient, and
+  // paces itself with `MARKETING_RATE_PER_MINUTE`. Same in-process model as
+  // the two schedulers above, so dev (`npm run dev` → this file) and
+  // production (`npm start` → this file) start it identically, and a stubbed
+  // bootstrap (`sequelize === null`) starts nothing. Set
+  // `MARKETING_WORKER_ENABLED=false` to keep the API up with delivery paused.
+  startMarketingDeliveryScheduler(
+    { configService, sequelize },
+    container.marketingDeliveryWorker(),
+  );
+
   server.listen(port, hostname, () => {
     logger.log(`Application is running on: http://${hostname}:${port}`);
     logger.log(`API available at: http://${hostname}:${port}/${apiPrefix}`);
@@ -269,6 +287,15 @@ async function main() {
     } catch (error) {
       logger.error(
         `Notification delivery scheduler stop failed: ${error?.message ?? String(error)}`,
+      );
+    }
+    try {
+      // Stops claiming immediately, then waits for the in-flight sweep so no
+      // recipient is left leased without an outcome.
+      await stopRegisteredMarketingDeliveryScheduler();
+    } catch (error) {
+      logger.error(
+        `Marketing delivery scheduler stop failed: ${error?.message ?? String(error)}`,
       );
     }
     try {

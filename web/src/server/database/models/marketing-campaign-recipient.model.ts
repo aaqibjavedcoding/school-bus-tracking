@@ -13,6 +13,8 @@ export interface EmailCampaignRecipientAttributes extends BaseModelAttributes {
   campaign_id: string;
   /** The school this address was snapshotted from (nullable: the row outlives the school). */
   school_id: string | null;
+  /** The school's name frozen at snapshot time; `{{school_name}}` renders from this. */
+  school_name: string | null;
   /** Trimmed + lowercased address; the uniqueness key inside one campaign. */
   normalized_email: string;
   /** Display name for the greeting (`{{recipient_name}}`). */
@@ -41,12 +43,33 @@ export interface EmailCampaignRecipientAttributes extends BaseModelAttributes {
   click_token_hash: string | null;
   /** SHA-256 digest of the raw per-recipient unsubscribe token (same rules). */
   unsubscribe_token_hash: string | null;
+  /**
+   * Worker instance that currently holds the claim (`PROCESSING` rows only).
+   * A short, non-secret instance label — never a token, never a hostname's
+   * credentials — used to make the outcome write conditional on *this*
+   * worker still owning the row.
+   */
+  locked_by: string | null;
+  /**
+   * Claim deadline. A `PROCESSING` row past its lease is re-claimable, which
+   * is what makes a crashed/redeployed worker recoverable without a human.
+   */
+  lease_expires_at: Date | null;
+  /** When the last delivery attempt was made. */
+  last_attempt_at: Date | null;
+  /** Every tracked click by this recipient, including repeats. */
+  click_count: number;
+  /** First tracked click — the unique-click marker (set once, never reset). */
+  first_clicked_at: Date | null;
+  /** When this recipient unsubscribed through their personalized link. */
+  unsubscribed_at: Date | null;
 }
 
 export type EmailCampaignRecipientCreationAttributes = Optional<
   EmailCampaignRecipientAttributes,
   | BaseModelManagedFields
   | 'school_id'
+  | 'school_name'
   | 'recipient_name'
   | 'status'
   | 'attempts'
@@ -56,6 +79,12 @@ export type EmailCampaignRecipientCreationAttributes = Optional<
   | 'provider_message_id'
   | 'click_token_hash'
   | 'unsubscribe_token_hash'
+  | 'locked_by'
+  | 'lease_expires_at'
+  | 'last_attempt_at'
+  | 'click_count'
+  | 'first_clicked_at'
+  | 'unsubscribed_at'
 >;
 
 /**
@@ -114,6 +143,8 @@ export type EmailCampaignRecipientCreationAttributes = Optional<
     },
     // The worker's claim scan: due pending rows, soonest first.
     { name: 'idx_email_campaign_recipients_status_next', fields: ['status', 'next_attempt_at'] },
+    // Lease recovery: claimed rows whose lease has passed.
+    { name: 'idx_email_campaign_recipients_lease', fields: ['status', 'lease_expires_at'] },
     // Per-campaign progress views and school drill-downs.
     { name: 'idx_email_campaign_recipients_campaign_status', fields: ['campaign_id', 'status'] },
     { name: 'idx_email_campaign_recipients_school', fields: ['school_id'] },
@@ -134,6 +165,17 @@ export class EmailCampaignRecipient extends BaseModel<
   @ForeignKey(() => School)
   @Column({ type: DataType.UUID })
   declare school_id: string | null;
+
+  /**
+   * The school's name as it was when the audience was frozen.
+   *
+   * Deliberately duplicated out of `schools`: the message must render the
+   * name the campaign was reviewed and approved against, and a rename
+   * halfway through a send must not produce two different messages.
+   */
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(200) })
+  declare school_name: string | null;
 
   @AllowNull(false)
   @Column({ type: DataType.STRING(254) })
@@ -181,6 +223,30 @@ export class EmailCampaignRecipient extends BaseModel<
   @AllowNull(true)
   @Column({ type: DataType.STRING(64) })
   declare unsubscribe_token_hash: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(64) })
+  declare locked_by: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare lease_expires_at: Date | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare last_attempt_at: Date | null;
+
+  @AllowNull(false)
+  @Column({ type: DataType.INTEGER, defaultValue: 0 })
+  declare click_count: number;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare first_clicked_at: Date | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare unsubscribed_at: Date | null;
 
   @BelongsTo(() => EmailCampaign, { foreignKey: 'campaign_id', as: 'campaign' })
   declare campaign?: EmailCampaign;

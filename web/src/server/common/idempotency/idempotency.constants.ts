@@ -40,4 +40,46 @@ export const IDEMPOTENCY_ENDPOINTS = {
    * before the handler runs.)
    */
   MARKETING_CAMPAIGN_SCHEDULE: 'marketing.campaign_schedule',
+  /**
+   * Platform-level marketing creates. Each names its **resource type**, which
+   * is the half of the scope that stops a console from replaying "create
+   * template" into "create campaign" when it reuses one request id for a
+   * multi-step wizard.
+   */
+  MARKETING_TEMPLATE_CREATE: 'marketing.template_create',
+  MARKETING_TEMPLATE_VERSION_PUBLISH: 'marketing.template_version_publish',
+  MARKETING_CAMPAIGN_CREATE: 'marketing.campaign_create',
 } as const;
+
+/**
+ * Prefix marking a key that belongs to the **platform** (SUPER_ADMIN) scope
+ * rather than to a tenant. See {@link buildIdempotencyScope}.
+ */
+export const IDEMPOTENCY_PLATFORM_SCOPE_PREFIX = 'platform:';
+
+/** Prefix marking a key that belongs to one school's tenant scope. */
+export const IDEMPOTENCY_TENANT_SCOPE_PREFIX = 'school:';
+
+/**
+ * Builds the stored `endpoint` value of one idempotent operation.
+ *
+ * Two dimensions are folded into it, and both are load-bearing:
+ *
+ * - the **resource type** (the `IDEMPOTENCY_ENDPOINTS` value itself), so the
+ *   same client key sent to "create template" and "create campaign" is two
+ *   independent operations rather than one replay that returns the wrong
+ *   entity;
+ * - the **scope**, so a platform record (`school_id IS NULL`) and a tenant
+ *   record can never share a row. A tenant row is additionally isolated by
+ *   its `school_id` column; the platform prefix is what keeps the pair
+ *   distinguishable in the `(user_id, endpoint, key)` index that governs
+ *   platform rows, where there is no tenant column to isolate by.
+ *
+ * The scope is derived from the **authenticated** principal only — a
+ * client-supplied `school_id` never reaches this function.
+ */
+export function buildIdempotencyScope(endpoint: string, schoolId: string | null): string {
+  return schoolId === null
+    ? `${IDEMPOTENCY_PLATFORM_SCOPE_PREFIX}${endpoint}`
+    : `${IDEMPOTENCY_TENANT_SCOPE_PREFIX}${endpoint}`;
+}

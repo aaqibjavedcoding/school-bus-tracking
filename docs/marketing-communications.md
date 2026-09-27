@@ -14,14 +14,16 @@ both the design and the reason for it.
 
 **Scope of the four-session rollout:**
 
-| Session      | Scope                                                                        |
-| ------------ | ---------------------------------------------------------------------------- |
-| 1 (this one) | Architecture, database, shared contracts, configuration                      |
-| 2            | Template & campaign management APIs (SUPER_ADMIN), audience snapshot builder |
-| 3            | Campaign delivery worker, tracking endpoints, email rendering                |
-| 4            | Demo request endpoint, lead console, landing page form                       |
+| Session        | Scope                                                                             |
+| -------------- | --------------------------------------------------------------------------------- |
+| 1              | Architecture, database, shared contracts, configuration                           |
+| 2              | Template & campaign management APIs (SUPER_ADMIN), audience snapshot builder      |
+| 3 (current)    | Delivery worker, per-recipient rendering, tracking endpoints, Super Admin console |
+| 4              | Demo request endpoint, lead console, landing page form                            |
 
-Nothing in this phase sends real email, and no frontend pages exist yet.
+Sending real email requires `EMAIL_PROVIDER=smtp` plus complete SMTP
+settings; with anything else the whole rail runs on `NoOpEmailProvider`, so
+dev and CI exercise the same code paths without a relay.
 
 ## Access model
 
@@ -197,37 +199,97 @@ The campaign worker follows the established in-process scheduler pattern
 (`retention.worker`, notification outbox `delivery.worker`): it is scheduled
 **inside the custom server process** (`web/server.js` starts it after
 `bootstrapDatabase()` and stops it on shutdown), with no external queue and
-no separate deployment.
+no separate deployment. The durable queue is the
+`email_campaign_recipients` table itself — there is no in-memory job list to
+lose, so a restart, a crash or a second instance changes nothing about what
+eventually gets sent.
+
+**Bulk email is never sent from an HTTP request.** Scheduling a campaign
+only freezes the snapshot and returns; every message is produced later by
+the worker, one recipient per attempt.
 
 - **Cadence.** First sweep `MARKETING_WORKER_INITIAL_DELAY_MS` (default 30 s)
   after boot, then every `MARKETING_WORKER_INTERVAL_MS` (default 15 s).
-  `MARKETING_WORKER_ENABLED=false` disables scheduling entirely.
-- **Claiming.** Each sweep claims due campaigns (`SCHEDULED`, `scheduled_at`
-  passed) and up to `MARKETING_WORKER_BATCH_SIZE` (default 25) due pending
-  recipients (`next_attempt_at` passed) per pass, under a transaction-scoped
-  PostgreSQL advisory lock (a distinct lock class from retention and the
-  push outbox), so multiple API instances stay safe.
-- **Backoff.** A failed recipient gets bounded exponential backoff
-  (`MARKETING_DELIVERY_BASE_BACKOFF_MS`, doubling, capped at 15 minutes) and
-  at most `MARKETING_DELIVERY_MAX_ATTEMPTS` (default 5) attempts before
-  terminal `FAILED`.
-- **Rate safety.** The batch size _is_ the throttle: sends per sweep are
-  bounded, so the relay is never flooded. Only the safe error _category_
-  (`MarketingErrorCategory`) is persisted — raw SMTP transcripts can echo
-  credentials, hostnames and message bodies and are never stored or logged.
+  `MARKETING_WORKER_ENABLED=false` disables scheduling entirely, and the
+  scheduler is skipped automatically when no database is configured.
+- **Claiming.** One `UPDATE … FROM (SELECT … FOR UPDATE SKIP LOCKED) …
+  RETURNING` statement moves up to `MARKETING_BATCH_SIZE` (default 25) due
+  recipients from `PENDING`/`RETRYING` to `PROCESSING`, stamping
+  `locked_by` (a per-process id) and `lease_expires_at`. `SKIP LOCKED` means
+  two instances sweeping simultaneously claim *disjoint* rows instead of
+  blocking or duplicating, and the whole sweep additionally sits behind a
+  transaction-scoped PostgreSQL advisory lock (a distinct lock class from
+  retention and the push outbox).
+- **Crash recovery.** A claimed row whose `lease_expires_at`
+  (`MARKETING_LEASE_MS`, default 120 s) has passed is claimable again. Every
+  state transition is conditional (`WHERE status = 'PROCESSING' AND
+  locked_by = me`), so a revived worker that comes back after its lease
+  expired cannot overwrite the outcome recorded by whoever took the row
+  over. Transitions are idempotent, so re-running a sweep is safe.
+- **Bounded concurrency and pacing.** Within a sweep, claimed rows are
+  processed in chunks of `MARKETING_CONCURRENCY` (default 3), with a
+  `MARKETING_SEND_DELAY_MS` ± `MARKETING_SEND_JITTER_MS` gap between sends
+  and a hard ceiling of `MARKETING_RATE_PER_MINUTE` (default 60) messages
+  per rolling minute. Pacing is a deliverability requirement, not politeness:
+  a burst of thousands of messages is what makes providers start rejecting a
+  domain.
+- **Retry policy.** Transient failures (SMTP 4xx, connection/timeout, no
+  response) go back to `RETRYING` with exponential backoff plus jitter
+  (`MARKETING_RETRY_BASE_MS`, doubling, capped at 15 minutes) until
+  `MARKETING_MAX_ATTEMPTS` (default 5) is exhausted. Permanent rejections
+  (SMTP 5xx), suppressed addresses, cancelled campaigns and expired rows are
+  **never** retried — retrying a permanent rejection only damages the sending
+  reputation further.
+- **Recipient states.** `PENDING` → `PROCESSING` → `SENT` / `RETRYING` /
+  `FAILED`, plus `SUPPRESSED` (opted out), `SKIPPED` (no longer eligible),
+  `CANCELLED` (campaign cancelled) and `EXPIRED` (still unsent
+  `MARKETING_EXPIRY_MS` after the campaign started — nobody wants a
+  three-day-late "reminder").
+- **Pause and cancel.** Pausing blocks new claims; work already handed to the
+  provider finishes, because an accepted message cannot be recalled.
+  Cancelling is terminal and blocks all future sends.
 - **No secrets in logs.** Worker log lines carry campaign ids, counters and
-  error categories — never SMTP passwords, raw tokens, or email bodies.
-- **Cron alternative.** Operators who prefer wall-clock scheduling can leave
-  the in-process worker enabled and additionally drive sweeps from cron by
-  hitting an internal endpoint; the advisory lock makes overlapping sweeps
-  harmless. The default and recommended posture is the in-process scheduler,
-  matching the rest of the platform.
+  error *categories* (`MarketingErrorCategory`) — never SMTP passwords, raw
+  tokens, rendered bodies or provider transcripts.
+- **Alerting.** Exhausted retries and worker startup/configuration failures
+  email `MARKETING_ADMIN_EMAILS` on a per-campaign, per-stage cooldown. An
+  alert failure never blocks delivery, and campaign recipients never receive
+  an operational alert.
 
 Delivery uses the **existing email provider abstraction**
 (`notifications/providers/email-provider.factory.ts`): `EMAIL_PROVIDER=smtp`
 plus complete SMTP settings selects `SmtpEmailProvider`; anything else keeps
-`NoOpEmailProvider`, so dev/CI never need a relay and nothing branches on
-which provider is active.
+`NoOpEmailProvider`. The provider returns a result object and never throws
+into the caller, so a relay outage degrades a campaign, not the API.
+
+## Campaign progress and counters
+
+`email_campaigns` carries a counter per recipient state (`queued`,
+`processing`, `sent`, `retrying`, `failed`, `suppressed`, `skipped`,
+`cancelled`, `expired`) plus engagement (`clicked_count`,
+`total_click_count`, `unsubscribed_count`). They are **recomputed from the
+recipient rows** at the end of each sweep rather than incremented ad hoc:
+counters derived from the source of truth cannot drift, double-count or go
+negative, whatever a crash interrupted.
+
+A campaign reaches `COMPLETED` (or `PARTIALLY_FAILED` when some recipients
+failed) only when nothing is outstanding — no queued, processing or retrying
+rows remain. `FAILED` is reserved for a campaign where nothing could be
+delivered at all.
+
+## Per-recipient rendering
+
+Each message is rendered from the **immutable template version** the campaign
+pinned, filled from the **recipient snapshot row** — never from live school
+data, so a school renamed mid-campaign does not change what the already-
+frozen audience receives.
+
+The closed variable set is `recipient_name`, `school_name`, `campaign_url`,
+`unsubscribe_url` and `current_year`. Unknown variables are rejected rather
+than silently blanked, values are HTML-escaped in the HTML part, and both an
+HTML and a plain-text part are produced for every send. URLs contain no
+internal ids and no recipient address — only an opaque per-recipient token,
+stored as a SHA-256 digest.
 
 ## Personalized click tracking
 
@@ -245,6 +307,34 @@ destination.
 - **No open/pixel tracking.** A tracking pixel is a privacy cost this system
   does not ask recipients to pay. Engagement is measured by clicks and
   replies (demo leads) only.
+
+### Public endpoints
+
+| Endpoint                                        | Behavior                                                             |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| `GET /api/v1/public/marketing/click/:token`      | records the click, then redirects                                    |
+| `GET /api/v1/public/marketing/unsubscribe/:token`| suppresses the address, returns a plain confirmation page            |
+| `POST /api/v1/public/marketing/unsubscribe/:token`| one-click unsubscribe target for `List-Unsubscribe-Post`            |
+
+All three are unauthenticated and share a strict public rate-limit policy
+(`marketing_public`, 20 requests / 60 s per IP), separate from the
+authenticated console limits.
+
+- **Token handling.** The presented token must match `^[a-f0-9]{64}$` and is
+  resolved by digest. An unknown token answers a generic not-found — it never
+  reveals whether a campaign, a recipient or an address exists.
+- **Counting.** Every click increments `total_click_count`; the *first* click
+  of a given recipient additionally increments `clicked_count`, via a
+  conditional update, so repeats cannot inflate the unique figure.
+- **Redirect safety.** The redirect target is always derived from the
+  configured `APP_URL`; a `?next=` or any other caller-supplied absolute URL
+  is ignored. Only a small allowlist of UTM parameters is preserved. An open
+  redirect on a link that arrives in thousands of inboxes is a phishing kit,
+  which is why the destination is never taken from the request.
+- **Unsubscribe is idempotent.** Repeating it writes nothing new and still
+  answers success; the normalized address enters `marketing_suppressions`
+  once, an `UNSUBSCRIBED` event is recorded, and analytics rows are kept.
+  Transactional mail is untouched.
 
 ## Demo request flow
 
@@ -381,9 +471,19 @@ personal data (name, email, phone) entrusted by the data subject.
 | `MARKETING_WORKER_ENABLED`                | `false` disables the campaign worker                  | `true`       |
 | `MARKETING_WORKER_INTERVAL_MS`            | sweep cadence                                         | `15000`      |
 | `MARKETING_WORKER_INITIAL_DELAY_MS`       | delay before first sweep                              | `30000`      |
-| `MARKETING_WORKER_BATCH_SIZE`             | recipients per sweep (the throttle)                   | `25`         |
-| `MARKETING_DELIVERY_MAX_ATTEMPTS`         | attempts before terminal `FAILED`                     | `5`          |
-| `MARKETING_DELIVERY_BASE_BACKOFF_MS`      | first retry delay (doubles, capped 15 min)            | `60000`      |
+| `MARKETING_BATCH_SIZE`                    | recipients claimed per sweep                          | `25`         |
+| `MARKETING_MAX_ATTEMPTS`                  | attempts before terminal `FAILED`                     | `5`          |
+| `MARKETING_RETRY_BASE_MS`                 | first retry delay (doubles + jitter, capped 15 min)   | `60000`      |
+| `MARKETING_RATE_PER_MINUTE`               | hard ceiling of messages per rolling minute           | `60`         |
+| `MARKETING_CONCURRENCY`                   | recipients in flight at once                          | `3`          |
+| `MARKETING_SEND_DELAY_MS`                 | base gap between sends                                | `250`        |
+| `MARKETING_SEND_JITTER_MS`                | random extra gap between sends                        | `250`        |
+| `MARKETING_EXPIRY_MS`                     | age after which an unsent recipient expires           | `259200000`  |
+| `MARKETING_LEASE_MS`                      | claim lease; drives crash recovery                    | `120000`     |
+
+`MARKETING_WORKER_BATCH_SIZE`, `MARKETING_DELIVERY_MAX_ATTEMPTS` and
+`MARKETING_DELIVERY_BASE_BACKOFF_MS` remain accepted as aliases of the three
+canonical names above.
 
 `MARKETING_ADMIN_EMAILS` and `MARKETING_TEST_RECIPIENTS` are the only place
 recipient addresses for operational mail may be configured — they are never
@@ -442,9 +542,29 @@ campaign management APIs (`web/src/server/api/marketing.ts` +
   surface. No email is sent by any of these endpoints (scheduling only
   freezes the snapshot); no frontend UI exists yet.
 
-Session 3: the campaign delivery worker (in-process scheduler, batched
-delivery with backoff), email rendering with per-recipient variables and
-List-Unsubscribe headers, click/unsubscribe token minting and the public
-tracking endpoints, campaign progress counters, failure alerts to
-`MARKETING_ADMIN_EMAILS`, and the Super Admin console screens that consume
-the Session 2 api-client methods. Session 4 follows the table at the top.
+Implemented in session 3 (this session):
+
+- the **durable delivery worker** (`marketing-delivery.worker.ts`,
+  `marketing-delivery.policy.ts`, `marketing-delivery.scheduler.ts`) —
+  `FOR UPDATE SKIP LOCKED` claiming under an advisory lock, leases and crash
+  recovery, bounded concurrency, per-minute rate ceiling, delay/jitter,
+  exponential backoff with a permanent/transient split, and expiry;
+- **per-recipient rendering** from the pinned immutable version
+  (`marketing-message.builder.ts`), token minting with SHA-256-only storage,
+  `Reply-To` / `List-Unsubscribe` / `List-Unsubscribe-Post` headers;
+- **campaign progress counters** recomputed from recipient rows, with
+  completion, `PARTIALLY_FAILED` and cancellation semantics;
+- the **public tracking endpoints** (`api/public-marketing.ts`) with unique
+  vs total click counting, idempotent unsubscribe, strict rate limiting and
+  open-redirect prevention;
+- **admin alerting** to `MARKETING_ADMIN_EMAILS` with per-campaign cooldown;
+- **platform-scoped idempotency keys** (`school_id IS NULL`) that cannot
+  collide with tenant keys or with another resource type;
+- the **Super Admin console** — `/admin/marketing/templates` and
+  `/admin/marketing/campaigns` (list, create, detail, publish, preview,
+  test send, schedule, pause/resume/cancel, progress and engagement),
+  built on the shared `apiClient` with no direct `fetch`.
+
+Session 4: the public "Request a Demo" form, the marketing lead capture API,
+the Super Admin Leads console, lead notifications to
+`MARKETING_ADMIN_EMAILS`, and final production hardening.
