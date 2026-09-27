@@ -32,14 +32,22 @@ export const Button: React.FC<ButtonProps> = ({
 export interface FieldProps {
   id: string;
   label: string;
+  action?: React.ReactNode;
   hint?: string;
   error?: string;
   children: React.ReactNode;
 }
 
-export const Field: React.FC<FieldProps> = ({ id, label, hint, error, children }) => (
+export const Field: React.FC<FieldProps> = ({ id, label, action, hint, error, children }) => (
   <div className="field">
-    <label htmlFor={id}>{label}</label>
+    {action ? (
+      <div className="field-label-row">
+        <label htmlFor={id}>{label}</label>
+        {action}
+      </div>
+    ) : (
+      <label htmlFor={id}>{label}</label>
+    )}
     {children}
     {hint && !error ? <span className="hint muted">{hint}</span> : null}
     {error ? (

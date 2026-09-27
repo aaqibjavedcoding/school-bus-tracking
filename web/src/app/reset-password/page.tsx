@@ -86,13 +86,13 @@ function ResetPasswordForm() {
   return (
     <div className="login-screen">
       <Card className="login-card">
-        <div className="row" style={{ marginBottom: '1rem' }}>
+        <div className="auth-card-header">
           <span className="brand-mark">
             <Image src="/kidbus-mark.svg" alt="" width={42} height={42} style={{ width: 'auto' }} priority />
           </span>
           <div>
-            <h1 style={{ fontSize: '1.2rem' }}>{APP_CONFIG.appName}</h1>
-            <p className="muted">Choose a new password</p>
+            <h1>{APP_CONFIG.appName}</h1>
+            <p>Choose a new password</p>
           </div>
         </div>
 
@@ -142,8 +142,8 @@ function ResetPasswordForm() {
           </form>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
-          <Link href="/forgot-password" className="linkish" style={{ fontSize: '0.875rem' }}>
+        <div className="auth-footer">
+          <Link href="/forgot-password" className="auth-back-link linkish">
             Request a new reset link
           </Link>
         </div>
