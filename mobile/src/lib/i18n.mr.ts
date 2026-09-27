@@ -383,6 +383,13 @@ export const mr: Dictionary = {
   'settings.sound.nativeVoiceBody':
     'घोषणा इंग्रजीत बोलल्या जातात. Android सेटिंग्ज → टेक्स्ट-टू-स्पीच मध्ये {language} आवाज स्थापित करा.',
 
+  // ── My Profile (crew photo self-service) ───────────────────────────────
+  'profile.title': 'माझे प्रोफाइल',
+  'profile.takePhoto': 'फोटो काढा',
+  'profile.removePhoto': 'फोटो हटवा',
+  'profile.updated': 'प्रोफाइल फोटो अपडेट झाला',
+  'profile.error': 'फोटो अपडेट होऊ शकला नाही',
+
   // ── Voice phrases (SPOKEN, never rendered — see `crew-voice.ts`) ───────
   //
   // `voice.*` is **Latin-script Marathi** — the fallback, for the same device

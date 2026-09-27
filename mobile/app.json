@@ -31,7 +31,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -52,6 +53,13 @@
         "expo-notifications",
         {
           "color": "#0F172A"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The app uses the camera only when you take your own profile photo.",
+          "recordAudioAndroid": false
         }
       ]
     ],

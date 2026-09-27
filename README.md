@@ -987,6 +987,15 @@ adding one needs no migration.
   guardian contacts and admission numbers out of anything spoken aloud on a public bus. Voice and
   vibration are two independent switches on Help & support, persisted under `sbt.mobile.sound`,
   defaulting on for crew and voice-off for admin/parent. Full matrix: `docs/mobile-ux.md` → Phase 3b.
+- **My Profile (crew photo)**: a small card on the same Help & support screen — the avatar the
+  parent app already renders next to the driver's/conductor's name, set by the crew member
+  themselves. Camera only (`expo-camera`, already installed — no gallery picker, no new native
+  dependency), capture pinned to the smallest ≥720 px size the device offers so the JPEG stays
+  inside the API's 2 MB cap, and `PUT`/`DELETE /account/me/photo` called online-only: no queue, one
+  error line and a manual Retry that repeats exactly what failed. Phase 2A's API is write-only, so
+  the photo shown is the one this phone set (AsyncStorage mirror, per user id) and **Remove Photo
+  stays available even when this device knows no photo**. Details and the read-back gap:
+  `docs/mobile-ux.md` → My Profile.
 - **Metro monorepo resolution**: `watchFolders` = repo root, `nodeModulesPaths` =
   `mobile/node_modules` then root — nested `node_modules` lookup stays enabled on purpose (disabling
   it breaks transitive deps).

@@ -414,6 +414,19 @@ export const en = {
   'settings.sound.nativeVoiceBody':
     'Announcements are spoken in English. Install the {language} voice under Android Settings → Text-to-speech output.',
 
+  // ── My Profile (crew photo self-service) ───────────────────────────────
+  // Five strings, deliberately: a title, the two actions, and one line for
+  // each of the two outcomes. Everything else the card needs — Retry,
+  // Dismiss — already exists under `common.*`, and an avatar needs no
+  // explaining.
+  'profile.title': 'My Profile',
+  'profile.takePhoto': 'Take Photo',
+  'profile.removePhoto': 'Remove Photo',
+  /** One message for both actions: the photo on file changed either way. */
+  'profile.updated': 'Profile photo updated',
+  /** One message for every failure — the recovery is the same: Retry. */
+  'profile.error': 'Could not update your photo',
+
   // ── Voice phrases (SPOKEN, never rendered — see `crew-voice.ts`) ───────
   //
   // A separate namespace from the screen copy on purpose: these are the only

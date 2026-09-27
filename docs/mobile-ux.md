@@ -1099,3 +1099,82 @@ costs at most one extra cheap read.
 | Spec                       | Pins                                                                                                                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `trip-room-events.spec.ts` | exactly the six events subscribed, deliveries scoped to the same trip (other-trip and malformed frames dropped), the detacher removing exactly its own listeners — idempotently, and without starving a co-mounted screen |
+
+---
+
+## My Profile — the crew photo, on the Help screen (this branch)
+
+Parents already see a crew member's face next to the driver's/conductor's
+name on the live-trip screen; the crew side that **sets** that photo is this
+card. It follows the rule the rest of the settings work follows: **Help &
+support is the crew settings home, so there is no new screen** (the language
+switch and the Sound & vibration card made the same call), and the tab bar
+stays at four crew actions.
+
+The whole surface is an avatar and two buttons:
+
+| Element              | Behaviour                                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Avatar (56 dp)       | The photo this phone set, or the neutral `person` placeholder — never a broken image                                    |
+| **Take Photo**       | Asks for the OS camera permission, opens a full-screen `expo-camera` preview (front lens), then `PUT /account/me/photo` |
+| **Remove Photo**     | `DELETE /account/me/photo`, always enabled (see "the read-back gap" below)                                              |
+| One line of feedback | `Profile photo updated` or `Could not update your photo` + a **Retry** that repeats exactly what failed                 |
+
+### Camera only — no new native dependency
+
+The capture runs through **`expo-camera`**, which the app already ships, so
+the SDK-57 lockstep rule in `docs/mobile-expo-sdk.md` is untouched. There is
+deliberately **no gallery picker**: the point is a photo of the person on the
+bus today, and an image picker would add a dependency plus file-access
+permissions for nothing. The native build now declares what it will ask for
+(`android.permission.CAMERA` + the `expo-camera` config plugin, which supplies
+iOS's `NSCameraUsageDescription`).
+
+The API caps a photo at 2 MB, and a full-sensor capture blows past that on a
+modern phone — a rejection the crew member could do nothing about. So the
+preview is pinned to the smallest offered capture size that is still ≥ 720 px
+(`pickPictureSize`, which reads both Android's `"1920x1080"` and iOS's
+`"hd1280x720"` presets) and the JPEG is written at `quality: 0.6`. No
+image-processing dependency is involved.
+
+### Online only — one error, one manual retry
+
+The durable queue in `features/crew/offline` exists because a missed boarding
+cannot be re-observed. An avatar can wait, so this action is **not** queued:
+there is no `queued` state in the machine, nothing retries in the background,
+and a failure shows one error line with a Retry that repeats the _same_
+attempt (the same captured file, the same delete, the same permission
+request). Nothing is ever reported as saved that the server did not confirm.
+
+### The read-back gap (why the photo is remembered on the device)
+
+Phase 2A's photo API is **write-only**: `PUT`/`DELETE /account/me/photo` exist,
+but nothing reads a photo back — the authenticated-user payload carries no
+`profile_photo_key`, and no route serves the bytes (the parent app's
+`/crew-photos/{key}` URL has no handler yet either). So "the current photo" is
+the one **this phone** set, mirrored in AsyncStorage per user id and only ever
+written from the key the API returned. Consequences, stated rather than hidden:
+
+- a fresh install (or a second phone) shows the placeholder even when the
+  server holds a photo — the card does not invent a state it cannot know;
+- **Remove Photo is therefore never hidden**, so a crew member can always take
+  down a photo this device never saw. `DELETE` is idempotent server-side.
+
+Closing the gap is a backend slice (expose the key on the auth payload + an
+authenticated, tenant-scoped route that serves the bytes); it would also make
+the parent-side avatar resolve. Nothing in this card has to change when it
+lands — only where `photoUri` comes from.
+
+### Copy: five strings
+
+`profile.title`, `profile.takePhoto`, `profile.removePhoto`,
+`profile.updated`, `profile.error` — in `en`/`hi`/`mr`, with Retry and Dismiss
+reused from `common.*`. The two button labels carry a `buttonRow` clipping
+budget, so a longer Hindi or Marathi label fails CI instead of the driver's
+screen.
+
+| Spec                           | Pins                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profile-photo.spec.ts`        | the reducer (capture never announces success, upload/remove do; a failure keeps the exact retry target; a late storage read never resurrects a removed photo or overwrites a new one), the placeholder rule, the JPEG/PNG part the API accepts, `pickPictureSize`, and the per-user mirror codec incl. every corrupt shape               |
+| `profile-photo-wiring.spec.ts` | the card is rendered on Help (and no new crew route), capture is `expo-camera` with no picker dependency, the CAMERA permission and plugin are declared, no offline-queue import and no background retry anywhere, both endpoints go through the shared client, Remove stays unconditional, and all five keys exist in all three locales |
+| `api-client.spec.ts` (account) | the multipart `PUT` (field `file`, JSON `Content-Type` stripped so the boundary survives), the React Native `{ uri, name, type }` descriptor, the `DELETE`, and that neither call ever puts an account id in the URL                                                                                                                     |

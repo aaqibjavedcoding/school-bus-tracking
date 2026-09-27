@@ -143,6 +143,21 @@ describe('single-line containers on crew surfaces are budgeted', () => {
     }
   });
 
+  test('the My Profile actions are budgeted and wired to the card that renders them', () => {
+    // Two field buttons stacked next to the 56 dp avatar, so each label has
+    // less width than a full-width row — the same budget as any two buttons
+    // sharing one.
+    const card = read('src/features/crew/ProfilePhotoCard.tsx');
+    for (const key of ['profile.takePhoto', 'profile.removePhoto'] as TranslationKey[]) {
+      assert.equal(
+        budgetFor(key)?.kind,
+        'buttonRow',
+        `${key} labels a crew button and must carry a 'buttonRow' budget`,
+      );
+      assert.ok(card.includes(key), `${key} is no longer wired into ProfilePhotoCard`);
+    }
+  });
+
   test('the crew tab bar has exactly four visible labels, each inside the tab budget', () => {
     const layout = read('app/(crew)/_layout.tsx');
     // Four visible tabs (Help is registered with `href: null`), so exactly four
