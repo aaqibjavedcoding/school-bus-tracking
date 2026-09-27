@@ -96,6 +96,29 @@ export { FeedbackProvider, useSoundSettings } from './FeedbackProvider';
 export type { VoiceSupport } from './FeedbackProvider';
 export { SoundSettingsCard } from './SoundSettingsCard';
 /**
+ * "My Profile" — the crew photo card on the Help screen. The behaviour is
+ * pure (`profile-photo.ts`); the card and the AsyncStorage mirror are the
+ * only parts that touch React and the device.
+ */
+export { ProfilePhotoCard } from './ProfilePhotoCard';
+export {
+  initialProfilePhotoState,
+  isProfilePhotoBusy,
+  pickPictureSize,
+  profileAvatarPresentation,
+  profilePhotoMessage,
+  profilePhotoReducer,
+  profilePhotoUploadPart,
+  retryAttempt,
+} from './profile-photo';
+export type {
+  ProfileAvatarPresentation,
+  ProfilePhotoAttempt,
+  ProfilePhotoEvent,
+  ProfilePhotoState,
+  ProfilePhotoStatus,
+} from './profile-photo';
+/**
  * Batch 3C — next-stop announcements. ONE announcer for BOTH crew roles
  * (`next-stop-announcer.ts` is the policy, spec'd; this is the React glue),
  * reporting through the same `feedback` dispatcher as every other event.

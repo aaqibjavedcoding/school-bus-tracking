@@ -1,5 +1,6 @@
 import {
   DataFileFormat,
+  AccountProfilePhotoResponse,
   AdminDashboardResponse,
   AdminPlanCreateRequest,
   AdminPlanLifecycleResponse,
@@ -1372,6 +1373,34 @@ export class ApiClient {
   }
 
   /**
+   * Crew account self-service (`/api/v1/account/me/photo`) — the signed-in
+   * driver's or conductor's own profile photo.
+   *
+   * No id travels in the URL or the body: the API resolves the account from
+   * the verified JWT, so these two methods take the photo and nothing else.
+   *
+   * The body is `FormData` (field `file`), so `Content-Type` is deliberately
+   * left unset — {@link ApiClient.request} strips the JSON default and the
+   * runtime writes its own multipart boundary. This goes through `request`
+   * rather than {@link ApiClient.put} for exactly that reason: `put()`
+   * JSON-stringifies its body, which would post `"{}"` instead of the image.
+   */
+  public async setAccountPhoto(
+    file: UploadFile,
+    fileName?: string,
+  ): Promise<ApiResponse<AccountProfilePhotoResponse>> {
+    return this.request<ApiResponse<AccountProfilePhotoResponse>>('/account/me/photo', {
+      method: 'PUT',
+      body: toFormData(file, fileName),
+    });
+  }
+
+  /** Clears the signed-in crew member's profile photo (idempotent server-side). */
+  public async clearAccountPhoto(): Promise<ApiResponse<AccountProfilePhotoResponse>> {
+    return this.delete<AccountProfilePhotoResponse>('/account/me/photo');
+  }
+
+  /**
    * Read-only Parent Portal (Task 20) — served under `/api/v1/parent/*` and
    * reachable only by an authenticated PARENT. The API derives the tenant and
    * the parent identity from the JWT, so none of these methods send a parent
@@ -2612,14 +2641,47 @@ export interface DownloadedFile {
 }
 
 /**
+ * A file part a React Native client can upload.
+ *
+ * React Native has no `File`/`Blob` for a photo on disk: its `FormData`
+ * accepts this `{ uri, name, type }` descriptor and the platform streams the
+ * bytes itself. Browsers keep sending `File`/`Blob`, so both shapes are
+ * accepted wherever this client uploads.
+ */
+export interface UploadFilePart {
+  /** Local file URI, e.g. `file:///…/photo.jpg`. */
+  uri: string;
+  /** File name — the API derives the extension it validates from it. */
+  name: string;
+  /** Declared content type, e.g. `image/jpeg`. */
+  type: string;
+}
+
+/** Anything this client knows how to put in a multipart `file` field. */
+export type UploadFile = File | Blob | UploadFilePart;
+
+/** True for the React Native `{ uri, name, type }` descriptor. */
+function isUploadFilePart(file: UploadFile): file is UploadFilePart {
+  return typeof (file as UploadFilePart).uri === 'string';
+}
+
+/**
  * Wraps a file in `FormData` under the `file` field the API expects.
  *
  * A `File` already carries its name; a bare `Blob` does not, so one is
  * supplied — multer needs a filename to derive the extension the import
- * endpoints validate.
+ * endpoints validate. A React Native {@link UploadFilePart} carries its own
+ * name and is appended as-is: that runtime's `FormData` reads the descriptor,
+ * and passing a third argument there would be ignored at best.
  */
-function toFormData(file: File | Blob, fileName?: string): FormData {
+function toFormData(file: UploadFile, fileName?: string): FormData {
   const form = new FormData();
+  if (isUploadFilePart(file)) {
+    // `FormData` is typed for the DOM; the RN implementation accepts the
+    // descriptor and is the only way to upload a file by URI there.
+    form.append('file', file as unknown as Blob);
+    return form;
+  }
   const name =
     fileName ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'import.xlsx');
   form.append('file', file, name);

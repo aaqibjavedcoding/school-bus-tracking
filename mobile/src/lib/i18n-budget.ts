@@ -146,6 +146,12 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'trip.cancel.confirm': 'buttonWide',
   'trip.cancel.keep': 'buttonWide',
 
+  // My Profile: two field buttons stacked beside the 56 dp avatar, so each
+  // label lives in a column narrower than a full-width row — the same
+  // two-buttons-sharing-a-row budget.
+  'profile.takePhoto': 'buttonRow',
+  'profile.removePhoto': 'buttonRow',
+
   // The next-stop card's two hand-off buttons (full-width field buttons) and
   // the return-from-maps attendance prompt's action row.
   'navigate.card.buttonNext': 'buttonFull',

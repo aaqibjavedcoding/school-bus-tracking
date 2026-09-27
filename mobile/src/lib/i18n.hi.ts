@@ -376,6 +376,13 @@ export const hi: Dictionary = {
   'settings.sound.nativeVoiceBody':
     'घोषणाएँ अंग्रेज़ी में बोली जाती हैं। Android सेटिंग्स → टेक्स्ट-टू-स्पीच में {language} आवाज़ इंस्टॉल करें।',
 
+  // ── My Profile (crew photo self-service) ───────────────────────────────
+  'profile.title': 'मेरी प्रोफ़ाइल',
+  'profile.takePhoto': 'फ़ोटो लें',
+  'profile.removePhoto': 'फ़ोटो हटाएँ',
+  'profile.updated': 'प्रोफ़ाइल फ़ोटो अपडेट हुई',
+  'profile.error': 'फ़ोटो अपडेट नहीं हो सकी',
+
   // ── Voice phrases (बोली जाती हैं, स्क्रीन पर कभी नहीं दिखतीं) ──────────
   //
   // `voice.*` **रोमन (Latin) लिपि** में हैं — फ़ॉलबैक। सस्ते Android फ़ोनों में
