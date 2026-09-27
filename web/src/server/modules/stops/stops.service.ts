@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from '../../framework';
-import { Op, UniqueConstraintError, type WhereOptions } from 'sequelize';
+import { Op, UniqueConstraintError, type Transaction, type WhereOptions } from 'sequelize';
 import {
   PaginationMeta,
   PlanLimitResource,
@@ -15,7 +15,9 @@ import {
   STOP_NOT_FOUND_MESSAGE,
   STOP_ROUTE_INVALID_MESSAGE,
   STOP_SEQUENCE_TAKEN_MESSAGE,
+  STOP_TOO_CLOSE_MESSAGE,
 } from './stops.constants';
+import { findStopSpacingConflict, type StopSpacingStop } from './stop-spacing';
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
@@ -56,6 +58,16 @@ export class StopsService {
       PlanLimitResource.STOPS,
       async (transaction) => {
         await this.assertRouteInSchool(schoolId, dto.route_id);
+        await this.assertStopSpacing({
+          schoolId,
+          routeId: dto.route_id,
+          stopName: dto.name.trim(),
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          radiusMeters: dto.geofence_radius_meters ?? 100,
+          isActive: dto.is_active ?? true,
+          transaction,
+        });
         const sequenceNumber =
           dto.sequence_number ?? (await this.nextSequenceNumber(schoolId, dto.route_id));
 
@@ -201,6 +213,29 @@ export class StopsService {
       updates.is_active = dto.is_active;
     }
 
+    // Recheck whenever a change can alter which geofences overlap: moving a
+    // stop, changing either radius/route, or reactivating a previously hidden
+    // stop. An unrelated label or address edit must not make legacy data
+    // impossible to maintain.
+    if (
+      dto.route_id !== undefined ||
+      dto.latitude !== undefined ||
+      dto.longitude !== undefined ||
+      dto.geofence_radius_meters !== undefined ||
+      dto.is_active !== undefined
+    ) {
+      await this.assertStopSpacing({
+        schoolId,
+        routeId: updates.route_id ?? stop.route_id,
+        stopName: updates.name ?? stop.name,
+        latitude: updates.latitude !== undefined ? updates.latitude : stop.latitude,
+        longitude: updates.longitude !== undefined ? updates.longitude : stop.longitude,
+        radiusMeters: updates.geofence_radius_meters ?? stop.geofence_radius_meters,
+        isActive: updates.is_active ?? stop.is_active,
+        excludeStopId: stop.id,
+      });
+    }
+
     try {
       await stop.update(updates);
     } catch (error) {
@@ -245,6 +280,52 @@ export class StopsService {
     });
     if (!route) {
       throw new BadRequestException(STOP_ROUTE_INVALID_MESSAGE);
+    }
+  }
+
+  /**
+   * Enforces the route-local geofence spacing rule used by both form writes
+   * and imports. Only active existing stops are candidates; records without a
+   * complete coordinate pair cannot be spatially compared and are skipped.
+   */
+  private async assertStopSpacing(input: {
+    schoolId: string;
+    routeId: string;
+    stopName: string;
+    latitude: number | null | undefined;
+    longitude: number | null | undefined;
+    radiusMeters: number;
+    isActive: boolean;
+    excludeStopId?: string | null;
+    transaction?: Transaction | undefined;
+  }): Promise<void> {
+    if (!input.isActive || input.latitude == null || input.longitude == null) {
+      return;
+    }
+
+    const stops = await this.stops.findAll({
+      where: { school_id: input.schoolId, route_id: input.routeId, is_active: true },
+      ...(input.transaction ? { transaction: input.transaction } : {}),
+    });
+    const conflict = findStopSpacingConflict(
+      {
+        routeId: input.routeId,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        radiusMeters: input.radiusMeters,
+        excludeStopId: input.excludeStopId,
+      },
+      stops as unknown as StopSpacingStop[],
+    );
+    if (conflict) {
+      throw new ConflictException(
+        STOP_TOO_CLOSE_MESSAGE(
+          input.stopName,
+          conflict.stopName,
+          conflict.distanceMeters,
+          conflict.minimumDistanceMeters,
+        ),
+      );
     }
   }
 

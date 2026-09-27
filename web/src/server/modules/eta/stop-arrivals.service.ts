@@ -15,7 +15,7 @@ import {
   liveTrackingRoomName,
   type LiveTrackingEvent,
 } from '@school-bus-tracking/shared-types';
-import { getTripTrackingState, isTripTrackingActive } from '@school-bus-tracking/validation';
+import { getTripTrackingState, isTripArrivalRecording } from '@school-bus-tracking/validation';
 import { Stop, Trip, TripLocation, TripStopArrival } from '../../database/models';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EtaService, type EtaLocationFix } from './eta.service';
@@ -205,9 +205,11 @@ export class StopArrivalsService {
     now: Date = new Date(),
   ): Promise<RecordedStopArrival | null> {
     try {
-      // Defence in depth: terminal trips never produce new arrivals, even if
-      // a caller bypasses `recordLocation`'s own status gate.
-      if (!isTripTrackingActive(trip.status)) {
+      // GPS sharing is allowed during BOARDING, but arrival evidence is not:
+      // no routes, ETA progress, last-fix reference or inside-geofence state
+      // is touched before IN_PROGRESS. That makes the first in-progress fix
+      // stand on its own evidence instead of inheriting a boarding-phase stop.
+      if (!isTripArrivalRecording(trip.status)) {
         return null;
       }
 

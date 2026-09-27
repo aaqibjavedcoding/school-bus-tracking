@@ -6,8 +6,10 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { TripAttendanceStatus, TripStatus } from '@school-bus-tracking/shared-types';
 import {
+  TRIP_ARRIVAL_RECORDING_STATUSES,
   TRIP_ATTENDANCE_OPEN_TRIP_STATUSES,
   TRIP_ATTENDANCE_STATUS_TRANSITIONS,
+  isTripArrivalRecording,
   isTripAttendanceTransitionAllowed,
   isTripOpenForAttendance,
   tripStudentBoardSchema,
@@ -144,16 +146,23 @@ describe('trip attendance validation schemas', () => {
     );
   });
 
-  it('keeps attendance open only while the trip is not terminal', () => {
+  it('opens attendance only after boarding has started', () => {
     assert.deepEqual(TRIP_ATTENDANCE_OPEN_TRIP_STATUSES, [
-      TripStatus.SCHEDULED,
       TripStatus.BOARDING,
       TripStatus.IN_PROGRESS,
     ]);
-    assert.equal(isTripOpenForAttendance(TripStatus.SCHEDULED), true);
+    assert.equal(isTripOpenForAttendance(TripStatus.SCHEDULED), false);
     assert.equal(isTripOpenForAttendance(TripStatus.BOARDING), true);
     assert.equal(isTripOpenForAttendance(TripStatus.IN_PROGRESS), true);
     assert.equal(isTripOpenForAttendance(TripStatus.COMPLETED), false);
     assert.equal(isTripOpenForAttendance(TripStatus.CANCELLED), false);
+  });
+
+  it('keeps live tracking open at boarding but records GPS arrivals only in progress', () => {
+    assert.deepEqual(TRIP_ARRIVAL_RECORDING_STATUSES, [TripStatus.IN_PROGRESS]);
+    assert.equal(isTripArrivalRecording(TripStatus.SCHEDULED), false);
+    assert.equal(isTripArrivalRecording(TripStatus.BOARDING), false);
+    assert.equal(isTripArrivalRecording(TripStatus.IN_PROGRESS), true);
+    assert.equal(isTripArrivalRecording(TripStatus.COMPLETED), false);
   });
 });

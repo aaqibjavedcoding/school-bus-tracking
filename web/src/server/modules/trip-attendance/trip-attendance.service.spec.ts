@@ -67,6 +67,7 @@ const PARENT_A = '44444444-4444-4444-8444-444444440008';
 const PARENT_UNRELATED = '44444444-4444-4444-8444-444444440009';
 
 const TRIP_A = '55555555-5555-4555-8555-555555550001';
+const TRIP_SCHEDULED = '55555555-5555-4555-8555-555555550006';
 const TRIP_OTHER_ROUTE = '55555555-5555-4555-8555-555555550002';
 const TRIP_COMPLETED = '55555555-5555-4555-8555-555555550003';
 const TRIP_CANCELLED = '55555555-5555-4555-8555-555555550004';
@@ -238,6 +239,15 @@ const TRIPS: StubTrip[] = [
     driver_id: DRIVER_A,
     conductor_id: CONDUCTOR_A,
     status: TripStatus.IN_PROGRESS,
+    scheduled_start_at: SCHEDULED_START,
+  },
+  {
+    id: TRIP_SCHEDULED,
+    school_id: SCHOOL_A,
+    route_id: ROUTE_A,
+    driver_id: DRIVER_A,
+    conductor_id: CONDUCTOR_A,
+    status: TripStatus.SCHEDULED,
     scheduled_start_at: SCHEDULED_START,
   },
   {
@@ -865,6 +875,22 @@ describe('TripAttendanceService boarding', () => {
       assert.equal(result.status, TripAttendanceStatus.BOARDED);
       assert.equal(result.boarded_by, actor.id);
     }
+  });
+
+  it('returns 409 for board and drop while the trip is still scheduled', async () => {
+    const { service, rows } = makeRepositories();
+
+    await rejectsWith(
+      service.board(DRIVER, TRIP_SCHEDULED, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_TRIP_CLOSED_MESSAGE,
+    );
+    await rejectsWith(
+      service.drop(DRIVER, TRIP_SCHEDULED, STUDENT_EARLY),
+      ConflictException,
+      TRIP_ATTENDANCE_TRIP_CLOSED_MESSAGE,
+    );
+    assert.equal(rows.length, 0);
   });
 
   it('rejects boarding the same student twice', async () => {

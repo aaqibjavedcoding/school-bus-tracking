@@ -222,6 +222,8 @@ export const hi: Dictionary = {
   'gps.openSettings': 'लोकेशन सेटिंग खोलें',
   'gps.requestPermission': 'लोकेशन अनुमति मांगें',
   'gps.helpLink': 'GPS विवरण और सहायता',
+  'gps.mockLocationWarning':
+    'Mock/fake location ON hai — developer settings me band karo, tabhi trip track hogi.',
   'gps.panelTitle': 'लाइव GPS शेयरिंग',
   'gps.badgeSharing': 'शेयर हो रहा है',
   'gps.badgeOff': 'बंद',
@@ -537,7 +539,7 @@ export const hi: Dictionary = {
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'स्टॉप {number}',
   'map.stopLabel': '{number}. {name}',
-  'map.issue.styleLoad': 'नक्शा लोड नहीं हो सका',
+  'map.issue.styleLoad': 'नक्शा लोड नहीं हो सका — नेटवर्क और map tiles जाँचें।',
   'map.issue.glyphs': 'नक्शे के लेबल नहीं दिख रहे',
 
   /**

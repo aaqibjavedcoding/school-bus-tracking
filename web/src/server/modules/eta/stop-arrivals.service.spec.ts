@@ -125,6 +125,27 @@ describe('StopArrivalsService geofence evaluation', () => {
     assert.equal(harness.arrivalNotifications.length, 0);
   });
 
+  it('does not record boarding-phase fixes and starts fresh when the trip becomes in progress', async () => {
+    const harness = makeArrivalsHarness();
+    const trip = asTrip(makeTrip({ status: TripStatus.BOARDING }));
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Tracking remains active in BOARDING, but this pipeline must not load
+    // stops, update inside evidence, advance ETA, or create an arrival.
+    const boarding = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    assert.equal(boarding, null);
+    assert.equal(harness.arrivals.created.length, 0);
+    assert.equal(harness.broadcasts.length, 0);
+
+    // The same position is the first ever arrival-evidence fix after the
+    // lifecycle transition — it records normally, with no fabricated history.
+    trip.status = TripStatus.IN_PROGRESS;
+    const inProgress = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }), clock.now());
+    assert.ok(inProgress);
+    assert.equal(inProgress.stop.id, STOP_1);
+    assert.equal(harness.arrivals.created.length, 1);
+  });
+
   it('does not repeat an arrival for every fix inside the same geofence', async () => {
     const harness = makeArrivalsHarness();
     const trip = asTrip(makeTrip());
@@ -288,8 +309,13 @@ describe('StopArrivalsService geofence evaluation', () => {
     assert.equal(harness.arrivals.created.length, 0);
   });
 
-  it('never generates arrivals for non-active trips', async () => {
-    for (const status of [TripStatus.SCHEDULED, TripStatus.COMPLETED, TripStatus.CANCELLED]) {
+  it('never generates arrivals outside the in-progress arrival-recording window', async () => {
+    for (const status of [
+      TripStatus.SCHEDULED,
+      TripStatus.BOARDING,
+      TripStatus.COMPLETED,
+      TripStatus.CANCELLED,
+    ]) {
       const harness = makeArrivalsHarness();
       const trip = asTrip(
         makeTrip({

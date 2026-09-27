@@ -1,5 +1,9 @@
 import { Op, type Transaction } from 'sequelize';
-import { ImportModule, PlanLimitResource } from '@school-bus-tracking/shared-types';
+import {
+  ImportModule,
+  PlanLimitResource,
+  type ImportRowIssue,
+} from '@school-bus-tracking/shared-types';
 import {
   busImportRowSchema,
   routeImportRowSchema,
@@ -16,9 +20,12 @@ import {
   type ImportDefinition,
   type ImportPersistResult,
   type ImportRepositories,
+  type ImportResolvedRow,
   type ImportRowResolution,
   type PreparedImport,
 } from '../import.types';
+import { STOP_TOO_CLOSE_MESSAGE } from '../../../stops/stops.constants';
+import { findStopSpacingConflict, type StopSpacingStop } from '../../../stops/stop-spacing';
 
 /** Buses, routes and stops — the transport network an admin sets up on day one. */
 
@@ -403,6 +410,82 @@ export const stopsImportDefinition: ImportDefinition = {
             is_active: row.is_active ?? true,
           },
         };
+      },
+
+      /**
+       * Spacing is a relationship between rows, so it is checked only after
+       * every row has resolved. The final in-memory view replaces existing
+       * stops with their upsert payloads and includes new rows, preventing a
+       * spreadsheet from bypassing the form's same-route guard.
+       */
+      async batchIssues(rows: ImportResolvedRow[]): Promise<ReadonlyMap<string, ImportRowIssue[]>> {
+        const finalStops = new Map<string, StopSpacingStop>(
+          stops.map((stop) => [
+            stop.id,
+            {
+              id: stop.id,
+              route_id: stop.route_id,
+              name: stop.name,
+              latitude: stop.latitude,
+              longitude: stop.longitude,
+              geofence_radius_meters: stop.geofence_radius_meters,
+              is_active: stop.is_active,
+            },
+          ]),
+        );
+
+        for (const row of rows) {
+          const payload = row.payload as {
+            route_id: string;
+            name: string;
+            latitude: number | null;
+            longitude: number | null;
+            geofence_radius_meters: number;
+            is_active: boolean;
+          };
+          finalStops.set(row.existingId ?? `import:${row.key}`, {
+            id: row.existingId ?? `import:${row.key}`,
+            route_id: payload.route_id,
+            name: payload.name,
+            latitude: payload.latitude,
+            longitude: payload.longitude,
+            geofence_radius_meters: payload.geofence_radius_meters,
+            is_active: payload.is_active,
+          });
+        }
+
+        const issues = new Map<string, ImportRowIssue[]>();
+        const finalValues = [...finalStops.values()];
+        for (const row of rows) {
+          const candidate = finalStops.get(row.existingId ?? `import:${row.key}`);
+          if (!candidate || !candidate.is_active) {
+            continue;
+          }
+          const conflict = findStopSpacingConflict(
+            {
+              routeId: candidate.route_id,
+              latitude: candidate.latitude,
+              longitude: candidate.longitude,
+              radiusMeters: candidate.geofence_radius_meters,
+              excludeStopId: candidate.id,
+            },
+            finalValues,
+          );
+          if (conflict) {
+            issues.set(row.key, [
+              issue(
+                'Latitude',
+                STOP_TOO_CLOSE_MESSAGE(
+                  candidate.name,
+                  conflict.stopName,
+                  conflict.distanceMeters,
+                  conflict.minimumDistanceMeters,
+                ),
+              ),
+            ]);
+          }
+        }
+        return issues;
       },
 
       async persist(accepted, transaction): Promise<ImportPersistResult> {

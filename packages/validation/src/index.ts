@@ -1293,15 +1293,16 @@ export const isTripAttendanceTransitionAllowed = (
 ): boolean => TRIP_ATTENDANCE_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
 
 /**
- * Trip lifecycle states during which attendance may be recorded.
+ * Trip lifecycle states during which attendance and manual crew stop marks may
+ * be recorded.
  *
- * Boarding legitimately starts before the bus departs (`SCHEDULED`), so the
- * open window spans everything that is not terminal. A `COMPLETED` or
- * `CANCELLED` run is closed: its attendance record is an audit artefact and
- * must not change any more.
+ * `SCHEDULED` is deliberately closed: a dispatch record is not evidence that
+ * the bus has started picking children up. Opening only at `BOARDING` prevents
+ * a pre-start tap from creating a false pickup/arrival audit record, while
+ * still allowing real first-stop work before departure. `COMPLETED` and
+ * `CANCELLED` runs remain immutable audit artefacts.
  */
 export const TRIP_ATTENDANCE_OPEN_TRIP_STATUSES: readonly TripStatus[] = Object.freeze([
-  TripStatus.SCHEDULED,
   TripStatus.BOARDING,
   TripStatus.IN_PROGRESS,
 ]);
@@ -1432,6 +1433,10 @@ export type GpsLocationFixInput = z.infer<typeof gpsLocationFixSchema>;
 export const tripLocationUpdateSchema = gpsLocationFixSchema
   .extend({
     trip_id: z.string().uuid('trip_id must be a valid UUID'),
+    // Android exposes this when the platform identifies a developer/fake GPS
+    // provider. It is optional for older clients, but a reported mock is never
+    // accepted as a real trip position.
+    mocked: z.boolean().optional(),
     // Optional idempotency key for redelivered fixes. Trimmed and bounded to
     // the storage column; anything longer is a malformed payload.
     idempotency_key: z.string().trim().min(1).max(255).optional(),
@@ -1495,6 +1500,20 @@ export const TRIP_TRACKING_ACTIVE_STATUSES: readonly TripStatus[] = Object.freez
 /** True when the trip is in a state that accepts live GPS updates. */
 export const isTripTrackingActive = (status: TripStatus): boolean =>
   TRIP_TRACKING_ACTIVE_STATUSES.includes(status);
+
+/**
+ * Trip state in which GPS fixes may create stop-arrival records and parent
+ * stop-reached events. GPS sharing deliberately opens earlier at `BOARDING`,
+ * but arrival evidence starts only once the bus is actually driving so a
+ * boarding-phase position at the first stop cannot advance ETA progress.
+ */
+export const TRIP_ARRIVAL_RECORDING_STATUSES: readonly TripStatus[] = Object.freeze([
+  TripStatus.IN_PROGRESS,
+]);
+
+/** True when an accepted GPS fix may be used as stop-arrival evidence. */
+export const isTripArrivalRecording = (status: TripStatus): boolean =>
+  TRIP_ARRIVAL_RECORDING_STATUSES.includes(status);
 
 /**
  * Maps a trip status to the tracking-stream state clients render:

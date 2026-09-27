@@ -12,6 +12,7 @@ import {
   crewTrackingStatusTone,
   deriveCrewTrackingStatus,
   freshnessBucket,
+  shouldWarnAboutMockLocation,
   type CrewTrackingStatusInput,
 } from './tracking-status.ts';
 
@@ -39,6 +40,14 @@ function input(overrides: Partial<CrewTrackingStatusInput> = {}): CrewTrackingSt
     ...overrides,
   };
 }
+
+describe('mock-location presentation rule', () => {
+  it('warns only while the newest device fix is flagged as mocked', () => {
+    assert.equal(shouldWarnAboutMockLocation({ mocked: true }), true);
+    assert.equal(shouldWarnAboutMockLocation({ mocked: false }), false);
+    assert.equal(shouldWarnAboutMockLocation(null), false);
+  });
+});
 
 describe('deriveCrewTrackingStatus', () => {
   it('is live only on a recent SERVER acknowledgement', () => {

@@ -233,6 +233,8 @@ export const en = {
   'gps.openSettings': 'Open location settings',
   'gps.requestPermission': 'Request location permission',
   'gps.helpLink': 'GPS details & support',
+  'gps.mockLocationWarning':
+    'Mock/fake location is ON — turn it off in Developer settings, then the trip can be tracked.',
   'gps.panelTitle': 'Live GPS sharing',
   'gps.badgeSharing': 'Sharing',
   'gps.badgeOff': 'Off',
@@ -615,7 +617,7 @@ export const en = {
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'Stop {number}',
   'map.stopLabel': '{number}. {name}',
-  'map.issue.styleLoad': 'Map failed to load',
+  'map.issue.styleLoad': 'Map failed to load — check your network connection and map tiles.',
   'map.issue.glyphs': 'Map labels unavailable',
 
   /**

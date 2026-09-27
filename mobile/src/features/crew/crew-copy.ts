@@ -120,6 +120,10 @@ export const crewCopy = {
     get helpLink(): string {
       return t('gps.helpLink');
     },
+    /** Persistent while the newest OS fix is marked as mocked/fake. */
+    get mockLocationWarning(): string {
+      return t('gps.mockLocationWarning');
+    },
   },
 
   /** Help / Support screen. */
