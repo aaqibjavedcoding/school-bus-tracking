@@ -605,7 +605,13 @@ export class ParentPortalService {
     };
   }
 
-  /** Driver / conductor display names (never account internals). */
+  /**
+   * Driver / conductor display data (never account internals).
+   *
+   * Beside the name, the profile-photo *key* rides along so the parent app
+   * can render the uploaded photo next to the crew member's name — `null`
+   * whenever none is set, in which case the app shows its neutral avatar.
+   */
   private async loadCrew(
     schoolId: string,
     driverId: string | null,
@@ -615,13 +621,20 @@ export class ParentPortalService {
     if (ids.length === 0) return [null, null];
     const rows = await this.users.findAll({
       where: { school_id: schoolId, id: { [Op.in]: ids } },
-      attributes: ['id', 'first_name', 'last_name'],
+      attributes: ['id', 'first_name', 'last_name', 'profile_photo_key'],
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
     const crew = (id: string | null): ParentCrewSummary | null => {
       if (!id) return null;
       const row = byId.get(id);
-      return row ? { id: row.id, first_name: row.first_name, last_name: row.last_name } : null;
+      return row
+        ? {
+            id: row.id,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            profile_photo_key: row.profile_photo_key ?? null,
+          }
+        : null;
     };
     return [crew(driverId), crew(conductorId)];
   }

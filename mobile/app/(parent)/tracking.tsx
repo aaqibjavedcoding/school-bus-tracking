@@ -12,6 +12,7 @@ import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
 import { useLoad } from '../../src/hooks/useLoad';
 import { BusMap } from '../../src/features/map/BusMap';
+import { CrewAvatar } from '../../src/features/parent';
 import { useLiveTripTracking, type LiveFix } from '../../src/features/tracking/useLiveTripTracking';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { EtaSummaryCard, StopsEtaList } from '../../src/features/tracking/EtaViews';
@@ -144,10 +145,16 @@ export default function ParentTrackingScreen() {
               <ConnectionIndicator connection={live.connection} />
             </View>
             {tracking.driver ? (
-              <Text style={styles.crewLine}>Driver: {fullName(tracking.driver)}</Text>
+              <View style={styles.crewRow}>
+                <CrewAvatar crew={tracking.driver} />
+                <Text style={styles.crewName}>Driver: {fullName(tracking.driver)}</Text>
+              </View>
             ) : null}
             {tracking.conductor ? (
-              <Text style={styles.crewLine}>Conductor: {fullName(tracking.conductor)}</Text>
+              <View style={styles.crewRow}>
+                <CrewAvatar crew={tracking.conductor} />
+                <Text style={styles.crewName}>Conductor: {fullName(tracking.conductor)}</Text>
+              </View>
             ) : null}
           </Card>
 
@@ -219,10 +226,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     flexWrap: 'wrap',
   },
-  crewLine: {
+  crewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+    marginTop: 2,
+  },
+  crewName: {
     color: colors.neutral[600],
     fontSize: 14,
-    marginTop: 2,
+    flexShrink: 1,
   },
   waiting: {
     color: colors.neutral[500],

@@ -128,6 +128,12 @@ export const AUDIT_ACTIONS = {
   AUTH_TOKEN_REFRESH: 'auth.token_refresh',
   USER_DEACTIVATE: 'user.deactivate',
   USER_ACTIVATE: 'user.activate',
+
+  // Crew account self-service
+  /** A DRIVER / CONDUCTOR set or replaced their own profile photo. */
+  ACCOUNT_PHOTO_SET: 'account.photo_set',
+  /** A DRIVER / CONDUCTOR cleared their own profile photo. */
+  ACCOUNT_PHOTO_CLEAR: 'account.photo_clear',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

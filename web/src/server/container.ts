@@ -85,6 +85,7 @@ import { PlanLimitsService } from './common/plan-limits';
 import { createRateLimitStore } from './common/rate-limit/rate-limit.store-factory';
 import type { RateLimitStore } from './common/rate-limit/rate-limit.store';
 
+import { AccountService } from './modules/account/account.service';
 import { AdminDashboardService } from './modules/admin/admin-dashboard.service';
 import { DashboardService } from './modules/dashboard/dashboard.service';
 import { AdminGlobalSubscriptionsService } from './modules/admin/admin-global-subscriptions.service';
@@ -106,6 +107,8 @@ import { ImportTemplateService } from './modules/data-transfer/import/import-tem
 import { DocumentComplianceService } from './modules/documents/document-compliance.service';
 import { DocumentRequirementsService } from './modules/documents/document-requirements.service';
 import { DocumentsService } from './modules/documents/documents.service';
+import { LocalStorageProvider } from './modules/documents/storage';
+import type { DocumentStorageProvider } from './modules/documents/storage';
 import { EmergenciesService } from './modules/emergencies/emergencies.service';
 import { EtaService, type EtaConfig } from './modules/eta/eta.service';
 import {
@@ -348,6 +351,20 @@ export class Container {
   // ---------------------------------------------------------------- domain
 
   readonly audit = lazy(() => new AuditService(AuditLog, User));
+
+  /**
+   * The shared development storage backend (`.document-storage` by default).
+   * Used for any file byte the API persists — today: crew profile photos via
+   * {@link account}. One instance so modules never race `mkdir` at boot.
+   */
+  readonly documentStorage = lazy((): DocumentStorageProvider => new LocalStorageProvider());
+
+  /**
+   * Crew self-service (`/account/me/...`). Bytes go through the same
+   * provider the documents module defines; the service adds only the
+   * photo-specific validation and the `users` column writes.
+   */
+  readonly account = lazy(() => new AccountService(User, this.documentStorage()));
 
   readonly auth = lazy(
     () =>

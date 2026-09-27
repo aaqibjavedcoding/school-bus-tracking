@@ -1048,6 +1048,24 @@ export interface ParentListQuery {
 }
 
 /**
+ * Crew account self-service (`/api/v1/account/*`).
+ *
+ * Served only to authenticated DRIVER / CONDUCTOR accounts: both the tenant
+ * (`school_id`) and the account identity come from the verified JWT — no id
+ * ever travels in the URL or the body.
+ */
+
+/** Payload of `PUT` / `DELETE /api/v1/account/me/photo`. */
+export interface AccountProfilePhotoResponse {
+  /** The crew account the photo belongs to. */
+  id: string;
+  /** Storage key of the stored photo; `null` after a clear. */
+  profile_photo_key: string | null;
+  /** ISO timestamp of the last set/clear; `null` when no photo has ever been set. */
+  profile_photo_updated_at: string | null;
+}
+
+/**
  * Phase 6 (Task 20) — Parent Portal.
  *
  * Everything below is served under `/api/v1/parent/*` and is reachable only
@@ -1077,6 +1095,12 @@ export interface ParentCrewSummary {
   id: string;
   first_name: string;
   last_name: string;
+  /**
+   * Storage key of the crew member's profile photo, or `null` when none is
+   * set — the parent app falls back to a neutral avatar in that case. The
+   * key is a reference resolved by the API, never placeholder bytes.
+   */
+  profile_photo_key: string | null;
 }
 
 /**
