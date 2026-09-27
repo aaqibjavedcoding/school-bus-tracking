@@ -32,4 +32,12 @@ export const IDEMPOTENCY_ENDPOINTS = {
   STOP_SKIP: 'crew-stops.skip',
   TRIP_CANCEL: 'trips.cancel',
   TRIP_LOCATION: 'live-tracking.location',
+  /**
+   * Marketing campaign scheduling — the one marketing endpoint that writes a
+   * recipient snapshot, so a double submit must never write it twice. (The
+   * service layer is idempotent on its own — a campaign already SCHEDULED is
+   * returned untouched — this scope additionally short-circuits the replay
+   * before the handler runs.)
+   */
+  MARKETING_CAMPAIGN_SCHEDULE: 'marketing.campaign_schedule',
 } as const;

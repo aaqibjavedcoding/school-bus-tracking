@@ -84,6 +84,31 @@ import {
   LoginRequest,
   LoginResponse,
   LogoutResponse,
+  MarketingAudiencePreviewRequest,
+  MarketingAudiencePreviewResponse,
+  MarketingCampaignCreateRequest,
+  MarketingCampaignDetailResponse,
+  MarketingCampaignListQuery,
+  MarketingCampaignListResponse,
+  MarketingCampaignLifecycleResponse,
+  MarketingCampaignResponse,
+  MarketingCampaignScheduleRequest,
+  MarketingCampaignScheduleResponse,
+  MarketingCampaignUpdateRequest,
+  MarketingTemplateArchiveResponse,
+  MarketingTemplateContentSaveRequest,
+  MarketingTemplateContentSaveResponse,
+  MarketingTemplateCreateRequest,
+  MarketingTemplateDetailResponse,
+  MarketingTemplateListQuery,
+  MarketingTemplateListResponse,
+  MarketingTemplatePreviewRequest,
+  MarketingTemplatePreviewResponse,
+  MarketingTemplateResponse,
+  MarketingTemplateTestSendRequest,
+  MarketingTemplateTestSendResponse,
+  MarketingTemplateUpdateRequest,
+  MarketingTemplateVersionPublishResponse,
   ParentCreateRequest,
   ParentDeleteResponse,
   ParentListQuery,
@@ -1096,6 +1121,205 @@ export class ApiClient {
   public async deactivateAdminPlan(id: string): Promise<ApiResponse<AdminPlanLifecycleResponse>> {
     return this.post<AdminPlanLifecycleResponse>(
       `/admin/plans/${encodeURIComponent(id)}/deactivate`,
+    );
+  }
+
+  /**
+   * Marketing communications — email templates
+   * (`/marketing/templates`, Session 2).
+   *
+   * SUPER_ADMIN only. Templates are versioned containers: content saves edit
+   * the current draft (or open the next one after a publish), publishing
+   * freezes a version forever, and previews render server-side with sample
+   * variables. The test-send method deliberately takes **no recipient
+   * address** — the server resolves `MARKETING_TEST_RECIPIENTS`.
+   */
+  public async listMarketingTemplates(
+    query: MarketingTemplateListQuery = {},
+  ): Promise<ApiResponse<MarketingTemplateListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    if (query.sort) params.set('sort', query.sort);
+    if (query.order) params.set('order', query.order);
+    const suffix = querySuffix(params);
+    return this.get<MarketingTemplateListResponse>(`/marketing/templates${suffix}`);
+  }
+
+  public async createMarketingTemplate(
+    body: MarketingTemplateCreateRequest,
+  ): Promise<ApiResponse<MarketingTemplateContentSaveResponse>> {
+    return this.post<MarketingTemplateContentSaveResponse>('/marketing/templates', body);
+  }
+
+  public async getMarketingTemplate(
+    id: string,
+  ): Promise<ApiResponse<MarketingTemplateDetailResponse>> {
+    return this.get<MarketingTemplateDetailResponse>(
+      `/marketing/templates/${encodeURIComponent(id)}`,
+    );
+  }
+
+  public async updateMarketingTemplate(
+    id: string,
+    body: MarketingTemplateUpdateRequest,
+  ): Promise<ApiResponse<MarketingTemplateResponse>> {
+    return this.patch<MarketingTemplateResponse>(
+      `/marketing/templates/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  public async saveMarketingTemplateContent(
+    id: string,
+    body: MarketingTemplateContentSaveRequest,
+  ): Promise<ApiResponse<MarketingTemplateContentSaveResponse>> {
+    return this.put<MarketingTemplateContentSaveResponse>(
+      `/marketing/templates/${encodeURIComponent(id)}/content`,
+      body,
+    );
+  }
+
+  public async publishMarketingTemplateVersion(
+    templateId: string,
+    versionId: string,
+  ): Promise<ApiResponse<MarketingTemplateVersionPublishResponse>> {
+    return this.post<MarketingTemplateVersionPublishResponse>(
+      `/marketing/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(
+        versionId,
+      )}/publish`,
+    );
+  }
+
+  public async archiveMarketingTemplate(
+    id: string,
+  ): Promise<ApiResponse<MarketingTemplateArchiveResponse>> {
+    return this.post<MarketingTemplateArchiveResponse>(
+      `/marketing/templates/${encodeURIComponent(id)}/archive`,
+    );
+  }
+
+  public async previewMarketingTemplate(
+    id: string,
+    body: MarketingTemplatePreviewRequest = {},
+  ): Promise<ApiResponse<MarketingTemplatePreviewResponse>> {
+    return this.post<MarketingTemplatePreviewResponse>(
+      `/marketing/templates/${encodeURIComponent(id)}/preview`,
+      body,
+    );
+  }
+
+  /**
+   * Sends a test email of one version to the configured
+   * `MARKETING_TEST_RECIPIENTS` — the request body carries no address.
+   */
+  public async testSendMarketingTemplateVersion(
+    templateId: string,
+    versionId: string,
+    body: MarketingTemplateTestSendRequest = {},
+  ): Promise<ApiResponse<MarketingTemplateTestSendResponse>> {
+    return this.post<MarketingTemplateTestSendResponse>(
+      `/marketing/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(
+        versionId,
+      )}/test-send`,
+      body,
+    );
+  }
+
+  /**
+   * Marketing communications — campaigns
+   * (`/marketing/campaigns`, Session 2).
+   *
+   * SUPER_ADMIN only. Creating/editing works on drafts; scheduling freezes
+   * the server-computed audience snapshot (no email is sent by any of these
+   * calls — delivery is the background worker's job); pause/resume/cancel are
+   * lifecycle moves validated server-side.
+   */
+  public async listMarketingCampaigns(
+    query: MarketingCampaignListQuery = {},
+  ): Promise<ApiResponse<MarketingCampaignListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    const suffix = querySuffix(params);
+    return this.get<MarketingCampaignListResponse>(`/marketing/campaigns${suffix}`);
+  }
+
+  public async createMarketingCampaign(
+    body: MarketingCampaignCreateRequest,
+  ): Promise<ApiResponse<MarketingCampaignResponse>> {
+    return this.post<MarketingCampaignResponse>('/marketing/campaigns', body);
+  }
+
+  public async getMarketingCampaign(
+    id: string,
+  ): Promise<ApiResponse<MarketingCampaignDetailResponse>> {
+    return this.get<MarketingCampaignDetailResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}`,
+    );
+  }
+
+  public async updateMarketingCampaign(
+    id: string,
+    body: MarketingCampaignUpdateRequest,
+  ): Promise<ApiResponse<MarketingCampaignResponse>> {
+    return this.patch<MarketingCampaignResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}`,
+      body,
+    );
+  }
+
+  /**
+   * Previews the audience of a saved campaign (by id) or of an ad-hoc filter.
+   * Returns counts, a masked sample and the snapshot hash — never addresses.
+   */
+  public async previewMarketingAudience(
+    body: MarketingAudiencePreviewRequest,
+  ): Promise<ApiResponse<MarketingAudiencePreviewResponse>> {
+    return this.post<MarketingAudiencePreviewResponse>(
+      '/marketing/campaigns/audience-preview',
+      body,
+    );
+  }
+
+  /**
+   * Schedules a campaign. Idempotent: an already-scheduled campaign is
+   * returned untouched. Pass an idempotency key via the shared header support
+   * (`x-idempotency-key`) for extra replay protection.
+   */
+  public async scheduleMarketingCampaign(
+    id: string,
+    body: MarketingCampaignScheduleRequest = {},
+  ): Promise<ApiResponse<MarketingCampaignScheduleResponse>> {
+    return this.post<MarketingCampaignScheduleResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}/schedule`,
+      body,
+    );
+  }
+
+  public async pauseMarketingCampaign(id: string): Promise<ApiResponse<MarketingCampaignResponse>> {
+    return this.post<MarketingCampaignResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}/pause`,
+    );
+  }
+
+  public async resumeMarketingCampaign(
+    id: string,
+  ): Promise<ApiResponse<MarketingCampaignLifecycleResponse>> {
+    return this.post<MarketingCampaignLifecycleResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}/resume`,
+    );
+  }
+
+  public async cancelMarketingCampaign(
+    id: string,
+  ): Promise<ApiResponse<MarketingCampaignLifecycleResponse>> {
+    return this.post<MarketingCampaignLifecycleResponse>(
+      `/marketing/campaigns/${encodeURIComponent(id)}/cancel`,
     );
   }
 

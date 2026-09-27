@@ -134,6 +134,22 @@ export const AUDIT_ACTIONS = {
   ACCOUNT_PHOTO_SET: 'account.photo_set',
   /** A DRIVER / CONDUCTOR cleared their own profile photo. */
   ACCOUNT_PHOTO_CLEAR: 'account.photo_clear',
+
+  // Marketing communications (email templates & campaigns). Actions carry
+  // only safe metadata (slug, version number, counts, snapshot hash) — never
+  // a subject, an HTML/text body, an address list or any token material.
+  MARKETING_TEMPLATE_CREATE: 'marketing.template_create',
+  MARKETING_TEMPLATE_UPDATE: 'marketing.template_update',
+  MARKETING_TEMPLATE_CONTENT_SAVE: 'marketing.template_content_save',
+  MARKETING_TEMPLATE_VERSION_PUBLISH: 'marketing.template_version_publish',
+  MARKETING_TEMPLATE_ARCHIVE: 'marketing.template_archive',
+  MARKETING_TEMPLATE_TEST_SEND: 'marketing.template_test_send',
+  MARKETING_CAMPAIGN_CREATE: 'marketing.campaign_create',
+  MARKETING_CAMPAIGN_UPDATE: 'marketing.campaign_update',
+  MARKETING_CAMPAIGN_SCHEDULE: 'marketing.campaign_schedule',
+  MARKETING_CAMPAIGN_PAUSE: 'marketing.campaign_pause',
+  MARKETING_CAMPAIGN_RESUME: 'marketing.campaign_resume',
+  MARKETING_CAMPAIGN_CANCEL: 'marketing.campaign_cancel',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -164,6 +180,12 @@ export const AUDIT_ENTITY_TYPES = {
   EXPORT: 'export',
   REPORT: 'report',
   ASSISTED_MANAGEMENT_SESSION: 'assisted_management_session',
+  // Marketing communications (platform-level; no school_id is ever attached
+  // to these rows — the campaign audience's tenancy lives on the recipient
+  // snapshot, which is not audit metadata).
+  EMAIL_TEMPLATE: 'email_template',
+  EMAIL_TEMPLATE_VERSION: 'email_template_version',
+  EMAIL_CAMPAIGN: 'email_campaign',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

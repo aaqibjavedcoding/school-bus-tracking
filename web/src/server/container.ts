@@ -56,9 +56,14 @@ import {
   DeviceToken,
   DocumentRequirement as DocumentRequirementModel,
   DriverDocument,
+  EmailCampaign,
+  EmailCampaignRecipient,
+  EmailTemplate,
+  EmailTemplateVersion,
   EmergencyEvent,
   IdempotencyKey,
   ImportJob,
+  MarketingSuppression,
   Notification,
   PasswordResetToken,
   Plan,
@@ -104,6 +109,9 @@ import { BusesService } from './modules/buses/buses.service';
 import { ExportService } from './modules/data-transfer/export/export.service';
 import { ImportHistoryService } from './modules/data-transfer/import/import-history.service';
 import { ImportService } from './modules/data-transfer/import/import.service';
+import { MarketingAudienceService } from './modules/marketing/marketing-audience.service';
+import { MarketingCampaignsService } from './modules/marketing/marketing-campaigns.service';
+import { MarketingTemplatesService } from './modules/marketing/marketing-templates.service';
 import { ImportTemplateService } from './modules/data-transfer/import/import-template.service';
 import { DocumentComplianceService } from './modules/documents/document-compliance.service';
 import { DocumentRequirementsService } from './modules/documents/document-requirements.service';
@@ -353,6 +361,50 @@ export class Container {
   // ---------------------------------------------------------------- domain
 
   readonly audit = lazy(() => new AuditService(AuditLog, User));
+
+  // ----------------------------------------------------------- marketing
+
+  /**
+   * School audience resolution — the only code that decides who a campaign
+   * emails. Platform-level (SUPER_ADMIN surface) and read-only, so it shares
+   * no state with the tenant-scoped services.
+   */
+  readonly marketingAudience = lazy(
+    () => new MarketingAudienceService(School, SchoolSubscription, User, MarketingSuppression),
+  );
+
+  /**
+   * Email template management. The test-send rail is the shared
+   * `emailProvider` (SMTP when fully configured, NoOp otherwise), and the
+   * closed allowlist of test recipients is read from configuration at call
+   * time — never baked in.
+   */
+  readonly marketingTemplates = lazy(
+    () =>
+      new MarketingTemplatesService(
+        EmailTemplate,
+        EmailTemplateVersion,
+        this.emailProvider(),
+        () => this.config().get<string[]>('marketing.testRecipients') ?? [],
+      ),
+  );
+
+  /**
+   * Campaign management + the audience snapshot scheduler. Delivery itself is
+   * the background worker's job (Session 3); this service only moves
+   * campaigns between lifecycle states and freezes snapshots.
+   */
+  readonly marketingCampaigns = lazy(
+    () =>
+      new MarketingCampaignsService(
+        EmailCampaign,
+        EmailCampaignRecipient,
+        EmailTemplate,
+        EmailTemplateVersion,
+        this.marketingAudience(),
+        this.sequelize,
+      ),
+  );
 
   /**
    * The shared development storage backend (`.document-storage` by default).

@@ -123,10 +123,12 @@ AND-combined, every array bounded, unknown keys rejected:
 | ------------------------------------------- | -------------------------------------------------------- |
 | `search`                                    | case-insensitive substring on school name / code / email |
 | `countries`                                 | ISO 3166-1 alpha-2 (`schools.country`)                   |
-| `cities`                                    | case-insensitive `schools.city`                          |
+| `cities`                                    | case-insensitive `schools.city` (normalized both sides)  |
+| `states`                                    | case-insensitive `schools.state` (normalized both sides) |
 | `subscription_statuses`                     | current subscription status of the school                |
 | `include_school_ids` / `exclude_school_ids` | explicit include, then exclude                           |
-| `active_only`                               | only `schools.is_active = true`                          |
+| `active_only`                               | only `schools.is_active = true` (the default)            |
+| `recipient_sources`                         | which address sources may contribute (default: `SCHOOL_EMAIL` only) |
 
 The filter never contains email addresses. Address selection happens when the
 snapshot is built: each school contributes its **primary contact address**
@@ -155,10 +157,14 @@ afterwards are simply not in this campaign. That is the audit-correct
 behaviour for a marketing send — "who was this sent to" must be a stable
 fact, not a live query.
 
-Suppression is **not** applied at snapshot time. It is applied at send time
-(see below), so an unsubscribe arriving mid-campaign still protects every
-not-yet-sent recipient. Snapshotted-but-suppressed addresses end as
-`SUPPRESSED`, which keeps the audit trail complete.
+Suppression is applied **twice**, by design: the snapshot builder (Session 2)
+excludes already-suppressed addresses from the snapshot — a suppressed
+address never becomes a `PENDING` recipient — and the worker (Session 3)
+checks suppression again at send time, the last possible moment, so an
+unsubscribe arriving between snapshot and send still protects every
+not-yet-sent recipient. The preview reports the suppressed count separately
+so an operator can see how many candidate addresses the do-not-send list
+removed.
 
 ## Suppression and unsubscribe behavior
 
@@ -406,11 +412,39 @@ synced.
 
 ## Session roadmap
 
-Implemented in this session (1): the documentation you are reading, the six
+Implemented in session 1: the documentation you are reading, the six
 migrations and eight models above, the shared enums/types, the validation
 schemas, the typed marketing configuration and `.env.example` placeholders.
 
-Next session (2): template & campaign management APIs under
-`web/src/server/api` + `web/src/server/modules/marketing` (SUPER_ADMIN-only),
-the audience snapshot builder, `api-client` bindings, and the Super Admin
-navigation entry. Sessions 3–4 follow the table at the top.
+Implemented in session 2 (this session): the SUPER_ADMIN-only template and
+campaign management APIs (`web/src/server/api/marketing.ts` +
+`web/src/server/modules/marketing` + the App Router routes under
+`web/src/app/api/v1/marketing`), including:
+
+- template lifecycle — list/detail/create/update, draft-content saves,
+  one-way **publish**, archive, preview with sample variables, and a
+  test-send endpoint restricted to `MARKETING_TEST_RECIPIENTS`;
+- the **tokenizer-based HTML sanitizer** that validates *and* sanitizes
+  template bodies (rejecting `script`/`iframe`/`form`, `on*` handlers and
+  unsafe URL schemes — never regex-only filtering);
+- campaign lifecycle — list/detail/create/update, **audience preview**
+  (counts, masked sample, snapshot hash), **schedule** (transactional
+  recipient snapshot + `audience_snapshot_hash`, idempotent by construction
+  and via `x-idempotency-key`), pause/resume/cancel with validated
+  transitions;
+- the **server-side school audience builder** — city/state/country,
+  subscription status, explicit include/exclude, `recipient_sources`
+  (school primary email by default, active SCHOOL_ADMIN accounts only when
+  selected), missing/invalid-email exclusion, suppression exclusion and
+  normalized-address deduplication;
+- audit actions/entity types for every marketing mutation, with
+  safe-metadata-only rules; typed `api-client` bindings for the whole
+  surface. No email is sent by any of these endpoints (scheduling only
+  freezes the snapshot); no frontend UI exists yet.
+
+Session 3: the campaign delivery worker (in-process scheduler, batched
+delivery with backoff), email rendering with per-recipient variables and
+List-Unsubscribe headers, click/unsubscribe token minting and the public
+tracking endpoints, campaign progress counters, failure alerts to
+`MARKETING_ADMIN_EMAILS`, and the Super Admin console screens that consume
+the Session 2 api-client methods. Session 4 follows the table at the top.

@@ -4758,6 +4758,8 @@ export interface MarketingCampaignAudienceFilter {
   countries?: string[];
   /** Case-insensitive city names (`schools.city`). */
   cities?: string[];
+  /** Case-insensitive state/region names (`schools.state`). */
+  states?: string[];
   /** Persisted subscription statuses of the school's current subscription. */
   subscription_statuses?: string[];
   /** Restrict to (or start from) these school ids. */
@@ -4766,6 +4768,14 @@ export interface MarketingCampaignAudienceFilter {
   exclude_school_ids?: string[];
   /** Only schools with `is_active = true` (default true when creating). */
   active_only?: boolean;
+  /**
+   * Which address sources may contribute recipients. Defaults to
+   * `['SCHOOL_EMAIL']` — the school's primary contact address. `SCHOOL_ADMIN`
+   * must be requested explicitly and only ever resolves **active**
+   * SCHOOL_ADMIN accounts; parents, drivers and conductors are never
+   * selectable. The server still derives every address from database rows.
+   */
+  recipient_sources?: MarketingRecipientSource[];
 }
 
 /**
@@ -4806,3 +4816,327 @@ export const MARKETING_LEAD_EVENT_ACTOR_VALUES: MarketingLeadEventActor[] = [
   'public-form',
   'super-admin',
 ];
+
+// ============================================================================
+// Marketing communications — API contracts (Session 2: templates & campaigns)
+// ============================================================================
+//
+// The shapes the Super Admin template/campaign endpoints exchange. They build
+// on the Session 1 enums and value objects above; nothing here introduces a
+// parallel name for an existing concept.
+//
+// Two privacy rules shape every response type:
+//
+// - **No raw tracking material.** Click/unsubscribe tokens do not exist until
+//   the delivery worker mints them (Session 3); even their digests never
+//   appear in these payloads.
+// - **No unnecessary personal data in previews.** Audience previews carry
+//   counts and a masked sample, never the resolved address list — the full
+//   list is materialized server-side into `email_campaign_recipients` only
+//   when a campaign is scheduled.
+
+/** One immutable content snapshot of a template (`email_template_versions`). */
+export interface MarketingTemplateVersionResponse {
+  id: string;
+  template_id: string;
+  /** 1-based, monotonically increasing per template. */
+  version: number;
+  subject: string;
+  html_body: string;
+  text_body: string;
+  allowed_variables: MarketingTemplateVariable[];
+  /** `null` while the version is still an editable draft. */
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A template container (`email_templates`) as returned to the console. */
+export interface MarketingTemplateResponse {
+  id: string;
+  name: string;
+  slug: string;
+  status: MarketingTemplateStatus;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** List-view projection: the template plus per-template version statistics. */
+export interface MarketingTemplateSummary extends MarketingTemplateResponse {
+  version_count: number;
+  /** Highest published version number, `null` when none is published yet. */
+  latest_published_version: number | null;
+  /** Newest draft version number, `null` when every version is published. */
+  draft_version: number | null;
+}
+
+/** Query string of `GET /api/v1/marketing/templates`. */
+export interface MarketingTemplateListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: MarketingTemplateStatus;
+  sort?: 'created_at' | 'name' | 'slug';
+  order?: 'asc' | 'desc';
+}
+
+/** Successful payload of `GET /api/v1/marketing/templates`. */
+export interface MarketingTemplateListResponse {
+  items: MarketingTemplateSummary[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `GET /api/v1/marketing/templates/:id`. */
+export interface MarketingTemplateDetailResponse {
+  template: MarketingTemplateResponse;
+  /** Newest first. */
+  versions: MarketingTemplateVersionResponse[];
+}
+
+/**
+ * The editable content of one template version — required by template
+ * creation (as the initial draft) and by every draft-content save.
+ *
+ * `subject` and `text_body` are required; `html_body` is required too (the
+ * console renders an HTML part for every campaign) and is validated and
+ * sanitized server-side before storage.
+ */
+export interface MarketingTemplateContentInput {
+  subject: string;
+  html_body: string;
+  text_body: string;
+  /**
+   * The placeholder contract. Defaults to `[]`; duplicate names are rejected.
+   * Every `{{placeholder}}` used in the subject/bodies must be declared here.
+   */
+  allowed_variables?: MarketingTemplateVariable[];
+}
+
+/** Body of `POST /api/v1/marketing/templates`. */
+export interface MarketingTemplateCreateRequest {
+  name: string;
+  slug: string;
+  content: MarketingTemplateContentInput;
+}
+
+/** Body of `PATCH /api/v1/marketing/templates/:id` (metadata only). */
+export interface MarketingTemplateUpdateRequest {
+  name?: string;
+}
+
+/** Body of `PUT /api/v1/marketing/templates/:id/content` (draft content). */
+export type MarketingTemplateContentSaveRequest = MarketingTemplateContentInput;
+
+/** Successful payload of `PUT /api/v1/marketing/templates/:id/content`. */
+export interface MarketingTemplateContentSaveResponse {
+  template: MarketingTemplateResponse;
+  version: MarketingTemplateVersionResponse;
+}
+
+/** Successful payload of the publish endpoint. */
+export interface MarketingTemplateVersionPublishResponse {
+  template: MarketingTemplateResponse;
+  version: MarketingTemplateVersionResponse;
+  message: string;
+}
+
+/** Successful payload of `POST /api/v1/marketing/templates/:id/archive`. */
+export interface MarketingTemplateArchiveResponse {
+  id: string;
+  status: MarketingTemplateStatus;
+  message: string;
+}
+
+/**
+ * Body of the preview endpoint.
+ *
+ * `variables` carries **sample** values for the preview render only. Keys must
+ * be declared placeholders; values are strings. No email address may be
+ * supplied by the client for a preview — rendering is pure.
+ */
+export interface MarketingTemplatePreviewRequest {
+  version_id?: string | null;
+  variables?: Record<string, string> | null;
+}
+
+/** Successful payload of the preview endpoint (rendered sample). */
+export interface MarketingTemplatePreviewResponse {
+  version_id: string;
+  version: number;
+  subject: string;
+  html_body: string;
+  text_body: string;
+}
+
+/**
+ * Body of the optional test-send endpoint.
+ *
+ * Deliberately carries **no recipient address**: the browser may never pick a
+ * test target. Recipients are resolved server-side from
+ * `MARKETING_TEST_RECIPIENTS` (see `marketing.config.ts`).
+ */
+export interface MarketingTemplateTestSendRequest {
+  version_id?: string | null;
+  variables?: Record<string, string> | null;
+}
+
+/** Successful payload of the test-send endpoint (no body content echoed). */
+export interface MarketingTemplateTestSendResponse {
+  sent: boolean;
+  provider: string;
+  /** Number of configured test recipients the render was sent to. */
+  recipient_count: number;
+  message: string;
+}
+
+/** Template attribution shown on a campaign row (join projection). */
+export interface MarketingCampaignTemplateSummary {
+  id: string;
+  name: string;
+  slug: string;
+  version: number | null;
+  subject: string | null;
+  published_at: string | null;
+}
+
+/** A campaign row (`email_campaigns`) as returned to the console. */
+export interface MarketingCampaignResponse {
+  id: string;
+  name: string;
+  template_id: string;
+  template_version_id: string;
+  status: MarketingCampaignStatus;
+  audience_filter: MarketingCampaignAudienceFilter;
+  audience_snapshot_hash: string | null;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  recipient_count: number;
+  sent_count: number;
+  failed_count: number;
+  clicked_count: number;
+  unsubscribed_count: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/v1/marketing/campaigns` item: campaign + template attribution. */
+export interface MarketingCampaignSummary extends MarketingCampaignResponse {
+  template_name: string | null;
+  template_slug: string | null;
+  template_version: number | null;
+}
+
+/** Query string of `GET /api/v1/marketing/campaigns`. */
+export interface MarketingCampaignListQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: MarketingCampaignStatus;
+}
+
+/** Successful payload of `GET /api/v1/marketing/campaigns`. */
+export interface MarketingCampaignListResponse {
+  items: MarketingCampaignSummary[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `GET /api/v1/marketing/campaigns/:id`. */
+export interface MarketingCampaignDetailResponse extends MarketingCampaignResponse {
+  template: MarketingCampaignTemplateSummary | null;
+}
+
+/** Body of `POST /api/v1/marketing/campaigns`. */
+export interface MarketingCampaignCreateRequest {
+  name: string;
+  /** Must reference a **published** (immutable) template version. */
+  template_version_id: string;
+  audience_filter: MarketingCampaignAudienceFilter;
+}
+
+/** Body of `PATCH /api/v1/marketing/campaigns/:id` (draft campaigns only). */
+export interface MarketingCampaignUpdateRequest {
+  name?: string;
+  /** Must reference a published template version when present. */
+  template_version_id?: string;
+  audience_filter?: MarketingCampaignAudienceFilter;
+}
+
+/** Body of `POST /api/v1/marketing/campaigns/:id/schedule`. */
+export interface MarketingCampaignScheduleRequest {
+  /** ISO 8601 instant; omitted/null means "as soon as the worker allows". */
+  scheduled_at?: string | null;
+}
+
+/** Successful payload of the schedule endpoint. */
+export interface MarketingCampaignScheduleResponse {
+  campaign: MarketingCampaignResponse;
+  /** Recipient rows written by this call (0 on the idempotent replay). */
+  recipients_created: number;
+  /** `true` when the campaign was already scheduled and nothing changed. */
+  already_scheduled: boolean;
+  /** Human-readable outcome ("Campaign scheduled" / the idempotent replay text). */
+  message: string;
+}
+
+/**
+ * Successful payload of pause / resume / cancel.
+ *
+ * `scheduled_at` and `audience_snapshot_hash` are echoed for the console's
+ * transition toast; they are already part of the campaign row.
+ */
+export interface MarketingCampaignLifecycleResponse {
+  id: string;
+  status: MarketingCampaignStatus;
+  scheduled_at: string | null;
+  audience_snapshot_hash: string | null;
+  message: string;
+}
+
+/**
+ * Body of `POST /api/v1/marketing/campaigns/audience-preview`.
+ *
+ * Either a saved campaign id (its **stored** filter is used — a client-sent
+ * filter is ignored for saved campaigns) or an ad-hoc filter. The server
+ * always computes the audience from database records; the client never
+ * supplies school emails.
+ */
+export interface MarketingAudiencePreviewRequest {
+  campaign_id?: string | null;
+  audience_filter?: MarketingCampaignAudienceFilter | null;
+}
+
+/** One masked entry of the preview sample. */
+export interface MarketingAudienceMaskedRecipient {
+  school_id: string | null;
+  /** Masked address — never the raw email (e.g. `p*******@lincoln.edu`). */
+  masked_email: string;
+  recipient_source: MarketingRecipientSource;
+}
+
+/**
+ * Successful payload of the audience preview — counts and a masked sample
+ * only. The resolved address list exists server-side and is materialized into
+ * `email_campaign_recipients` only at scheduling time.
+ */
+export interface MarketingAudiencePreviewResponse {
+  /** The normalized filter the numbers were computed from. */
+  filter: MarketingCampaignAudienceFilter;
+  /** Schools matching every filter dimension. */
+  total_eligible_schools: number;
+  /** Eligible schools that contributed no usable address (missing/invalid). */
+  invalid_email_count: number;
+  /** Candidate addresses removed because they are suppressed. */
+  suppressed_recipient_count: number;
+  /** Candidate addresses removed by deduplication. */
+  duplicate_recipient_count: number;
+  /** Addresses that will be written into the snapshot at schedule time. */
+  final_recipient_count: number;
+  /** Bounded, masked sample of the final recipients. */
+  sample: MarketingAudienceMaskedRecipient[];
+  /** SHA-256 of the canonicalized snapshot — stable for a stable audience. */
+  snapshot_hash: string;
+}
