@@ -152,17 +152,21 @@ export class SmtpEmailProvider implements EmailNotificationProvider {
       };
     } catch (error) {
       const retryable = isRetryableSmtpError(error);
+      const rawMessage = error instanceof Error ? error.message : 'SMTP delivery failed';
+      // Some SMTP libraries echo auth fields in connection errors. Redact the
+      // configured values before either returning or logging the message.
+      const safeMessage = [this.options.auth.pass, this.options.auth.user]
+        .filter(Boolean)
+        .reduce((message, secret) => message.split(secret).join('[redacted]'), rawMessage);
       // The *class* of failure, never the message body (which on the reset
       // path carries a live token) and never the credentials.
       this.logger.warn(
-        `[SMTP] Delivery to ${payload.to} failed (${retryable ? 'retryable' : 'permanent'}): ${
-          error instanceof Error ? error.message : 'unknown error'
-        }`,
+        `[SMTP] Delivery to ${payload.to} failed (${retryable ? 'retryable' : 'permanent'}): ${safeMessage}`,
       );
       return {
         success: false,
         provider: this.name,
-        error: error instanceof Error ? error.message : 'SMTP delivery failed',
+        error: safeMessage,
         retryable,
       };
     }

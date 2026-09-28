@@ -646,3 +646,31 @@ Implemented in session 4 (this session):
   `20260928080000-marketing-lead-capture` migration (`consent_source`,
   `admin_notified_at`, `submission_fingerprint` + index), and typed
   `api-client` bindings for the whole lead surface.
+
+## Production delivery scheduling (Hardening 5A)
+
+Campaigns keep their own `scheduled_at` instant. The worker wakes every minute,
+claims only due PostgreSQL rows, and applies the durable daily and per-minute
+caps in `/admin/marketing/settings`. Reaching the daily cap does **not** mean one
+run every 24 hours: unsent rows stay queued and resume automatically on the next
+calendar day in the configured IANA timezone. Pause behaves the same way: it
+stops new claims without deleting queue rows.
+
+Two deployment options are supported:
+
+1. **Always-on Render web service** — keep `MARKETING_WORKER_ENABLED=true`; the
+   in-process scheduler runs while the service is awake.
+2. **Optional Render Cron Job** — run
+   `npm --prefix web run marketing:worker:once`. It performs one sweep, prints
+   only aggregate metrics, closes PostgreSQL, and exits. PostgreSQL advisory
+   locks, row locks, and leases make this safe alongside the web worker.
+
+A sleeping Render web service cannot process an in-process timer. Use an
+always-on service or the Cron Job option; merely scheduling a campaign does not
+keep a sleeping service alive.
+
+All real database and SMTP secrets belong only in Render Environment settings.
+For Gmail SMTP, use a Gmail App Password rather than the account password. The
+current `gmail.com` sender provides no custom DNS control, so configure
+`Zero Mile Systems <zeromilesystems@gmail.com>` and never invent an unverified
+invented or unverified custom-domain sender.

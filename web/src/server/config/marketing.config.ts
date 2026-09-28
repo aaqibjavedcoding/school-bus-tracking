@@ -10,7 +10,7 @@ import { registerAs } from '../framework';
  * MARKETING_TEST_RECIPIENTS     comma-separated — the ONLY addresses a test
  *                               send may go to
  * MARKETING_WORKER_ENABLED      false → never schedule the campaign worker
- * MARKETING_WORKER_INTERVAL_MS  sweep cadence (default 15000)
+ * MARKETING_WORKER_INTERVAL_MS  sweep cadence (default 60000: every minute)
  * MARKETING_WORKER_INITIAL_DELAY_MS  delay before the first sweep (default 30000)
  * MARKETING_BATCH_SIZE          recipients claimed per sweep (default 25)
  * MARKETING_RATE_PER_MINUTE     hard ceiling of messages handed to the relay
@@ -142,7 +142,7 @@ export default registerAs('marketing', () => ({
   /** Background campaign worker knobs (mirrors the outbox worker's set). */
   worker: {
     enabled: process.env.MARKETING_WORKER_ENABLED?.trim().toLowerCase() !== 'false',
-    intervalMs: positiveInt(process.env.MARKETING_WORKER_INTERVAL_MS, 15_000),
+    intervalMs: positiveInt(process.env.MARKETING_WORKER_INTERVAL_MS, 60_000),
     initialDelayMs: nonNegativeInt(process.env.MARKETING_WORKER_INITIAL_DELAY_MS, 30_000),
     batchSize: positiveInt(
       firstSet(process.env.MARKETING_BATCH_SIZE, process.env.MARKETING_WORKER_BATCH_SIZE),
@@ -163,7 +163,10 @@ export default registerAs('marketing', () => ({
       firstSet(process.env.MARKETING_RETRY_BASE_MS, process.env.MARKETING_DELIVERY_BASE_BACKOFF_MS),
       60_000,
     ),
-    /** Messages handed to the relay per rolling minute, across the process. */
+    /** Durable defaults used when the singleton settings row is first created. */
+    dailyCap: positiveInt(process.env.MARKETING_DAILY_SEND_CAP, 500),
+    timezone: process.env.MARKETING_DELIVERY_TIMEZONE?.trim() || 'UTC',
+    /** Messages handed to the relay per rolling minute (also DB-enforced globally). */
     ratePerMinute: positiveInt(process.env.MARKETING_RATE_PER_MINUTE, 60),
     /** Messages in flight at once inside one sweep. */
     concurrency: positiveInt(process.env.MARKETING_CONCURRENCY, 3),

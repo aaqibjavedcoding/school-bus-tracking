@@ -3410,3 +3410,33 @@ export function extractMarketingTemplatePlaceholders(text: string): string[] {
   }
   return names;
 }
+
+// Marketing delivery settings (server remains authoritative; these bounds are
+// duplicated by PostgreSQL CHECK constraints and service constants).
+export const MARKETING_DAILY_SEND_CAP_MIN = 1;
+export const MARKETING_DAILY_SEND_CAP_MAX = 10_000;
+export const MARKETING_PER_MINUTE_SEND_CAP_MIN = 1;
+export const MARKETING_PER_MINUTE_SEND_CAP_MAX = 300;
+const marketingWindowTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm (24-hour time)');
+const marketingTimezoneSchema = z.string().trim().min(1).max(100).refine((value) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}, 'Use a valid IANA timezone, for example UTC or Asia/Kolkata');
+
+export const marketingDeliverySettingsUpdateSchema = z.object({
+  paused: z.boolean(),
+  daily_send_cap: z.number().int().min(MARKETING_DAILY_SEND_CAP_MIN).max(MARKETING_DAILY_SEND_CAP_MAX),
+  per_minute_send_cap: z.number().int().min(MARKETING_PER_MINUTE_SEND_CAP_MIN).max(MARKETING_PER_MINUTE_SEND_CAP_MAX),
+  delivery_timezone: marketingTimezoneSchema,
+  allowed_window_start: marketingWindowTimeSchema.nullable(),
+  allowed_window_end: marketingWindowTimeSchema.nullable(),
+}).strict().superRefine((value, context) => {
+  if (Boolean(value.allowed_window_start) !== Boolean(value.allowed_window_end)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['allowed_window_end'], message: 'Set both allowed window times or leave both empty' });
+  }
+});
+export type MarketingDeliverySettingsUpdateInput = z.infer<typeof marketingDeliverySettingsUpdateSchema>;

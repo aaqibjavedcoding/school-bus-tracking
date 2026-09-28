@@ -121,7 +121,7 @@ describe('marketingConfig', () => {
     const config = marketingConfig();
 
     assert.equal(config.worker.enabled, true);
-    assert.equal(config.worker.intervalMs, 15_000);
+    assert.equal(config.worker.intervalMs, 60_000);
     assert.equal(config.worker.initialDelayMs, 30_000);
     assert.equal(config.worker.batchSize, 25);
     assert.equal(config.delivery.maxAttempts, 5);
@@ -151,7 +151,7 @@ describe('marketingConfig', () => {
 
     const config = marketingConfig();
 
-    assert.equal(config.worker.intervalMs, 15_000);
+    assert.equal(config.worker.intervalMs, 60_000);
     assert.equal(config.worker.batchSize, 25);
   });
 });

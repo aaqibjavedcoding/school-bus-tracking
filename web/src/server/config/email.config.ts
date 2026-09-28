@@ -48,6 +48,8 @@ export default registerAs('email', () => ({
   smtpUser: process.env.SMTP_USER?.trim() || null,
   smtpPass: process.env.SMTP_PASS || null,
   from: process.env.EMAIL_FROM?.trim() || null,
+  /** Operator mailbox used for replies; never inferred from a recipient. */
+  replyTo: process.env.EMAIL_REPLY_TO?.trim() || null,
 }));
 
 /** `true`/`false` when explicitly set, `null` when absent or unrecognised. */

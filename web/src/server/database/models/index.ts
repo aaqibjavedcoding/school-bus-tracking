@@ -37,6 +37,7 @@ import { EmailEvent } from './marketing-event.model';
 import { MarketingSuppression } from './marketing-suppression.model';
 import { MarketingLead } from './marketing-lead.model';
 import { MarketingLeadEvent } from './marketing-lead-event.model';
+import { MarketingDeliverySettings } from './marketing-delivery-settings.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -227,6 +228,11 @@ export type {
   MarketingLeadEventAttributes,
   MarketingLeadEventCreationAttributes,
 } from './marketing-lead-event.model';
+export { MarketingDeliverySettings } from './marketing-delivery-settings.model';
+export type {
+  MarketingDeliverySettingsAttributes,
+  MarketingDeliverySettingsCreationAttributes,
+} from './marketing-delivery-settings.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -282,4 +288,5 @@ export const models: ModelCtor<Model>[] = [
   MarketingSuppression,
   MarketingLead,
   MarketingLeadEvent,
+  MarketingDeliverySettings,
 ];

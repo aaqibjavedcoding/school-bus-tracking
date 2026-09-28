@@ -34,7 +34,7 @@ import { ConfigService, Logger } from '../../framework';
 import type { MarketingSweepSummary } from './marketing-delivery.worker';
 
 /** Default sweep cadence. */
-export const DEFAULT_MARKETING_INTERVAL_MS = 15_000;
+export const DEFAULT_MARKETING_INTERVAL_MS = 60_000;
 /** Default delay after boot before the first sweep. */
 export const DEFAULT_MARKETING_INITIAL_DELAY_MS = 30_000;
 

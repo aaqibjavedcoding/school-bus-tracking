@@ -5505,3 +5505,30 @@ export const MARKETING_SAFE_UTM_PARAMETERS: readonly string[] = [
   'utm_content',
   'utm_term',
 ];
+
+/** Durable global controls and live queue metrics for marketing delivery. */
+export interface MarketingDeliverySettingsResponse {
+  paused: boolean;
+  daily_send_cap: number;
+  per_minute_send_cap: number;
+  delivery_timezone: string;
+  allowed_window_start: string | null;
+  allowed_window_end: string | null;
+  current_daily_sent_count: number;
+  queued_count: number;
+  retrying_count: number;
+  failed_count: number;
+  last_worker_run_at: string | null;
+  next_expected_worker_run_at: string | null;
+  /** Deployment-level MARKETING_WORKER_ENABLED state (not an SMTP secret). */
+  worker_enabled: boolean;
+}
+
+export interface MarketingDeliverySettingsUpdateRequest {
+  paused: boolean;
+  daily_send_cap: number;
+  per_minute_send_cap: number;
+  delivery_timezone: string;
+  allowed_window_start: string | null;
+  allowed_window_end: string | null;
+}

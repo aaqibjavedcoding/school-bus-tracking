@@ -264,7 +264,7 @@ describe('MarketingLeadsService — admin console', () => {
     const result = await service.list({});
 
     assert.equal(result.items.length, 1);
-    const summary = result.items[0] as Record<string, unknown>;
+    const summary = result.items[0];
     assert.equal('phone' in summary, false);
     assert.equal('message' in summary, false);
     assert.equal('preferred_contact_time' in summary, false);
@@ -362,7 +362,7 @@ describe('MarketingLeadsService — admin console', () => {
     assert.equal(metrics.click_to_lead_rate, null, 'no clicks → no rate, not a division by zero');
     assert.equal(metrics.unsubscribed_total, 0);
     assert.equal(metrics.recent_leads.length, 1);
-    const recent = metrics.recent_leads[0] as Record<string, unknown>;
+    const recent = metrics.recent_leads[0];
     assert.equal('phone' in recent, false, 'recent leads reuse the masked summary');
   });
 });

@@ -66,6 +66,7 @@ import {
   ImportJob,
   MarketingLead,
   MarketingLeadEvent,
+  MarketingDeliverySettings,
   MarketingSuppression,
   Notification,
   PasswordResetToken,
@@ -115,6 +116,7 @@ import { ImportService } from './modules/data-transfer/import/import.service';
 import { MarketingAdminAlerts } from './modules/marketing/marketing-admin-alerts';
 import { MarketingAudienceService } from './modules/marketing/marketing-audience.service';
 import { MarketingDeliveryWorker } from './modules/marketing/marketing-delivery.worker';
+import { MarketingDeliverySettingsService } from './modules/marketing/marketing-delivery-settings.service';
 import { MarketingTrackingService } from './modules/marketing/marketing-tracking.service';
 import { MarketingLeadsService } from './modules/marketing/marketing-leads.service';
 import { MarketingLeadNotifications } from './modules/marketing/marketing-lead-notifications';
@@ -428,6 +430,11 @@ export class Container {
       }),
   );
 
+  /** Durable global controls and cross-instance delivery counters. */
+  readonly marketingDeliverySettings = lazy(
+    () => new MarketingDeliverySettingsService(MarketingDeliverySettings, this.sequelize, this.config()),
+  );
+
   /** Delivery knobs (batch size, rate, backoff, lease) straight from config. */
   readonly marketingDeliveryPolicy = lazy((): MarketingDeliveryPolicy => {
     const config = this.config();
@@ -461,8 +468,12 @@ export class Container {
         sequelize: this.sequelize,
         policy: this.marketingDeliveryPolicy(),
         appUrl: this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
-        replyTo: this.config().get<string[]>('marketing.adminEmails')?.[0] ?? null,
+        replyTo:
+          this.config().get<string>('email.replyTo') ??
+          this.config().get<string[]>('marketing.adminEmails')?.[0] ??
+          null,
         alerts: this.marketingAlerts(),
+        deliverySettings: this.marketingDeliverySettings(),
       }),
   );
 
