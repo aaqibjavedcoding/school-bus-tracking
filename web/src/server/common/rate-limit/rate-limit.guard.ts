@@ -98,6 +98,19 @@ export class RateLimitGuard implements CanActivate {
           3_600_000,
         ),
       },
+      {
+        // Public demo-request form. Identity is the submitted email; the
+        // shipped defaults apply even to an unconfigured deployment so the
+        // bucket can never silently widen to the login allowance.
+        identityLimit: this.configService.get<number>(
+          'rateLimit.demoRequestPublic.identityLimit',
+          3,
+        ),
+        identityWindowMs: this.configService.get<number>(
+          'rateLimit.demoRequestPublic.identityWindowMs',
+          3_600_000,
+        ),
+      },
     );
 
     let tightestRemaining = Number.POSITIVE_INFINITY;

@@ -151,6 +151,18 @@ export default registerAs('rateLimit', () => ({
      * opening the same campaign, and stops a scripted sweep dead.
      */
     marketing_public: policy('MARKETING_PUBLIC', 20, 60_000),
+    /**
+     * **Public, unauthenticated** demo-request submission (the landing page
+     * "Request a Demo" form).
+     *
+     * Tighter than the tracking policy because each accepted request writes
+     * a lead row and queues an operator notification email. Five per
+     * 15 minutes per IP covers a person correcting validation errors twice
+     * over; a form-spam script exhausts the window immediately. A second
+     * bucket keyed on the *submitted email* (see `demoRequestPublic` below)
+     * bounds what a distributed spammer can attach to one address.
+     */
+    marketing_demo_request: policy('MARKETING_DEMO_REQUEST', 5, 15 * 60_000),
   },
   /**
    * Login brute-force protection is *windowed*, never a permanent lockout: a
@@ -202,6 +214,22 @@ export default registerAs('rateLimit', () => ({
     identityLimit: positiveInt(process.env.RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_LIMIT, 3),
     identityWindowMs: positiveInt(
       process.env.RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_WINDOW_MS,
+      60 * 60_000,
+    ),
+  },
+  /**
+   * Identity bucket of the `marketing_demo_request` policy.
+   *
+   * Keyed on the **submitted email address** (hashed before it becomes a
+   * bucket key, like every identity bucket). The IP bucket bounds one host;
+   * this one bounds what a spray from many hosts can pile onto a single
+   * address — three demo requests per hour for the same email is generous
+   * for a human and a wall for a script.
+   */
+  demoRequestPublic: {
+    identityLimit: positiveInt(process.env.RATE_LIMIT_DEMO_REQUEST_IDENTITY_LIMIT, 3),
+    identityWindowMs: positiveInt(
+      process.env.RATE_LIMIT_DEMO_REQUEST_IDENTITY_WINDOW_MS,
       60 * 60_000,
     ),
   },

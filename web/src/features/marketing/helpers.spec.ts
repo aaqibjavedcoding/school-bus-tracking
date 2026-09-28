@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  MARKETING_LEAD_STATUS_TRANSITIONS,
   MarketingCampaignStatus,
+  MarketingLeadEventType,
+  MarketingLeadSource,
+  MarketingLeadStatus,
   MarketingRecipientSource,
   MarketingTemplateStatus,
   type MarketingCampaignResponse,
@@ -22,11 +26,16 @@ import {
   canTestSendVersion,
   describeAudienceFilter,
   describeGradualDelivery,
+  describeLeadEvent,
   describeTemplateVersions,
   isCampaignTerminal,
   isTemplateVersionEditable,
   marketingCampaignStatusLabel,
   marketingCampaignStatusTone,
+  marketingLeadActionLabel,
+  marketingLeadNextStatuses,
+  marketingLeadSourceLabel,
+  marketingLeadStatusLabel,
   marketingTemplateStatusLabel,
   marketingTemplateStatusTone,
   parseFilterList,
@@ -299,5 +308,74 @@ describe('parseFilterList', () => {
   it('splits, trims and drops empties', () => {
     assert.deepEqual(parseFilterList(' Nagpur, Pune \n Mumbai ,,'), ['Nagpur', 'Pune', 'Mumbai']);
     assert.deepEqual(parseFilterList('   '), []);
+  });
+});
+
+describe('demo lead helpers (Session 4)', () => {
+  it('labels every lead status and source', () => {
+    for (const status of Object.values(MarketingLeadStatus)) {
+      assert.ok(marketingLeadStatusLabel(status).length > 0, status);
+    }
+    for (const source of Object.values(MarketingLeadSource)) {
+      assert.ok(marketingLeadSourceLabel(source).length > 0, source);
+    }
+    assert.equal(marketingLeadStatusLabel(MarketingLeadStatus.DEMO_SCHEDULED), 'Demo scheduled');
+  });
+
+  it('mirrors the server transition graph exactly — the UI only offers, the API decides', () => {
+    for (const status of Object.values(MarketingLeadStatus)) {
+      assert.deepEqual(
+        marketingLeadNextStatuses(status),
+        [...(MARKETING_LEAD_STATUS_TRANSITIONS[status] ?? [])],
+        status,
+      );
+    }
+    // The invariants the pipeline wording rests on:
+    assert.equal(
+      marketingLeadNextStatuses(MarketingLeadStatus.NEW).includes(
+        MarketingLeadStatus.DEMO_SCHEDULED,
+      ),
+      false,
+      'a fresh request can never claim a confirmed appointment',
+    );
+    assert.deepEqual(
+      marketingLeadNextStatuses(MarketingLeadStatus.CONVERTED),
+      [],
+      'CONVERTED is terminal',
+    );
+  });
+
+  it('words the scheduled transition as an operator action, never an automatic booking', () => {
+    assert.equal(
+      marketingLeadActionLabel(MarketingLeadStatus.DEMO_SCHEDULED),
+      'Mark demo scheduled',
+    );
+    assert.equal(marketingLeadActionLabel(MarketingLeadStatus.LOST), 'Mark lost');
+  });
+
+  it('describes timeline events without leaking raw enum names', () => {
+    assert.equal(
+      describeLeadEvent({
+        event_type: MarketingLeadEventType.CREATED,
+        metadata: { attributed: true },
+      }),
+      'Demo request received (campaign-attributed visit)',
+    );
+    assert.equal(
+      describeLeadEvent({
+        event_type: MarketingLeadEventType.STATUS_CHANGED,
+        metadata: { from: 'NEW', to: 'CONTACTED' },
+      }),
+      'Status changed: New → Contacted',
+    );
+    assert.equal(
+      describeLeadEvent({ event_type: MarketingLeadEventType.NOTE_ADDED, metadata: { note: 'x' } }),
+      'Note: x',
+    );
+    assert.match(
+      describeLeadEvent({ event_type: MarketingLeadEventType.ADMIN_NOTIFY_FAILED, metadata: null }),
+      /lead is safely stored/,
+      'a failed notification is presented as recorded, not as a lost lead',
+    );
   });
 });

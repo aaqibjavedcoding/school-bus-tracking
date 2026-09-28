@@ -91,14 +91,30 @@ RATE_LIMIT_PASSWORD_RESET_PUBLIC_LIMIT=5
 RATE_LIMIT_PASSWORD_RESET_PUBLIC_WINDOW_MS=900000
 RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_LIMIT=3
 RATE_LIMIT_PASSWORD_RESET_PUBLIC_IDENTITY_WINDOW_MS=3600000
+
+# Marketing communications (Super Admin; see docs/marketing-communications.md)
+# Where OPERATIONAL marketing mail goes: test sends, new demo lead
+# notifications, delivery failure alerts. Campaign emails NEVER go here —
+# they go only to the server-side school audience snapshot.
+MARKETING_ADMIN_EMAILS=zeromilesystems@gmail.com
+# Closed allowlist a template test send may target.
+MARKETING_TEST_RECIPIENTS=zeromilesystems@gmail.com
+# Background campaign delivery worker (runs inside the API process).
+MARKETING_WORKER_ENABLED=true
+# Public "Request a Demo" form limits (per IP / per hashed email identity).
+RATE_LIMIT_MARKETING_DEMO_REQUEST_LIMIT=5
+RATE_LIMIT_MARKETING_DEMO_REQUEST_WINDOW_MS=900000
+RATE_LIMIT_DEMO_REQUEST_IDENTITY_LIMIT=3
+RATE_LIMIT_DEMO_REQUEST_IDENTITY_WINDOW_MS=3600000
 ```
 
 ### Email delivery and password reset
 
 School administrators reset their own password from `/forgot-password`, and
-the link that makes that possible arrives by email. **That is the only message
-this system sends by email today**, and it is the reason the SMTP settings
-above exist.
+the link that makes that possible arrives by email. Password reset and the
+Super Admin marketing rail (campaigns, test sends, demo lead notifications —
+see below) are the only mail this system sends, and they are the reason the
+SMTP settings above exist.
 
 **Without configuration nothing breaks and no mail is sent.** The provider
 factory (`web/src/server/modules/notifications/providers/email-provider.factory.ts`)
@@ -143,6 +159,45 @@ Operational notes:
 - **If reset emails are not arriving**, check the logs for
   `EmailProviderSelection` at boot: it names the provider it selected and, if
   SMTP was requested but rejected, exactly which variables were missing.
+
+### Marketing email and demo leads
+
+The Super Admin marketing rail (`docs/marketing-communications.md` is the
+full reference) shares the same SMTP provider abstraction. Deployment notes
+specific to it:
+
+- **Configuration for the current setup** (Gmail with an app password):
+  `EMAIL_PROVIDER=smtp`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`,
+  `SMTP_SECURE=false`, `SMTP_USER=zeromilesystems@gmail.com`, `SMTP_PASS`
+  set to an **app password** stored only in the host's environment settings
+  (Render → Environment), and
+  `EMAIL_FROM=Zero Mile Systems <zeromilesystems@gmail.com>`. Never commit
+  real credentials to the repository or `.env.example`; the server never
+  logs them.
+- **Routing invariants**: campaign emails go only to the recipients frozen
+  in the campaign's audience snapshot (selected schools); operational mail —
+  template test sends (restricted to `MARKETING_TEST_RECIPIENTS`), new demo
+  lead notifications and failure alerts — goes only to
+  `MARKETING_ADMIN_EMAILS`. Neither list is ever mixed into the other, and
+  no endpoint accepts a recipient address from a browser.
+- **Worker on Render**: the delivery worker runs inside the API service
+  process (`MARKETING_WORKER_ENABLED=true`) — no separate Render worker
+  service is required. If you scale to multiple instances the advisory lock
+  keeps sweeps single-flight, and leases recover recipients from a killed
+  container.
+- **`APP_URL`** must be the public origin (e.g. the Render URL or custom
+  domain). It builds the tracked click redirects, unsubscribe links and the
+  demo-lead console deep links — a wrong value here produces emails pointing
+  at localhost.
+- **Deliverability**: publish SPF, DKIM and DMARC for the sending domain,
+  keep the visible `Reply-To`, and warm the sender up — the worker's
+  per-minute ceiling (`MARKETING_RATE_PER_MINUTE`) exists so a new sender
+  ramps gradually instead of bursting. Every campaign email carries
+  `List-Unsubscribe`/`List-Unsubscribe-Post`; do not strip them at a relay.
+- **Demo requests** arrive on the public landing page form. The lead is
+  stored before any notification is attempted, so an SMTP outage never
+  loses one — leads stay visible at `/admin/marketing/leads`, and a failed
+  notification is recorded on the lead's timeline.
 
 ### Content-Security-Policy and map tiles
 

@@ -228,8 +228,12 @@ describe('MarketingTrackingService — clicks', () => {
 
     const result = await context.service.recordClick(CLICK_TOKEN);
 
-    assert.match(result.attributionValue, /^[a-f0-9]{32}$/);
+    // Session 4: the click cookie carries campaign AND recipient digests
+    // (`campaignDigest.recipientDigest`) so demo-request attribution can point
+    // at the exact clicked recipient — still opaque, never internal ids.
+    assert.match(result.attributionValue, /^[a-f0-9]{32}\.[a-f0-9]{32}$/);
     assert.equal(result.attributionValue.includes(CAMPAIGN_ID), false);
+    assert.equal(result.attributionValue.includes(RECIPIENT_ID), false);
     assert.ok(MARKETING_ATTRIBUTION_COOKIE.length > 0);
   });
 

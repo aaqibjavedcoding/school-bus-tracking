@@ -64,6 +64,8 @@ import {
   EmergencyEvent,
   IdempotencyKey,
   ImportJob,
+  MarketingLead,
+  MarketingLeadEvent,
   MarketingSuppression,
   Notification,
   PasswordResetToken,
@@ -114,6 +116,8 @@ import { MarketingAdminAlerts } from './modules/marketing/marketing-admin-alerts
 import { MarketingAudienceService } from './modules/marketing/marketing-audience.service';
 import { MarketingDeliveryWorker } from './modules/marketing/marketing-delivery.worker';
 import { MarketingTrackingService } from './modules/marketing/marketing-tracking.service';
+import { MarketingLeadsService } from './modules/marketing/marketing-leads.service';
+import { MarketingLeadNotifications } from './modules/marketing/marketing-lead-notifications';
 import type { MarketingDeliveryPolicy } from './modules/marketing/marketing-delivery.policy';
 import { MarketingCampaignsService } from './modules/marketing/marketing-campaigns.service';
 import { MarketingTemplatesService } from './modules/marketing/marketing-templates.service';
@@ -471,6 +475,42 @@ export class Container {
         events: EmailEvent,
         suppressions: MarketingSuppression,
         appUrl: () => this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
+      }),
+  );
+
+  /**
+   * The asynchronous "new demo lead" notification to `MARKETING_ADMIN_EMAILS`
+   * (the operational rail — the address list is configuration, read at call
+   * time, never compiled into business logic and never a campaign CC).
+   */
+  readonly marketingLeadNotifications = lazy(
+    () =>
+      new MarketingLeadNotifications({
+        emailProvider: this.emailProvider(),
+        adminEmails: () => this.config().get<string[]>('marketing.adminEmails') ?? [],
+        appUrl: () => this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
+        leads: MarketingLead,
+        events: MarketingLeadEvent,
+      }),
+  );
+
+  /**
+   * Demo lead capture (public form) + the SUPER_ADMIN pipeline console.
+   * Attribution resolution is delegated to the tracking service — the only
+   * component that knows the cookie format — and the notifier runs strictly
+   * after the lead row is committed.
+   */
+  readonly marketingLeads = lazy(
+    () =>
+      new MarketingLeadsService({
+        leads: MarketingLead,
+        events: MarketingLeadEvent,
+        campaigns: EmailCampaign,
+        recipients: EmailCampaignRecipient,
+        suppressions: MarketingSuppression,
+        resolveAttribution: (cookieValue) =>
+          this.marketingTracking().resolveAttribution(cookieValue),
+        notifier: this.marketingLeadNotifications(),
       }),
   );
 

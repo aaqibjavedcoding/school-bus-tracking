@@ -3139,6 +3139,13 @@ export const marketingDemoLeadInputSchema = z
     consent: z.literal(true, {
       errorMap: () => ({ message: 'Consent is required to submit a demo request' }),
     }),
+    /**
+     * Honeypot. Present in the schema so a bot-filled value does not fail
+     * `.strict()` with a *distinguishable* validation error — the endpoint
+     * checks it first and answers a non-empty value with the same generic
+     * response a stored lead gets.
+     */
+    website: z.string().max(200).nullish(),
   })
   .strict();
 
@@ -3153,6 +3160,19 @@ export const marketingLeadStatusUpdateSchema = z
   .strict();
 
 export type MarketingLeadStatusUpdateInput = z.infer<typeof marketingLeadStatusUpdateSchema>;
+
+/** Internal note payload (Super Admin console, Phase 4). */
+export const marketingLeadNoteSchema = z
+  .object({
+    note: z
+      .string()
+      .trim()
+      .min(1, 'Please enter the note text')
+      .max(2000, 'Notes must be at most 2000 characters'),
+  })
+  .strict();
+
+export type MarketingLeadNoteInput = z.infer<typeof marketingLeadNoteSchema>;
 
 // ============================================================================
 // Marketing communications — template & campaign management (Session 2)

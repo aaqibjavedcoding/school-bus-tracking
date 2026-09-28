@@ -4741,22 +4741,76 @@ export const MARKETING_SUPPRESSION_SOURCE_VALUES: MarketingSuppressionSource[] =
 /**
  * Lifecycle state of a marketing lead (`marketing_leads.status`).
  *
- * NEW          → captured, waiting for first contact
- * CONTACTED    → a Zero Mile Systems operator has reached out
- * QUALIFIED    → evaluated as a real opportunity
- * UNQUALIFIED  → evaluated as not a fit (kept for the record)
- * ARCHIVED     → closed / no longer worked (duplicate, spam, withdrawn)
+ * NEW            → captured, waiting for first contact
+ * CONTACTED      → a Zero Mile Systems operator has reached out
+ * QUALIFIED      → evaluated as a real opportunity
+ * DEMO_SCHEDULED → a real demo appointment has been confirmed with the
+ *                  contact. Never set automatically: there is no calendar
+ *                  integration, so only a Super Admin who actually booked a
+ *                  time may claim it.
+ * CONVERTED      → the institution became a customer (terminal)
+ * LOST           → not a fit / went quiet / withdrew (re-openable)
  */
 export enum MarketingLeadStatus {
   NEW = 'NEW',
   CONTACTED = 'CONTACTED',
   QUALIFIED = 'QUALIFIED',
-  UNQUALIFIED = 'UNQUALIFIED',
-  ARCHIVED = 'ARCHIVED',
+  DEMO_SCHEDULED = 'DEMO_SCHEDULED',
+  CONVERTED = 'CONVERTED',
+  LOST = 'LOST',
 }
 
 export const MARKETING_LEAD_STATUS_VALUES: MarketingLeadStatus[] =
   Object.values(MarketingLeadStatus);
+
+/**
+ * The valid `marketing_leads.status` transitions, enforced server-side on
+ * every status mutation and mirrored by the console so it only offers
+ * buttons the API would accept.
+ *
+ * Shape of the graph:
+ *
+ * - the pipeline moves forward (`NEW → CONTACTED → QUALIFIED →
+ *   DEMO_SCHEDULED → CONVERTED`), each stage may also end in `LOST`;
+ * - `DEMO_SCHEDULED` may fall back to `QUALIFIED` (the appointment was
+ *   cancelled — the lead is still a real opportunity, but claiming a demo is
+ *   scheduled without a confirmed appointment would be false);
+ * - `CONVERTED` is terminal;
+ * - `LOST` may be re-opened to `CONTACTED` (people come back).
+ */
+export const MARKETING_LEAD_STATUS_TRANSITIONS: Readonly<
+  Record<MarketingLeadStatus, readonly MarketingLeadStatus[]>
+> = {
+  [MarketingLeadStatus.NEW]: [
+    MarketingLeadStatus.CONTACTED,
+    MarketingLeadStatus.QUALIFIED,
+    MarketingLeadStatus.LOST,
+  ],
+  [MarketingLeadStatus.CONTACTED]: [
+    MarketingLeadStatus.QUALIFIED,
+    MarketingLeadStatus.DEMO_SCHEDULED,
+    MarketingLeadStatus.LOST,
+  ],
+  [MarketingLeadStatus.QUALIFIED]: [
+    MarketingLeadStatus.DEMO_SCHEDULED,
+    MarketingLeadStatus.LOST,
+  ],
+  [MarketingLeadStatus.DEMO_SCHEDULED]: [
+    MarketingLeadStatus.CONVERTED,
+    MarketingLeadStatus.QUALIFIED,
+    MarketingLeadStatus.LOST,
+  ],
+  [MarketingLeadStatus.CONVERTED]: [],
+  [MarketingLeadStatus.LOST]: [MarketingLeadStatus.CONTACTED],
+};
+
+/** Whether the lead status graph allows `from → to`. */
+export function isMarketingLeadTransitionAllowed(
+  from: MarketingLeadStatus,
+  to: MarketingLeadStatus,
+): boolean {
+  return (MARKETING_LEAD_STATUS_TRANSITIONS[from] ?? []).includes(to);
+}
 
 /**
  * Where a marketing lead came from (`marketing_leads.source`).
@@ -4775,12 +4829,21 @@ export enum MarketingLeadSource {
 export const MARKETING_LEAD_SOURCE_VALUES: MarketingLeadSource[] =
   Object.values(MarketingLeadSource);
 
-/** Event types recorded in the append-only `marketing_lead_events` table. */
+/**
+ * Event types recorded in the append-only `marketing_lead_events` table.
+ *
+ * `ADMIN_NOTIFIED` / `ADMIN_NOTIFY_FAILED` record the outcome of the
+ * asynchronous new-lead notification to `MARKETING_ADMIN_EMAILS`: the lead is
+ * always stored first, and a relay failure only ever appends an event — it
+ * can never delete, roll back or block the lead itself.
+ */
 export enum MarketingLeadEventType {
   CREATED = 'CREATED',
   STATUS_CHANGED = 'STATUS_CHANGED',
   CONTACTED = 'CONTACTED',
   NOTE_ADDED = 'NOTE_ADDED',
+  ADMIN_NOTIFIED = 'ADMIN_NOTIFIED',
+  ADMIN_NOTIFY_FAILED = 'ADMIN_NOTIFY_FAILED',
 }
 
 export const MARKETING_LEAD_EVENT_TYPE_VALUES: MarketingLeadEventType[] =
@@ -4872,6 +4935,12 @@ export interface MarketingDemoLeadInput {
   utm?: MarketingUtmParameters | null;
   /** Must be true; the submission is rejected otherwise. */
   consent: boolean;
+  /**
+   * Honeypot. The form renders this field visually hidden and humans leave
+   * it empty; a non-empty value marks the submission as a bot and the server
+   * silently drops it (while still answering with the generic response).
+   */
+  website?: string | null;
 }
 
 /**
@@ -4888,6 +4957,167 @@ export const MARKETING_LEAD_EVENT_ACTOR_VALUES: MarketingLeadEventActor[] = [
   'public-form',
   'super-admin',
 ];
+
+/**
+ * Where a lead's consent record came from (`marketing_leads.consent_source`).
+ *
+ * `public-form` — the consent checkbox on the public demo-request form (the
+ * only source that exists today); `manual` — a Super Admin recorded consent
+ * obtained out of band (a call, an email thread).
+ */
+export type MarketingLeadConsentSource = 'public-form' | 'manual';
+
+export const MARKETING_LEAD_CONSENT_SOURCE_VALUES: MarketingLeadConsentSource[] = [
+  'public-form',
+  'manual',
+];
+
+// ============================================================================
+// Marketing communications — API contracts (Session 4: demo leads)
+// ============================================================================
+
+/**
+ * The generic, deliberately information-free answer of the public
+ * demo-request endpoint.
+ *
+ * Identical for a stored lead, a deduplicated replay and a honeypot
+ * rejection — anything more specific would turn the public endpoint into an
+ * oracle for "does this address already have a lead".
+ */
+export interface MarketingDemoRequestResponse {
+  received: true;
+  message: string;
+}
+
+/** One row of the lead's append-only event timeline. */
+export interface MarketingLeadEventResponse {
+  id: string;
+  event_type: MarketingLeadEventType;
+  /** Safe actor label (`system` / `public-form` / `super-admin`). */
+  actor: string;
+  /** Bounded, non-sensitive context (`from`/`to` statuses, note text). */
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/**
+ * List-view projection of one lead.
+ *
+ * Deliberately minimized: no free-text message, no phone number and no
+ * preferred contact time — those stay on the detail response. A list of 50
+ * leads on a screen (or in a screenshot) should not be 50 phone numbers.
+ */
+export interface MarketingLeadSummary {
+  id: string;
+  full_name: string;
+  email: string;
+  institution_name: string | null;
+  city: string | null;
+  country: string | null;
+  status: MarketingLeadStatus;
+  source: MarketingLeadSource;
+  campaign_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Full detail projection of one lead (Super Admin only). */
+export interface MarketingLeadResponse extends MarketingLeadSummary {
+  phone: string | null;
+  message: string | null;
+  preferred_contact_time: string | null;
+  utm: MarketingUtmParameters | null;
+  /** Campaign display name, when the attribution still resolves. */
+  campaign_name: string | null;
+  campaign_recipient_id: string | null;
+  /**
+   * When the attributed campaign recipient first clicked their personalized
+   * link — the click that (probably) produced this visit. Null when the lead
+   * has no recipient attribution.
+   */
+  attributed_click_at: string | null;
+  /** The consent record: when and through which channel it was given. */
+  consent_at: string;
+  consent_source: MarketingLeadConsentSource;
+  /** When the new-lead notification to MARKETING_ADMIN_EMAILS succeeded. */
+  admin_notified_at: string | null;
+}
+
+/** Query string of `GET /api/v1/marketing/leads`. */
+export interface MarketingLeadListQuery {
+  page?: number;
+  limit?: number;
+  /** Case-insensitive substring match on name, email or institution. */
+  search?: string;
+  status?: MarketingLeadStatus;
+  source?: MarketingLeadSource;
+  /** Exact campaign attribution filter. */
+  campaign_id?: string;
+  /** Inclusive ISO date bounds on `created_at`. */
+  created_from?: string;
+  created_to?: string;
+}
+
+/** Successful payload of `GET /api/v1/marketing/leads`. */
+export interface MarketingLeadListResponse {
+  items: MarketingLeadSummary[];
+  meta: PaginationMeta;
+}
+
+/** Successful payload of `GET /api/v1/marketing/leads/:id`. */
+export interface MarketingLeadDetailResponse {
+  lead: MarketingLeadResponse;
+  /** Newest first. */
+  events: MarketingLeadEventResponse[];
+}
+
+/** Body of `PATCH /api/v1/marketing/leads/:id/status`. */
+export interface MarketingLeadStatusUpdateRequest {
+  status: MarketingLeadStatus;
+  /** Optional note recorded alongside the transition. */
+  note?: string;
+}
+
+/** Body of `POST /api/v1/marketing/leads/:id/notes`. */
+export interface MarketingLeadNoteRequest {
+  note: string;
+}
+
+/** One campaign bucket of the lead metrics aggregation. */
+export interface MarketingLeadCampaignMetric {
+  campaign_id: string;
+  campaign_name: string | null;
+  leads: number;
+}
+
+/**
+ * Successful payload of `GET /api/v1/marketing/leads/metrics` — the Super
+ * Admin marketing funnel at a glance. All figures are plain counts computed
+ * from grouped aggregates; nothing here needs a charting library.
+ */
+export interface MarketingLeadMetricsResponse {
+  total_leads: number;
+  new_leads_last_7_days: number;
+  new_leads_last_30_days: number;
+  leads_by_status: Record<MarketingLeadStatus, number>;
+  /** Top campaigns by attributed leads (bounded). */
+  leads_by_campaign: MarketingLeadCampaignMetric[];
+  /** Sum of every recipient click across all campaigns. */
+  total_clicks: number;
+  /** Recipients who clicked at least once, across all campaigns. */
+  unique_clicks: number;
+  /**
+   * Campaign-attributed leads / unique clicks, in percent (0–100), or null
+   * when there are no clicks yet. Attribution is best-effort: a forwarded
+   * email attributes the lead to the original recipient, so this is a
+   * funnel indicator, not an exact identity count.
+   */
+  click_to_lead_rate: number | null;
+  /** Addresses currently suppressed after unsubscribing. */
+  unsubscribed_total: number;
+  /** The most recent demo requests, newest first (bounded). */
+  recent_leads: MarketingLeadSummary[];
+}
 
 // ============================================================================
 // Marketing communications — API contracts (Session 2: templates & campaigns)

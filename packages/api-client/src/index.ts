@@ -95,6 +95,16 @@ import {
   MarketingCampaignScheduleRequest,
   MarketingCampaignScheduleResponse,
   MarketingCampaignUpdateRequest,
+  MarketingDemoLeadInput,
+  MarketingDemoRequestResponse,
+  MarketingLeadDetailResponse,
+  MarketingLeadEventResponse,
+  MarketingLeadListQuery,
+  MarketingLeadListResponse,
+  MarketingLeadMetricsResponse,
+  MarketingLeadNoteRequest,
+  MarketingLeadResponse,
+  MarketingLeadStatusUpdateRequest,
   MarketingTemplateArchiveResponse,
   MarketingTemplateContentSaveRequest,
   MarketingTemplateContentSaveResponse,
@@ -1321,6 +1331,72 @@ export class ApiClient {
     return this.post<MarketingCampaignLifecycleResponse>(
       `/marketing/campaigns/${encodeURIComponent(id)}/cancel`,
     );
+  }
+
+  /**
+   * Marketing communications — demo leads (`/marketing/leads`, Session 4).
+   *
+   * SUPER_ADMIN only, except {@link submitMarketingDemoRequest} which is the
+   * **public** landing page form submission (unauthenticated by design).
+   * List/detail/status/notes never accept or return another tenant's data —
+   * leads are platform-scoped and carry no school id.
+   */
+  public async listMarketingLeads(
+    query: MarketingLeadListQuery = {},
+  ): Promise<ApiResponse<MarketingLeadListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.search) params.set('search', query.search);
+    if (query.status) params.set('status', query.status);
+    if (query.source) params.set('source', query.source);
+    if (query.campaign_id) params.set('campaign_id', query.campaign_id);
+    if (query.created_from) params.set('created_from', query.created_from);
+    if (query.created_to) params.set('created_to', query.created_to);
+    const suffix = querySuffix(params);
+    return this.get<MarketingLeadListResponse>(`/marketing/leads${suffix}`);
+  }
+
+  public async getMarketingLeadMetrics(): Promise<ApiResponse<MarketingLeadMetricsResponse>> {
+    return this.get<MarketingLeadMetricsResponse>('/marketing/leads/metrics');
+  }
+
+  public async getMarketingLead(id: string): Promise<ApiResponse<MarketingLeadDetailResponse>> {
+    return this.get<MarketingLeadDetailResponse>(`/marketing/leads/${encodeURIComponent(id)}`);
+  }
+
+  public async updateMarketingLeadStatus(
+    id: string,
+    body: MarketingLeadStatusUpdateRequest,
+  ): Promise<ApiResponse<MarketingLeadResponse>> {
+    return this.patch<MarketingLeadResponse>(
+      `/marketing/leads/${encodeURIComponent(id)}/status`,
+      body,
+    );
+  }
+
+  public async addMarketingLeadNote(
+    id: string,
+    body: MarketingLeadNoteRequest,
+  ): Promise<ApiResponse<MarketingLeadEventResponse>> {
+    return this.post<MarketingLeadEventResponse>(
+      `/marketing/leads/${encodeURIComponent(id)}/notes`,
+      body,
+    );
+  }
+
+  /**
+   * The public "Request a Demo" submission (landing page form).
+   *
+   * Unauthenticated and strictly rate limited server-side. The body carries
+   * only the visitor's own form fields — never a campaign, recipient,
+   * school or admin identifier; attribution is resolved server-side from
+   * the HttpOnly tracking cookie. The response is deliberately generic.
+   */
+  public async submitMarketingDemoRequest(
+    body: MarketingDemoLeadInput,
+  ): Promise<ApiResponse<MarketingDemoRequestResponse>> {
+    return this.post<MarketingDemoRequestResponse>('/public/marketing/demo-request', body);
   }
 
   /**

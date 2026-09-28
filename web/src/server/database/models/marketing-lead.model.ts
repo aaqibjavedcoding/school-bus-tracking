@@ -7,7 +7,10 @@ import {
   HasMany,
   Table,
 } from 'sequelize-typescript';
-import type { MarketingUtmParameters } from '@school-bus-tracking/shared-types';
+import type {
+  MarketingLeadConsentSource,
+  MarketingUtmParameters,
+} from '@school-bus-tracking/shared-types';
 import { MarketingLeadSource, MarketingLeadStatus } from '@school-bus-tracking/shared-types';
 import { Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -46,6 +49,20 @@ export interface MarketingLeadAttributes extends BaseModelAttributes {
    * a consent record is a lead the system must not keep.
    */
   consent_at: Date;
+  /** Which channel the consent came through (`public-form` / `manual`). */
+  consent_source: MarketingLeadConsentSource;
+  /**
+   * When the new-lead notification to `MARKETING_ADMIN_EMAILS` succeeded.
+   * Null while pending or after a failure — the lead itself is unaffected
+   * either way (the outcome is also an event on the timeline).
+   */
+  admin_notified_at: Date | null;
+  /**
+   * SHA-256 digest of the normalized submission content, used to answer a
+   * duplicate public submission idempotently. Never derived from an IP or a
+   * token — only from data the row already stores.
+   */
+  submission_fingerprint: string | null;
 }
 
 export type MarketingLeadCreationAttributes = Optional<
@@ -62,6 +79,9 @@ export type MarketingLeadCreationAttributes = Optional<
   | 'utm'
   | 'campaign_id'
   | 'campaign_recipient_id'
+  | 'consent_source'
+  | 'admin_notified_at'
+  | 'submission_fingerprint'
 >;
 
 /**
@@ -102,6 +122,11 @@ export type MarketingLeadCreationAttributes = Optional<
     // Campaign attribution drill-down.
     { name: 'idx_marketing_leads_campaign', fields: ['campaign_id'] },
     { name: 'idx_marketing_leads_source_created', fields: ['source', 'created_at'] },
+    // Idempotent public capture: "same content, recently?" in one lookup.
+    {
+      name: 'idx_marketing_leads_fingerprint_created',
+      fields: ['submission_fingerprint', 'created_at'],
+    },
   ],
 })
 export class MarketingLead extends BaseModel<
@@ -171,6 +196,18 @@ export class MarketingLead extends BaseModel<
   @AllowNull(false)
   @Column({ type: DataType.DATE })
   declare consent_at: Date;
+
+  @AllowNull(false)
+  @Column({ type: DataType.STRING(32), defaultValue: 'public-form' })
+  declare consent_source: MarketingLeadConsentSource;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare admin_notified_at: Date | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(64) })
+  declare submission_fingerprint: string | null;
 
   @BelongsTo(() => EmailCampaign, { foreignKey: 'campaign_id', as: 'campaign' })
   declare campaign?: EmailCampaign;

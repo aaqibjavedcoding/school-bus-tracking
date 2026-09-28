@@ -56,6 +56,19 @@ export interface PasswordResetPublicSettings {
 }
 
 /**
+ * Identity-bucket settings of the `marketing_demo_request` policy.
+ *
+ * Keyed on the submitted email address — the only identity a public,
+ * accountless form has. Bounds what a spray distributed over many source
+ * addresses can attach to one email, exactly the way the password-reset
+ * identity bucket bounds mailbox flooding.
+ */
+export interface DemoRequestPublicSettings {
+  identityLimit: number;
+  identityWindowMs: number;
+}
+
+/**
  * Resolves the client IP.
  *
  * `X-Forwarded-For` is honoured **only** when the deployment declares it is
@@ -100,6 +113,7 @@ export function buildRateLimitBuckets(
   login: LoginBruteForceSettings,
   crew: CrewLoginBruteForceSettings = login,
   passwordResetPublic: PasswordResetPublicSettings = login,
+  demoRequestPublic: DemoRequestPublicSettings = passwordResetPublic,
 ): RateLimitBucket[] {
   const principal = context.userId ? `user:${context.userId}` : `ip:${context.ip}`;
   const buckets: RateLimitBucket[] = [
@@ -151,7 +165,33 @@ export function buildRateLimitBuckets(
     }
   }
 
+  if (context.policy === 'marketing_demo_request') {
+    // The demo-request body names no school; the submitted email is the
+    // whole identity. Hashed before it becomes a bucket key, so the store
+    // never holds a raw address.
+    const identity = extractDemoRequestIdentity(context.body);
+    if (identity) {
+      buckets.push({
+        key: `${context.policy}|identity:${hashIdentity(identity)}`,
+        limit: demoRequestPublic.identityLimit,
+        windowMs: demoRequestPublic.identityWindowMs,
+      });
+    }
+  }
+
   return buckets;
+}
+
+/** Normalized email of a public demo request, or null when unusable. */
+export function extractDemoRequestIdentity(body: unknown): string | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const candidate = body as { email?: unknown };
+  if (typeof candidate.email !== 'string' || candidate.email.trim() === '') {
+    return null;
+  }
+  return `demo:${candidate.email.trim().toLowerCase()}`;
 }
 
 /**

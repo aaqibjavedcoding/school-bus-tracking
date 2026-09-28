@@ -150,6 +150,8 @@ export const AUDIT_ACTIONS = {
   MARKETING_CAMPAIGN_PAUSE: 'marketing.campaign_pause',
   MARKETING_CAMPAIGN_RESUME: 'marketing.campaign_resume',
   MARKETING_CAMPAIGN_CANCEL: 'marketing.campaign_cancel',
+  MARKETING_LEAD_STATUS_CHANGE: 'marketing.lead_status_change',
+  MARKETING_LEAD_NOTE_ADD: 'marketing.lead_note_add',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -186,6 +188,7 @@ export const AUDIT_ENTITY_TYPES = {
   EMAIL_TEMPLATE: 'email_template',
   EMAIL_TEMPLATE_VERSION: 'email_template_version',
   EMAIL_CAMPAIGN: 'email_campaign',
+  MARKETING_LEAD: 'marketing_lead',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];
