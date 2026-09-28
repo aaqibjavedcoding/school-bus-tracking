@@ -56,6 +56,40 @@ export const MARKETING_ATTRIBUTION_COOKIE = 'zms_ref';
 /** Attribution cookie lifetime: 30 days, the usual marketing window. */
 export const MARKETING_ATTRIBUTION_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * Shape of the attribution cookie value: `campaignDigest.recipientDigest`,
+ * two truncated SHA-256 digests. The recipient half is optional so a cookie
+ * minted by the Session 3 format (campaign digest only) still resolves its
+ * campaign.
+ */
+export const MARKETING_ATTRIBUTION_VALUE_PATTERN = /^[a-f0-9]{32}(\.[a-f0-9]{32})?$/;
+
+/** Truncated digest of a campaign id — the public half of the cookie. */
+export function marketingAttributionCampaignDigest(campaignId: string): string {
+  return hashMarketingToken(`attribution:${campaignId}`).slice(0, 32);
+}
+
+/** Truncated digest binding a recipient to its campaign inside the cookie. */
+export function marketingAttributionRecipientDigest(
+  campaignId: string,
+  recipientId: string,
+): string {
+  return hashMarketingToken(`attribution:${campaignId}:${recipientId}`).slice(0, 32);
+}
+
+/**
+ * A resolved (and therefore *valid*) attribution cookie.
+ *
+ * `campaign_recipient_id` is null when only the campaign half resolved —
+ * either a legacy cookie or a recipient digest that matches nothing, which
+ * is treated as "no recipient attribution", never as an error the visitor
+ * could observe.
+ */
+export interface MarketingResolvedAttribution {
+  campaign_id: string;
+  campaign_recipient_id: string | null;
+}
+
 /** Where a tracked click lands. A constant, never request-derived. */
 export const MARKETING_LANDING_PATH = '/';
 
@@ -128,8 +162,74 @@ export class MarketingTrackingService {
 
     return {
       redirectUrl: this.buildRedirectUrl(query),
-      attributionValue: this.attributionValue(campaign.id),
+      attributionValue: this.attributionValue(campaign.id, recipient.id),
       repeat: !isFirstClick,
+    };
+  }
+
+  /**
+   * Resolves an attribution cookie back to its campaign (and, when the
+   * recipient half matches, the specific snapshotted recipient).
+   *
+   * Everything about this is defensive, because the input is a cookie any
+   * visitor can forge:
+   *
+   * - the value must match {@link MARKETING_ATTRIBUTION_VALUE_PATTERN} —
+   *   junk is dropped before any database work;
+   * - the campaign is found by recomputing digests over a **bounded** set of
+   *   recent campaigns (never by trusting an id from the client — the cookie
+   *   carries no id to trust);
+   * - the recipient half only matches recipients **of that campaign** that
+   *   have actually **clicked** (only a click ever mints the cookie), again
+   *   over a bounded set;
+   * - a mismatch anywhere resolves to `null` / campaign-only. No caller can
+   *   distinguish "forged" from "expired" from "absent".
+   *
+   * Honest scope note: if the campaign email was forwarded, the cookie — and
+   * therefore this attribution — represents the **original recipient**, not
+   * necessarily the person now filling in the form. The form's own email
+   * field is the reliable identity of the submitter.
+   */
+  async resolveAttribution(rawValue: string | undefined): Promise<MarketingResolvedAttribution | null> {
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (!MARKETING_ATTRIBUTION_VALUE_PATTERN.test(value)) {
+      return null;
+    }
+    const [campaignDigest, recipientDigest] = value.split('.');
+
+    // Recompute digests over recent campaigns. The cookie lives 30 days, so
+    // anything older than the cookie window (plus slack) cannot match.
+    const cutoff = new Date(Date.now() - MARKETING_ATTRIBUTION_COOKIE_MAX_AGE_MS * 2);
+    const campaigns = await this.deps.campaigns.findAll({
+      where: { created_at: { [Op.gte]: cutoff } } as never,
+      order: [['created_at', 'DESC']],
+      limit: 500,
+    });
+    const campaign = campaigns.find(
+      (candidate) => marketingAttributionCampaignDigest(candidate.id) === campaignDigest,
+    );
+    if (!campaign || campaign.status === MarketingCampaignStatus.CANCELLED) {
+      return null;
+    }
+
+    if (!recipientDigest) {
+      return { campaign_id: campaign.id, campaign_recipient_id: null };
+    }
+
+    // Only clicked recipients of this campaign can have minted the cookie.
+    const clicked = await this.deps.recipients.findAll({
+      where: { campaign_id: campaign.id, first_clicked_at: { [Op.ne]: null } } as never,
+      order: [['first_clicked_at', 'DESC']],
+      limit: 5000,
+    });
+    const recipient = clicked.find(
+      (candidate) =>
+        marketingAttributionRecipientDigest(campaign.id, candidate.id) === recipientDigest,
+    );
+
+    return {
+      campaign_id: campaign.id,
+      campaign_recipient_id: recipient?.id ?? null,
     };
   }
 
@@ -294,14 +394,19 @@ export class MarketingTrackingService {
   }
 
   /**
-   * The attribution cookie value.
+   * The attribution cookie value: `campaignDigest.recipientDigest`.
    *
-   * A truncated digest of the campaign id, not the id itself: the landing
-   * page only needs a stable key to correlate a later demo request with the
-   * campaign that produced the visit, and an opaque value means a shared
-   * screenshot of a browser's cookie jar reveals no internal identifier.
+   * Truncated digests, not ids: the landing page only needs a stable opaque
+   * key to correlate a later demo request with the click that produced the
+   * visit, and an opaque value means a shared screenshot of a browser's
+   * cookie jar reveals no internal identifier. The recipient half is bound
+   * to the campaign id inside the digest, so a recipient digest cannot be
+   * replayed against a different campaign's cookie.
    */
-  private attributionValue(campaignId: string): string {
-    return hashMarketingToken(`attribution:${campaignId}`).slice(0, 32);
+  private attributionValue(campaignId: string, recipientId: string): string {
+    return `${marketingAttributionCampaignDigest(campaignId)}.${marketingAttributionRecipientDigest(
+      campaignId,
+      recipientId,
+    )}`;
   }
 }

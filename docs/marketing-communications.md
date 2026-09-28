@@ -338,42 +338,90 @@ authenticated console limits.
 
 ## Demo request flow
 
-The public landing page (`web/src/app/page.tsx`) will carry a demo-request
-form (Phase 4) that posts to the server through the shared `apiClient` —
-never a raw `fetch`:
+The public landing page (`web/src/app/page.tsx`) carries the "Request a
+Demo" form (`web/src/app/DemoRequestForm.tsx`, Session 4) in an accessible
+`#request-demo` section. It posts through the shared `apiClient` — never a
+raw `fetch` — to `POST /api/v1/public/marketing/demo-request`
+(`web/src/server/api/public-demo-request.ts`), which answers `202` with the
+same generic sentence for every accepted submission:
 
-1. The browser submits `MarketingDemoLeadInput` (validated by
-   `marketingDemoLeadInputSchema`: bounded fields, `consent` must be
-   literally `true`, unknown keys rejected). The endpoint is unauthenticated
-   and rate limited.
-2. The server normalizes the email, records `consent_at = now()`, writes the
-   `marketing_leads` row (`source = LANDING_PAGE`) with the UTM parameters
-   echoed from the landing URL, and appends a `CREATED`
-   `marketing_lead_events` row (`actor = 'public-form'`).
-3. The server notifies **`MARKETING_ADMIN_EMAILS`** (a single notification
-   email with the lead's details, sent through the email provider
-   abstraction — never a bulk send). The submitter receives a generic
-   confirmation response; no enumeration oracle is created.
+1. **Honeypot first.** The form renders a visually hidden `website` field
+   (`tabIndex={-1}`, skipped by humans). A non-empty value marks a bot: the
+   server answers the generic response and stores nothing.
+2. **Validation.** The browser submits `MarketingDemoLeadInput` (validated
+   by the shared `marketingDemoLeadInputSchema`: bounded fields, `consent`
+   must be literally `true`, unknown keys rejected — a body naming a
+   `campaign_id`, `school_id` or admin address is a 400). The endpoint is
+   unauthenticated and throttled by the dedicated `marketing_demo_request`
+   policy: per IP **and** per hashed-email identity bucket. No raw IP is
+   ever stored.
+3. **Idempotency.** A content fingerprint (SHA-256 over the normalized
+   email/name/institution/message) deduplicates browser retries and double
+   submits inside a 24-hour window — same generic answer, no second row, no
+   second notification. A *later* genuine re-submission creates a fresh
+   lead: silently dropping a new inquiry is worse than a duplicate row.
+4. **Attribution.** The server resolves the HttpOnly attribution cookie a
+   tracked campaign click set (`campaignDigest.recipientDigest`, both
+   opaque). Only a digest matching a real campaign/recipient attaches
+   `campaign_id` / `campaign_recipient_id`; a forged or stale cookie
+   resolves to nothing. Client JSON can never name either. **Caveat:** if
+   the campaign email was forwarded, recipient-level attribution points at
+   the original recipient — the form's own email is the reliable identity
+   of the person asking.
+5. **Store first.** The server normalizes the email, records
+   `consent_at = now()` and `consent_source = 'public-form'`, writes the
+   `marketing_leads` row (`status = NEW`, `source = LANDING_PAGE`) with the
+   allowlisted UTM parameters echoed from the landing URL, and appends a
+   `CREATED` event (`actor = 'public-form'`).
+6. **Notify afterwards.** Only after the row is committed, an asynchronous
+   notification goes to **`MARKETING_ADMIN_EMAILS`** through the email
+   provider abstraction (`marketing-lead-notifications.ts`): one bounded
+   retry, then the outcome is recorded on the lead's timeline
+   (`ADMIN_NOTIFIED` stamps `admin_notified_at`; `ADMIN_NOTIFY_FAILED`
+   records a failure class, never a transcript). The email carries the
+   contact facts and a console deep link built from `APP_URL` — never the
+   free-text message and never a localhost URL. A dead SMTP relay can slow
+   nothing down and lose nothing: the lead is already stored and visible in
+   the console.
 
-Duplicate submissions by the same person are allowed (the email is not
-unique on `marketing_leads`); merging duplicates is a service-layer concern,
-because silently dropping a fresh submission is worse than showing a
-duplicate.
+The submitter always receives the same generic confirmation; the endpoint
+is not an oracle for which addresses already asked. And the wording matters:
+submitting the form **requests** a demo — nothing is booked. `DEMO_SCHEDULED`
+is only ever set later, by the operator who actually confirmed an
+appointment.
 
 ## Lead lifecycle
 
 ```
-NEW ──► CONTACTED ──► QUALIFIED
-          │
-          └────────► UNQUALIFIED ──► ARCHIVED
+NEW ──► CONTACTED ──► QUALIFIED ──► DEMO_SCHEDULED ──► CONVERTED (terminal)
+ │        │   │           │            │        │
+ │        │   └───────────┼────────────┘        └──► QUALIFIED (re-qualify)
+ └────────┴───────────────┴──► LOST ──► CONTACTED (re-engage)
 ```
 
-- `marketing_leads.status` moves only forward through the Super Admin
-  console (`NEW` → `CONTACTED` → `QUALIFIED` / `UNQUALIFIED` → `ARCHIVED`).
+The graph is `MARKETING_LEAD_STATUS_TRANSITIONS` in
+`packages/shared-types` and is **enforced server-side** in
+`marketing-leads.service.ts` — the console only offers the buttons the
+graph allows, the API decides:
+
+- `NEW` → `CONTACTED` / `QUALIFIED` / `LOST`
+- `CONTACTED` → `QUALIFIED` / `DEMO_SCHEDULED` / `LOST`
+- `QUALIFIED` → `DEMO_SCHEDULED` / `LOST`
+- `DEMO_SCHEDULED` → `CONVERTED` / `QUALIFIED` (fell through, re-qualify) / `LOST`
+- `CONVERTED` is terminal; `LOST` → `CONTACTED` (re-engagement).
+
+`DEMO_SCHEDULED` deliberately means **a real appointment was confirmed with
+the contact**. There is no calendar integration, so nothing sets it
+automatically — not the form, not the notifier — only the explicit operator
+action, and a fresh `NEW` lead cannot jump there without being contacted
+first.
+
 - Every transition appends a `marketing_lead_events` row (`STATUS_CHANGED`,
-  `CONTACTED`, `NOTE_ADDED`) written **in the same transaction** as the lead
-  mutation, with a safe `actor` label (`system` / `public-form` /
-  `super-admin`) — never an email address or raw token.
+  `CONTACTED`, `NOTE_ADDED`) with a safe `actor` label (`system` /
+  `public-form` / `super-admin`) — never an email address or raw token.
+  Status changes and notes are additionally audited (`audit_logs`) with
+  statuses and note *lengths* only — never the note text or contact
+  details.
 - Attribution: leads from campaign replies carry `campaign_id` /
   `campaign_recipient_id` (both `ON DELETE SET NULL` — the lead, and its
   consent evidence, must survive campaign data being purged).
@@ -565,6 +613,36 @@ Implemented in session 3 (this session):
   test send, schedule, pause/resume/cancel, progress and engagement),
   built on the shared `apiClient` with no direct `fetch`.
 
-Session 4: the public "Request a Demo" form, the marketing lead capture API,
-the Super Admin Leads console, lead notifications to
-`MARKETING_ADMIN_EMAILS`, and final production hardening.
+Implemented in session 4 (this session):
+
+- the **public "Request a Demo" form** on the landing page
+  (`web/src/app/DemoRequestForm.tsx`, `#request-demo` section): required
+  name/work email/institution, optional phone/city/country/contact
+  time/message, explicit consent checkbox, hidden honeypot, loading /
+  success / validation / server-error states — submitted through the shared
+  `apiClient`;
+- the **public lead capture endpoint**
+  (`POST /public/marketing/demo-request`, `api/public-demo-request.ts`):
+  shared-schema validation, email normalization, honeypot drop, content
+  fingerprint idempotency, dedicated per-IP + hashed-identity rate limits,
+  cookie-only attribution resolution, one generic `202` answer, and the
+  **store-lead-before-notify** ordering;
+- the **asynchronous admin notification**
+  (`marketing-lead-notifications.ts`) to `MARKETING_ADMIN_EMAILS`: bounded
+  retry, `ADMIN_NOTIFIED` / `ADMIN_NOTIFY_FAILED` timeline records,
+  `admin_notified_at` stamp, `APP_URL`-based console deep link, no payload
+  logging;
+- the **Super Admin Leads console** (`/admin/marketing/leads` +
+  `/admin/marketing/leads/[id]`, SUPER_ADMIN only): search, status /
+  source / campaign filters, date range, pagination, masked list columns,
+  detail with contact info, attribution (+ forwarded-email caveat),
+  consent record, event timeline, internal notes and server-enforced
+  status transition buttons;
+- **lead funnel metrics** (`GET /marketing/leads/metrics`): new leads (7/30
+  days), leads by status and by campaign, total + unique clicks,
+  click-to-lead conversion, unsubscribed total, recent demo requests — all
+  plain counts, no charting dependency;
+- audit actions for lead status changes and notes (safe metadata only), the
+  `20260928080000-marketing-lead-capture` migration (`consent_source`,
+  `admin_notified_at`, `submission_fingerprint` + index), and typed
+  `api-client` bindings for the whole lead surface.

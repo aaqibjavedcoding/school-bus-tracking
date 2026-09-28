@@ -1,5 +1,9 @@
 import {
+  MARKETING_LEAD_STATUS_TRANSITIONS,
   MarketingCampaignStatus,
+  MarketingLeadEventType,
+  MarketingLeadSource,
+  MarketingLeadStatus,
   MarketingRecipientSource,
   MarketingTemplateStatus,
   type MarketingCampaignAudienceFilter,
@@ -342,4 +346,117 @@ export function parseFilterList(raw: string): string[] {
     .split(/[,\n]/)
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+}
+
+// ---------------------------------------------------------------- demo leads
+
+export function marketingLeadStatusLabel(status: MarketingLeadStatus): string {
+  switch (status) {
+    case MarketingLeadStatus.NEW:
+      return 'New';
+    case MarketingLeadStatus.CONTACTED:
+      return 'Contacted';
+    case MarketingLeadStatus.QUALIFIED:
+      return 'Qualified';
+    case MarketingLeadStatus.DEMO_SCHEDULED:
+      return 'Demo scheduled';
+    case MarketingLeadStatus.CONVERTED:
+      return 'Converted';
+    case MarketingLeadStatus.LOST:
+      return 'Lost';
+    default:
+      return String(status);
+  }
+}
+
+export function marketingLeadStatusTone(status: MarketingLeadStatus): MarketingTone {
+  switch (status) {
+    case MarketingLeadStatus.NEW:
+      return 'info';
+    case MarketingLeadStatus.CONTACTED:
+      return 'warning';
+    case MarketingLeadStatus.QUALIFIED:
+      return 'info';
+    case MarketingLeadStatus.DEMO_SCHEDULED:
+      return 'warning';
+    case MarketingLeadStatus.CONVERTED:
+      return 'success';
+    case MarketingLeadStatus.LOST:
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}
+
+export function marketingLeadSourceLabel(source: MarketingLeadSource): string {
+  switch (source) {
+    case MarketingLeadSource.LANDING_PAGE:
+      return 'Landing page';
+    case MarketingLeadSource.CAMPAIGN_REPLY:
+      return 'Campaign reply';
+    case MarketingLeadSource.MANUAL:
+      return 'Manual entry';
+    default:
+      return String(source);
+  }
+}
+
+/**
+ * The transitions the console may offer for a lead in `status` — a mirror
+ * of the server-enforced `MARKETING_LEAD_STATUS_TRANSITIONS`. The UI only
+ * *offers*; the API *decides*. `DEMO_SCHEDULED` is offered like any other
+ * button, but its wording must make clear it means a **confirmed**
+ * appointment (there is no calendar integration to confirm one for you).
+ */
+export function marketingLeadNextStatuses(status: MarketingLeadStatus): MarketingLeadStatus[] {
+  return [...(MARKETING_LEAD_STATUS_TRANSITIONS[status] ?? [])];
+}
+
+/** The action wording of each transition button. */
+export function marketingLeadActionLabel(target: MarketingLeadStatus): string {
+  switch (target) {
+    case MarketingLeadStatus.CONTACTED:
+      return 'Mark contacted';
+    case MarketingLeadStatus.QUALIFIED:
+      return 'Mark qualified';
+    case MarketingLeadStatus.DEMO_SCHEDULED:
+      return 'Mark demo scheduled';
+    case MarketingLeadStatus.CONVERTED:
+      return 'Mark converted';
+    case MarketingLeadStatus.LOST:
+      return 'Mark lost';
+    default:
+      return `Mark ${String(target).toLowerCase()}`;
+  }
+}
+
+/** One-line description of a timeline event for the lead detail page. */
+export function describeLeadEvent(event: {
+  event_type: MarketingLeadEventType;
+  metadata: Record<string, unknown> | null;
+}): string {
+  const metadata = event.metadata ?? {};
+  switch (event.event_type) {
+    case MarketingLeadEventType.CREATED:
+      return metadata['attributed']
+        ? 'Demo request received (campaign-attributed visit)'
+        : 'Demo request received';
+    case MarketingLeadEventType.STATUS_CHANGED: {
+      const from = typeof metadata['from'] === 'string' ? metadata['from'] : null;
+      const to = typeof metadata['to'] === 'string' ? metadata['to'] : null;
+      return from && to
+        ? `Status changed: ${marketingLeadStatusLabel(from as MarketingLeadStatus)} → ${marketingLeadStatusLabel(to as MarketingLeadStatus)}`
+        : 'Status changed';
+    }
+    case MarketingLeadEventType.CONTACTED:
+      return 'Marked as contacted';
+    case MarketingLeadEventType.NOTE_ADDED:
+      return typeof metadata['note'] === 'string' ? `Note: ${metadata['note']}` : 'Note added';
+    case MarketingLeadEventType.ADMIN_NOTIFIED:
+      return 'Admin notification email sent';
+    case MarketingLeadEventType.ADMIN_NOTIFY_FAILED:
+      return 'Admin notification email failed (lead is safely stored)';
+    default:
+      return String(event.event_type);
+  }
 }

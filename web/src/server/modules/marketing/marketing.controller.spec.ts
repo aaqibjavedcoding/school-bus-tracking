@@ -444,3 +444,126 @@ describe('marketing endpoint guardrails', () => {
     assert.equal('to' in (seen[0] as object), false, 'no recipient field exists to forward');
   });
 });
+
+describe('marketing lead console (Session 4)', () => {
+  const LEAD_ID = '66666666-6666-4666-8666-666666666666';
+
+  /** Runs one lead endpoint against a stub service and returns audit rows. */
+  async function runLeadEndpoint(
+    definition: EndpointDefinition<unknown, unknown>,
+    options: { params?: Record<string, string>; body?: unknown } = {},
+  ): Promise<{ rows: Array<Record<string, unknown>>; calls: string[] }> {
+    const rows: Array<Record<string, unknown>> = [];
+    const calls: string[] = [];
+    const audit = {
+      log: async (input: Record<string, unknown>) => {
+        rows.push(input);
+      },
+    } as unknown as AuditService;
+    const leads = {
+      list: async () => {
+        calls.push('list');
+        return { items: [], meta: { page: 1, limit: 20, total: 0, totalPages: 1 } };
+      },
+      metrics: async () => {
+        calls.push('metrics');
+        return { total_leads: 0 };
+      },
+      findOneOrThrow: async (id: string) => {
+        calls.push(`detail:${id}`);
+        return { lead: { id }, events: [] };
+      },
+      updateStatus: async (id: string, status: string) => {
+        calls.push(`status:${id}:${status}`);
+        return { id, status };
+      },
+      addNote: async (id: string, note: string) => {
+        calls.push(`note:${id}:${note.length}`);
+        return { id: 'evt-1', event_type: 'NOTE_ADDED' };
+      },
+    };
+    const restoreLeads = overrideContainer('marketingLeads', leads as never);
+    const restoreAudit = overrideContainer('audit', audit);
+    try {
+      await callHandler(definition, {
+        user: SUPER_ADMIN_USER,
+        params: options.params ?? {},
+        body: options.body,
+        query: {},
+        request: { requestId: 'req-1', ip: '203.0.113.10' },
+      });
+    } finally {
+      restoreAudit();
+      restoreLeads();
+    }
+    return { rows, calls };
+  }
+
+  it('audits a status change with statuses and note length only — never the note or contact details', async () => {
+    const { rows } = await runLeadEndpoint(
+      marketing.patchMarketingLeadsByIdStatus as EndpointDefinition,
+      {
+        params: { id: LEAD_ID },
+        body: { status: 'CONTACTED', note: 'Called the principal at +91 9xxxx' },
+      },
+    );
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].action, AUDIT_ACTIONS.MARKETING_LEAD_STATUS_CHANGE);
+    assert.equal(rows[0].entity_type, AUDIT_ENTITY_TYPES.MARKETING_LEAD);
+    assert.equal(rows[0].entity_id, LEAD_ID);
+    assert.equal(rows[0].school_id, null, 'leads are platform-scoped');
+    assert.deepEqual(rows[0].metadata, { status: 'CONTACTED', note_length: 33 });
+    const serialized = JSON.stringify(rows[0]);
+    assert.equal(serialized.includes('principal'), false, 'the note text stays out of the audit');
+  });
+
+  it('audits a note with its length only', async () => {
+    const { rows } = await runLeadEndpoint(
+      marketing.postMarketingLeadsByIdNotes as EndpointDefinition,
+      { params: { id: LEAD_ID }, body: { note: 'Wants a Tuesday demo' } },
+    );
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].action, AUDIT_ACTIONS.MARKETING_LEAD_NOTE_ADD);
+    assert.deepEqual(rows[0].metadata, { note_length: 20 });
+    assert.equal(JSON.stringify(rows[0]).includes('Tuesday'), false);
+  });
+
+  it('does not audit lead reads', async () => {
+    for (const definition of [
+      marketing.getMarketingLeads,
+      marketing.getMarketingLeadsMetrics,
+      marketing.getMarketingLeadsById,
+    ]) {
+      const { rows } = await runLeadEndpoint(definition as EndpointDefinition, {
+        params: { id: LEAD_ID },
+      });
+      assert.equal(rows.length, 0);
+    }
+  });
+
+  it('rejects a malformed lead id before touching the service', async () => {
+    const { calls } = await runLeadEndpoint(
+      marketing.getMarketingLeadsById as EndpointDefinition,
+      { params: { id: 'not-a-uuid' } },
+    ).then(
+      () => {
+        throw new Error('expected a 400');
+      },
+      () => ({ calls: [] as string[] }),
+    );
+    assert.equal(calls.length, 0);
+  });
+
+  it('the note endpoint answers 201 and the status endpoint 200', () => {
+    assert.equal(
+      (marketing.postMarketingLeadsByIdNotes as EndpointDefinition).status,
+      201,
+    );
+    assert.equal(
+      (marketing.patchMarketingLeadsByIdStatus as EndpointDefinition).status,
+      200,
+    );
+  });
+});

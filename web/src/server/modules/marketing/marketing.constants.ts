@@ -80,6 +80,33 @@ export const MARKETING_UNSUBSCRIBED_MESSAGE =
 export const MARKETING_ALREADY_UNSUBSCRIBED_MESSAGE =
   'This address was already unsubscribed from Zero Mile Systems marketing email.';
 
+// ------------------------------------------------------------------- leads
+
+/**
+ * The one answer every public demo-request submission gets — stored lead,
+ * deduplicated replay and honeypot hit alike. Anything more specific would
+ * let a caller probe which addresses already have a lead.
+ */
+export const MARKETING_DEMO_REQUEST_RECEIVED_MESSAGE =
+  'Thank you! Your demo request has been received. Our team will reach out to you shortly.';
+
+export const MARKETING_LEAD_NOT_FOUND = 'Lead not found';
+
+export const MARKETING_LEAD_TRANSITION_INVALID =
+  'This lead status does not allow that transition';
+
+/**
+ * Idempotency window of the public form: an *identical* submission (same
+ * normalized content fingerprint) inside this window is answered with the
+ * generic response without creating a second lead or a second notification.
+ * A submission with different content is a new lead by design.
+ */
+export const MARKETING_LEAD_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Bounds for the metrics aggregation (top campaigns / recent leads). */
+export const MARKETING_LEAD_METRICS_TOP_CAMPAIGNS = 10;
+export const MARKETING_LEAD_METRICS_RECENT_LEADS = 8;
+
 // ---------------------------------------------------------------- audience
 
 /** How many masked recipients the preview sample returns. */

@@ -9,4 +9,8 @@ export {
   ScheduleMarketingCampaignDto,
   MarketingAudiencePreviewDto,
   ListMarketingCampaignsQueryDto,
+  PublicDemoRequestDto,
+  ListMarketingLeadsQueryDto,
+  UpdateMarketingLeadStatusDto,
+  AddMarketingLeadNoteDto,
 } from './marketing.dto';

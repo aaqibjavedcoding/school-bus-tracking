@@ -24,15 +24,18 @@ import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.consta
 import { auditRequestContext } from '../modules/audit/audit-request';
 import { IDEMPOTENCY_ENDPOINTS } from '../common/idempotency/idempotency.constants';
 import {
+  AddMarketingLeadNoteDto,
   CreateMarketingCampaignDto,
   CreateMarketingTemplateDto,
   ListMarketingCampaignsQueryDto,
+  ListMarketingLeadsQueryDto,
   ListMarketingTemplatesQueryDto,
   MarketingAudiencePreviewDto,
   MarketingTemplateRenderDto,
   SaveMarketingTemplateContentDto,
   ScheduleMarketingCampaignDto,
   UpdateMarketingCampaignDto,
+  UpdateMarketingLeadStatusDto,
   UpdateMarketingTemplateDto,
 } from '../modules/marketing/dto';
 
@@ -440,5 +443,99 @@ export const postMarketingCampaignsByIdCancel: EndpointDefinition = {
         metadata: { status: campaign.status },
       });
     return campaign;
+  },
+};
+
+// ------------------------------------------------------------------- leads
+//
+// Session 4: the demo-lead pipeline console. SUPER_ADMIN only, like the rest
+// of the marketing surface — leads are platform-level personal data with no
+// school tenant, and no school role may ever read or mutate one.
+//
+// Audit rules for leads: status changes and notes are operator actions and
+// ARE audited — with safe metadata only (statuses and lengths; never the
+// note text, never the lead's contact details). Reads are not audited.
+
+/** `GET /api/v1/marketing/leads` */
+export const getMarketingLeads: EndpointDefinition<unknown, ListMarketingLeadsQueryDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  queryType: ListMarketingLeadsQueryDto,
+  handler: async ({ query }) => {
+    return container().marketingLeads().list(query);
+  },
+};
+
+/** `GET /api/v1/marketing/leads/metrics` */
+export const getMarketingLeadsMetrics: EndpointDefinition = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async () => {
+    return container().marketingLeads().metrics();
+  },
+};
+
+/** `GET /api/v1/marketing/leads/:id` */
+export const getMarketingLeadsById: EndpointDefinition = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ params }) => {
+    const id = parseUuidParam(params['id'], { label: 'lead' });
+    return container().marketingLeads().findOneOrThrow(id);
+  },
+};
+
+/**
+ * `PATCH /api/v1/marketing/leads/:id/status`
+ *
+ * The transition graph (`MARKETING_LEAD_STATUS_TRANSITIONS`) is enforced by
+ * the service; an invalid move is a 400 before anything is written.
+ */
+export const patchMarketingLeadsByIdStatus: EndpointDefinition<UpdateMarketingLeadStatusDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: UpdateMarketingLeadStatusDto,
+  handler: async ({ user, body, params, request }) => {
+    const id = parseUuidParam(params['id'], { label: 'lead' });
+    const dto = body as UpdateMarketingLeadStatusDto;
+    const lead = await container().marketingLeads().updateStatus(id, dto.status, dto.note);
+    await container()
+      .audit()
+      .log({
+        school_id: null,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.MARKETING_LEAD_STATUS_CHANGE,
+        entity_type: AUDIT_ENTITY_TYPES.MARKETING_LEAD,
+        entity_id: lead.id,
+        ...auditRequestContext({ request }),
+        // Statuses and a note *length* only — the note text and the lead's
+        // contact details stay out of the audit trail by design.
+        metadata: { status: lead.status, note_length: dto.note?.length ?? 0 },
+      });
+    return lead;
+  },
+};
+
+/** `POST /api/v1/marketing/leads/:id/notes` */
+export const postMarketingLeadsByIdNotes: EndpointDefinition<AddMarketingLeadNoteDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.CREATED,
+  bodyType: AddMarketingLeadNoteDto,
+  handler: async ({ user, body, params, request }) => {
+    const id = parseUuidParam(params['id'], { label: 'lead' });
+    const dto = body as AddMarketingLeadNoteDto;
+    const event = await container().marketingLeads().addNote(id, dto.note);
+    await container()
+      .audit()
+      .log({
+        school_id: null,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.MARKETING_LEAD_NOTE_ADD,
+        entity_type: AUDIT_ENTITY_TYPES.MARKETING_LEAD,
+        entity_id: id,
+        ...auditRequestContext({ request }),
+        metadata: { note_length: dto.note.length },
+      });
+    return event;
   },
 };

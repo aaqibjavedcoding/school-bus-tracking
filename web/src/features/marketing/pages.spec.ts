@@ -26,7 +26,12 @@ const PAGES = {
   campaignList: path.join(MARKETING_DIR, 'campaigns', 'page.tsx'),
   campaignCreate: path.join(MARKETING_DIR, 'campaigns', 'new', 'page.tsx'),
   campaignDetail: path.join(MARKETING_DIR, 'campaigns', '[id]', 'page.tsx'),
+  leadList: path.join(MARKETING_DIR, 'leads', 'page.tsx'),
+  leadDetail: path.join(MARKETING_DIR, 'leads', '[id]', 'page.tsx'),
 };
+
+const DEMO_REQUEST_FORM = path.resolve(here, '..', '..', 'app', 'DemoRequestForm.tsx');
+const LANDING_PAGE = path.resolve(here, '..', '..', 'app', 'page.tsx');
 
 function read(file: string): string {
   return fs.readFileSync(file, 'utf8');
@@ -148,5 +153,102 @@ describe('campaign pages', () => {
     assert.match(source, /<Skeleton/);
     assert.match(source, /<ErrorState/);
     assert.match(source, /<EmptyState/);
+  });
+});
+
+describe('demo lead pages (Session 4)', () => {
+  it('exposes the leads console to SUPER_ADMIN only', () => {
+    const superAdmin = navItemsForRole(UserRole.SUPER_ADMIN).map((item) => item.href);
+    assert.ok(superAdmin.includes('/admin/marketing/leads'), 'leads are reachable');
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/admin/marketing/leads'), true);
+
+    for (const role of [
+      UserRole.SCHOOL_ADMIN,
+      UserRole.DRIVER,
+      UserRole.CONDUCTOR,
+      UserRole.PARENT,
+    ]) {
+      const hrefs = navItemsForRole(role).map((item) => item.href);
+      assert.ok(!hrefs.includes('/admin/marketing/leads'), `${role} sees no leads entry`);
+      assert.equal(canAccessPath(role, '/admin/marketing/leads'), false);
+    }
+    assert.ok(fs.existsSync(PAGES.leadList));
+    assert.ok(fs.existsSync(PAGES.leadDetail));
+  });
+
+  it('the list masks follow-up details — phone, message and contact time live on the detail page', () => {
+    const source = read(PAGES.leadList);
+    assert.ok(!/lead\.phone/.test(source), 'no phone column in the list');
+    assert.ok(!/lead\.message/.test(source), 'no message column in the list');
+    assert.ok(!/preferred_contact_time/.test(source));
+  });
+
+  it('offers search, status/source filters, a date range and pagination', () => {
+    const source = read(PAGES.leadList);
+    assert.match(source, /SearchInput/);
+    assert.match(source, /type="date"/);
+    assert.match(source, /<Pagination/);
+    assert.match(source, /marketingLeadStatusLabel/);
+    assert.match(source, /marketingLeadSourceLabel/);
+  });
+
+  it('the detail page words DEMO_SCHEDULED as a really confirmed appointment', () => {
+    const source = read(PAGES.leadDetail);
+    assert.match(source, /appointment was confirmed/);
+    assert.match(source, /marketingLeadNextStatuses/, 'buttons mirror the server graph');
+    assert.match(source, /describeLeadEvent/, 'the timeline uses the shared wording');
+  });
+
+  it('the detail page carries the forwarded-email attribution caveat', () => {
+    const source = read(PAGES.leadDetail);
+    assert.match(source, /forwarded/);
+  });
+
+  it('covers loading, error and empty states on the list', () => {
+    const source = read(PAGES.leadList);
+    assert.match(source, /<Skeleton/);
+    assert.match(source, /<ErrorState/);
+    assert.match(source, /<EmptyState/);
+  });
+});
+
+describe('public demo request form (landing page)', () => {
+  it('is wired into the landing page with an accessible section', () => {
+    const landing = read(LANDING_PAGE);
+    assert.match(landing, /DemoRequestForm/);
+    assert.match(landing, /id="request-demo"/);
+    assert.match(landing, /Request a Demo/);
+  });
+
+  it('submits through the shared apiClient, never raw fetch', () => {
+    const source = read(DEMO_REQUEST_FORM);
+    assert.ok(!/\bfetch\s*\(/.test(source));
+    assert.match(source, /submitMarketingDemoRequest/);
+  });
+
+  it('renders the honeypot and a consent checkbox, and no campaign/school/recipient id field', () => {
+    const source = read(DEMO_REQUEST_FORM);
+    assert.match(source, /name="website"/, 'the honeypot field the server checks first');
+    assert.match(source, /tabIndex=\{-1\}/, 'keyboard users never land in the honeypot');
+    assert.match(source, /type="checkbox"/, 'explicit consent');
+    for (const forbidden of ['campaign_id', 'school_id', 'recipient_id', 'admin_email']) {
+      assert.ok(
+        !source.includes(forbidden),
+        `the form never collects or submits ${forbidden} — attribution rides on the HttpOnly cookie`,
+      );
+    }
+  });
+
+  it('promises a follow-up, never a booked appointment', () => {
+    const source = read(DEMO_REQUEST_FORM);
+    assert.match(source, /Nothing is\s+booked yet/);
+    assert.ok(!/instantly scheduled|booking confirmed/i.test(source));
+  });
+
+  it('captures only allowlisted utm_ parameters', () => {
+    const source = read(DEMO_REQUEST_FORM);
+    assert.match(source, /utm_source/);
+    assert.match(source, /UTM_KEYS/);
+    assert.ok(!/searchParams\.entries|params\.entries/.test(source), 'no blanket query capture');
   });
 });

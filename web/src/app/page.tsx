@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { APP_CONFIG } from '@school-bus-tracking/config';
 import { ArrowIcon, BrandBusIcon, MarketingIcon } from './LandingIcons';
 import { DemoPreview } from './DemoPreview';
+import { DemoRequestForm } from './DemoRequestForm';
 import styles from './landing.module.css';
 
 export const metadata: Metadata = {
@@ -41,10 +42,16 @@ export default function LandingPage() {
             <a href="#features">Why it matters</a>
             <a href="#how-it-works">How it works</a>
             <a href="#demo">Live demo</a>
+            <a href="#request-demo">Request a demo</a>
           </nav>
-          <Link href="/login" className={styles.headerLogin}>
-            Log in <ArrowIcon />
-          </Link>
+          <div className={styles.headerActions}>
+            <a href="#request-demo" className={styles.headerCta}>
+              Request a Demo
+            </a>
+            <Link href="/login" className={styles.headerLogin}>
+              Log in <ArrowIcon />
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -66,11 +73,11 @@ export default function LandingPage() {
                 one easy-to-follow place — from the first pick-up to the last drop-off.
               </p>
               <div className={styles.heroActions}>
-                <a href="#demo" className={styles.primaryButton}>
-                  View live demo <ArrowIcon />
+                <a href="#request-demo" className={styles.primaryButton}>
+                  Request a Demo <ArrowIcon />
                 </a>
-                <a href="#how-it-works" className={styles.inlineLink}>
-                  See how it works <ArrowIcon />
+                <a href="#demo" className={styles.inlineLink}>
+                  View live demo <ArrowIcon />
                 </a>
               </div>
               <div className={styles.heroBenefits} aria-label="Platform highlights">
@@ -277,20 +284,51 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section
+          className={styles.requestDemo}
+          id="request-demo"
+          aria-labelledby="request-demo-title"
+        >
+          <div className={`${styles.container} ${styles.requestDemoGrid}`}>
+            <div className={styles.requestDemoCopy}>
+              <span className={styles.sectionLabel}>REQUEST A DEMO</span>
+              <h2 id="request-demo-title">
+                See it live,
+                <br />
+                with your school in mind.
+              </h2>
+              <p>
+                Tell us a little about your school and we&rsquo;ll get in touch to walk you through
+                the platform — your routes, your questions, your pace. Submitting the form sends a
+                demo <em>request</em>; we&rsquo;ll confirm a time together before anything is
+                scheduled.
+              </p>
+              <ul className={styles.requestDemoPoints}>
+                <li>A guided tour of live tracking, routes and the parent experience</li>
+                <li>Answers from a real person, not an automated sequence</li>
+                <li>No commitment — and your details stay with us</li>
+              </ul>
+            </div>
+            <div className={styles.requestDemoFormCard}>
+              <DemoRequestForm />
+            </div>
+          </div>
+        </section>
+
         <section className={styles.closing} aria-labelledby="closing-title">
           <div className={`${styles.container} ${styles.closingInner}`}>
             <div>
               <span className={styles.sectionLabel}>READY WHEN YOU ARE</span>
               <h2 id="closing-title">Let’s make the school run feel simpler.</h2>
-              <p>Take a look around the demo, or head straight to your school workspace.</p>
+              <p>Request a demo, take a look around the preview, or head straight to your school workspace.</p>
             </div>
             <div className={styles.closingActions}>
-              <Link href="/login" className={styles.primaryButton}>
+              <a href="#request-demo" className={styles.primaryButton}>
+                Request a Demo <ArrowIcon />
+              </a>
+              <Link href="/login" className={styles.inlineLink}>
                 Log in to your account <ArrowIcon />
               </Link>
-              <a href="#demo" className={styles.inlineLink}>
-                View live demo <ArrowIcon />
-              </a>
             </div>
           </div>
         </section>
@@ -311,6 +349,7 @@ export default function LandingPage() {
             <a href="#features">The platform</a>
             <a href="#how-it-works">How it works</a>
             <a href="#demo">Demo</a>
+            <a href="#request-demo">Request a demo</a>
             <Link href="/login">Log in</Link>
           </nav>
           <span className={styles.footerNote}>Built for the whole school community.</span>
