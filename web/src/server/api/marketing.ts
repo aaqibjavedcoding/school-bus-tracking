@@ -37,6 +37,7 @@ import {
   UpdateMarketingCampaignDto,
   UpdateMarketingLeadStatusDto,
   UpdateMarketingTemplateDto,
+  UpdateMarketingDeliverySettingsDto,
 } from '../modules/marketing/dto';
 
 // ---------------------------------------------------------------- templates
@@ -537,5 +538,39 @@ export const postMarketingLeadsByIdNotes: EndpointDefinition<AddMarketingLeadNot
         metadata: { note_length: dto.note.length },
       });
     return event;
+  },
+};
+
+/** `GET /api/v1/marketing/settings` */
+export const getMarketingSettings: EndpointDefinition = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async () => container().marketingDeliverySettings().get(),
+};
+
+/** `PUT /api/v1/marketing/settings` — global controls, always audited. */
+export const putMarketingSettings: EndpointDefinition<UpdateMarketingDeliverySettingsDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: UpdateMarketingDeliverySettingsDto,
+  handler: async ({ user, body, request }) => {
+    const result = await container().marketingDeliverySettings().update(body as UpdateMarketingDeliverySettingsDto);
+    await container().audit().log({
+      school_id: null,
+      actor_user_id: user.id,
+      action: AUDIT_ACTIONS.MARKETING_DELIVERY_SETTINGS_UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.MARKETING_DELIVERY_SETTINGS,
+      entity_id: null,
+      ...auditRequestContext({ request }),
+      metadata: {
+        paused: result.paused,
+        daily_send_cap: result.daily_send_cap,
+        per_minute_send_cap: result.per_minute_send_cap,
+        delivery_timezone: result.delivery_timezone,
+        allowed_window_start: result.allowed_window_start,
+        allowed_window_end: result.allowed_window_end,
+      },
+    });
+    return result;
   },
 };

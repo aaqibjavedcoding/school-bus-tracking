@@ -83,6 +83,7 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
         // version to a frozen audience of schools.
         { href: '/admin/marketing/templates', label: 'Email templates', icon: 'doc' },
         { href: '/admin/marketing/campaigns', label: 'Campaigns', icon: 'bell' },
+        { href: '/admin/marketing/settings', label: 'Delivery settings', icon: 'clock' },
         // Demo leads captured by the public "Request a Demo" form (and by
         // campaign attribution). Platform-level personal data: SUPER_ADMIN
         // only, like the rest of the marketing console.

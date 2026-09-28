@@ -362,6 +362,39 @@ export class UpdateMarketingLeadStatusDto {
   note?: string;
 }
 
+/** Body of `PUT /api/v1/marketing/settings`. Deep validation uses the shared zod schema. */
+export class UpdateMarketingDeliverySettingsDto {
+  @IsBoolean()
+  paused!: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000)
+  daily_send_cap!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(300)
+  per_minute_send_cap!: number;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  delivery_timezone!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  allowed_window_start!: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  allowed_window_end!: string | null;
+}
+
 /** Body of `POST /api/v1/marketing/leads/:id/notes`. */
 export class AddMarketingLeadNoteDto {
   @IsString({ message: 'Please enter the note text.' })

@@ -84,6 +84,7 @@ import {
   type MarketingRecipientStatusGroup,
 } from './marketing-delivery.policy';
 import { buildMarketingMessage, describeMarketingMessage } from './marketing-message.builder';
+import type { MarketingDeliverySettingsSource } from './marketing-delivery-settings.service';
 import {
   MARKETING_DELIVERY_LOCK_CLASS,
   MARKETING_DELIVERY_LOCK_KEY,
@@ -101,6 +102,8 @@ export interface MarketingSweepSummary {
   cancelled: number;
   /** True when the per-minute ceiling stopped the sweep early. */
   rateLimited: boolean;
+  /** Internal fatal database/configuration signal used by the one-shot command. */
+  fatalError?: boolean;
 }
 
 /** A row as returned by the claim statement (plain object, not a model). */
@@ -148,6 +151,8 @@ export interface MarketingDeliveryWorkerDeps {
   replyTo?: string | null;
   /** Optional alert rail; absent in tests and DB-less bootstraps. */
   alerts?: MarketingAlertSink | null;
+  /** Durable global cap/pause source; optional for isolated legacy unit tests. */
+  deliverySettings?: MarketingDeliverySettingsSource | null;
   /** Injected in tests to make jitter and pauses deterministic. */
   random?: () => number;
   /** Injected in tests so a sweep does not really sleep. */
@@ -188,8 +193,22 @@ export class MarketingDeliveryWorker {
     this.stopping = true;
   }
 
-  /** Runs one sweep. Never throws: a background failure must not crash the API. */
+  /** Runs one sweep and durably records its heartbeat. */
   async runOnce(): Promise<MarketingSweepSummary> {
+    const summary = await this.runSweep();
+    try {
+      await this.deps.deliverySettings?.recordWorkerRun(summary);
+    } catch (error) {
+      summary.fatalError = true;
+      this.logger.warn(
+        `Marketing worker heartbeat could not be recorded: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return summary;
+  }
+
+  /** Runs one sweep. Never throws: a background failure must not crash the API. */
+  private async runSweep(): Promise<MarketingSweepSummary> {
     const summary: MarketingSweepSummary = {
       skipped: false,
       claimed: 0,
@@ -263,6 +282,7 @@ export class MarketingDeliveryWorker {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      summary.fatalError = true;
       this.logger.error(`Marketing delivery sweep failed: ${message}`);
       this.deps.alerts?.workerFailure({ stage: 'sweep', message });
     }
@@ -307,6 +327,17 @@ export class MarketingDeliveryWorker {
         // claim will take the same rows, and we try again next tick.
         return [];
       }
+
+      // Locking the singleton settings row and counting attempts happens in
+      // this same transaction as the claim. Active leases are reservations,
+      // so concurrent instances cannot oversubscribe either durable cap.
+      const capacity = this.deps.deliverySettings
+        ? await this.deps.deliverySettings.reserveClaimCapacity(limit, transaction)
+        : { allowed: limit, reason: 'available' as const };
+      if (capacity.allowed <= 0) {
+        return [];
+      }
+      limit = Math.min(limit, capacity.allowed);
 
       const rows = await connection.query<ClaimedMarketingRecipient>(
         `UPDATE email_campaign_recipients AS r
@@ -465,6 +496,19 @@ export class MarketingDeliveryWorker {
         { where: { id: row.id, locked_by: this.workerId } as never },
       );
 
+      // Append an address-free attempt ledger row before contacting SMTP. It
+      // is the durable daily/per-minute counter across restarts and instances.
+      // A crash after this insert may consume capacity without sending, which
+      // is intentionally safer than exceeding a provider/reputation ceiling.
+      if (this.deps.deliverySettings && this.deps.sequelize) {
+        await this.deps.sequelize.query(
+          `INSERT INTO marketing_delivery_attempts (recipient_id, campaign_id, attempted_at)
+           VALUES (:recipientId, :campaignId, NOW())`,
+          {
+            replacements: { recipientId: row.id, campaignId: row.campaign_id },
+          },
+        );
+      }
       this.rateWindow.record();
       const attemptNumber = row.attempts + 1;
       const result = await this.deps.emailProvider.send({

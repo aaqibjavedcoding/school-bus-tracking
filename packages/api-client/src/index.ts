@@ -97,6 +97,8 @@ import {
   MarketingCampaignUpdateRequest,
   MarketingDemoLeadInput,
   MarketingDemoRequestResponse,
+  MarketingDeliverySettingsResponse,
+  MarketingDeliverySettingsUpdateRequest,
   MarketingLeadDetailResponse,
   MarketingLeadEventResponse,
   MarketingLeadListQuery,
@@ -1331,6 +1333,16 @@ export class ApiClient {
     return this.post<MarketingCampaignLifecycleResponse>(
       `/marketing/campaigns/${encodeURIComponent(id)}/cancel`,
     );
+  }
+
+  public async getMarketingDeliverySettings(): Promise<ApiResponse<MarketingDeliverySettingsResponse>> {
+    return this.get<MarketingDeliverySettingsResponse>('/marketing/settings');
+  }
+
+  public async updateMarketingDeliverySettings(
+    body: MarketingDeliverySettingsUpdateRequest,
+  ): Promise<ApiResponse<MarketingDeliverySettingsResponse>> {
+    return this.put<MarketingDeliverySettingsResponse>('/marketing/settings', body);
   }
 
   /**

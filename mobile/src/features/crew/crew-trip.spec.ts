@@ -216,10 +216,10 @@ describe('manifestCounts / groupManifestByStop', () => {
 });
 
 describe('isTripOpen', () => {
-  it('treats boarding and in-progress as open', () => {
+  it('matches the API attendance window exactly', () => {
     assert.equal(isTripOpen(TripStatus.BOARDING), true);
     assert.equal(isTripOpen(TripStatus.IN_PROGRESS), true);
-    assert.equal(isTripOpen(TripStatus.SCHEDULED), true);
+    assert.equal(isTripOpen(TripStatus.SCHEDULED), false);
     assert.equal(isTripOpen(TripStatus.COMPLETED), false);
     assert.equal(isTripOpen(TripStatus.CANCELLED), false);
   });
