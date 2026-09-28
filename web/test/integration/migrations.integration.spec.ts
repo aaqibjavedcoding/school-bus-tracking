@@ -10,6 +10,10 @@ import {
   runMigrations,
   undoAllMigrations,
 } from '../support/database';
+import {
+  BASE_MODEL_TIMESTAMP_COLUMNS,
+  baseModelTableNames,
+} from '../../src/server/database/base-model-tables';
 
 /**
  * Migration integration test — real PostgreSQL, real sequelize-cli runner.
@@ -280,6 +284,48 @@ describe('migrations against a real PostgreSQL database', () => {
     assert.deepEqual(
       types.map((row) => row.typname).sort(),
       ['enum_route_assignments_role', 'enum_run_crew_role'],
+    );
+  });
+
+  /**
+   * Every model inherits `BaseModel`, which *maps* `created_at`,
+   * `updated_at` and `deleted_at` as attributes. `updatedAt: false` /
+   * `deletedAt: false` stop Sequelize writing them, but the `RETURNING`
+   * clause it appends to every PostgreSQL INSERT still names them — so a
+   * table missing one of those columns makes `Model.create()` fail outright
+   * (`column "updated_at" does not exist`). It has bitten `audit_logs` once
+   * and the marketing tables once; this is the guard against a third time,
+   * asserted here against the schema the migrations actually produce.
+   */
+  it('gives every BaseModel-backed table the three mapped timestamp columns', async () => {
+    const rows = await sequelize.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name IN ('created_at', 'updated_at', 'deleted_at')`,
+      { type: QueryTypes.SELECT },
+    );
+
+    const byTable = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const columns = byTable.get(row.table_name) ?? new Set<string>();
+      columns.add(row.column_name);
+      byTable.set(row.table_name, columns);
+    }
+
+    const offenders: string[] = [];
+    for (const table of baseModelTableNames()) {
+      const columns = byTable.get(table) ?? new Set<string>();
+      const missing = BASE_MODEL_TIMESTAMP_COLUMNS.filter((column) => !columns.has(column));
+      if (missing.length > 0) {
+        offenders.push(`${table} (missing ${missing.join(', ')})`);
+      }
+    }
+
+    assert.deepEqual(
+      offenders,
+      [],
+      'add the nullable columns in a migration — the BaseModel attribute mapping cannot be opted out of',
     );
   });
 

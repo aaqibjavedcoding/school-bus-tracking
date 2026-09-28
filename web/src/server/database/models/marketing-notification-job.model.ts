@@ -1,4 +1,12 @@
-import { AllowNull, BelongsTo, Column, DataType, ForeignKey, Table } from 'sequelize-typescript';
+import {
+  AllowNull,
+  BelongsTo,
+  Column,
+  DataType,
+  Default,
+  ForeignKey,
+  Table,
+} from 'sequelize-typescript';
 import {
   MarketingErrorCategory,
   MarketingNotificationJobStatus,
@@ -97,7 +105,13 @@ export class MarketingNotificationJob extends BaseModel<
   @Column({ type: DataType.INTEGER, defaultValue: 0 })
   declare attempts: number;
 
+  /**
+   * Defaults to "due now", mirroring the column's `DEFAULT NOW()`. Without
+   * the model-side default, omitting it — which the creation type allows —
+   * fails validation before the database ever sees the row.
+   */
   @AllowNull(false)
+  @Default(DataType.NOW)
   @Column({ type: DataType.DATE })
   declare next_attempt_at: Date;
 

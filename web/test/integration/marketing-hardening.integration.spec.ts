@@ -65,6 +65,7 @@ async function seedCampaign(): Promise<{ campaignId: string; recipientId: string
   } as never);
   const campaign = await EmailCampaign.create({
     name: 'Hardening 5B campaign',
+    template_id: template.id,
     template_version_id: version.id,
     status: MarketingCampaignStatus.SENDING,
     audience_filter: {},

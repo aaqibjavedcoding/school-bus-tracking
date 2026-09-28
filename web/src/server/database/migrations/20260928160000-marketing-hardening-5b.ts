@@ -59,6 +59,10 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         sent_at TIMESTAMPTZ NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- Never written: the models set deletedAt:false. It exists because
+        -- BaseModel *maps* the attribute, so Sequelize names it in the
+        -- RETURNING clause of every INSERT.
+        deleted_at TIMESTAMPTZ NULL,
         CONSTRAINT marketing_notification_jobs_status_check CHECK (
           status IN ('PENDING', 'PROCESSING', 'RETRYING', 'SENT', 'FAILED', 'EXPIRED')
         ),
@@ -98,6 +102,10 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         metadata JSONB NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- Never written: the models set deletedAt:false. It exists because
+        -- BaseModel *maps* the attribute, so Sequelize names it in the
+        -- RETURNING clause of every INSERT.
+        deleted_at TIMESTAMPTZ NULL,
         CONSTRAINT marketing_provider_events_type_check CHECK (
           event_type IN ('delivered', 'hard_bounce', 'soft_bounce', 'complaint')
         )
@@ -128,7 +136,9 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         consumed_at TIMESTAMPTZ NULL,
         use_count INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- See above: mapped by BaseModel, never written.
+        deleted_at TIMESTAMPTZ NULL
       )
     `);
     // The whole point of the table: resolution is a unique-index probe.

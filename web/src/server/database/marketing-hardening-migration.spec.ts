@@ -65,15 +65,21 @@ describe('migration 20260928160000-marketing-hardening-5b', () => {
     assert.equal(down.transactional.every(Boolean), true);
   });
 
-  it('is ordered after the last shipped migration and is the only new one', () => {
+  it('is ordered after every previously shipped migration', () => {
     const dir = path.resolve(__dirname, 'migrations');
     const files = readdirSync(dir)
       .filter((file) => file.endsWith('.ts'))
       .sort();
-    assert.equal(
-      files.at(-1),
-      '20260928160000-marketing-hardening-5b.ts',
-      'the 5B migration must sort last so it applies after 5A',
+
+    // 5B must apply after 5A, and the BaseModel timestamp alignment must
+    // apply after 5B (it repairs columns on tables 5B creates).
+    assert.deepEqual(
+      files.slice(-2),
+      [
+        '20260928160000-marketing-hardening-5b.ts',
+        '20260928170000-align-base-model-timestamp-columns.ts',
+      ],
+      'the 5B migrations must sort last, in this order',
     );
   });
 });
