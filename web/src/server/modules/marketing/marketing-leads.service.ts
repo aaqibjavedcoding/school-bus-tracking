@@ -17,12 +17,22 @@
  *   and platform-scoped — leads carry no `school_id`, so there is no tenant
  *   to leak across; school roles are rejected before any handler runs.
  *
- * Ordering guarantee the whole feature hangs on: **the lead row is committed
- * before any notification is attempted.** The admin notification runs
- * afterwards, asynchronously, through {@link MarketingLeadNotifier}; its
- * failure appends an `ADMIN_NOTIFY_FAILED` event and touches nothing else.
- * A dead SMTP relay can therefore never lose, delay or roll back a lead —
- * and never slows the public response down.
+ * Ordering guarantee the whole feature hangs on: **the lead row and the
+ * notification job are committed together, and the SMTP conversation happens
+ * later.** `captureDemoRequest` writes the lead, its `CREATED` event and a
+ * `marketing_notification_jobs` row inside one transaction, then returns.
+ * The {@link MarketingNotificationWorker} claims that job under a lease and
+ * owns every retry. Consequences, all of them intentional:
+ *
+ * - a process restart between the submission and the send loses nothing —
+ *   the job is a committed row, not a pending promise;
+ * - a dead SMTP relay can never lose, delay or roll back a lead, and never
+ *   slows the public response down;
+ * - duplicate workers cannot double-notify (`FOR UPDATE SKIP LOCKED` plus a
+ *   partial unique index on `(job_type, lead_id)`);
+ * - if the notification job cannot be written, the lead is still stored —
+ *   the enqueue failure is logged and the timeline records it, because a
+ *   lost sales lead is strictly worse than a missed email.
  */
 
 import { createHash } from 'crypto';
@@ -44,12 +54,16 @@ import {
   type PaginationMeta,
 } from '@school-bus-tracking/shared-types';
 import { marketingDemoLeadInputSchema } from '@school-bus-tracking/validation';
+import type { Sequelize } from 'sequelize-typescript';
+import type { Transaction } from 'sequelize';
+import { MarketingNotificationJobType } from '@school-bus-tracking/shared-types';
 import { BadRequestException, Logger, NotFoundException } from '../../framework';
 import type {
   EmailCampaign,
   EmailCampaignRecipient,
   MarketingLead,
   MarketingLeadEvent,
+  MarketingNotificationJob,
   MarketingSuppression,
 } from '../../database/models';
 import type { MarketingResolvedAttribution } from './marketing-tracking.service';
@@ -62,28 +76,26 @@ import {
   MARKETING_LEAD_TRANSITION_INVALID,
 } from './marketing.constants';
 
-/** What the notifier needs — the service never talks SMTP itself. */
-export interface MarketingLeadNotifier {
-  /**
-   * Fire-and-forget: scheduled after the lead is committed, never awaited by
-   * the public request, never able to throw into it.
-   */
-  notifyNewLead(lead: MarketingLead): void;
-}
-
 export interface MarketingLeadsServiceDeps {
   leads: typeof MarketingLead;
   events: typeof MarketingLeadEvent;
   campaigns: typeof EmailCampaign;
   recipients: typeof EmailCampaignRecipient;
   suppressions: typeof MarketingSuppression;
+  /** The durable notification queue written in the capture transaction. */
+  notificationJobs: typeof MarketingNotificationJob;
+  /**
+   * Connection used for the capture transaction. Optional: DB-less unit
+   * tests and stubbed bootstraps pass `null`, and the service then writes
+   * the same rows without a transaction wrapper.
+   */
+  sequelize?: Sequelize | null;
   /**
    * Resolves the opaque attribution cookie. Injected (rather than importing
    * the tracking service) so tests can drive every branch; the container
    * wires it to `MarketingTrackingService.resolveAttribution`.
    */
   resolveAttribution: (cookieValue: string | undefined) => Promise<MarketingResolvedAttribution | null>;
-  notifier: MarketingLeadNotifier;
   now?: () => Date;
 }
 
@@ -177,10 +189,12 @@ export class MarketingLeadsService {
       );
     }
 
-    // 5. Store the lead FIRST. Consent is recorded at capture time by the
-    // server; the client only ever says "true", never a timestamp.
+    // 5. Store the lead, its CREATED event and the admin-notification job
+    // in ONE transaction. Either all three exist or none of them do: a lead
+    // without a job would be a silently unnotified sales lead, and a job
+    // without a lead would be a notification about nothing.
     const capturedAt = this.now();
-    const lead = await this.deps.leads.create({
+    const values = {
       full_name: data.full_name,
       normalized_email: email,
       institution_name: data.institution_name,
@@ -197,28 +211,67 @@ export class MarketingLeadsService {
       consent_at: capturedAt,
       consent_source: 'public-form',
       submission_fingerprint: fingerprint,
-    } as never);
-
-    await this.recordEvent(lead.id, MarketingLeadEventType.CREATED, 'public-form', {
+    };
+    const eventMetadata = {
       source: MarketingLeadSource.LANDING_PAGE,
       attributed: Boolean(attribution),
       attributed_recipient: Boolean(attribution?.campaign_recipient_id),
       consent_source: 'public-form',
-    });
+    };
 
-    // 6. Notification — after the commit, fire-and-forget. A relay outage
-    // is the notifier's problem (it records the failure); never this
-    // request's problem, and never the lead's.
+    const store = async (transaction?: Transaction): Promise<MarketingLead> => {
+      const created = (await this.deps.leads.create(values as never, {
+        transaction,
+      } as never)) as MarketingLead;
+      await this.deps.events.create(
+        {
+          lead_id: created.id,
+          event_type: MarketingLeadEventType.CREATED,
+          actor: 'public-form',
+          metadata: eventMetadata,
+        } as never,
+        { transaction } as never,
+      );
+      await this.deps.notificationJobs.create(
+        {
+          job_type: MarketingNotificationJobType.LEAD_ADMIN_NOTIFICATION,
+          lead_id: created.id,
+          // Due immediately; the worker's next sweep claims it. No timer,
+          // no in-memory handle, nothing a restart can drop.
+          next_attempt_at: capturedAt,
+        } as never,
+        { transaction } as never,
+      );
+      return created;
+    };
+
     try {
-      this.deps.notifier.notifyNewLead(lead);
+      if (this.deps.sequelize) {
+        await this.deps.sequelize.transaction(async (transaction) => store(transaction));
+      } else {
+        await store();
+      }
     } catch (error) {
+      // The transaction rolled back. Rather than lose the submission, store
+      // the lead on its own: an operator can still see it in the console
+      // even if the notification never goes out.
       this.logger.warn(
-        `Failed to schedule the new-lead notification: ${
-          error instanceof Error ? error.message : String(error)
+        `Demo lead capture transaction failed; retrying without the notification job: ${
+          error instanceof Error ? error.message : 'unknown error'
         }`,
+      );
+      const fallback = (await this.deps.leads.create(values as never)) as MarketingLead;
+      await this.recordEvent(
+        fallback.id,
+        MarketingLeadEventType.ADMIN_NOTIFY_FAILED,
+        'system',
+        { outcome: 'not-enqueued' },
       );
     }
 
+    // 6. There is deliberately NO send here. The public request ends at the
+    // commit; SMTP is the worker's problem, under a lease, with bounded
+    // retries and a durable record of the outcome.
     return genericResponse;
   }
 

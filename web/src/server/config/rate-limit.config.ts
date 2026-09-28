@@ -163,6 +163,17 @@ export default registerAs('rateLimit', () => ({
      * bounds what a distributed spammer can attach to one address.
      */
     marketing_demo_request: policy('MARKETING_DEMO_REQUEST', 5, 15 * 60_000),
+    /**
+     * **Machine, signature-authenticated** provider email-event webhook.
+     *
+     * Higher than the human-facing policies because a real event source
+     * batches receipts, and each call is HMAC-verified before it touches the
+     * database. The limit is still finite: an attacker who does *not* hold
+     * the secret must not be able to make the server hash megabytes for
+     * free, and one that does should not be able to hammer the suppression
+     * path either.
+     */
+    marketing_provider_events: policy('MARKETING_PROVIDER_EVENTS', 120, 60_000),
   },
   /**
    * Login brute-force protection is *windowed*, never a permanent lockout: a

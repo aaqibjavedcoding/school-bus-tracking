@@ -179,4 +179,34 @@ export default registerAs('marketing', () => ({
     /** Claim lease; an expired lease makes a `PROCESSING` row recoverable. */
     leaseMs: positiveInt(process.env.MARKETING_LEASE_MS, 120_000),
   },
+  /**
+   * Durable admin-notification queue (`marketing_notification_jobs`).
+   * Separate knobs from campaign delivery on purpose: one demo lead a day
+   * and a 5,000-address campaign have nothing in common except SMTP.
+   */
+  notifications: {
+    batchSize: positiveInt(process.env.MARKETING_NOTIFY_BATCH_SIZE, 10),
+    maxAttempts: positiveInt(process.env.MARKETING_NOTIFY_MAX_ATTEMPTS, 5),
+    retryBaseMs: positiveInt(process.env.MARKETING_NOTIFY_RETRY_BASE_MS, 60_000),
+    /** Bounded lifetime: after this the job is EXPIRED, never retried forever. */
+    expiryMs: positiveInt(process.env.MARKETING_NOTIFY_EXPIRY_MS, 24 * 60 * 60 * 1000),
+    leaseMs: positiveInt(process.env.MARKETING_NOTIFY_LEASE_MS, 120_000),
+  },
+  /**
+   * Shared secret of the provider-neutral email-event webhook
+   * (`MARKETING_PROVIDER_WEBHOOK_SECRET`). Empty means the endpoint is
+   * closed: with no secret there is nothing to verify, and an unverified
+   * suppression endpoint would be a denial-of-marketing vulnerability.
+   *
+   * The value is a secret: it is never logged, echoed in an error, or
+   * returned by any endpoint — only compared, in constant time.
+   */
+  providerWebhookSecret: process.env.MARKETING_PROVIDER_WEBHOOK_SECRET?.trim() ?? '',
+  /**
+   * Signing key of the attribution cookie (`MARKETING_ATTRIBUTION_SECRET`).
+   * Empty means signed attribution is disabled and clicks fall back to the
+   * legacy opaque-digest cookie (still resolved by index, never by a scan).
+   * Never logged, never returned.
+   */
+  attributionSecret: process.env.MARKETING_ATTRIBUTION_SECRET?.trim() ?? '',
 }));

@@ -13,6 +13,7 @@ import {
   Card,
   ErrorState,
   Field,
+  Input,
   PageHeader,
   Skeleton,
   Textarea,
@@ -22,6 +23,7 @@ import { formatDateTime } from '../../../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../../../lib/errors';
 import { apiClient } from '../../../../../../services/api';
 import {
+  canEraseMarketingLead,
   describeLeadEvent,
   marketingLeadActionLabel,
   marketingLeadNextStatuses,
@@ -49,6 +51,7 @@ export default function AdminMarketingLeadDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [eraseConfirmation, setEraseConfirmation] = useState('');
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -104,6 +107,32 @@ export default function AdminMarketingLeadDetailPage() {
     },
     [leadId, load, toast],
   );
+
+  /**
+   * Right-to-erasure. Irreversible, so the operator retypes the lead's name
+   * before the button unlocks — and the server independently requires an
+   * explicit `confirm`. Erasure anonymizes the contact details in place: the
+   * consent record and the pipeline history survive, because deleting the
+   * proof that consent existed is its own compliance problem.
+   */
+  const eraseLead = useCallback(async () => {
+    if (!leadId) {
+      return;
+    }
+    setBusy('erase');
+    try {
+      const result = unwrapEnvelope(await apiClient.eraseMarketingLead(leadId, { confirm: true }));
+      setEraseConfirmation('');
+      toast.push(result.message, 'success');
+      await load();
+    } catch (caught) {
+      toast.push(getApiErrorMessage(caught, 'This lead could not be erased.'), 'danger');
+    } finally {
+      if (mounted.current) {
+        setBusy(null);
+      }
+    }
+  }, [leadId, load, toast]);
 
   const addNote = useCallback(async () => {
     const text = note.trim();
@@ -290,6 +319,38 @@ export default function AdminMarketingLeadDetailPage() {
             onClick={() => void addNote()}
           >
             {busy === 'note' ? 'Saving…' : 'Add note'}
+          </Button>
+        </Card>
+
+        <Card
+          title="Erase personal data"
+          description="Removes this person's contact details from the platform. The consent record, status history and aggregate counters are preserved."
+        >
+          <p className="muted">
+            Irreversible. Name, email, phone, message and attribution identifiers are replaced with
+            anonymized values, timeline metadata is stripped, and any pending admin notification for
+            this lead is closed. Type the lead's name to unlock the button.
+          </p>
+          <Field id="erase-confirm" label={`Type "${lead.full_name}" to confirm`}>
+            <Input
+              id="erase-confirm"
+              autoComplete="off"
+              value={eraseConfirmation}
+              onChange={(event) => setEraseConfirmation(event.target.value)}
+            />
+          </Field>
+          <Button
+            variant="danger"
+            disabled={
+              busy !== null ||
+              !canEraseMarketingLead({
+                confirmationText: eraseConfirmation,
+                expected: lead.full_name,
+              })
+            }
+            onClick={() => void eraseLead()}
+          >
+            {busy === 'erase' ? 'Erasing…' : 'Erase personal data'}
           </Button>
         </Card>
 

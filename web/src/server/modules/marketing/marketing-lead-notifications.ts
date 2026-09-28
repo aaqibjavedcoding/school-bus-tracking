@@ -1,39 +1,44 @@
 /**
- * Asynchronous "new demo lead" notification to `MARKETING_ADMIN_EMAILS`.
+ * The "new demo lead" notification **message** — content and one send
+ * attempt. Scheduling, retries, leases and durability belong to
+ * {@link MarketingNotificationWorker}; this module only knows how to build a
+ * safe message and hand it to the email provider once.
  *
- * This is the operational rail (the same one `MarketingAdminAlerts` uses) —
- * strictly separate from the campaign rail: recipients come **only** from
- * `MARKETING_ADMIN_EMAILS` read at call time, never from anything a visitor
- * submitted, and a campaign send never CCs this mailbox.
+ * Why the split (Hardening 5B): the Session 4 version owned an in-memory
+ * retry loop, which meant a container restart between the attempts silently
+ * dropped the notification. The job row in `marketing_notification_jobs` now
+ * owns the retry state, and this class is the pure "send it once" step the
+ * worker calls under a lease.
  *
- * Invariants, in order of importance:
+ * Invariants:
  *
- * 1. **The lead always wins.** `notifyNewLead` is called *after* the lead
- *    row is committed and returns `void`; every failure ends in a log line
- *    plus an `ADMIN_NOTIFY_FAILED` timeline event. Nothing here can delete,
- *    roll back or block a lead — or slow the public response down.
- * 2. **Bounded retries, no loops.** One initial attempt plus at most
- *    {@link MARKETING_LEAD_NOTIFY_MAX_ATTEMPTS} − 1 delayed retries, then the
- *    failure is recorded and the notifier stops. Recording the failure never
- *    triggers another email, so a dead relay produces a finite number of
- *    attempts per lead, not an infinite notification loop.
- * 3. **Safe content only.** The message carries the fields an operator needs
+ * 1. **Recipients come only from `MARKETING_ADMIN_EMAILS`**, read at call
+ *    time. Nothing a visitor submitted, and nothing the browser sent, can
+ *    influence where an operational notification goes.
+ * 2. **Safe content only.** The message carries the fields an operator needs
  *    to follow up (name, work email, institution, location, phone, source,
- *    campaign id, created time) and a console deep link built from the
- *    configured APP_URL. Never the free-text message body dump, never SMTP
- *    credentials, never tokens — and nothing of the payload is logged.
+ *    campaign id, created time) plus a console deep link built from
+ *    `APP_URL`. Never the free-text message body, never credentials, never
+ *    token material — and nothing of it is ever logged.
+ * 3. **Failures are classified, never transcribed.** The outcome carries a
+ *    {@link MarketingErrorCategory}, not the provider's reply: SMTP
+ *    transcripts can echo credentials, hostnames and message content.
  */
 
+import { MarketingErrorCategory } from '@school-bus-tracking/shared-types';
 import { Logger } from '../../framework';
-import { MarketingLeadEventType } from '@school-bus-tracking/shared-types';
 import type { EmailNotificationProvider } from '../notifications/providers/notification-provider.interface';
-import type { MarketingLead, MarketingLeadEvent } from '../../database/models';
+import type { MarketingLead } from '../../database/models';
 
-/** Total attempts (first try + retries) before the failure is recorded. */
-export const MARKETING_LEAD_NOTIFY_MAX_ATTEMPTS = 2;
-
-/** Pause before the (single) retry. */
-export const MARKETING_LEAD_NOTIFY_RETRY_DELAY_MS = 30_000;
+/** Outcome of one notification attempt. */
+export interface MarketingLeadNotificationOutcome {
+  sent: boolean;
+  /** Safe failure class; `null` on success. */
+  category: MarketingErrorCategory | null;
+  /** True when another attempt could plausibly succeed. */
+  retryable: boolean;
+  providerMessageId: string | null;
+}
 
 export interface MarketingLeadNotificationsOptions {
   emailProvider: EmailNotificationProvider;
@@ -41,73 +46,39 @@ export interface MarketingLeadNotificationsOptions {
   adminEmails: () => string[];
   /** Public origin for the console deep link (`APP_URL`). */
   appUrl: () => string;
-  leads: typeof MarketingLead;
-  events: typeof MarketingLeadEvent;
-  retryDelayMs?: number;
-  maxAttempts?: number;
-  /** Injected in tests to make the retry pause instantaneous. */
-  sleep?: (ms: number) => Promise<void>;
 }
 
 export class MarketingLeadNotifications {
   private readonly logger = new Logger(MarketingLeadNotifications.name);
-  private readonly retryDelayMs: number;
-  private readonly maxAttempts: number;
-  private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(private readonly options: MarketingLeadNotificationsOptions) {
-    this.retryDelayMs = options.retryDelayMs ?? MARKETING_LEAD_NOTIFY_RETRY_DELAY_MS;
-    this.maxAttempts = Math.max(1, options.maxAttempts ?? MARKETING_LEAD_NOTIFY_MAX_ATTEMPTS);
-    this.sleep =
-      options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  }
+  constructor(private readonly options: MarketingLeadNotificationsOptions) {}
 
-  /** Fire-and-forget entry point — schedules the send, never throws. */
-  notifyNewLead(lead: MarketingLead): void {
-    void this.deliver(lead).catch((error) => {
-      this.logger.warn(
-        `New-lead notification pipeline failed unexpectedly: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    });
-  }
-
-  /** Awaitable variant used by tests (same code path the void entry runs). */
-  async deliver(lead: MarketingLead): Promise<boolean> {
+  /**
+   * Sends the notification for one lead, exactly once.
+   *
+   * Never throws: a provider that rejects, times out or is misconfigured
+   * produces a classified outcome the worker turns into a retry or a
+   * terminal failure.
+   */
+  async sendOnce(lead: MarketingLead): Promise<MarketingLeadNotificationOutcome> {
     const recipients = this.options.adminEmails();
     if (recipients.length === 0) {
+      // Not retryable: no amount of waiting adds an address to the
+      // environment. The lead is stored and visible in the console.
       this.logger.warn(
         'New-lead notification skipped — MARKETING_ADMIN_EMAILS is empty. The lead is stored and visible in the console.',
       );
-      await this.recordFailure(lead, 'no-admin-recipients');
-      return false;
+      return {
+        sent: false,
+        category: MarketingErrorCategory.NOT_CONFIGURED,
+        retryable: false,
+        providerMessageId: null,
+      };
     }
 
     const { subject, body } = buildLeadNotification(lead, this.options.appUrl());
+    let providerMessageId: string | null = null;
 
-    let lastFailure = 'unknown';
-    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
-      const outcome = await this.sendToAll(recipients, subject, body);
-      if (outcome.ok) {
-        await this.recordSuccess(lead);
-        return true;
-      }
-      lastFailure = outcome.reason;
-      if (attempt < this.maxAttempts) {
-        await this.sleep(this.retryDelayMs);
-      }
-    }
-
-    await this.recordFailure(lead, lastFailure);
-    return false;
-  }
-
-  private async sendToAll(
-    recipients: string[],
-    subject: string,
-    body: string,
-  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     try {
       for (const to of recipients) {
         const result = await this.options.emailProvider.send({
@@ -118,57 +89,28 @@ export class MarketingLeadNotifications {
           subject,
         });
         if (!result.success) {
-          // Class of failure only — never the provider transcript, never
-          // the recipient address, never the message content.
-          return { ok: false, reason: `provider:${result.provider}:retryable=${result.retryable}` };
+          return {
+            sent: false,
+            category: result.retryable
+              ? MarketingErrorCategory.TRANSIENT
+              : MarketingErrorCategory.PERMANENT,
+            retryable: Boolean(result.retryable),
+            providerMessageId: null,
+          };
         }
+        providerMessageId = result.messageId ?? providerMessageId;
       }
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.name : 'send-error' };
+      return { sent: true, category: null, retryable: false, providerMessageId };
+    } catch {
+      // The thrown error itself is deliberately not logged or persisted: a
+      // nodemailer failure can include the SMTP conversation.
+      return {
+        sent: false,
+        category: MarketingErrorCategory.UNKNOWN,
+        retryable: true,
+        providerMessageId: null,
+      };
     }
-  }
-
-  private async recordSuccess(lead: MarketingLead): Promise<void> {
-    try {
-      await this.options.leads.update(
-        { admin_notified_at: new Date() } as never,
-        { where: { id: lead.id } as never },
-      );
-      await this.options.events.create({
-        lead_id: lead.id,
-        event_type: MarketingLeadEventType.ADMIN_NOTIFIED,
-        actor: 'system',
-        metadata: null,
-      } as never);
-    } catch (error) {
-      this.logger.warn(
-        `Could not record notification success: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-  }
-
-  private async recordFailure(lead: MarketingLead, reason: string): Promise<void> {
-    try {
-      await this.options.events.create({
-        lead_id: lead.id,
-        event_type: MarketingLeadEventType.ADMIN_NOTIFY_FAILED,
-        actor: 'system',
-        // Bounded, non-sensitive: a failure class, never a transcript.
-        metadata: { reason: reason.slice(0, 120) },
-      } as never);
-    } catch (error) {
-      this.logger.warn(
-        `Could not record notification failure: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-    this.logger.warn(
-      `New-lead admin notification failed (lead ${lead.id}); the lead is stored and visible in the console.`,
-    );
   }
 }
 

@@ -38,6 +38,9 @@ import { MarketingSuppression } from './marketing-suppression.model';
 import { MarketingLead } from './marketing-lead.model';
 import { MarketingLeadEvent } from './marketing-lead-event.model';
 import { MarketingDeliverySettings } from './marketing-delivery-settings.model';
+import { MarketingNotificationJob } from './marketing-notification-job.model';
+import { MarketingProviderEvent } from './marketing-provider-event.model';
+import { MarketingAttribution } from './marketing-attribution.model';
 
 export { BaseModel } from './base.model';
 export type { BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -233,6 +236,21 @@ export type {
   MarketingDeliverySettingsAttributes,
   MarketingDeliverySettingsCreationAttributes,
 } from './marketing-delivery-settings.model';
+export { MarketingNotificationJob } from './marketing-notification-job.model';
+export type {
+  MarketingNotificationJobAttributes,
+  MarketingNotificationJobCreationAttributes,
+} from './marketing-notification-job.model';
+export { MarketingProviderEvent } from './marketing-provider-event.model';
+export type {
+  MarketingProviderEventAttributes,
+  MarketingProviderEventCreationAttributes,
+} from './marketing-provider-event.model';
+export { MarketingAttribution } from './marketing-attribution.model';
+export type {
+  MarketingAttributionAttributes,
+  MarketingAttributionCreationAttributes,
+} from './marketing-attribution.model';
 
 /**
  * Concrete Sequelize model registry.
@@ -289,4 +307,7 @@ export const models: ModelCtor<Model>[] = [
   MarketingLead,
   MarketingLeadEvent,
   MarketingDeliverySettings,
+  MarketingNotificationJob,
+  MarketingProviderEvent,
+  MarketingAttribution,
 ];

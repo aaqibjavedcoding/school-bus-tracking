@@ -104,7 +104,14 @@ import {
   MarketingLeadListQuery,
   MarketingLeadListResponse,
   MarketingLeadMetricsResponse,
+  MarketingLeadErasureRequest,
+  MarketingLeadErasureResponse,
   MarketingLeadNoteRequest,
+  MarketingSuppressionCreateRequest,
+  MarketingSuppressionDeleteRequest,
+  MarketingSuppressionListQuery,
+  MarketingSuppressionListResponse,
+  MarketingSuppressionMutationResponse,
   MarketingLeadResponse,
   MarketingLeadStatusUpdateRequest,
   MarketingTemplateArchiveResponse,
@@ -1394,6 +1401,64 @@ export class ApiClient {
     return this.post<MarketingLeadEventResponse>(
       `/marketing/leads/${encodeURIComponent(id)}/notes`,
       body,
+    );
+  }
+
+  /**
+   * `POST /api/v1/marketing/leads/:id/erase` — right-to-erasure for one lead.
+   *
+   * SUPER_ADMIN only and irreversible, so `confirm: true` is mandatory and
+   * enforced server-side as well. The lead's contact details are anonymized
+   * in place; the consent record and pipeline history survive.
+   */
+  public async eraseMarketingLead(
+    id: string,
+    body: MarketingLeadErasureRequest,
+  ): Promise<ApiResponse<MarketingLeadErasureResponse>> {
+    return this.post<MarketingLeadErasureResponse>(
+      `/marketing/leads/${encodeURIComponent(id)}/erase`,
+      body,
+    );
+  }
+
+  /**
+   * Marketing communications — suppression list (`/marketing/suppressions`).
+   *
+   * SUPER_ADMIN only. Addresses come back **masked**, and `search` is matched
+   * server-side as a full address or a bare domain — the console is never an
+   * address-enumeration oracle.
+   */
+  public async listMarketingSuppressions(
+    query: MarketingSuppressionListQuery = {},
+  ): Promise<ApiResponse<MarketingSuppressionListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.reason) params.set('reason', query.reason);
+    if (query.search) params.set('search', query.search);
+    const suffix = querySuffix(params);
+    return this.get<MarketingSuppressionListResponse>(`/marketing/suppressions${suffix}`);
+  }
+
+  /** Manually suppresses an address (the Gmail-SMTP bounce workflow). */
+  public async createMarketingSuppression(
+    body: MarketingSuppressionCreateRequest,
+  ): Promise<ApiResponse<MarketingSuppressionMutationResponse>> {
+    return this.post<MarketingSuppressionMutationResponse>('/marketing/suppressions', body);
+  }
+
+  /**
+   * Removes a suppression. `confirm` is mandatory, and an `UNSUBSCRIBED` row
+   * additionally needs `acknowledge_unsubscribed` — the server rejects the
+   * call otherwise, so an opt-out cannot be undone by a mis-click.
+   */
+  public async deleteMarketingSuppression(
+    id: string,
+    body: MarketingSuppressionDeleteRequest,
+  ): Promise<ApiResponse<MarketingSuppressionMutationResponse>> {
+    return this.delete<MarketingSuppressionMutationResponse>(
+      `/marketing/suppressions/${encodeURIComponent(id)}`,
+      { body: JSON.stringify(body) },
     );
   }
 

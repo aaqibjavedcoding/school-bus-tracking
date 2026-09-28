@@ -38,7 +38,15 @@ import {
   UpdateMarketingLeadStatusDto,
   UpdateMarketingTemplateDto,
   UpdateMarketingDeliverySettingsDto,
+  ListMarketingSuppressionsQueryDto,
+  CreateMarketingSuppressionDto,
+  DeleteMarketingSuppressionDto,
+  EraseMarketingLeadDto,
 } from '../modules/marketing/dto';
+import {
+  marketingEmailDigest,
+  normalizeMarketingEmail,
+} from '../modules/marketing/marketing-suppressions.service';
 
 // ---------------------------------------------------------------- templates
 
@@ -571,6 +579,138 @@ export const putMarketingSettings: EndpointDefinition<UpdateMarketingDeliverySet
         allowed_window_end: result.allowed_window_end,
       },
     });
+    return result;
+  },
+};
+
+// ------------------------------------------------------------ suppressions
+
+/**
+ * `GET /api/v1/marketing/suppressions`
+ *
+ * The do-not-send list, **masked**. The console has to prove an address is
+ * suppressed; it never has to display the mailbox, and a screenshot of this
+ * page must not be a recipient list.
+ */
+export const getMarketingSuppressions: EndpointDefinition<
+  unknown,
+  ListMarketingSuppressionsQueryDto
+> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  queryType: ListMarketingSuppressionsQueryDto,
+  handler: async ({ query }) => container().marketingSuppressions().list(query),
+};
+
+/**
+ * `POST /api/v1/marketing/suppressions` — manual suppression.
+ *
+ * This is the working bounce/complaint path for the current Gmail SMTP
+ * setup: an operator who sees a bounce in the sending mailbox suppresses the
+ * address here. The audit row carries the reason and a **digest** of the
+ * address — never the address, and never the operator's free-text note.
+ */
+export const postMarketingSuppressions: EndpointDefinition<CreateMarketingSuppressionDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.CREATED,
+  bodyType: CreateMarketingSuppressionDto,
+  handler: async ({ user, body, request }) => {
+    const dto = body as CreateMarketingSuppressionDto;
+    const result = await container()
+      .marketingSuppressions()
+      .addManual({ email: dto.email, reason: dto.reason });
+    await container()
+      .audit()
+      .log({
+        school_id: null,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.MARKETING_SUPPRESSION_ADD,
+        entity_type: AUDIT_ENTITY_TYPES.MARKETING_SUPPRESSION,
+        entity_id: result.suppression?.id ?? null,
+        ...auditRequestContext({ request }),
+        metadata: {
+          reason: dto.reason,
+          email_digest: marketingEmailDigest(normalizeMarketingEmail(dto.email)),
+          email_domain: result.suppression?.email_domain ?? null,
+          suppressed_recipients: result.suppressed_recipients,
+          note_length: dto.note?.length ?? 0,
+        },
+      });
+    return result;
+  },
+};
+
+/**
+ * `DELETE /api/v1/marketing/suppressions/:id`
+ *
+ * Removal is a deliberate, audited act: the service requires an explicit
+ * confirmation and — for an `UNSUBSCRIBED` row — an explicit acknowledgement
+ * that an opt-out is being reversed.
+ */
+export const deleteMarketingSuppressionsById: EndpointDefinition<DeleteMarketingSuppressionDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: DeleteMarketingSuppressionDto,
+  handler: async ({ user, body, params, request }) => {
+    const id = parseUuidParam(params['id'], { label: 'suppression' });
+    const dto = body as DeleteMarketingSuppressionDto;
+    const existing = await container().marketingSuppressions().findOneOrThrow(id);
+    const result = await container()
+      .marketingSuppressions()
+      .remove(id, {
+        confirm: dto.confirm,
+        acknowledgeUnsubscribed: dto.acknowledge_unsubscribed,
+      });
+    await container()
+      .audit()
+      .log({
+        school_id: null,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.MARKETING_SUPPRESSION_REMOVE,
+        entity_type: AUDIT_ENTITY_TYPES.MARKETING_SUPPRESSION,
+        entity_id: id,
+        ...auditRequestContext({ request }),
+        metadata: {
+          reason: existing.reason,
+          source: existing.source,
+          email_digest: marketingEmailDigest(existing.normalized_email),
+          acknowledged_unsubscribed: dto.acknowledge_unsubscribed === true,
+        },
+      });
+    return result;
+  },
+};
+
+/**
+ * `POST /api/v1/marketing/leads/:id/erase` — right-to-erasure.
+ *
+ * Anonymizes the lead's contact details and strips its timeline metadata;
+ * the consent record and the pipeline history survive. The audit row proves
+ * the erasure happened **without quoting anything that was erased** — an
+ * audit log that echoes the deleted email has not deleted it.
+ */
+export const postMarketingLeadsByIdErase: EndpointDefinition<EraseMarketingLeadDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: EraseMarketingLeadDto,
+  handler: async ({ user, body, params, request }) => {
+    const id = parseUuidParam(params['id'], { label: 'lead' });
+    const dto = body as EraseMarketingLeadDto;
+    const result = await container().marketingErasure().eraseLead(id, dto.confirm);
+    await container()
+      .audit()
+      .log({
+        school_id: null,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.MARKETING_LEAD_ERASE,
+        entity_type: AUDIT_ENTITY_TYPES.MARKETING_LEAD,
+        entity_id: id,
+        ...auditRequestContext({ request }),
+        metadata: {
+          erased: result.erased,
+          events_anonymized: result.events_anonymized,
+        },
+      });
     return result;
   },
 };

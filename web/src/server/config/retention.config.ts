@@ -24,6 +24,21 @@ function positiveInt(raw: string | undefined, fallback: number): number {
  * IDEMPOTENCY_KEY_RETENTION_DAYS  expired idempotency keys  (default 7)
  * ```
  *
+ * Marketing policies (see `docs/data-retention.md` for the exact rules —
+ * these *anonymize* more often than they delete, because campaign counters
+ * and consent evidence must survive):
+ *
+ * ```text
+ * MARKETING_EVENT_RETENTION_DAYS            email + click events      (default 365)
+ * MARKETING_LEAD_RETENTION_DAYS             lead PII + lead events    (default 730)
+ * MARKETING_RECIPIENT_PII_RETENTION_DAYS    recipient address/name    (default 180)
+ * MARKETING_NOTIFICATION_JOB_RETENTION_DAYS terminal notification jobs(default 90)
+ * MARKETING_PROVIDER_EVENT_RETENTION_DAYS   provider feedback events  (default 180)
+ * ```
+ *
+ * Suppression rows are **never** aged out: an opt-out, a hard bounce and a
+ * complaint are permanent instructions, not telemetry.
+ *
  * Cadence:
  *
  * ```text
@@ -43,4 +58,12 @@ export default registerAs('retention', () => ({
   auditLogDays: positiveInt(process.env.AUDIT_LOG_RETENTION_DAYS, 365),
   emergencyDays: positiveInt(process.env.EMERGENCY_RETENTION_DAYS, 730),
   idempotencyKeyDays: positiveInt(process.env.IDEMPOTENCY_KEY_RETENTION_DAYS, 7),
+  marketingEventDays: positiveInt(process.env.MARKETING_EVENT_RETENTION_DAYS, 365),
+  marketingLeadDays: positiveInt(process.env.MARKETING_LEAD_RETENTION_DAYS, 730),
+  marketingRecipientPiiDays: positiveInt(process.env.MARKETING_RECIPIENT_PII_RETENTION_DAYS, 180),
+  marketingNotificationJobDays: positiveInt(
+    process.env.MARKETING_NOTIFICATION_JOB_RETENTION_DAYS,
+    90,
+  ),
+  marketingProviderEventDays: positiveInt(process.env.MARKETING_PROVIDER_EVENT_RETENTION_DAYS, 180),
 }));

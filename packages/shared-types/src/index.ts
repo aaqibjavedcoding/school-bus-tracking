@@ -5532,3 +5532,167 @@ export interface MarketingDeliverySettingsUpdateRequest {
   allowed_window_start: string | null;
   allowed_window_end: string | null;
 }
+
+// ============================================================================
+// Marketing hardening 5B: notification jobs, provider events, suppression
+// management, attribution and retention
+// ============================================================================
+
+/**
+ * Lifecycle state of a durable marketing notification job
+ * (`marketing_notification_jobs.status`).
+ *
+ * PENDING    → stored transactionally with the lead, waiting for a worker
+ * PROCESSING → claimed under a time-bounded lease; an expired lease makes the
+ *              row claimable again (crash/restart recovery)
+ * RETRYING   → the last attempt failed transiently; `next_attempt_at` holds
+ *              the backoff deadline (exponential + jitter)
+ * SENT       → the email provider accepted the notification
+ * FAILED     → bounded attempts exhausted, or a permanent rejection
+ * EXPIRED    → the job aged past its delivery window before it could be sent
+ *
+ * `SENT`, `FAILED` and `EXPIRED` are terminal. A terminal job is never
+ * re-claimed, which is what stops a dead relay from producing an infinite
+ * retry loop.
+ */
+export enum MarketingNotificationJobStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  RETRYING = 'RETRYING',
+  SENT = 'SENT',
+  FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+}
+
+export const MARKETING_NOTIFICATION_JOB_STATUS_VALUES: MarketingNotificationJobStatus[] =
+  Object.values(MarketingNotificationJobStatus);
+
+/** Terminal notification-job states — never claimed again. */
+export const MARKETING_TERMINAL_NOTIFICATION_JOB_STATUS_VALUES: MarketingNotificationJobStatus[] = [
+  MarketingNotificationJobStatus.SENT,
+  MarketingNotificationJobStatus.FAILED,
+  MarketingNotificationJobStatus.EXPIRED,
+];
+
+/**
+ * What a notification job is for (`marketing_notification_jobs.job_type`).
+ *
+ * Deliberately its own table and its own enum: campaign delivery lives in
+ * `email_campaign_recipients` and must never share rows, counters or
+ * lifecycle with operational notifications to `MARKETING_ADMIN_EMAILS`.
+ */
+export enum MarketingNotificationJobType {
+  /** "A new demo lead arrived" → MARKETING_ADMIN_EMAILS only. */
+  LEAD_ADMIN_NOTIFICATION = 'LEAD_ADMIN_NOTIFICATION',
+}
+
+export const MARKETING_NOTIFICATION_JOB_TYPE_VALUES: MarketingNotificationJobType[] =
+  Object.values(MarketingNotificationJobType);
+
+/**
+ * Normalized provider feedback event
+ * (`marketing_provider_events.event_type`).
+ *
+ * Provider-neutral on purpose: the signed webhook maps whatever vocabulary a
+ * future provider (or a Gmail integration) uses onto exactly these four
+ * values, so the suppression rules never depend on a vendor's spelling.
+ */
+export enum MarketingProviderEventType {
+  DELIVERED = 'delivered',
+  HARD_BOUNCE = 'hard_bounce',
+  SOFT_BOUNCE = 'soft_bounce',
+  COMPLAINT = 'complaint',
+}
+
+export const MARKETING_PROVIDER_EVENT_TYPE_VALUES: MarketingProviderEventType[] =
+  Object.values(MarketingProviderEventType);
+
+/** Provider event types that suppress the address for future campaigns. */
+export const MARKETING_SUPPRESSING_PROVIDER_EVENT_TYPES: MarketingProviderEventType[] = [
+  MarketingProviderEventType.HARD_BOUNCE,
+  MarketingProviderEventType.COMPLAINT,
+];
+
+/** Answer of the signed provider-event endpoint (never echoes the payload). */
+export interface MarketingProviderEventAckResponse {
+  accepted: boolean;
+  /** True when this provider event id had already been processed. */
+  duplicate: boolean;
+  /** Normalized event type, or null when the payload was ignored. */
+  event_type: MarketingProviderEventType | null;
+  /** True when the event created or updated a suppression. */
+  suppressed: boolean;
+}
+
+/**
+ * One suppression row as shown in the Super Admin console.
+ *
+ * The address is **masked** (`ze***@gmail.com`): the console proves an
+ * address is suppressed without putting a harvestable recipient list on a
+ * screen (or in a screenshot, or in a browser cache).
+ */
+export interface MarketingSuppressionSummary {
+  id: string;
+  /** Masked address — never the full mailbox. */
+  masked_email: string;
+  /** Domain only, for grouping/searching without exposing local parts. */
+  email_domain: string;
+  reason: MarketingSuppressionReason;
+  source: MarketingSuppressionSource;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketingSuppressionListQuery {
+  page?: number;
+  limit?: number;
+  reason?: MarketingSuppressionReason;
+  /** Full address (matched exactly, server-side) or a bare domain. */
+  search?: string;
+}
+
+export interface MarketingSuppressionListResponse {
+  items: MarketingSuppressionSummary[];
+  meta: PaginationMeta;
+}
+
+/** Body of `POST /api/v1/marketing/suppressions` (manual suppression). */
+export interface MarketingSuppressionCreateRequest {
+  email: string;
+  reason: MarketingSuppressionReason;
+  /** Free-text operator note; stored as safe audit metadata only. */
+  note?: string | null;
+}
+
+/**
+ * Body of `DELETE /api/v1/marketing/suppressions/:id`.
+ *
+ * `confirm` is mandatory, and removing an `UNSUBSCRIBED` row additionally
+ * requires `acknowledge_unsubscribed` — an opt-out is never removed by a
+ * mis-click.
+ */
+export interface MarketingSuppressionDeleteRequest {
+  confirm: boolean;
+  acknowledge_unsubscribed?: boolean;
+}
+
+export interface MarketingSuppressionMutationResponse {
+  suppression: MarketingSuppressionSummary | null;
+  /** How many not-yet-sent campaign recipients this action suppressed. */
+  suppressed_recipients: number;
+  message: string;
+}
+
+/** Successful payload of `POST /api/v1/marketing/leads/:id/erase`. */
+export interface MarketingLeadErasureResponse {
+  lead_id: string;
+  erased: boolean;
+  /** Lead timeline events whose metadata was stripped. */
+  events_anonymized: number;
+  message: string;
+}
+
+/** Body of `POST /api/v1/marketing/leads/:id/erase`. */
+export interface MarketingLeadErasureRequest {
+  confirm: boolean;
+}

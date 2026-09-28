@@ -75,6 +75,12 @@ export interface EmailCampaignAttributes extends BaseModelAttributes {
   unsubscribed_count: number;
   /** SUPER_ADMIN who created the campaign (nullable: history survives account removal). */
   created_by: string | null;
+  /**
+   * Database-generated digest of `attribution:<id>`: the indexed resolution
+   * path for legacy attribution cookies. `GENERATED ALWAYS … STORED`, never
+   * written by the application.
+   */
+  attribution_digest?: string | null;
 }
 
 export type EmailCampaignCreationAttributes = Optional<
@@ -98,6 +104,7 @@ export type EmailCampaignCreationAttributes = Optional<
   | 'clicked_count'
   | 'total_click_count'
   | 'unsubscribed_count'
+  | 'attribution_digest'
   | 'created_by'
 >;
 
@@ -233,6 +240,14 @@ export class EmailCampaign extends BaseModel<
   @AllowNull(false)
   @Column({ type: DataType.INTEGER, defaultValue: 0 })
   declare unsubscribed_count: number;
+
+  /**
+   * Database-generated digest of `attribution:<id>` (see the recipient
+   * model): the indexed resolution path for legacy attribution cookies.
+   */
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(32) })
+  declare attribution_digest: string | null;
 
   @AllowNull(true)
   @ForeignKey(() => User)
