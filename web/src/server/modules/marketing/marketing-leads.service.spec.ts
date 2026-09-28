@@ -4,6 +4,7 @@ import {
   MarketingLeadEventType,
   MarketingLeadSource,
   MarketingLeadStatus,
+  MarketingNotificationJobType,
   type MarketingDemoLeadInput,
 } from '@school-bus-tracking/shared-types';
 import { MarketingLeadsService, submissionFingerprint } from './marketing-leads.service';
@@ -14,8 +15,10 @@ import { MARKETING_DEMO_REQUEST_RECEIVED_MESSAGE } from './marketing.constants';
  * The lead pipeline behind the public "Request a Demo" form and the Super
  * Admin console. The tests drive the invariants the feature is built on:
  *
- * - the lead row is stored BEFORE any notification is attempted, and a
- *   notifier explosion never loses the lead or fails the request;
+ * - the lead row, its CREATED event and the durable admin-notification job
+ *   are written in ONE transaction, and no SMTP work happens in the request;
+ * - a failing transaction still stores the lead (a lost sales lead is worse
+ *   than a missed email) and records that it was not enqueued;
  * - honeypot hits and deduplicated replays return the same generic answer
  *   as a stored lead (no enumeration oracle), storing nothing new;
  * - attribution comes only from the server-resolved cookie — client JSON
@@ -38,12 +41,16 @@ interface StoredLead extends Record<string, unknown> {
 function harness(options: {
   attribution?: MarketingResolvedAttribution | null;
   attributionThrows?: boolean;
-  notifierThrows?: boolean;
+  /** Make the notification-job insert fail inside the transaction. */
+  jobInsertThrows?: boolean;
+  /** Drive the capture through a (fake) transaction, as production does. */
+  withTransaction?: boolean;
   now?: () => Date;
 } = {}) {
   const leadsStore: StoredLead[] = [];
   const eventsStore: Array<Record<string, unknown>> = [];
-  const notified: string[] = [];
+  const jobsStore: Array<Record<string, unknown>> = [];
+  const transactions: Array<{ committed: boolean }> = [];
   const now = options.now ?? (() => new Date('2026-09-28T09:00:00.000Z'));
 
   const makeLead = (values: Record<string, unknown>): StoredLead => {
@@ -117,30 +124,62 @@ function harness(options: {
     },
   };
 
+  const notificationJobs = {
+    async create(values: Record<string, unknown>) {
+      if (options.jobInsertThrows) {
+        throw new Error('notification job insert failed');
+      }
+      const job = { id: `job-${jobsStore.length + 1}`, ...values };
+      jobsStore.push(job);
+      return job;
+    },
+  };
+
+  // A transaction fake that behaves like Sequelize's managed transaction:
+  // it rolls the fake stores back when the callback throws, which is what
+  // lets the spec prove "all three rows or none".
+  const sequelize = options.withTransaction
+    ? {
+        async transaction<T>(callback: (t: unknown) => Promise<T>): Promise<T> {
+          const snapshot = {
+            leads: leadsStore.length,
+            events: eventsStore.length,
+            jobs: jobsStore.length,
+          };
+          const entry = { committed: false };
+          transactions.push(entry);
+          try {
+            const result = await callback({ id: transactions.length });
+            entry.committed = true;
+            return result;
+          } catch (error) {
+            leadsStore.length = snapshot.leads;
+            eventsStore.length = snapshot.events;
+            jobsStore.length = snapshot.jobs;
+            throw error;
+          }
+        },
+      }
+    : null;
+
   const service = new MarketingLeadsService({
     leads: leads as never,
     events: events as never,
     campaigns: campaigns as never,
     recipients: recipients as never,
     suppressions: suppressions as never,
+    notificationJobs: notificationJobs as never,
+    sequelize: sequelize as never,
     resolveAttribution: async () => {
       if (options.attributionThrows) {
         throw new Error('digest lookup exploded');
       }
       return options.attribution ?? null;
     },
-    notifier: {
-      notifyNewLead(lead) {
-        notified.push(lead.id);
-        if (options.notifierThrows) {
-          throw new Error('notifier exploded synchronously');
-        }
-      },
-    },
     now,
   });
 
-  return { service, leadsStore, eventsStore, notified };
+  return { service, leadsStore, eventsStore, jobsStore, transactions };
 }
 
 function validInput(overrides: Partial<MarketingDemoLeadInput> = {}): MarketingDemoLeadInput {
@@ -172,18 +211,54 @@ describe('MarketingLeadsService — public capture', () => {
     assert.equal(eventsStore[0].actor, 'public-form');
   });
 
-  it('stores the lead BEFORE notifying, and a throwing notifier never loses it', async () => {
-    const { service, leadsStore, notified } = harness({ notifierThrows: true });
+  it('stores the lead and its notification job in one transaction', async () => {
+    const { service, leadsStore, eventsStore, jobsStore, transactions } = harness({
+      withTransaction: true,
+    });
+
+    const response = await service.captureDemoRequest(validInput());
+
+    assert.equal(response.received, true);
+    assert.equal(transactions.length, 1, 'exactly one capture transaction');
+    assert.equal(transactions[0].committed, true);
+    assert.equal(leadsStore.length, 1);
+    assert.equal(eventsStore.length, 1);
+    assert.equal(jobsStore.length, 1, 'the notification job is durable, not a promise');
+    assert.equal(jobsStore[0].lead_id, leadsStore[0].id);
+    assert.equal(jobsStore[0].job_type, MarketingNotificationJobType.LEAD_ADMIN_NOTIFICATION);
+  });
+
+  it('never talks to SMTP in the public request — only rows are written', async () => {
+    const { service, jobsStore } = harness({ withTransaction: true });
+
+    await service.captureDemoRequest(validInput());
+
+    // There is no provider dependency to call: the service cannot send mail
+    // even if a future change tried to.
+    assert.equal(jobsStore.length, 1);
+  });
+
+  it('keeps the lead when the notification job cannot be enqueued', async () => {
+    const { service, leadsStore, eventsStore, jobsStore } = harness({
+      withTransaction: true,
+      jobInsertThrows: true,
+    });
 
     const response = await service.captureDemoRequest(validInput());
 
     assert.equal(response.received, true, 'the public request still succeeds');
-    assert.equal(leadsStore.length, 1, 'the lead is committed');
-    assert.equal(notified[0], leadsStore[0].id, 'notification was scheduled for the stored row');
+    assert.equal(jobsStore.length, 0, 'the transaction rolled the job back');
+    assert.equal(leadsStore.length, 1, 'the lead is stored by the fallback path');
+    assert.ok(
+      eventsStore.some(
+        (event) => event.event_type === MarketingLeadEventType.ADMIN_NOTIFY_FAILED,
+      ),
+      'the timeline records that no notification was enqueued',
+    );
   });
 
   it('honeypot: same generic answer, nothing stored, nobody notified', async () => {
-    const { service, leadsStore, notified } = harness();
+    const { service, leadsStore, jobsStore: notified } = harness();
 
     const response = await service.captureDemoRequest(
       validInput({ website: 'https://spam.example' }),
@@ -196,7 +271,7 @@ describe('MarketingLeadsService — public capture', () => {
   });
 
   it('replays inside the dedupe window: one row, one notification, same answer', async () => {
-    const { service, leadsStore, notified } = harness();
+    const { service, leadsStore, jobsStore: notified } = harness();
 
     const first = await service.captureDemoRequest(validInput());
     const second = await service.captureDemoRequest(validInput());

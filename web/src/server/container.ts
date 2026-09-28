@@ -68,6 +68,9 @@ import {
   MarketingLeadEvent,
   MarketingDeliverySettings,
   MarketingSuppression,
+  MarketingNotificationJob,
+  MarketingProviderEvent,
+  MarketingAttribution,
   Notification,
   PasswordResetToken,
   Plan,
@@ -120,6 +123,12 @@ import { MarketingDeliverySettingsService } from './modules/marketing/marketing-
 import { MarketingTrackingService } from './modules/marketing/marketing-tracking.service';
 import { MarketingLeadsService } from './modules/marketing/marketing-leads.service';
 import { MarketingLeadNotifications } from './modules/marketing/marketing-lead-notifications';
+import { MarketingNotificationWorker } from './modules/marketing/marketing-notification.worker';
+import { MarketingAttributionService } from './modules/marketing/marketing-attribution.service';
+import { MarketingSuppressionsService } from './modules/marketing/marketing-suppressions.service';
+import { MarketingEmailEventsService } from './modules/marketing/marketing-email-events.service';
+import { MarketingErasureService } from './modules/marketing/marketing-erasure.service';
+import { createMarketingCompositeWorker } from './modules/marketing/marketing-worker.composite';
 import type { MarketingDeliveryPolicy } from './modules/marketing/marketing-delivery.policy';
 import { MarketingCampaignsService } from './modules/marketing/marketing-campaigns.service';
 import { MarketingTemplatesService } from './modules/marketing/marketing-templates.service';
@@ -478,6 +487,21 @@ export class Container {
   );
 
   /** Public click/unsubscribe handling (no auth, opaque tokens only). */
+  /**
+   * Signed, indexed click attribution (Hardening 5B). The secret is read at
+   * call time so it can be rotated without a restart, and it is never
+   * logged or returned by any endpoint.
+   */
+  readonly marketingAttribution = lazy(
+    () =>
+      new MarketingAttributionService({
+        attributions: MarketingAttribution,
+        campaigns: EmailCampaign,
+        recipients: EmailCampaignRecipient,
+        secret: () => this.config().get<string>('marketing.attributionSecret') ?? '',
+      }),
+  );
+
   readonly marketingTracking = lazy(
     () =>
       new MarketingTrackingService({
@@ -486,6 +510,42 @@ export class Container {
         events: EmailEvent,
         suppressions: MarketingSuppression,
         appUrl: () => this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
+        attribution: this.marketingAttribution(),
+      }),
+  );
+
+  /** The do-not-send list: console reads, manual adds, protected removals. */
+  readonly marketingSuppressions = lazy(
+    () =>
+      new MarketingSuppressionsService({
+        suppressions: MarketingSuppression,
+        recipients: EmailCampaignRecipient,
+      }),
+  );
+
+  /**
+   * The signed provider email-event ingest. Closed unless
+   * `MARKETING_PROVIDER_WEBHOOK_SECRET` is configured — an unauthenticated
+   * suppression endpoint would let anyone silence any address.
+   */
+  readonly marketingEmailEvents = lazy(
+    () =>
+      new MarketingEmailEventsService({
+        providerEvents: MarketingProviderEvent,
+        recipients: EmailCampaignRecipient,
+        events: EmailEvent,
+        suppressions: this.marketingSuppressions(),
+        secret: () => this.config().get<string>('marketing.providerWebhookSecret') ?? '',
+      }),
+  );
+
+  /** SUPER_ADMIN lead erasure (anonymize; never destroy the consent record). */
+  readonly marketingErasure = lazy(
+    () =>
+      new MarketingErasureService({
+        leads: MarketingLead,
+        events: MarketingLeadEvent,
+        notificationJobs: MarketingNotificationJob,
       }),
   );
 
@@ -500,9 +560,42 @@ export class Container {
         emailProvider: this.emailProvider(),
         adminEmails: () => this.config().get<string[]>('marketing.adminEmails') ?? [],
         appUrl: () => this.config().get<string>('app.appUrl') ?? 'http://localhost:3000',
-        leads: MarketingLead,
-        events: MarketingLeadEvent,
       }),
+  );
+
+  /**
+   * The durable admin-notification worker. Claims `marketing_notification_jobs`
+   * under a lease with `FOR UPDATE SKIP LOCKED`, so a restart never loses a
+   * notification and duplicate workers never send one twice.
+   */
+  readonly marketingNotificationWorker = lazy(
+    () =>
+      new MarketingNotificationWorker({
+        jobs: MarketingNotificationJob,
+        leads: MarketingLead,
+        leadEvents: MarketingLeadEvent,
+        notifications: this.marketingLeadNotifications(),
+        sequelize: this.sequelize,
+        policy: {
+          batchSize: this.config().get<number>('marketing.notifications.batchSize') ?? 10,
+          maxAttempts: this.config().get<number>('marketing.notifications.maxAttempts') ?? 5,
+          retryBaseMs: this.config().get<number>('marketing.notifications.retryBaseMs') ?? 60_000,
+          expiryMs:
+            this.config().get<number>('marketing.notifications.expiryMs') ?? 24 * 60 * 60 * 1000,
+          leaseMs: this.config().get<number>('marketing.notifications.leaseMs') ?? 120_000,
+        },
+      }),
+  );
+
+  /**
+   * What the scheduler (and the one-shot cron command) actually runs: both
+   * marketing queues behind one tick, notifications first.
+   */
+  readonly marketingWorker = lazy(() =>
+    createMarketingCompositeWorker(
+      this.marketingDeliveryWorker(),
+      this.marketingNotificationWorker(),
+    ),
   );
 
   /**
@@ -519,9 +612,10 @@ export class Container {
         campaigns: EmailCampaign,
         recipients: EmailCampaignRecipient,
         suppressions: MarketingSuppression,
+        notificationJobs: MarketingNotificationJob,
+        sequelize: this.sequelize,
         resolveAttribution: (cookieValue) =>
           this.marketingTracking().resolveAttribution(cookieValue),
-        notifier: this.marketingLeadNotifications(),
       }),
   );
 

@@ -106,6 +106,21 @@ RATE_LIMIT_MARKETING_DEMO_REQUEST_LIMIT=5
 RATE_LIMIT_MARKETING_DEMO_REQUEST_WINDOW_MS=900000
 RATE_LIMIT_DEMO_REQUEST_IDENTITY_LIMIT=3
 RATE_LIMIT_DEMO_REQUEST_IDENTITY_WINDOW_MS=3600000
+# Reply-To of operational and campaign mail.
+EMAIL_REPLY_TO=zeromilesystems@gmail.com
+# Hardening 5B secrets — set these ONLY in Render → Environment.
+# Empty MARKETING_PROVIDER_WEBHOOK_SECRET keeps the signed provider
+# email-event endpoint closed (which is correct on Gmail SMTP, because
+# nothing signs events there). Empty MARKETING_ATTRIBUTION_SECRET disables
+# signed attribution cookies; legacy digest cookies still resolve.
+MARKETING_PROVIDER_WEBHOOK_SECRET=
+MARKETING_ATTRIBUTION_SECRET=
+# Marketing retention windows (same worker pass as the policies above).
+MARKETING_EVENT_RETENTION_DAYS=365
+MARKETING_LEAD_RETENTION_DAYS=730
+MARKETING_RECIPIENT_PII_RETENTION_DAYS=180
+MARKETING_NOTIFICATION_JOB_RETENTION_DAYS=90
+MARKETING_PROVIDER_EVENT_RETENTION_DAYS=180
 ```
 
 ### Email delivery and password reset
@@ -194,10 +209,37 @@ specific to it:
   per-minute ceiling (`MARKETING_RATE_PER_MINUTE`) exists so a new sender
   ramps gradually instead of bursting. Every campaign email carries
   `List-Unsubscribe`/`List-Unsubscribe-Post`; do not strip them at a relay.
-- **Demo requests** arrive on the public landing page form. The lead is
-  stored before any notification is attempted, so an SMTP outage never
-  loses one — leads stay visible at `/admin/marketing/leads`, and a failed
-  notification is recorded on the lead's timeline.
+- **Demo requests** arrive on the public landing page form. Since Hardening
+  5B the lead **and** its admin-notification job are written in one
+  transaction and the request returns without waiting for SMTP. The
+  notification is drained by the same worker tick as campaign delivery
+  (notifications first), with `FOR UPDATE SKIP LOCKED`, leases and bounded
+  retries — a redeploy mid-send delays a notification instead of losing it,
+  and two instances never send it twice. Leads stay visible at
+  `/admin/marketing/leads`; every attempt is recorded on the lead timeline
+  as `ADMIN_NOTIFIED` or `ADMIN_NOTIFY_FAILED`.
+- **Bounces and complaints — read this before promising anything.** Plain
+  Gmail SMTP gives the application **no webhook** for delayed bounces or
+  spam complaints; they arrive as messages in the sending mailbox. What the
+  platform handles automatically is an *immediate* SMTP rejection. The
+  working feedback loop is the Super Admin console at
+  `/admin/marketing/suppressions`: record the address, and every not-yet-sent
+  recipient row for it is suppressed across all campaigns. A signed ingest
+  endpoint (`POST /api/v1/integrations/marketing/email-events`, HMAC +
+  timestamp + replay protection) is ready for the day a real event source
+  exists; it stays closed while `MARKETING_PROVIDER_WEBHOOK_SECRET` is empty.
+- **Sender domain caveat**: this deployment sends from a Gmail mailbox, so
+  SPF, DKIM and DMARC for `gmail.com` are Google's records and cannot be
+  configured here — deliverability rests on Gmail's reputation and on
+  sending gently. Do **not** invent a custom-domain sender such as
+  `updates@yourdomain.com`: an unverified `From` fails authentication and
+  lands in spam. Set `EMAIL_REPLY_TO` so replies reach a monitored mailbox.
+- **Marketing secrets** (`MARKETING_PROVIDER_WEBHOOK_SECRET`,
+  `MARKETING_ATTRIBUTION_SECRET`, `SMTP_PASS`) belong only in Render →
+  Environment. They are never committed, never logged and never returned by
+  an endpoint. Both marketing secrets are read per request, so rotating one
+  needs no restart (rotating the attribution key invalidates outstanding
+  `zms_ref` cookies, which only costs attribution on in-flight clicks).
 
 ### Content-Security-Policy and map tiles
 
@@ -295,7 +337,8 @@ configuration-gated and neither can crash the server:
 
 | Worker                         | What it does                                                                                                                                                                                                         | Knobs                                                                                                                       |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Retention worker               | Deletes GPS locations / notifications / refresh tokens / audit logs / resolved emergencies / expired idempotency keys past their policy age (`docs/data-retention.md`)                                               | `RETENTION_ENABLED`, `RETENTION_INTERVAL_MS` (default 6 h), `RETENTION_INITIAL_DELAY_MS` (default 30 s), `*_RETENTION_DAYS` |
+| Retention worker               | Deletes GPS locations / notifications / refresh tokens / audit logs / resolved emergencies / expired idempotency keys past their policy age, and applies the marketing policies — anonymizing lead and recipient PII, never removing suppressions (`docs/data-retention.md`)                                               | `RETENTION_ENABLED`, `RETENTION_INTERVAL_MS` (default 6 h), `RETENTION_INITIAL_DELAY_MS` (default 30 s), `*_RETENTION_DAYS` |
+| Marketing worker (composite)   | One tick drains both durable marketing queues: admin notification jobs first (`marketing_notification_jobs`), then campaign delivery (`email_campaign_recipients`). Separate tables, locks and caps; one timer                                                                                                        | `MARKETING_WORKER_ENABLED`, `MARKETING_WORKER_INTERVAL_MS`, `MARKETING_NOTIFY_*`, `MARKETING_*` delivery knobs            |
 | WebSocket session revalidation | Every `WEBSOCKET_SESSION_REVALIDATION_INTERVAL_MS` (default 5 min) disconnects live sockets whose access token expired, whose account or school was deactivated; clients reconnect and re-authenticate transparently | `WEBSOCKET_SESSION_REVALIDATION_ENABLED`, `..._INTERVAL_MS`                                                                 |
 
 ### Graceful shutdown
@@ -418,7 +461,12 @@ run if the compiled tree is incomplete.
       cannot recover their own accounts — check the boot log for
       `SmtpEmailProvider active`)
 - [ ] `APP_URL` matches the public origin, so emailed reset links resolve
-- [ ] Retention policies configured
+- [ ] Retention policies configured (including the `MARKETING_*_RETENTION_DAYS` windows)
+- [ ] `MARKETING_ATTRIBUTION_SECRET` set (or accepted as disabled, knowingly)
+- [ ] `MARKETING_PROVIDER_WEBHOOK_SECRET` left empty unless a real event
+      source signs events — the endpoint must not be open without it
+- [ ] Operators know that bounces/complaints are recorded by hand at
+      `/admin/marketing/suppressions` on this Gmail SMTP setup
 - [ ] Backup strategy in place
 - [ ] Monitoring configured
 - [ ] Logging configured

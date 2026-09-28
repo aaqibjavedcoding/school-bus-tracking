@@ -28,6 +28,7 @@ const PAGES = {
   campaignDetail: path.join(MARKETING_DIR, 'campaigns', '[id]', 'page.tsx'),
   leadList: path.join(MARKETING_DIR, 'leads', 'page.tsx'),
   leadDetail: path.join(MARKETING_DIR, 'leads', '[id]', 'page.tsx'),
+  suppressions: path.join(MARKETING_DIR, 'suppressions', 'page.tsx'),
 };
 
 const DEMO_REQUEST_FORM = path.resolve(here, '..', '..', 'app', 'DemoRequestForm.tsx');
@@ -250,5 +251,89 @@ describe('public demo request form (landing page)', () => {
     assert.match(source, /utm_source/);
     assert.match(source, /UTM_KEYS/);
     assert.ok(!/searchParams\.entries|params\.entries/.test(source), 'no blanket query capture');
+  });
+});
+
+describe('suppressions console (Hardening 5B)', () => {
+  it('exposes the suppression list to SUPER_ADMIN only', () => {
+    const superAdmin = navItemsForRole(UserRole.SUPER_ADMIN).map((item) => item.href);
+    assert.ok(superAdmin.includes('/admin/marketing/suppressions'));
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/admin/marketing/suppressions'), true);
+
+    for (const role of [
+      UserRole.SCHOOL_ADMIN,
+      UserRole.DRIVER,
+      UserRole.CONDUCTOR,
+      UserRole.PARENT,
+    ]) {
+      const hrefs = navItemsForRole(role).map((item) => item.href);
+      assert.ok(!hrefs.includes('/admin/marketing/suppressions'));
+      assert.equal(canAccessPath(role, '/admin/marketing/suppressions'), false);
+    }
+    assert.ok(fs.existsSync(PAGES.suppressions));
+  });
+
+  it('renders masked addresses and never a raw recipient address', () => {
+    const source = read(PAGES.suppressions);
+    assert.match(source, /item\.masked_email/);
+    assert.ok(
+      !/item\.normalized_email|item\.email\b/.test(source),
+      'the API returns no full address and the page must not invent one',
+    );
+  });
+
+  it('is honest about the Gmail SMTP limitation instead of implying a webhook', () => {
+    const source = read(PAGES.suppressions);
+    assert.match(source, /Gmail SMTP/);
+    assert.match(source, /no webhook/i);
+    assert.ok(
+      !/automatically (processes|handles) (bounces|complaints)/i.test(source),
+      'the page never claims automatic bounce processing',
+    );
+  });
+
+  it('confirms before removing, with a second gate for an unsubscribe', () => {
+    const source = read(PAGES.suppressions);
+    assert.match(source, /<ConfirmDialog/);
+    assert.match(source, /acknowledge_unsubscribed/);
+    assert.match(source, /acknowledgeUnsubscribed/);
+  });
+
+  it('never offers UNSUBSCRIBED as a manual reason', () => {
+    const source = read(PAGES.suppressions);
+    const manualBlock = source.slice(
+      source.indexOf('MANUAL_REASON_OPTIONS'),
+      source.indexOf('export default'),
+    );
+    assert.ok(
+      !manualBlock.includes('MarketingSuppressionReason.UNSUBSCRIBED'),
+      'an operator cannot assert an opt-out on someone else\'s behalf',
+    );
+  });
+
+  it('goes through the shared apiClient with search, filter and pagination', () => {
+    const source = read(PAGES.suppressions);
+    assert.ok(!/\bfetch\s*\(/.test(source));
+    assert.match(source, /listMarketingSuppressions/);
+    assert.match(source, /createMarketingSuppression/);
+    assert.match(source, /deleteMarketingSuppression/);
+    assert.match(source, /<Pagination/);
+    assert.match(source, /<Skeleton/);
+    assert.match(source, /<ErrorState/);
+    assert.match(source, /<EmptyState/);
+  });
+});
+
+describe('lead erasure control (Hardening 5B)', () => {
+  it('requires the operator to retype the lead name before erasing', () => {
+    const source = read(PAGES.leadDetail);
+    assert.match(source, /canEraseMarketingLead/);
+    assert.match(source, /eraseMarketingLead\(leadId, \{ confirm: true \}\)/);
+    assert.match(source, /Irreversible/);
+  });
+
+  it('describes erasure as anonymization that keeps the consent record', () => {
+    const source = read(PAGES.leadDetail);
+    assert.match(source, /consent record/i);
   });
 });

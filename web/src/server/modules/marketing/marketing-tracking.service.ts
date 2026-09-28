@@ -37,6 +37,11 @@ import {
   type MarketingUtmParameters,
 } from '@school-bus-tracking/shared-types';
 import { Logger, NotFoundException } from '../../framework';
+import {
+  MARKETING_ATTRIBUTION_TTL_MS,
+  type MarketingAttributionService,
+  type MarketingResolvedAttribution,
+} from './marketing-attribution.service';
 import type {
   EmailCampaign,
   EmailCampaignRecipient,
@@ -54,7 +59,7 @@ import {
 export const MARKETING_ATTRIBUTION_COOKIE = 'zms_ref';
 
 /** Attribution cookie lifetime: 30 days, the usual marketing window. */
-export const MARKETING_ATTRIBUTION_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const MARKETING_ATTRIBUTION_COOKIE_MAX_AGE_MS = MARKETING_ATTRIBUTION_TTL_MS;
 
 /**
  * Shape of the attribution cookie value: `campaignDigest.recipientDigest`,
@@ -78,17 +83,11 @@ export function marketingAttributionRecipientDigest(
 }
 
 /**
- * A resolved (and therefore *valid*) attribution cookie.
- *
- * `campaign_recipient_id` is null when only the campaign half resolved —
- * either a legacy cookie or a recipient digest that matches nothing, which
- * is treated as "no recipient attribution", never as an error the visitor
- * could observe.
+ * Re-exported so existing importers (the leads service, the public endpoint
+ * definitions and their specs) keep one name for the resolved attribution
+ * shape; the type itself now lives with the attribution service.
  */
-export interface MarketingResolvedAttribution {
-  campaign_id: string;
-  campaign_recipient_id: string | null;
-}
+export type { MarketingResolvedAttribution };
 
 /** Where a tracked click lands. A constant, never request-derived. */
 export const MARKETING_LANDING_PATH = '/';
@@ -110,6 +109,13 @@ export interface MarketingTrackingServiceDeps {
   suppressions: typeof MarketingSuppression;
   /** Public origin of this deployment (`APP_URL`). */
   appUrl: () => string;
+  /**
+   * Signed, indexed attribution (Hardening 5B). Optional so DB-less unit
+   * tests and legacy bootstraps still construct the service; when absent a
+   * click falls back to the legacy opaque digest cookie and resolution is
+   * unavailable.
+   */
+  attribution?: MarketingAttributionService | null;
 }
 
 /** Token shape check before any database work (cheap, and bounds the input). */
@@ -160,77 +166,40 @@ export class MarketingTrackingService {
       utm: pickSafeUtmParameters(query, MARKETING_SAFE_UTM_PARAMETERS),
     });
 
+    // A valid click mints a signed, single-purpose attribution grant whose
+    // nonce only ever exists in the cookie (the database keeps its digest).
+    // Without `MARKETING_ATTRIBUTION_SECRET` the legacy opaque digest value
+    // is used instead — still resolvable, still address-free.
+    const signed = this.deps.attribution
+      ? await this.deps.attribution.issue(campaign.id, recipient.id)
+      : null;
+
     return {
       redirectUrl: this.buildRedirectUrl(query),
-      attributionValue: this.attributionValue(campaign.id, recipient.id),
+      attributionValue: signed ?? this.attributionValue(campaign.id, recipient.id),
       repeat: !isFirstClick,
     };
   }
 
   /**
-   * Resolves an attribution cookie back to its campaign (and, when the
-   * recipient half matches, the specific snapshotted recipient).
+   * Resolves an attribution cookie, delegating to
+   * {@link MarketingAttributionService}.
    *
-   * Everything about this is defensive, because the input is a cookie any
-   * visitor can forge:
+   * The delegation is the point of Hardening 5B: resolution is a signature
+   * check plus one unique-index probe, never the campaign/recipient scan
+   * this method used to perform on every public form submission. Legacy
+   * cookies keep resolving through the indexed `attribution_digest` columns.
    *
-   * - the value must match {@link MARKETING_ATTRIBUTION_VALUE_PATTERN} —
-   *   junk is dropped before any database work;
-   * - the campaign is found by recomputing digests over a **bounded** set of
-   *   recent campaigns (never by trusting an id from the client — the cookie
-   *   carries no id to trust);
-   * - the recipient half only matches recipients **of that campaign** that
-   *   have actually **clicked** (only a click ever mints the cookie), again
-   *   over a bounded set;
-   * - a mismatch anywhere resolves to `null` / campaign-only. No caller can
-   *   distinguish "forged" from "expired" from "absent".
-   *
-   * Honest scope note: if the campaign email was forwarded, the cookie — and
-   * therefore this attribution — represents the **original recipient**, not
-   * necessarily the person now filling in the form. The form's own email
-   * field is the reliable identity of the submitter.
+   * Forwarded-email limitation (unchanged): a resolved attribution names the
+   * **original recipient address**, not the human who clicked.
    */
-  async resolveAttribution(rawValue: string | undefined): Promise<MarketingResolvedAttribution | null> {
-    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
-    if (!MARKETING_ATTRIBUTION_VALUE_PATTERN.test(value)) {
+  async resolveAttribution(
+    rawValue: string | undefined,
+  ): Promise<MarketingResolvedAttribution | null> {
+    if (!this.deps.attribution) {
       return null;
     }
-    const [campaignDigest, recipientDigest] = value.split('.');
-
-    // Recompute digests over recent campaigns. The cookie lives 30 days, so
-    // anything older than the cookie window (plus slack) cannot match.
-    const cutoff = new Date(Date.now() - MARKETING_ATTRIBUTION_COOKIE_MAX_AGE_MS * 2);
-    const campaigns = await this.deps.campaigns.findAll({
-      where: { created_at: { [Op.gte]: cutoff } } as never,
-      order: [['created_at', 'DESC']],
-      limit: 500,
-    });
-    const campaign = campaigns.find(
-      (candidate) => marketingAttributionCampaignDigest(candidate.id) === campaignDigest,
-    );
-    if (!campaign || campaign.status === MarketingCampaignStatus.CANCELLED) {
-      return null;
-    }
-
-    if (!recipientDigest) {
-      return { campaign_id: campaign.id, campaign_recipient_id: null };
-    }
-
-    // Only clicked recipients of this campaign can have minted the cookie.
-    const clicked = await this.deps.recipients.findAll({
-      where: { campaign_id: campaign.id, first_clicked_at: { [Op.ne]: null } } as never,
-      order: [['first_clicked_at', 'DESC']],
-      limit: 5000,
-    });
-    const recipient = clicked.find(
-      (candidate) =>
-        marketingAttributionRecipientDigest(campaign.id, candidate.id) === recipientDigest,
-    );
-
-    return {
-      campaign_id: campaign.id,
-      campaign_recipient_id: recipient?.id ?? null,
-    };
+    return this.deps.attribution.resolve(rawValue);
   }
 
   /**

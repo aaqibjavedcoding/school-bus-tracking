@@ -63,6 +63,18 @@ export interface EmailCampaignRecipientAttributes extends BaseModelAttributes {
   first_clicked_at: Date | null;
   /** When this recipient unsubscribed through their personalized link. */
   unsubscribed_at: Date | null;
+  /**
+   * Database-generated digest of `attribution:<campaign_id>:<id>`, used to
+   * resolve a legacy (Session 3/4) attribution cookie with one indexed
+   * lookup instead of a scan. `GENERATED ALWAYS … STORED`, so it can never
+   * drift from the ids and is never written by the application.
+   */
+  attribution_digest?: string | null;
+  /**
+   * When the retention worker anonymized this row's contact PII. Null means
+   * "still identifying"; the marker is what makes anonymization idempotent.
+   */
+  pii_anonymized_at: Date | null;
 }
 
 export type EmailCampaignRecipientCreationAttributes = Optional<
@@ -85,6 +97,8 @@ export type EmailCampaignRecipientCreationAttributes = Optional<
   | 'click_count'
   | 'first_clicked_at'
   | 'unsubscribed_at'
+  | 'attribution_digest'
+  | 'pii_anonymized_at'
 >;
 
 /**
@@ -247,6 +261,14 @@ export class EmailCampaignRecipient extends BaseModel<
   @AllowNull(true)
   @Column({ type: DataType.DATE })
   declare unsubscribed_at: Date | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(32) })
+  declare attribution_digest: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare pii_anonymized_at: Date | null;
 
   @BelongsTo(() => EmailCampaign, { foreignKey: 'campaign_id', as: 'campaign' })
   declare campaign?: EmailCampaign;

@@ -88,6 +88,10 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
         // campaign attribution). Platform-level personal data: SUPER_ADMIN
         // only, like the rest of the marketing console.
         { href: '/admin/marketing/leads', label: 'Demo leads', icon: 'users' },
+        // The do-not-send list. With plain Gmail SMTP there is no bounce
+        // webhook, so this page is where an operator records a bounce or a
+        // complaint seen in the sending mailbox.
+        { href: '/admin/marketing/suppressions', label: 'Suppressions', icon: 'alert' },
       ];
     case UserRole.SCHOOL_ADMIN:
       return [

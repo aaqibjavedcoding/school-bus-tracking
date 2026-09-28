@@ -7,6 +7,8 @@ import {
   MarketingLeadSource,
   MarketingLeadStatus,
   MarketingRecipientSource,
+  MarketingSuppressionReason,
+  MarketingSuppressionSource,
   MarketingTemplateStatus,
   type MarketingCampaignResponse,
   type MarketingTemplateSummary,
@@ -36,9 +38,14 @@ import {
   marketingLeadNextStatuses,
   marketingLeadSourceLabel,
   marketingLeadStatusLabel,
+  marketingSuppressionReasonLabel,
+  marketingSuppressionReasonTone,
+  marketingSuppressionSourceLabel,
   marketingTemplateStatusLabel,
   marketingTemplateStatusTone,
   parseFilterList,
+  suppressionRemovalNeedsOptOutAcknowledgement,
+  canEraseMarketingLead,
   MARKETING_TEST_SEND_NOTE,
 } from './helpers.ts';
 
@@ -377,5 +384,53 @@ describe('demo lead helpers (Session 4)', () => {
       /lead is safely stored/,
       'a failed notification is presented as recorded, not as a lost lead',
     );
+  });
+});
+
+describe('suppression presentation (Hardening 5B)', () => {
+  it('labels every reason and source without inventing an enum member', () => {
+    for (const reason of Object.values(MarketingSuppressionReason)) {
+      const label = marketingSuppressionReasonLabel(reason);
+      assert.ok(label.length > 0);
+      assert.ok(label !== reason, `${reason} reads as prose, not an enum name`);
+    }
+    for (const source of Object.values(MarketingSuppressionSource)) {
+      assert.ok(marketingSuppressionSourceLabel(source).length > 0);
+    }
+  });
+
+  it('tones an opt-out as informational and a complaint as dangerous', () => {
+    assert.equal(
+      marketingSuppressionReasonTone(MarketingSuppressionReason.UNSUBSCRIBED),
+      'info',
+      'an unsubscribe is a person exercising a right, not an error',
+    );
+    assert.equal(marketingSuppressionReasonTone(MarketingSuppressionReason.HARD_BOUNCE), 'warning');
+    assert.equal(marketingSuppressionReasonTone(MarketingSuppressionReason.COMPLAINED), 'danger');
+  });
+
+  it('requires an opt-out acknowledgement only for UNSUBSCRIBED rows', () => {
+    assert.equal(
+      suppressionRemovalNeedsOptOutAcknowledgement(MarketingSuppressionReason.UNSUBSCRIBED),
+      true,
+    );
+    for (const reason of [
+      MarketingSuppressionReason.HARD_BOUNCE,
+      MarketingSuppressionReason.COMPLAINED,
+      MarketingSuppressionReason.MANUAL,
+    ]) {
+      assert.equal(suppressionRemovalNeedsOptOutAcknowledgement(reason), false);
+    }
+  });
+});
+
+describe('lead erasure confirmation', () => {
+  it('unlocks only on the exact name, ignoring case and padding', () => {
+    assert.equal(
+      canEraseMarketingLead({ confirmationText: '  asha verma ', expected: 'Asha Verma' }),
+      true,
+    );
+    assert.equal(canEraseMarketingLead({ confirmationText: 'Asha', expected: 'Asha Verma' }), false);
+    assert.equal(canEraseMarketingLead({ confirmationText: '', expected: 'Asha Verma' }), false);
   });
 });

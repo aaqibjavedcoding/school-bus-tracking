@@ -4,6 +4,7 @@ import { ApiClient } from '@school-bus-tracking/api-client';
 import {
   MarketingCampaignStatus,
   MarketingRecipientSource,
+  MarketingSuppressionReason,
   MarketingTemplateStatus,
 } from '@school-bus-tracking/shared-types';
 import type {
@@ -252,6 +253,107 @@ describe('ApiClient marketing campaign methods', () => {
     });
     for (const request of requests) {
       assert.ok(!request.body?.includes('@'), 'no address may appear in a campaign request');
+    }
+  });
+});
+
+/**
+ * Hardening 5B additions: the suppression console and lead erasure.
+ *
+ * Two contracts matter beyond verbs and paths. The suppression *create* call
+ * is the one place in the whole client where an address is legitimately sent
+ * (an operator is recording a bounce), and the *delete* call must carry its
+ * confirmation in the body — a DELETE that confirms itself in a query string
+ * is a link someone can be tricked into following.
+ */
+describe('ApiClient marketing suppression and erasure methods', () => {
+  const SUPPRESSION_ID = '44444444-4444-4444-8444-444444444444';
+  const LEAD_ID = '55555555-5555-4555-8555-555555555555';
+
+  it('lists suppressions with filters in the query string', async () => {
+    const { client, requests } = recordingClient();
+
+    await client.listMarketingSuppressions({
+      page: 2,
+      limit: 20,
+      reason: MarketingSuppressionReason.HARD_BOUNCE,
+      search: 'school.test',
+    });
+
+    assert.equal(requests[0].method, 'GET');
+    assert.equal(
+      requests[0].url,
+      'https://api.example.test/api/v1/marketing/suppressions?page=2&limit=20&reason=HARD_BOUNCE&search=school.test',
+    );
+  });
+
+  it('omits absent filters entirely rather than sending empty values', async () => {
+    const { client, requests } = recordingClient();
+    await client.listMarketingSuppressions();
+    assert.equal(requests[0].url, 'https://api.example.test/api/v1/marketing/suppressions');
+  });
+
+  it('posts a manual suppression with its reason and optional note', async () => {
+    const { client, requests } = recordingClient();
+
+    await client.createMarketingSuppression({
+      email: 'principal@school.test',
+      reason: MarketingSuppressionReason.HARD_BOUNCE,
+      note: 'mailbox does not exist',
+    });
+
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].url, 'https://api.example.test/api/v1/marketing/suppressions');
+    assert.deepEqual(JSON.parse(String(requests[0].body)), {
+      email: 'principal@school.test',
+      reason: MarketingSuppressionReason.HARD_BOUNCE,
+      note: 'mailbox does not exist',
+    });
+  });
+
+  it('sends the removal confirmation in the body, never in the URL', async () => {
+    const { client, requests } = recordingClient();
+
+    await client.deleteMarketingSuppression(SUPPRESSION_ID, {
+      confirm: true,
+      acknowledge_unsubscribed: true,
+    });
+
+    assert.equal(requests[0].method, 'DELETE');
+    assert.equal(
+      requests[0].url,
+      `https://api.example.test/api/v1/marketing/suppressions/${SUPPRESSION_ID}`,
+    );
+    assert.ok(!requests[0].url.includes('confirm'), 'a confirmation is not a link');
+    assert.deepEqual(JSON.parse(String(requests[0].body)), {
+      confirm: true,
+      acknowledge_unsubscribed: true,
+    });
+  });
+
+  it('posts the lead erasure with an explicit confirmation', async () => {
+    const { client, requests } = recordingClient();
+
+    await client.eraseMarketingLead(LEAD_ID, { confirm: true });
+
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(
+      requests[0].url,
+      `https://api.example.test/api/v1/marketing/leads/${LEAD_ID}/erase`,
+    );
+    assert.deepEqual(JSON.parse(String(requests[0].body)), { confirm: true });
+  });
+
+  it('never sends an address on any call except the deliberate suppression create', async () => {
+    const { client, requests } = recordingClient();
+
+    await client.listMarketingSuppressions({ search: 'school.test' });
+    await client.deleteMarketingSuppression(SUPPRESSION_ID, { confirm: true });
+    await client.eraseMarketingLead(LEAD_ID, { confirm: true });
+
+    for (const request of requests) {
+      assert.ok(!request.body?.includes('@'));
+      assert.ok(!request.url.includes('@'));
     }
   });
 });

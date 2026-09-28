@@ -17,6 +17,54 @@ Configurable data retention prevents unbounded database growth, especially for G
 | Emergency Records  | 730 days | `EMERGENCY_RETENTION_DAYS`       |
 | Idempotency Keys   | 7 days   | `IDEMPOTENCY_KEY_RETENTION_DAYS` |
 
+### Marketing policies (Hardening 5B)
+
+These run in the **same worker pass** as the ones above — no second timer was
+added. They differ in kind: they anonymize more than they delete, because
+consent evidence, campaign counters and suppression instructions have to
+outlive the personal data they were derived from.
+
+| Data                                  | Action                        | Default  | Environment Variable                        |
+| ------------------------------------- | ----------------------------- | -------- | ------------------------------------------- |
+| Marketing events (sends/clicks/…)     | delete                        | 365 days | `MARKETING_EVENT_RETENTION_DAYS`            |
+| Demo lead PII                         | **anonymize in place**        | 730 days | `MARKETING_LEAD_RETENTION_DAYS`             |
+| Campaign recipient PII (terminal only)| **anonymize in place**        | 180 days | `MARKETING_RECIPIENT_PII_RETENTION_DAYS`    |
+| Notification jobs (terminal only)     | delete                        | 90 days  | `MARKETING_NOTIFICATION_JOB_RETENTION_DAYS` |
+| Provider feedback events              | delete                        | 180 days | `MARKETING_PROVIDER_EVENT_RETENTION_DAYS`   |
+| Attribution grants                    | delete once expired           | 30 days¹ | (cookie TTL, not a day count)               |
+| **Suppressions**                      | **never removed**             | —        | —                                           |
+
+¹ Grants carry their own `expires_at`; retention deletes grants that can no
+longer attribute anything.
+
+What the marketing policies guarantee:
+
+- **Suppressions are never aged out.** An unsubscribe, a hard bounce and a
+  complaint are permanent instructions, not telemetry.
+- **Aggregate counters survive.** `email_campaigns` counters are columns on
+  the campaign row and are never recomputed or cleared here, so an old
+  campaign still reports what it sent after its per-event rows are gone.
+- **Work still owed is never dropped.** Only recipient rows outside
+  `PENDING`/`PROCESSING`/`RETRYING` are anonymized, and only
+  `SENT`/`FAILED`/`EXPIRED` notification jobs are deleted.
+- **Idempotent.** Both anonymization passes are guarded by a marker column
+  (`pii_anonymized_at`, `erased_at`), so a second run matches nothing.
+- **Anonymize, don't destroy.** Leads keep their consent record, status
+  history and timeline event types; the identifying fields are replaced and
+  the event metadata is stripped. Addresses become non-routable
+  `…@invalid` placeholders derived from the row id, which also preserves the
+  `(campaign_id, normalized_email)` uniqueness constraint.
+
+### Lead erasure on request (Super Admin)
+
+Separate from the scheduled policy, a Super Admin can erase one lead
+immediately from `/admin/marketing/leads/:id` (`POST
+/api/v1/marketing/leads/:id/erase`, `confirm: true` enforced server-side).
+It anonymizes the same fields, strips timeline metadata, closes any
+outstanding admin-notification job as `EXPIRED`, and is idempotent. The audit
+record carries counts and the fact of erasure only — never the erased email,
+phone or message.
+
 ## Implementation
 
 ### Where the worker runs (wired, not just written)
@@ -60,6 +108,13 @@ REFRESH_TOKEN_RETENTION_DAYS=30
 AUDIT_LOG_RETENTION_DAYS=365
 EMERGENCY_RETENTION_DAYS=730
 IDEMPOTENCY_KEY_RETENTION_DAYS=7
+
+# Marketing (Hardening 5B) — same worker pass
+MARKETING_EVENT_RETENTION_DAYS=365
+MARKETING_LEAD_RETENTION_DAYS=730
+MARKETING_RECIPIENT_PII_RETENTION_DAYS=180
+MARKETING_NOTIFICATION_JOB_RETENTION_DAYS=90
+MARKETING_PROVIDER_EVENT_RETENTION_DAYS=180
 
 # Scheduling (in-process worker)
 RETENTION_ENABLED=true
@@ -132,3 +187,11 @@ Expired idempotency keys are cleaned up after 7 days by default. The TTL is set 
   the worker against real PostgreSQL — proves old rows are deleted, recent
   rows and open emergencies survive, passes are idempotent, and a second
   worker holding the advisory lock elsewhere causes a skip.
+- **Marketing policies**: `retention.worker.spec.ts` also pins that
+  suppressions are never touched, unsent recipients and outstanding
+  notification jobs are never removed, campaign counters are never rewritten,
+  and both anonymization statements are marker-guarded (idempotent).
+- **Erasure**: `web/src/server/modules/marketing/marketing-erasure.service.spec.ts`
+  (confirmation required, anonymize-not-delete, consent preserved,
+  idempotent) and `marketing-suppressions.controller.spec.ts` (audit rows
+  carry digests and counts, never the erased data).

@@ -9,9 +9,12 @@ import {
   EmailEvent,
   EmailTemplate,
   EmailTemplateVersion,
+  MarketingAttribution,
   MarketingLead,
   MarketingLeadEvent,
   MarketingDeliverySettings,
+  MarketingNotificationJob,
+  MarketingProviderEvent,
   MarketingSuppression,
   models,
 } from './models';
@@ -74,6 +77,9 @@ const marketingModels = [
   ['MarketingLead', MarketingLead, 'marketing_leads'],
   ['MarketingLeadEvent', MarketingLeadEvent, 'marketing_lead_events'],
   ['MarketingDeliverySettings', MarketingDeliverySettings, 'marketing_delivery_settings'],
+  ['MarketingNotificationJob', MarketingNotificationJob, 'marketing_notification_jobs'],
+  ['MarketingProviderEvent', MarketingProviderEvent, 'marketing_provider_events'],
+  ['MarketingAttribution', MarketingAttribution, 'marketing_attributions'],
 ] as const;
 
 // Initialize the decorator metadata once for this spec file (no connection).
@@ -96,8 +102,8 @@ describe('marketing model registry', () => {
   });
 
   it('keeps the registry free of accidental marketing duplicates', () => {
-    // 30 pre-marketing models + the 9 marketing models.
-    assert.equal(models.length, 39);
+    // 30 pre-marketing models + the 12 marketing models.
+    assert.equal(models.length, 42);
   });
 });
 

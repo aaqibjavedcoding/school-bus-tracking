@@ -528,6 +528,19 @@ personal data (name, email, phone) entrusted by the data subject.
 | `MARKETING_SEND_JITTER_MS`                | random extra gap between sends                        | `250`        |
 | `MARKETING_EXPIRY_MS`                     | age after which an unsent recipient expires           | `259200000`  |
 | `MARKETING_LEASE_MS`                      | claim lease; drives crash recovery                    | `120000`     |
+| `MARKETING_NOTIFY_BATCH_SIZE`             | notification jobs claimed per sweep                   | `10`         |
+| `MARKETING_NOTIFY_MAX_ATTEMPTS`           | attempts before a notification job is `FAILED`        | `5`          |
+| `MARKETING_NOTIFY_RETRY_BASE_MS`          | first notification retry (doubles + jitter, ≤ 15 min) | `60000`      |
+| `MARKETING_NOTIFY_EXPIRY_MS`              | age after which a notification job is `EXPIRED`       | `86400000`   |
+| `MARKETING_NOTIFY_LEASE_MS`               | notification claim lease                              | `120000`     |
+| `MARKETING_PROVIDER_WEBHOOK_SECRET`       | **secret** — signs provider email events; empty closes the endpoint | empty |
+| `MARKETING_ATTRIBUTION_SECRET`            | **secret** — signs the `zms_ref` attribution cookie   | empty        |
+| `EMAIL_REPLY_TO`                          | `Reply-To` of operational and campaign mail           | unset        |
+| `MARKETING_EVENT_RETENTION_DAYS`          | per-event analytics rows kept                         | `365`        |
+| `MARKETING_LEAD_RETENTION_DAYS`           | days before lead PII is anonymized in place           | `730`        |
+| `MARKETING_RECIPIENT_PII_RETENTION_DAYS`  | days before terminal recipient PII is anonymized      | `180`        |
+| `MARKETING_NOTIFICATION_JOB_RETENTION_DAYS` | terminal notification jobs kept                     | `90`         |
+| `MARKETING_PROVIDER_EVENT_RETENTION_DAYS` | stored provider events kept                           | `180`        |
 
 `MARKETING_WORKER_BATCH_SIZE`, `MARKETING_DELIVERY_MAX_ATTEMPTS` and
 `MARKETING_DELIVERY_BASE_BACKOFF_MS` remain accepted as aliases of the three
@@ -550,6 +563,9 @@ notifications are skipped (and the failure is logged, not swallowed).
 | `marketing_suppressions`    | do-not-send list                   | unique `normalized_email`                                                                                    |
 | `marketing_leads`           | demo/sales leads                   | non-null `consent_at`; UTM JSONB; campaign attribution `SET NULL`                                            |
 | `marketing_lead_events`     | append-only lead trail             | safe `actor` label                                                                                           |
+| `marketing_notification_jobs` | durable admin-notification queue | partial unique `(job_type, lead_id)`; lease columns; `(status, next_attempt_at)` claim index                |
+| `marketing_provider_events` | signed provider feedback events    | unique `(provider, provider_event_id)`; `email_digest` only — no address, no payload                        |
+| `marketing_attributions`    | click attribution grants           | unique `nonce_digest` (SHA-256 of a random nonce); bound to campaign + recipient; `expires_at`              |
 
 All primary keys are UUIDv4. Status-like columns are plain VARCHARs
 validated against the shared enums (`packages/shared-types` →
@@ -674,3 +690,183 @@ For Gmail SMTP, use a Gmail App Password rather than the account password. The
 current `gmail.com` sender provides no custom DNS control, so configure
 `Zero Mile Systems <zeromilesystems@gmail.com>` and never invent an unverified
 invented or unverified custom-domain sender.
+
+
+## Hardening 5B — durable notifications, feedback, retention, attribution
+
+Session 5B closed four gaps that only show up in production: a notification
+that lives in a promise, a bounce nobody records, personal data that never
+ages out, and an attribution lookup that scans.
+
+### 1. Durable demo-lead notifications
+
+A demo request used to store the lead and then fire an SMTP call into a
+floating promise. A restart, a deploy or a dead relay lost the notification
+silently — the lead survived, but nobody was told about it.
+
+Now the public request writes **two rows in one transaction**: the lead and a
+`marketing_notification_jobs` row. Then it returns. No SMTP call happens
+inside the request at all.
+
+```text
+POST /public/marketing/demo-request
+  └─ BEGIN
+       INSERT marketing_leads
+       INSERT marketing_lead_events (CREATED)
+       INSERT marketing_notification_jobs (PENDING, due now)
+     COMMIT          ← the answer is sent here
+
+worker tick (same timer as campaign delivery, notifications FIRST)
+  └─ BEGIN; pg_try_advisory_xact_lock(714290003, 1)
+       UPDATE … SET status='PROCESSING', locked_by=me, lease_expires_at=now()+lease
+        WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT n) RETURNING …
+     COMMIT
+     send once → UPDATE … WHERE status='PROCESSING' AND locked_by=me
+```
+
+Properties, and the reason each exists:
+
+- **One transaction** — a lead that exists always has a notification owed.
+- **`FOR UPDATE SKIP LOCKED` + a lease** — two workers take disjoint jobs; a
+  worker killed mid-send leaves a job that becomes claimable again when its
+  lease expires (a delayed notification, never a lost one).
+- **The conditional outcome write** (`status='PROCESSING' AND locked_by=me`)
+  — a worker whose lease expired mid-send updates zero rows and stays quiet,
+  so the re-claiming worker's result stands.
+- **Bounded retries** — capped exponential backoff with jitter, `maxAttempts`,
+  and a 24-hour job expiry. Outcomes are `SENT`, `FAILED` or `EXPIRED`;
+  statuses in flight are `PENDING`, `PROCESSING`, `RETRYING`.
+- **Recipients come only from `MARKETING_ADMIN_EMAILS`.** The notification
+  body carries the follow-up details and a console link, never the visitor's
+  free-text message.
+- **Failure is visible, not fatal**: each attempt records `ADMIN_NOTIFIED` or
+  `ADMIN_NOTIFY_FAILED` on the lead timeline with a safe error *category* —
+  never a provider transcript, which can quote credentials.
+
+The queue is deliberately **separate from campaign recipients**: operational
+mail and bulk mail share no table, no counter and no cap. They share only the
+scheduler tick, through `marketing-worker.composite.ts`, so no second timer
+was added to the process.
+
+### 2. Bounce and complaint handling — what is real, and what is not
+
+**Be clear about the limitation: plain Gmail SMTP gives this application no
+webhook for delayed bounces or spam complaints.** An address that
+hard-bounces an hour after the send produces a bounce message *in the sending
+mailbox*; nothing calls the platform. Any claim of automatic bounce
+processing on this setup would be false.
+
+What exists is therefore two things:
+
+1. **A Super Admin suppression console** (`/admin/marketing/suppressions`) —
+   the working feedback loop today. An operator who sees a bounce or a
+   complaint records the address in two fields; every not-yet-sent recipient
+   row for it flips to `SUPPRESSED` immediately, across all campaigns. The
+   list shows **masked** addresses (`ze***@gmail.com`) and a domain column;
+   search matches a full address or a bare domain, never a substring, so the
+   page cannot be used to discover addresses. Removal requires an explicit
+   confirmation, and removing an `UNSUBSCRIBED` row additionally requires an
+   opt-out acknowledgement. Every add and remove is audited with a **digest**
+   of the address, never the address.
+2. **A signed ingest endpoint, ready for a real event source** —
+   `POST /api/v1/integrations/marketing/email-events`. It is closed unless
+   `MARKETING_PROVIDER_WEBHOOK_SECRET` is configured, because an unverified
+   suppression endpoint would let anyone silence any address.
+
+   | Control | Rule |
+   | --- | --- |
+   | Signature | HMAC-SHA256 over `"<timestamp>.<raw body>"`, `x-marketing-signature` (`sha256=` prefix accepted), constant-time compare |
+   | Timestamp | `x-marketing-timestamp`, seconds or milliseconds, ±5 minutes |
+   | Replay | `(provider, provider_event_id)` is unique — a duplicate applies nothing |
+   | Size | body bounded before parsing |
+   | Errors | one constant message for every rejection; nothing is echoed or logged |
+
+   Normalized event types are `delivered`, `hard_bounce`, `soft_bounce` and
+   `complaint`. **Only a hard bounce or a complaint suppresses**; an
+   unclassified `bounce` is treated as soft, because suppressing on a
+   temporary failure silently shrinks the audience forever. Suppression
+   reasons are `UNSUBSCRIBED`, `HARD_BOUNCE`, `COMPLAINED` and `MANUAL`; a
+   system signal never downgrades an `UNSUBSCRIBED` row. Stored provider
+   events keep a SHA-256 digest of the address and an allowlisted handful of
+   fields — never the address, never the raw payload.
+
+### 3. Marketing data retention (same worker, no new timer)
+
+The marketing policies run inside the existing `RetentionWorker` pass. They
+**anonymize more than they delete**, because consent evidence and campaign
+counters have to outlive the personal data they were derived from. See
+`docs/data-retention.md` for the table of windows. The invariants:
+
+- suppressions are never aged out — an opt-out is a permanent instruction;
+- campaign counters are never recomputed or cleared, so a two-year-old
+  campaign still reports what it sent after its per-event rows are gone;
+- only terminal recipient rows are anonymized (never `PENDING`,
+  `PROCESSING` or `RETRYING`), so an unsent message keeps its address;
+- only terminal notification jobs are deleted, so work still owed survives;
+- every pass is idempotent, guarded by `pii_anonymized_at` / `erased_at`.
+
+**Lead erasure on demand**: a Super Admin can erase one lead from its detail
+page (retype the lead name, then confirm; the server independently requires
+`confirm: true`). Erasure anonymizes in place — name, email, phone, message,
+UTM and fingerprint are cleared, timeline metadata is stripped, outstanding
+notification jobs are closed as `EXPIRED` — while the consent record, the
+status history and the counters survive. The audit row proves the erasure
+with counts only; an audit log that quotes the erased email has erased
+nothing.
+
+### 4. Scalable click attribution
+
+The Session 4 resolver recomputed digests over recent campaigns and then over
+every clicked recipient of the match — a scan on every submission of an
+*unauthenticated* form. Attribution is now:
+
+```text
+cookie → format check → HMAC check → expiry check
+       → sha256(nonce) → ONE unique-index probe on marketing_attributions
+       → re-check the campaign/recipient binding
+```
+
+- A **random 32-byte nonce** is minted on a valid tracked click; only
+  `sha256(nonce)` is stored, so a database leak yields no usable cookie.
+- The `zms_ref` cookie is `v2.<nonce>.<expiry>.<hmac>`, signed with
+  `MARKETING_ATTRIBUTION_SECRET`, HttpOnly, SameSite=Lax, Secure on HTTPS.
+  A forged cookie is rejected **before any query runs**; an edited expiry
+  invalidates the signature it is part of.
+- Reuse is bounded (`use_count`), so a stolen cookie cannot be replayed
+  indefinitely; each click mints a fresh grant.
+- **No email address appears in any tracking URL or cookie**, and no raw
+  cookie, nonce or signature is ever logged.
+- Legacy Session 3/4 digest cookies still resolve, now through indexed
+  generated `attribution_digest` columns — backward compatible, still no
+  scan.
+- The forwarded-email limitation is unchanged and deliberate: attribution
+  identifies the *original recipient address*, not the human who clicked.
+  The address typed into the form remains the reliable identity.
+
+### 5. End-to-end verification checklist
+
+Run this after a deploy that touches marketing. Steps marked **DB** need a
+real PostgreSQL (the unit suites stub it); steps marked **SMTP** send real
+mail to `MARKETING_ADMIN_EMAILS` / `MARKETING_TEST_RECIPIENTS`.
+
+| # | Step | How to confirm |
+|---|------|----------------|
+| 1 | Migrations apply from empty and roll back | `npm --prefix web run db:migrate`, then `test/integration/migrations.integration.spec.ts` (**DB**) |
+| 2 | Public demo form accepts a submission | POST the landing form; response returns without waiting for SMTP |
+| 3 | Lead + notification job land in one transaction | `marketing_leads` and `marketing_notification_jobs` both have the row; killing SMTP does not lose the lead (**DB**) |
+| 4 | Worker sends the admin notification once | `npm --prefix web run marketing:worker:once`; job → `SENT`, one `ADMIN_NOTIFIED` lead event (**DB**, **SMTP**) |
+| 5 | Two workers do not double-send | run the one-shot command twice concurrently; `sent` totals 1 (**DB**) |
+| 6 | A crashed worker's job is reclaimed | expire `lease_expires_at` by hand, re-run; job completes (**DB**) |
+| 7 | Permanent SMTP failure is bounded | job reaches `FAILED`/`EXPIRED` with `ADMIN_NOTIFY_FAILED`, never loops |
+| 8 | Campaign send still respects the daily cap | `/admin/marketing/settings` counters unchanged from Session 5A |
+| 9 | Tracked click mints attribution | click a campaign link; `marketing_attributions` gains one row, cookie is `v2.…`, no email in the URL |
+| 10 | Attribution resolves on the form | submit after the click; the lead shows the campaign, one indexed lookup |
+| 11 | Forged/expired cookie is ignored | edit the cookie; submission still succeeds, no attribution recorded |
+| 12 | Provider webhook rejects bad input | wrong signature, stale timestamp and a replayed body all return the same generic rejection |
+| 13 | Hard bounce suppresses | POST a signed `hard_bounce`; address appears in `/admin/marketing/suppressions`, unsent recipients flip to `SUPPRESSED`, counters unchanged |
+| 14 | Unsubscribe removal is protected | try to delete an `UNSUBSCRIBED` entry without acknowledgement — refused; audit row written on the acknowledged removal |
+| 15 | Retention and erasure are safe | run the retention worker twice (second pass is a no-op), confirm suppressions, pending jobs and unsent recipients survive; erase a lead from `/admin/marketing/leads/[id]` (**DB**) |
+
+Steps 1, 3, 5, 6, 9–10, 13 and 15 are additionally asserted by
+`web/test/integration/marketing-hardening.integration.spec.ts` and the unit
+suites listed in `web/package.json`.

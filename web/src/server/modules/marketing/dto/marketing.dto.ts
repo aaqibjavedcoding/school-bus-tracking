@@ -15,6 +15,7 @@ import {
   MarketingCampaignStatus,
   MarketingLeadSource,
   MarketingLeadStatus,
+  MarketingSuppressionReason,
   MarketingTemplateStatus,
 } from '@school-bus-tracking/shared-types';
 // Types referenced in decorated signatures must be imported as types when
@@ -401,4 +402,86 @@ export class AddMarketingLeadNoteDto {
   @MinLength(1, { message: 'Please enter the note text.' })
   @MaxLength(2000, { message: 'Please enter at most 2000 characters for the note.' })
   note!: string;
+}
+
+// -------------------------------------------------------------- suppressions
+
+/** Query of `GET /api/v1/marketing/suppressions`. */
+export class ListMarketingSuppressionsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'Please enter a whole number for the page number.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page number.' })
+  page: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'Please enter a whole number for the page size.' })
+  @Min(1, { message: 'Please enter a value of at least 1 for the page size.' })
+  @Max(100, { message: 'Please enter a value of at most 100 for the page size.' })
+  limit: number = 20;
+
+  @IsOptional()
+  @IsIn(['UNSUBSCRIBED', 'HARD_BOUNCE', 'COMPLAINED', 'MANUAL'], {
+    message: 'Please select a valid suppression reason.',
+  })
+  reason?: MarketingSuppressionReason;
+
+  /**
+   * A full address (matched exactly, server-side) or a bare domain. Never a
+   * substring: a substring search over local parts would turn the console
+   * into an address-enumeration oracle.
+   */
+  @IsOptional()
+  @IsString({ message: 'Please enter valid search text.' })
+  @MaxLength(254, { message: 'Please enter at most 254 characters for the search text.' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  search?: string;
+}
+
+/**
+ * Body of `POST /api/v1/marketing/suppressions`.
+ *
+ * This is the one marketing endpoint that legitimately accepts an address:
+ * an operator suppressing a mailbox that bounced. It is SUPER_ADMIN only,
+ * and the address is stored — never mailed.
+ */
+export class CreateMarketingSuppressionDto {
+  @IsString({ message: 'Please enter a valid email address.' })
+  @MinLength(3, { message: 'Please enter a valid email address.' })
+  @MaxLength(254, { message: 'Please enter at most 254 characters for the email address.' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  email!: string;
+
+  @IsIn(['UNSUBSCRIBED', 'HARD_BOUNCE', 'COMPLAINED', 'MANUAL'], {
+    message: 'Please select a valid suppression reason.',
+  })
+  reason!: MarketingSuppressionReason;
+
+  /** Operator note. Audited as a boolean only — never stored verbatim. */
+  @IsOptional()
+  @IsString({ message: 'Please enter a valid note.' })
+  @MaxLength(500, { message: 'Please enter at most 500 characters for the note.' })
+  note?: string;
+}
+
+/** Body of `DELETE /api/v1/marketing/suppressions/:id`. */
+export class DeleteMarketingSuppressionDto {
+  @IsBoolean({ message: 'Please confirm the removal.' })
+  confirm!: boolean;
+
+  /** Required on top of `confirm` when the row is an opt-out. */
+  @IsOptional()
+  @IsBoolean({ message: 'Please acknowledge that this address unsubscribed.' })
+  acknowledge_unsubscribed?: boolean;
+}
+
+/** Body of `POST /api/v1/marketing/leads/:id/erase`. */
+export class EraseMarketingLeadDto {
+  @IsBoolean({ message: 'Please confirm the erasure.' })
+  confirm!: boolean;
 }

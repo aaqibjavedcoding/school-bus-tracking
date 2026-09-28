@@ -14,4 +14,8 @@ export {
   UpdateMarketingLeadStatusDto,
   AddMarketingLeadNoteDto,
   UpdateMarketingDeliverySettingsDto,
+  ListMarketingSuppressionsQueryDto,
+  CreateMarketingSuppressionDto,
+  DeleteMarketingSuppressionDto,
+  EraseMarketingLeadDto,
 } from './marketing.dto';

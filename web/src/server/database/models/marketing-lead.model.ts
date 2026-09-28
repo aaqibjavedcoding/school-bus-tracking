@@ -63,6 +63,13 @@ export interface MarketingLeadAttributes extends BaseModelAttributes {
    * token — only from data the row already stores.
    */
   submission_fingerprint: string | null;
+  /**
+   * When a SUPER_ADMIN erasure (or the retention policy) anonymized this
+   * lead's contact PII. The row survives — the consent record and the
+   * pipeline history are what an auditor asks for — but name, address,
+   * phone and message are gone. The marker makes erasure idempotent.
+   */
+  erased_at: Date | null;
 }
 
 export type MarketingLeadCreationAttributes = Optional<
@@ -82,6 +89,7 @@ export type MarketingLeadCreationAttributes = Optional<
   | 'consent_source'
   | 'admin_notified_at'
   | 'submission_fingerprint'
+  | 'erased_at'
 >;
 
 /**
@@ -208,6 +216,10 @@ export class MarketingLead extends BaseModel<
   @AllowNull(true)
   @Column({ type: DataType.STRING(64) })
   declare submission_fingerprint: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare erased_at: Date | null;
 
   @BelongsTo(() => EmailCampaign, { foreignKey: 'campaign_id', as: 'campaign' })
   declare campaign?: EmailCampaign;

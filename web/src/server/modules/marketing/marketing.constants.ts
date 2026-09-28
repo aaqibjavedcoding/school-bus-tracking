@@ -63,6 +63,51 @@ export const MARKETING_DELIVERY_LOCK_CLASS = 714_290_002;
 /** Advisory-lock key of the global claim sweep. */
 export const MARKETING_DELIVERY_LOCK_KEY = 1;
 
+/**
+ * Advisory-lock class of the durable lead-notification sweep.
+ *
+ * A **different** class from campaign delivery on purpose: operational mail
+ * to `MARKETING_ADMIN_EMAILS` must never wait behind a 5,000-recipient
+ * campaign claim, and the two queues are independent failure domains.
+ */
+export const MARKETING_NOTIFICATION_LOCK_CLASS = 714_290_003;
+
+/** Advisory-lock key of the notification claim sweep. */
+export const MARKETING_NOTIFICATION_LOCK_KEY = 1;
+
+// ------------------------------------------------------- provider events
+
+/** The single, safe answer every rejected provider webhook call receives. */
+export const MARKETING_PROVIDER_EVENT_REJECTED = 'This request could not be verified';
+
+/** Returned when no `MARKETING_PROVIDER_WEBHOOK_SECRET` is configured. */
+export const MARKETING_PROVIDER_EVENTS_DISABLED =
+  'Provider event ingestion is not enabled for this deployment';
+
+/** Hard ceiling on a webhook body (bytes). Bigger payloads are rejected. */
+export const MARKETING_PROVIDER_EVENT_MAX_BODY_BYTES = 64 * 1024;
+
+/** How far a signed timestamp may drift from server time (milliseconds). */
+export const MARKETING_PROVIDER_EVENT_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000;
+
+// --------------------------------------------------------- suppressions
+
+export const MARKETING_SUPPRESSION_NOT_FOUND = 'Suppression not found';
+export const MARKETING_SUPPRESSION_CONFIRM_REQUIRED =
+  'Please confirm the removal before this suppression can be deleted';
+export const MARKETING_SUPPRESSION_UNSUBSCRIBE_PROTECTED =
+  'This address unsubscribed. Removing an opt-out requires the explicit unsubscribe acknowledgement.';
+export const MARKETING_SUPPRESSION_INVALID_EMAIL = 'Please enter a valid email address';
+export const MARKETING_SUPPRESSION_ADDED = 'Address suppressed';
+export const MARKETING_SUPPRESSION_REMOVED = 'Suppression removed';
+
+// ------------------------------------------------------------- erasure
+
+export const MARKETING_LEAD_ERASE_CONFIRM_REQUIRED =
+  'Please confirm the erasure before the lead can be anonymized';
+export const MARKETING_LEAD_ERASED_MESSAGE =
+  'Lead contact details were erased; the consent record and pipeline history remain';
+
 // -------------------------------------------------------- public tracking
 
 /**

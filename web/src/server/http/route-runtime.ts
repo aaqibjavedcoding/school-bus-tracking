@@ -161,25 +161,34 @@ export function createMetadataTarget(definition: EndpointDefinition<never, never
   return target;
 }
 
-/** Parses the JSON body, tolerating an absent/empty one exactly as Nest did. */
-async function readJsonBody(request: Request): Promise<unknown> {
+/**
+ * Parses the JSON body, tolerating an absent/empty one exactly as Nest did,
+ * and keeps the **raw text** beside it.
+ *
+ * The raw copy exists for exactly one caller: an HMAC-signed machine
+ * endpoint (the marketing provider-event webhook) has to verify the bytes
+ * that were signed, and a re-serialized object is not those bytes. A Web
+ * `Request` body can only be read once, so capturing it here is the only
+ * place it can be done without reading the stream twice.
+ */
+async function readJsonBody(request: Request): Promise<{ body: unknown; rawBody: string | null }> {
   if (request.method === 'GET' || request.method === 'HEAD') {
-    return undefined;
+    return { body: undefined, rawBody: null };
   }
 
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) {
     // Multipart and urlencoded bodies are consumed by the handler itself.
-    return undefined;
+    return { body: undefined, rawBody: null };
   }
 
   const text = await request.text();
   if (text.trim().length === 0) {
-    return {};
+    return { body: {}, rawBody: text };
   }
 
   try {
-    return JSON.parse(text);
+    return { body: JSON.parse(text), rawBody: text };
   } catch {
     // Express' json parser rejects malformed JSON with a 400 before the
     // handler ever runs; the same happens here.
@@ -233,8 +242,11 @@ export function createRouteHandler<TBody, TQuery>(
       assertEndpointNotRetired(definition.deprecation, request.method);
 
       const params = segmentData?.params ? await segmentData.params : {};
-      const body = await readJsonBody(request);
+      const { body, rawBody } = await readJsonBody(request);
       adapted = adaptRequest({ request, params, body });
+      // Signature-verified endpoints read this; nothing else may, and it is
+      // never logged (the structured logger records shapes, not payloads).
+      adapted.rawBody = rawBody;
 
       const context = createExecutionContext({
         request: adapted,

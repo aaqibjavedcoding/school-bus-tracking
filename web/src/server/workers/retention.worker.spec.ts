@@ -24,6 +24,8 @@ function makeSequelize(handlers: {
   lockAcquired?: boolean;
   /** Rows "deleted" per table (the RETURNING id rows), keyed by table name. */
   deletedRows?: Record<string, Array<{ id: string }>>;
+  /** Rows "updated" per table for the anonymization policies. */
+  updatedRows?: Record<string, Array<{ id: string }>>;
   /** Reject the transaction callback (simulating a failed DELETE). */
   failQuery?: RegExp;
 }) {
@@ -53,8 +55,16 @@ function makeSequelize(handlers: {
         return [{ pg_try_advisory_xact_lock: handlers.lockAcquired ?? true }];
       }
       // The worker appends `RETURNING id` and counts the returned rows.
-      const table = /DELETE FROM (\w+)/.exec(sql)?.[1];
-      return table ? (handlers.deletedRows?.[table] ?? []) : [];
+      const deleted = /DELETE FROM (\w+)/.exec(sql)?.[1];
+      if (deleted) {
+        return handlers.deletedRows?.[deleted] ?? [];
+      }
+      // The marketing policies anonymize in place: `UPDATE … RETURNING id`.
+      const updated = /UPDATE\s+(\w+)/.exec(sql)?.[1];
+      if (updated) {
+        return handlers.updatedRows?.[updated] ?? [];
+      }
+      return [];
     },
     async transaction<T>(callback: (t: Transaction) => Promise<T>): Promise<T> {
       // Sequelize commits when the callback resolves, rolls back on throw.
@@ -194,5 +204,163 @@ describe('RetentionWorker', () => {
     const expected = new Date();
     expected.setDate(expected.getDate() - 30);
     assert.ok(Math.abs(cutoff.getTime() - expected.getTime()) < 5_000);
+  });
+});
+
+/**
+ * The Hardening 5B marketing policies.
+ *
+ * These differ from the ones above in kind, not just in table: they
+ * **anonymize more than they delete**, because consent evidence, campaign
+ * counters and suppression instructions have to outlive the personal data
+ * they were derived from. The assertions below are the promises that
+ * distinguish a retention policy from data loss.
+ */
+describe('RetentionWorker — marketing policies', () => {
+  const MARKETING_CONFIG = {
+    marketingEventDays: 365,
+    marketingLeadDays: 730,
+    marketingRecipientPiiDays: 180,
+    marketingNotificationJobDays: 90,
+    marketingProviderEventDays: 180,
+  };
+
+  it('runs every marketing policy inside the same locked transaction', async () => {
+    const db = makeSequelize({
+      deletedRows: {
+        email_events: [{ id: 'a' }, { id: 'b' }],
+        marketing_notification_jobs: [{ id: 'a' }],
+        marketing_provider_events: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+        marketing_attributions: [{ id: 'a' }],
+      },
+      updatedRows: {
+        email_campaign_recipients: [{ id: 'a' }, { id: 'b' }],
+        marketing_leads: [{ id: 'a' }],
+      },
+    });
+    const worker = makeWorker(db.sequelize, MARKETING_CONFIG);
+
+    const results = await worker.runAll();
+
+    assert.equal(results.marketingEvents, 2);
+    assert.equal(results.marketingRecipientPii, 2);
+    assert.equal(results.marketingLeads, 1);
+    assert.equal(results.marketingNotificationJobs, 1);
+    assert.equal(results.marketingProviderEvents, 3);
+    assert.equal(results.marketingAttributions, 1);
+
+    const lock = db.queries.find((q) => q.sql.includes('pg_try_advisory_xact_lock'));
+    for (const query of db.queries) {
+      assert.equal(
+        query.options.transaction,
+        lock?.options.transaction,
+        'no marketing statement may escape the advisory-locked transaction',
+      );
+    }
+  });
+
+  it('never deletes a suppression — an opt-out is an instruction, not telemetry', async () => {
+    const db = makeSequelize({});
+    await makeWorker(db.sequelize, MARKETING_CONFIG).runAll();
+
+    assert.equal(
+      db.queries.some((q) => /marketing_suppressions/.test(q.sql)),
+      false,
+      'the retention worker must not touch the suppression list at all',
+    );
+  });
+
+  it('never drops campaign work that is still owed', async () => {
+    const db = makeSequelize({});
+    await makeWorker(db.sequelize, MARKETING_CONFIG).runAll();
+
+    const recipients = db.queries.find((q) =>
+      q.sql.startsWith('UPDATE email_campaign_recipients'),
+    );
+    assert.ok(recipients);
+    assert.match(
+      String(recipients.sql),
+      /status NOT IN \('PENDING', 'PROCESSING', 'RETRYING'\)/,
+      'an unsent recipient must keep the address it is about to be delivered to',
+    );
+
+    const jobs = db.queries.find((q) => q.sql.startsWith('DELETE FROM marketing_notification_jobs'));
+    assert.ok(jobs);
+    assert.match(
+      String(jobs.sql),
+      /status IN \('SENT', 'FAILED', 'EXPIRED'\)/,
+      'a pending admin notification is never dropped by retention',
+    );
+  });
+
+  it('is idempotent: both anonymization passes are guarded by their marker', async () => {
+    const db = makeSequelize({});
+    await makeWorker(db.sequelize, MARKETING_CONFIG).runAll();
+
+    const recipients = db.queries.find((q) =>
+      q.sql.startsWith('UPDATE email_campaign_recipients'),
+    );
+    assert.match(String(recipients?.sql), /pii_anonymized_at IS NULL/);
+    const leads = db.queries.find((q) => q.sql.startsWith('UPDATE marketing_leads'));
+    assert.match(String(leads?.sql), /erased_at IS NULL/);
+  });
+
+  it('anonymizes rather than deletes leads and recipients, preserving the evidence', async () => {
+    const db = makeSequelize({ updatedRows: { marketing_leads: [{ id: 'a' }] } });
+    await makeWorker(db.sequelize, MARKETING_CONFIG).runAll();
+
+    assert.equal(
+      db.queries.some((q) => q.sql.startsWith('DELETE FROM marketing_leads')),
+      false,
+      'the consent record must survive its personal data',
+    );
+    assert.equal(
+      db.queries.some((q) => q.sql.startsWith('DELETE FROM email_campaign_recipients')),
+      false,
+      'recipient rows are the denominator of every campaign rate',
+    );
+
+    const leads = db.queries.find((q) => q.sql.startsWith('UPDATE marketing_leads'));
+    for (const field of ['full_name', 'phone', 'message', 'utm', 'submission_fingerprint']) {
+      assert.match(String(leads?.sql), new RegExp(field), `${field} is cleared`);
+    }
+    assert.match(String(leads?.sql), /@invalid/, 'the placeholder address is non-routable');
+
+    // The timeline metadata of anonymized leads is stripped too.
+    assert.ok(
+      db.queries.some((q) => /UPDATE marketing_lead_events/.test(q.sql)),
+      'free text in lead events is removed with the lead',
+    );
+  });
+
+  it('never recomputes or clears a campaign counter', async () => {
+    const db = makeSequelize({});
+    await makeWorker(db.sequelize, MARKETING_CONFIG).runAll();
+
+    assert.equal(
+      db.queries.some((q) => /UPDATE email_campaigns|DELETE FROM email_campaigns/.test(q.sql)),
+      false,
+      'aggregate analytics outlive the per-event rows they were derived from',
+    );
+  });
+
+  it('derives each marketing cutoff from its own configured window', async () => {
+    const db = makeSequelize({});
+    await makeWorker(db.sequelize, { ...MARKETING_CONFIG, marketingEventDays: 10 }).runAll();
+
+    const events = db.queries.find((q) => q.sql.startsWith('DELETE FROM email_events'));
+    const cutoff = events?.options.bind?.cutoff as Date;
+    const expected = new Date();
+    expected.setDate(expected.getDate() - 10);
+    assert.ok(Math.abs(cutoff.getTime() - expected.getTime()) < 5_000);
+
+    const attributions = db.queries.find((q) =>
+      q.sql.startsWith('DELETE FROM marketing_attributions'),
+    );
+    assert.match(
+      String(attributions?.sql),
+      /expires_at < \$cutoff/,
+      'attribution grants age out on their own expiry, not a day count',
+    );
   });
 });

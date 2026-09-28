@@ -5,6 +5,8 @@ import {
   MarketingLeadSource,
   MarketingLeadStatus,
   MarketingRecipientSource,
+  MarketingSuppressionReason,
+  MarketingSuppressionSource,
   MarketingTemplateStatus,
   type MarketingCampaignAudienceFilter,
   type MarketingCampaignResponse,
@@ -459,4 +461,72 @@ export function describeLeadEvent(event: {
     default:
       return String(event.event_type);
   }
+}
+
+
+// --------------------------------------------------------------- suppressions
+
+export function marketingSuppressionReasonLabel(reason: MarketingSuppressionReason): string {
+  switch (reason) {
+    case MarketingSuppressionReason.UNSUBSCRIBED:
+      return 'Unsubscribed';
+    case MarketingSuppressionReason.HARD_BOUNCE:
+      return 'Hard bounce';
+    case MarketingSuppressionReason.COMPLAINED:
+      return 'Spam complaint';
+    case MarketingSuppressionReason.MANUAL:
+      return 'Manual';
+    default:
+      return String(reason);
+  }
+}
+
+/**
+ * An unsubscribe is a person's instruction, not a failure: it reads as
+ * neutral. A complaint is the one an operator should notice.
+ */
+export function marketingSuppressionReasonTone(
+  reason: MarketingSuppressionReason,
+): MarketingTone {
+  switch (reason) {
+    case MarketingSuppressionReason.UNSUBSCRIBED:
+      return 'info';
+    case MarketingSuppressionReason.HARD_BOUNCE:
+      return 'warning';
+    case MarketingSuppressionReason.COMPLAINED:
+      return 'danger';
+    default:
+      return 'neutral';
+  }
+}
+
+export function marketingSuppressionSourceLabel(source: MarketingSuppressionSource): string {
+  switch (source) {
+    case MarketingSuppressionSource.RECIPIENT_LINK:
+      return 'Unsubscribe link';
+    case MarketingSuppressionSource.SUPER_ADMIN:
+      return 'Super Admin';
+    case MarketingSuppressionSource.SYSTEM:
+      return 'Provider event / system';
+    default:
+      return String(source);
+  }
+}
+
+/**
+ * Removing an `UNSUBSCRIBED` row needs an extra, explicit acknowledgement —
+ * mirrored server-side, which is where it is actually enforced.
+ */
+export function suppressionRemovalNeedsOptOutAcknowledgement(
+  reason: MarketingSuppressionReason,
+): boolean {
+  return reason === MarketingSuppressionReason.UNSUBSCRIBED;
+}
+
+/** Erasure is irreversible, so the console asks for the exact lead name. */
+export function canEraseMarketingLead(input: {
+  confirmationText: string;
+  expected: string;
+}): boolean {
+  return input.confirmationText.trim().toLowerCase() === input.expected.trim().toLowerCase();
 }
