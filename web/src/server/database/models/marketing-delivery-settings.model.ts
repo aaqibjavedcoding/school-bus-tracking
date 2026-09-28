@@ -15,9 +15,8 @@ export interface MarketingDeliverySettingsAttributes {
   updated_at: Date;
 }
 
-export type MarketingDeliverySettingsCreationAttributes = Partial<
-  MarketingDeliverySettingsAttributes
->;
+export type MarketingDeliverySettingsCreationAttributes =
+  Partial<MarketingDeliverySettingsAttributes>;
 
 /** Singleton row (id=1) controlling the durable PostgreSQL delivery queue. */
 @Table({ tableName: 'marketing_delivery_settings', timestamps: true, underscored: true })

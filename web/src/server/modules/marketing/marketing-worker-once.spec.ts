@@ -17,7 +17,13 @@ describe('one-shot marketing worker command', () => {
 
   it('prints only allowlisted summary metrics and uses a redacted fatal error', () => {
     assert.match(script, /JSON\.stringify/);
-    for (const forbidden of ['SMTP_PASS', 'normalized_email', 'message.body', 'clickToken', 'unsubscribeToken']) {
+    for (const forbidden of [
+      'SMTP_PASS',
+      'normalized_email',
+      'message.body',
+      'clickToken',
+      'unsubscribeToken',
+    ]) {
       assert.equal(script.includes(forbidden), false, `${forbidden} must never be logged`);
     }
     assert.match(script, /failed during configuration or database startup/);

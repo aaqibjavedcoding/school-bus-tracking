@@ -20,7 +20,10 @@ export interface MarketingClaimCapacity {
 }
 
 export interface MarketingDeliverySettingsSource {
-  reserveClaimCapacity(requested: number, transaction: Transaction): Promise<MarketingClaimCapacity>;
+  reserveClaimCapacity(
+    requested: number,
+    transaction: Transaction,
+  ): Promise<MarketingClaimCapacity>;
   recordWorkerRun(summary: MarketingSweepSummary): Promise<void>;
 }
 
@@ -77,7 +80,10 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
         paused: false,
         daily_send_cap: Math.min(
           MARKETING_DAILY_CAP_MAX,
-          Math.max(MARKETING_DAILY_CAP_MIN, this.config.get<number>('marketing.delivery.dailyCap') ?? 500),
+          Math.max(
+            MARKETING_DAILY_CAP_MIN,
+            this.config.get<number>('marketing.delivery.dailyCap') ?? 500,
+          ),
         ),
         per_minute_send_cap: Math.min(
           MARKETING_PER_MINUTE_CAP_MAX,
@@ -107,7 +113,15 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
 
   private async counts(timezone: string, transaction?: Transaction): Promise<CountRow> {
     if (!this.sequelize) {
-      return { daily_sent: 0, minute_sent: 0, queued: 0, retrying: 0, failed: 0, processing: 0, local_time: '00:00' };
+      return {
+        daily_sent: 0,
+        minute_sent: 0,
+        queued: 0,
+        retrying: 0,
+        failed: 0,
+        processing: 0,
+        local_time: '00:00',
+      };
     }
     const rows = await this.sequelize.query<CountRow>(
       `SELECT
@@ -124,7 +138,17 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
        FROM email_campaign_recipients`,
       { type: QueryTypes.SELECT, replacements: { timezone }, transaction },
     );
-    return rows[0] ?? { daily_sent: 0, minute_sent: 0, queued: 0, retrying: 0, failed: 0, processing: 0, local_time: '00:00' };
+    return (
+      rows[0] ?? {
+        daily_sent: 0,
+        minute_sent: 0,
+        queued: 0,
+        retrying: 0,
+        failed: 0,
+        processing: 0,
+        local_time: '00:00',
+      }
+    );
   }
 
   async get(): Promise<MarketingDeliverySettingsResponse> {
@@ -144,12 +168,16 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
       retrying_count: Number(counts.retrying),
       failed_count: Number(counts.failed),
       last_worker_run_at: last,
-      next_expected_worker_run_at: last ? new Date(new Date(last).getTime() + interval).toISOString() : null,
+      next_expected_worker_run_at: last
+        ? new Date(new Date(last).getTime() + interval).toISOString()
+        : null,
       worker_enabled: this.config.get<boolean>('marketing.worker.enabled', true),
     };
   }
 
-  async update(input: MarketingDeliverySettingsUpdateRequest): Promise<MarketingDeliverySettingsResponse> {
+  async update(
+    input: MarketingDeliverySettingsUpdateRequest,
+  ): Promise<MarketingDeliverySettingsResponse> {
     const parsed = marketingDeliverySettingsUpdateSchema.safeParse(input);
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues[0]?.message ?? 'Invalid delivery settings');
@@ -166,12 +194,22 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
     return this.get();
   }
 
-  async reserveClaimCapacity(requested: number, transaction: Transaction): Promise<MarketingClaimCapacity> {
+  async reserveClaimCapacity(
+    requested: number,
+    transaction: Transaction,
+  ): Promise<MarketingClaimCapacity> {
     const row = await this.row({ transaction, lock: true });
-    if (!this.config.get<boolean>('marketing.worker.enabled', true)) return { allowed: 0, reason: 'disabled' };
+    if (!this.config.get<boolean>('marketing.worker.enabled', true))
+      return { allowed: 0, reason: 'disabled' };
     if (row.paused) return { allowed: 0, reason: 'paused' };
     const counts = await this.counts(row.delivery_timezone, transaction);
-    if (!isWithinMarketingSendWindow(counts.local_time, row.allowed_window_start, row.allowed_window_end)) {
+    if (
+      !isWithinMarketingSendWindow(
+        counts.local_time,
+        row.allowed_window_start,
+        row.allowed_window_end,
+      )
+    ) {
       return { allowed: 0, reason: 'outside_window' };
     }
     // Active leases are reservations. Counting them prevents two instances,
@@ -181,12 +219,19 @@ export class MarketingDeliverySettingsService implements MarketingDeliverySettin
     if (dailyRemaining <= 0) return { allowed: 0, reason: 'daily_cap' };
     const minuteRemaining = row.per_minute_send_cap - Number(counts.minute_sent) - reserved;
     if (minuteRemaining <= 0) return { allowed: 0, reason: 'minute_cap' };
-    return { allowed: Math.max(0, Math.min(requested, dailyRemaining, minuteRemaining)), reason: 'available' };
+    return {
+      allowed: Math.max(0, Math.min(requested, dailyRemaining, minuteRemaining)),
+      reason: 'available',
+    };
   }
 
   async recordWorkerRun(summary: MarketingSweepSummary): Promise<void> {
     await this.settings.update(
-      { last_worker_run_at: new Date(), last_worker_claimed: summary.claimed, last_worker_sent: summary.sent },
+      {
+        last_worker_run_at: new Date(),
+        last_worker_claimed: summary.claimed,
+        last_worker_sent: summary.sent,
+      },
       { where: { id: MARKETING_SETTINGS_ID } },
     );
   }

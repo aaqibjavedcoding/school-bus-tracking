@@ -9,7 +9,10 @@ import {
   isValidIanaTimezone,
 } from './marketing-delivery-settings.service';
 
-function capacityHarness(overrides: Record<string, unknown> = {}, counts: Record<string, unknown> = {}) {
+function capacityHarness(
+  overrides: Record<string, unknown> = {},
+  counts: Record<string, unknown> = {},
+) {
   const row = {
     id: 1,
     paused: false,
@@ -27,16 +30,18 @@ function capacityHarness(overrides: Record<string, unknown> = {}, counts: Record
     update: async () => [1],
   };
   const sequelize = {
-    query: async () => [{
-      daily_sent: 0,
-      minute_sent: 0,
-      queued: 10,
-      retrying: 0,
-      failed: 0,
-      processing: 0,
-      local_time: '12:00',
-      ...counts,
-    }],
+    query: async () => [
+      {
+        daily_sent: 0,
+        minute_sent: 0,
+        queued: 10,
+        retrying: 0,
+        failed: 0,
+        processing: 0,
+        local_time: '12:00',
+        ...counts,
+      },
+    ],
   };
   const config = { get: (_key: string, fallback?: unknown) => fallback };
   return new MarketingDeliverySettingsService(model as never, sequelize as never, config as never);
@@ -59,11 +64,29 @@ describe('marketing delivery settings authorization and validation', () => {
 
   it('enforces server safety bounds and rejects arbitrary schedule syntax', () => {
     assert.equal(marketingDeliverySettingsUpdateSchema.safeParse(valid).success, true);
-    assert.equal(marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, daily_send_cap: 0 }).success, false);
-    assert.equal(marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, daily_send_cap: 10001 }).success, false);
-    assert.equal(marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, per_minute_send_cap: 301 }).success, false);
-    assert.equal(marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, delivery_timezone: '* * * * *' }).success, false);
-    assert.equal(marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, allowed_window_end: null }).success, false);
+    assert.equal(
+      marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, daily_send_cap: 0 }).success,
+      false,
+    );
+    assert.equal(
+      marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, daily_send_cap: 10001 }).success,
+      false,
+    );
+    assert.equal(
+      marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, per_minute_send_cap: 301 })
+        .success,
+      false,
+    );
+    assert.equal(
+      marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, delivery_timezone: '* * * * *' })
+        .success,
+      false,
+    );
+    assert.equal(
+      marketingDeliverySettingsUpdateSchema.safeParse({ ...valid, allowed_window_end: null })
+        .success,
+      false,
+    );
   });
 
   it('accepts real IANA zones and rejects fabricated zones', () => {
@@ -97,18 +120,26 @@ describe('durable cross-worker capacity', () => {
     const first = await capacityHarness({}, counts).reserveClaimCapacity(25, transaction);
     const afterRestart = await capacityHarness({}, counts).reserveClaimCapacity(25, transaction);
     assert.deepEqual(first, { allowed: 1, reason: 'available' });
-    assert.deepEqual(afterRestart, first, 'capacity comes from PostgreSQL counts, not process memory');
+    assert.deepEqual(
+      afterRestart,
+      first,
+      'capacity comes from PostgreSQL counts, not process memory',
+    );
   });
 
   it('enforces the global per-minute cap including active lease reservations', async () => {
-    const result = await capacityHarness({}, { minute_sent: 18, processing: 2 })
-      .reserveClaimCapacity(25, transaction);
+    const result = await capacityHarness(
+      {},
+      { minute_sent: 18, processing: 2 },
+    ).reserveClaimCapacity(25, transaction);
     assert.deepEqual(result, { allowed: 0, reason: 'minute_cap' });
   });
 
   it('keeps queued work untouched outside the configured timezone window', async () => {
-    const result = await capacityHarness({ allowed_window_start: '22:00', allowed_window_end: '06:00' }, { local_time: '12:00' })
-      .reserveClaimCapacity(25, transaction);
+    const result = await capacityHarness(
+      { allowed_window_start: '22:00', allowed_window_end: '06:00' },
+      { local_time: '12:00' },
+    ).reserveClaimCapacity(25, transaction);
     assert.deepEqual(result, { allowed: 0, reason: 'outside_window' });
   });
 });
