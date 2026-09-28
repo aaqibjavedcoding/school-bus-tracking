@@ -77,7 +77,7 @@ export default function ForgotPasswordPage() {
       <Card className="login-card">
         <div className="auth-card-header">
           <span className="brand-mark">
-            <Image src="/kidbus-mark.svg" alt="" width={42} height={42} style={{ width: 'auto' }} priority />
+            <Image src="/kidbus-mark.svg" alt="" width={42} height={42} style={{ width: 'auto', height: 'auto' }} priority />
           </span>
           <div>
             <h1>{APP_CONFIG.appName}</h1>
