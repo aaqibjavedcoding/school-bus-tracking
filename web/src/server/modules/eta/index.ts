@@ -4,6 +4,7 @@ export {
   DEFAULT_ARRIVAL_DETECTION_CONFIG,
   StopArrivalsService,
   assessFixEligibility,
+  hasMovedOnTowardAheadStop,
   selectProgressionCandidate,
   updateInsideEvidence,
 } from './stop-arrivals.service';
