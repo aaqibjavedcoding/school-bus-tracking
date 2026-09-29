@@ -190,7 +190,9 @@ describe('derived thresholds', () => {
     assert.equal(jitterThresholdMeters(undefined), MOTION_THRESHOLDS.jitterMinM);
     assert.equal(jitterThresholdMeters(-5), MOTION_THRESHOLDS.jitterMinM);
     assert.equal(jitterThresholdMeters(0), MOTION_THRESHOLDS.jitterMinM);
-    assert.equal(jitterThresholdMeters(8), 4);
+    // The R4 damping floor: max(8, accuracy × 0.5) — pinned identically to
+    // the mobile copy, so the two buses damp the same noise.
+    assert.equal(jitterThresholdMeters(8), 8);
     assert.equal(jitterThresholdMeters(20), 10);
     assert.equal(jitterThresholdMeters(1_000), MOTION_THRESHOLDS.jitterMaxM);
   });
@@ -310,7 +312,7 @@ describe('bus motion: jitter, noise and slow movement', () => {
       );
       if (outcome.action === 'animated') moved = true;
     }
-    assert.ok(moved, 'a 3 m/fix creep past a 2 m gate must eventually move the bus');
+    assert.ok(moved, 'a 3 m/fix creep past an 8 m gate must eventually move the bus');
   });
 
   it('keeps advancing the freshness clock while holding a jitter fix', () => {
@@ -642,7 +644,7 @@ describe('shared thresholds are pinned identically on both platforms', () => {
       {
         headingMinSpeedKmh: 3,
         headingMinDisplacementM: 12,
-        jitterMinM: 2,
+        jitterMinM: 8,
         jitterMaxM: 30,
         jitterAccuracyFactor: 0.5,
         animationCadenceFactor: 0.8,

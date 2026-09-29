@@ -5,6 +5,7 @@ import {
   createBusMotion,
   type BusMotion,
   type BusMotionFix,
+  type SnapToRoutePort,
 } from './bus-motion.ts';
 
 /**
@@ -23,9 +24,9 @@ import {
  *
  * ### What it never does
  *
- * - It never writes an interpolated coordinate back into `fix`. Everything the
- *   screen reports — ETA, stop progress, speed, "updated 4 s ago" — keeps
- *   reading the raw `LiveFix` this hook was handed.
+ * - It never writes an interpolated or projected coordinate back into `fix`.
+ *   Everything the screen reports — ETA, stop progress, speed, "updated 4 s
+ *   ago" — keeps reading the raw `LiveFix` this hook was handed.
  * - It never extrapolates. The tween always ends *on* a received fix.
  * - It never replays. A background→foreground transition reconciles with the
  *   current fix; the frames that were missed while backgrounded are dropped.
@@ -57,12 +58,19 @@ export interface UseBusMarkerMotionInput {
    * socket: a stale position is frozen and labelled, never left sliding.
    */
   animate: boolean;
+  /**
+   * Display-only route projection (deep-fix R4, `route-snap.ts`), or null
+   * while the route is not known yet. Applied inside the motion machine;
+   * `fix` stays raw, and nothing here ever reads the projected coordinates
+   * back into data.
+   */
+  snapToRoute?: SnapToRoutePort | null;
   /** Imperative per-frame hook for the follow camera. Not a React callback. */
   onFrame?: (marker: RenderedMarker) => void;
 }
 
 export function useBusMarkerMotion(input: UseBusMarkerMotionInput): RenderedMarker | null {
-  const { fix, tripId, reducedMotion, animate, onFrame } = input;
+  const { fix, tripId, reducedMotion, animate, snapToRoute = null, onFrame } = input;
   const [marker, setMarker] = useState<RenderedMarker | null>(null);
 
   const motionRef = useRef<BusMotion | null>(null);
@@ -150,6 +158,14 @@ export function useBusMarkerMotion(input: UseBusMarkerMotionInput): RenderedMark
       publish(performanceNow());
     }
   }, [animate]);
+
+  // The route the marker may be projected onto (R4). Declared BEFORE the
+  // fix effect so a fix and its route landing in the same commit still push
+  // through the snapper: the raw fix is never rewritten, only the display
+  // twin inside the machine is.
+  useEffect(() => {
+    motion.setSnapToRoute(snapToRoute);
+  }, [snapToRoute, motion]);
 
   // A new fix: feed the state machine and animate only if it decided to.
   useEffect(() => {

@@ -97,17 +97,57 @@ anywhere under `src/`. The scanner allows a casual "no Leaflet" comment in
 pure modules and allows `maps.google.com` deep links (navigate) while banning
 `maps.googleapis.com` / `google.maps`.
 
+## Style failure, retry and the offline fallback (deep-fix R3)
+
+The style JSON is one small fetch, but it is the fetch a cold radio on mobile
+data fails. Before R3 that one failure was a verdict: a permanent
+`map.issue.styleLoad` line and a dead map until the app restarted. The policy
+now, all of it in `mobile/src/features/map/`:
+
+1. **Bounded retry, twice.** The JS style fetch (`use-map-style.ts`) runs
+   under `runWithBackoff` with the shared schedule `[2 s, 5 s, 15 s]`
+   (`map-style-recovery.ts`, pure — the sleeper and the attempt are injected
+   ports, spec'd with `node --test` mock timers). If the style then fails on
+   the **engine's** side (`onDidFailLoadingMap`), `planStyleLoadFailure`
+   schedules a bounded sequence of style **re-sets** on the same schedule —
+   `restyleForRetry` re-issues the inspected style with a root-level
+   `metadata` nonce, because the engine bridge forwards
+   `JSON.stringify(mapStyle)`, and an identical string is a prop-diff no-op:
+   only a changed string actually reloads the style. One recovery runs at a
+   time; in total a transient blip is recovered within ~22 s, worst case.
+2. **Recovery clears the line.** A style that genuinely finishes loading
+   (`onDidFinishLoadingMap`) clears `styleLoad` from the diagnostics store;
+   a successful glyph probe (or a style that declares nothing to label)
+   clears `glyphs` (`clearMapIssue`, `map-diagnostics.ts`). Lines say what is
+   wrong **now**, not what once went wrong, and each rendered line ends with
+   its machine-readable code — `(styleLoad)` — so a field screenshot names
+   exactly what failed.
+3. **The offline fallback.** When the bounded budget is spent on every front,
+   the map swaps to `OFFLINE_FALLBACK_MAP_STYLE`: a bundled, frozen,
+   version-8 style with **zero network references** — no sources, no glyphs,
+   no sprite — painting one neutral background. It is deliberately a *base*,
+   not a disguise: the stops, the bus marker, the accuracy circle and the
+   status panel are all React Native overlays that keep working over it, and
+   the `(styleLoad)` line stays up over it because the fallback loading is
+   not the tiles coming back (`notifyStyleLoaded` refuses to clear while the
+   fallback is showing). A later remount re-runs the whole pipeline, so the
+   real style returns when the network does.
+
+Nothing here changes the provider policy: the fallback is bundled with the
+app, needs no account and no key, and introduces no provider.
+
 ## Architecture
 
 One **pure state machine** decides what to draw; each platform only renders it.
 
 | Module                                                                                                | Responsibility                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate, heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. **Pure, clock-injected, no React.** |
+| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate (floor 8 m, R4), heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. The mobile copy additionally takes the display-only `snapToRoute` port (below). **Pure, clock-injected, no React.** |
+| `mobile/src/features/map/route-snap.ts`                                                             | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
 | `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                         |
 | `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                             |
 | `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                         |
-| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus, drawn with React Native views.                                                                                                                                                                |
+| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus: the bundled `assets/bus-marker.png` sprite (@1x/@2x/@3x, hand-downsampled) inside the pinned 26×42 dp box.                                                                                     |
 | `mobile/src/features/map/BusMarker.tsx`                                                               | The leaf marker component: the only thing that re-renders per frame.                                                                                                                                            |
 | `mobile/src/features/map/useBusMarkerMotion.ts`                                                       | Frame loop, lifecycle, reduced motion, cleanup.                                                                                                                                                                 |
 | `mobile/src/features/map/follow-camera-controller.ts`                                                 | The camera's imperative half: fit once per trip, centre-only follow pans, throttle, gesture attribution, resume. Pure, over a two-method port.                                                                  |
@@ -122,10 +162,13 @@ One **pure state machine** decides what to draw; each platform only renders it.
 `bus-motion.ts` and `follow-camera.ts` are **mirrored** between `mobile/` and
 `web/` rather than shared through a package, because that is how this repository
 already handles client libraries (`src/lib/format.ts`, `errors.ts`, `roles.ts`,
-`api-cache.ts`, `socket-auth.ts` all exist in both apps). The two copies differ
-only in their geodesy import, and both suites pin the identical threshold values
-so a one-sided edit fails a test rather than shipping two buses that move
-differently.
+`api-cache.ts`, `socket-auth.ts` all exist in both apps). Both suites pin the
+identical threshold values (including the R4 `jitterMinM = 8` floor) so a
+one-sided edit fails a test rather than shipping two buses that move
+differently. The **one deliberate divergence**: the mobile copy carries the
+extra display-only `snapToRoute` port (R4 fixed the zig-zag there, where the
+field report came from); the web copy has none yet, and gains it when the
+console's map asks for it — the shared thresholds stay pinned either way.
 
 The pure/adapter split is deliberate: everything that decides _what to draw_ is
 runtime-free and unit-tested; only the thin platform adapters touch
@@ -159,9 +202,20 @@ fallback, which lists stops instead of drawing a map) is unchanged.
 
 ## The marker
 
-A **top-view school bus**, nose up, amber (`colors.primary[500]`, `#f59e0b`)
-with a near-black outline (`colors.neutral[900]`), a light windscreen at the
-front, two window strips and a darker rear.
+A **top-view school bus**, nose up, school-bus yellow with a dark outline, a
+windshield band on the nose end and a darker rear — so the facing direction
+is unambiguous at rest, not only while moving.
+
+The native graphic is the bundled sprite `mobile/assets/bus-marker.png`
+(with `@2x` and `@3x` files, so a cheap mdpi phone decodes a crisp 26 px
+file instead of resampling a big one). The master was AI-generated with the
+image tool, cut out onto a real alpha channel, and hand-downsampled per
+density by `scripts/make-bus-marker.py`; the three tiny files are committed
+(plus the master in `mobile/assets/gen/`), so no pipeline runs at build time
+and nothing is fetched. The web marker remains inline SVG. Deep-fix R4
+replaced the earlier drawn-views bus: at 26 px a few 5 px strips never read
+as a vehicle, and the sprite fixes exactly that — while keeping the geometry
+below, which is what made heading meaningful in the first place.
 
 Two properties matter:
 
@@ -172,7 +226,11 @@ Two properties matter:
 
 Both map surfaces anchor at the vehicle centre: `anchor="center"` on the
 MapLibre `ViewAnnotation` (native), `anchor: 'center'` / CSS translate on the
-MapLibre `Marker` (web, `maplibregl.Marker` with centred element).
+MapLibre `Marker` (web, `maplibregl.Marker` with centred element). The box is
+still 26 × 42 dp inside its circumscribing rotation square
+(`BUS_MARKER_ROTATION_BOX`), pinned in `bus-marker-invariants.spec.ts`,
+which also parses the PNG IHDRs so a mangled or dropped asset fails the
+suite instead of shipping blurry.
 
 ### One implementation on both platforms
 
@@ -206,9 +264,13 @@ Two runtime boundaries remain, and both are handled the same way as before:
   `setBusIconHeading(host, heading)` which accepts the marker host or its
   element (guarded for `HTMLElement` absence in tests).
 
-The graphic is drawn with views/SVG rather than shipped as an image so there is
-**one** design, no asset pipeline, no network request and no new dependency
-(`react-native-svg` is deliberately not added).
+The native graphic is the bundled `assets/bus-marker.png` sprite (a
+generated top-down 3D-style school bus, hand-downsampled to @1x/@2x/@3x by
+`scripts/make-bus-marker.py`, committed so there is no pipeline at build time),
+inside the same pinned 26×42 dp box and circumscribing rotation square as
+before. The web marker stays inline SVG - one design language, no network
+request and no new native dependency (`react-native-svg` is deliberately not
+added).
 
 ### Content-Security-Policy
 
@@ -279,6 +341,34 @@ written into tracking history, ETA, attendance, notifications or any payload —
 `RenderedBusPosition.source` carries the raw, unmodified values for anything
 that reports speed, accuracy or "last updated".
 
+### Lateral damp and snap-to-route (deep-fix R4)
+
+GPS at its ordinary precision wanders a few metres sideways between fixes, and
+drawing that faithfully was the field-visible zig-zag. Two layers now stop it:
+
+1. **Damping floor 8 m** — an accepted fix inside
+   `max(8 m, accuracy × 0.5)` of the anchor is noise: the marker holds still
+   (a parked bus stays parked; the freshness clock still advances, so "last
+   updated" keeps telling the truth).
+2. **Snap-to-route for display** — a fix that clears the gate is projected
+   onto the **drawn route polyline** (nearest segment, great-circle
+   cross-track math, `route-snap.ts`) and the tween targets the *projected*
+   point, so lateral noise on a straight road disappears into the line the
+   bus is visibly following. The derived heading reads between *projected*
+   positions, so the nose points along the road, not along the wobble.
+
+The honesty rules are the same as interpolation's, stated once:
+
+- **projected coordinates are presentation only** — never written into
+  history, ETA, arrivals, attendance or notifications (the tween and the
+  projection both live inside the marker; `source` keeps the raw fix);
+- **bounded** — a fix farther than `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m) from
+  the route is drawn **raw**: a bus genuinely off the planned legs (detour,
+  depot) must not be glued to the line;
+- **the line is the drawn line, not a road claim** — the polyline connects
+  the stops in planned order and is already labelled "planned stop order —
+  not the road route"; snapping the marker to it does not turn it into one.
+
 Frames are capped at `FRAME_MIN_INTERVAL_MS = 50` (~20 fps), shared by both
 platforms. A bus at 40 km/h covers about half a metre in 50 ms, which is
 sub-pixel at tracking-card zoom.
@@ -328,7 +418,7 @@ All centralised in `MOTION_THRESHOLDS` and pinned by tests in both workspaces.
 | ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `headingMinSpeedKmh`                                 | 3                    | Below walking-pace-plus, a GPS course is Doppler noise inside the accuracy circle. It also covers the one unavailable-heading case that cannot be fixed at the source: Android's `Location.getBearing()` returns `0.0` when the fix has no bearing, and expo-location does not export `hasBearing()`, so that `0` is indistinguishable in JS from a true north course. Session 2 removed the _other_ case — iOS's `-1` is now omitted instead of uploaded as `359` (see limitations). |
 | `headingMinDisplacementM`                            | 12                   | Below this, `atan2` over two points inside one accuracy circle can swing 180° between fixes — a parked bus visibly spinning.                                                                                                                                                                                                                                                                                                                                                          |
-| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 2 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped. The floor lets a good fix move the bus; the **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                        |
+| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 8 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped to `max(8, accuracy × 0.5)`. The floor is the R4 damping bound: GPS wander of a few metres between fixes is noise and must not move the marker (a bus at 20 km/h covers ~22 m per fix, safely outside). The **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                                   |
 | `animationCadenceFactor`                             | 0.8                  | Tween = 0.8 × observed cadence, leaving ~20 % headroom so a slightly late fix does not arrive mid-tween. The old hardcoded 900 ms against a 2.5–4 s cadence is what made the web bus lurch and then sit.                                                                                                                                                                                                                                                                              |
 | `animationMinMs` / `animationMaxMs`                  | 500 / 3000           | Floor: below a couple of frames a tween just flickers. Ceiling: bounds how far the marker can lag behind the newest real fix.                                                                                                                                                                                                                                                                                                                                                         |
 | `gapSnapMs`                                          | 45 000               | >10× the nominal cadence (device watch 4 s, server throttle floor 2.5 s), so a genuine cadence can never trip it.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -661,10 +751,13 @@ app-wide floor.
 
 ## Known limitations
 
-1. **There is no road matching, and none is planned for this scope.** Two sparse
-   GPS points are joined by a straight line, so on a bend the bus visibly cuts
-   the corner, and on a hairpin it can briefly appear to drive through
-   buildings. That is a property of the data.
+1. **There is no road matching, and none is planned for this scope.** Two
+   sparse GPS points are joined by a straight line in the tween, so on a
+   hairpin the bus can still briefly appear to cut a corner. The R4
+   snap-to-route is a *display damp onto the drawn planned line*, not road
+   matching: it bounds itself to 60 m of that line, leaves off-route fixes
+   raw, and its coordinates never reach tracking data (see "Lateral damp and
+   snap-to-route").
 2. **The dashed line between stops is not a route.** It connects stop
    coordinates in sequence. It is not road-calculated and not the path the bus
    drove. The map says so (`map.routeNotice`).
@@ -739,13 +832,16 @@ if a step cannot be reproduced, say so rather than ticking it.
 **Straight road**
 
 - [ ] Bus glides between fixes instead of teleporting.
+- [ ] No lateral zig-zag between fixes: the marker tracks the drawn route
+      line instead of redrawing the GPS wander (R4).
 - [ ] Nose points along the direction of travel.
 - [ ] Marker stays the same screen size while zooming.
 
 **Turns**
 
 - [ ] Marker rotates through the short way (north-crossing turns included).
-- [ ] Marker visibly cuts the corner on a bend — this is expected, not a bug.
+- [ ] On a bend the rendered path hugs the drawn route line; a sharp corner
+      may be cut tightly mid-tween — this is expected, not a bug.
 
 **Bus stopped at a pickup**
 
@@ -889,8 +985,11 @@ source types. After the swap:
   added to `@school-bus-tracking/shared-types` (run `npm run build:packages`
   before typechecking).
 
-The marker graphic is drawn with views (no image asset, no `react-native-svg`),
-so it ships in the same bundle as everything else once the engine is present.
+The marker graphic is a bundled PNG (`mobile/assets/bus-marker.png` +
+`@2x`/`@3x`; Metro ships assets in the JS bundle, resolved from the single
+`require` in `BusMarkerGraphic.tsx`), so it ships in
+the same bundle as everything else once the engine is present; no
+`react-native-svg`, no native dependency.
 
 ## Session 2 — status of the follow-ups
 

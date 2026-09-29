@@ -26,10 +26,10 @@ import { BusMarker } from './BusMarker';
 import { StopMarker } from './StopMarker';
 import { SINGLE_POINT_ZOOM, initialCameraFor } from './fit-camera.ts';
 import { MapIssueLines } from './map-issue-lines';
-import { reportMapIssue } from './map-diagnostics';
 import { useMapStyle } from './use-map-style';
 import { mapSurfaceMode } from './map-surface-mode';
 import { NeedsDevBuildPanel } from './needs-dev-build-panel';
+import type { RouteSnapPoint } from './route-snap.ts';
 import type { RenderedMarker } from './useBusMarkerMotion';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
@@ -68,9 +68,10 @@ const MapView = Map as unknown as React.ComponentType<MapProps & { children?: Re
  * OpenFreeMap's public style over OpenStreetMap data by default, an
  * https-only override when self-hosting later. No key, no account, no billing
  * — the rule and its rationale live in `docs/live-tracking-map.md` → "Map
- * provider policy". When there is no network the tiles simply do not load;
- * the markers, the accuracy circle and the freshness panel below are
- * React Native views and overlays, so they keep working.
+ * provider policy". With no network the style load retries (bounded backoff,
+ * R3) and then drops to the bundled offline base style; the markers, the
+ * accuracy circle and the freshness panel below are React Native views and
+ * overlays, so they keep working either way.
  *
  * ### What the camera does (and does not do)
  *
@@ -132,6 +133,8 @@ const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 interface MapSurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
   routeLineFeature: Feature<LineString> | null;
+  /** The stops in order — the marker's display-only snap target (R4). */
+  route: readonly RouteSnapPoint[];
   accuracyCircleFeature: Feature<Polygon> | null;
   initialCamera: InitialViewState | null;
   fix: LiveFix | null;
@@ -150,6 +153,9 @@ interface MapSurfaceProps {
   onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
+  /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
+  onStyleLoadFailed: () => void;
+  onStyleLoaded: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
   /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
   mapStyle: MapProps['mapStyle'];
@@ -164,6 +170,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
   ({
     stops,
     routeLineFeature,
+    route,
     accuracyCircleFeature,
     initialCamera,
     fix,
@@ -176,6 +183,8 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
+    onStyleLoadFailed,
+    onStyleLoaded,
     cameraRef,
     mapStyle,
   }) => (
@@ -189,8 +198,13 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
       logo
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
-      onDidFinishLoadingMap={onMapReady}
-      onDidFailLoadingMap={() => reportMapIssue('styleLoad')}
+      // The style pipeline sees the load result first: a successful load is
+      // what clears the styleLoad line (R3), then the camera re-fits.
+      onDidFinishLoadingMap={() => {
+        onStyleLoaded();
+        onMapReady();
+      }}
+      onDidFailLoadingMap={onStyleLoadFailed}
     >
       {/*
         The camera: uncontrolled after the initial state. All movement is
@@ -270,6 +284,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
           tripId={tripId}
           reducedMotion={reducedMotion}
           animate={animate}
+          route={route}
           title={busTitle}
           description={busDescription}
           onFrame={onFrame}
@@ -439,10 +454,11 @@ export const BusMap: React.FC<BusMapProps> = ({
   // `map-surface-mode.ts` (Expo Go carries no map engine on any platform).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
 
-  // The style pipeline: fetched, glyph-repaired, fontstack rewrites
-  // registered, endpoint verified — failures land in the map-diagnostics
-  // store (rendered by MapStatusPanel / the Help screen).
-  const { mapStyle } = useMapStyle();
+  // The style pipeline: fetched with bounded backoff, glyph-repaired,
+  // fontstack rewrites registered, endpoint verified — failures land in the
+  // map-diagnostics store, recovery clears them, and total exhaustion drops
+  // to the bundled offline base style (R3; `use-map-style.ts`).
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
 
   if (surfaceMode === 'no-coordinates') {
     return (
@@ -463,6 +479,7 @@ export const BusMap: React.FC<BusMapProps> = ({
           <MapSurface
             stops={locatedStops}
             routeLineFeature={routeLineFeature}
+            route={routeCoordinates}
             accuracyCircleFeature={accuracyCircleFeature}
             initialCamera={initialCamera}
             fix={fix}
@@ -476,6 +493,8 @@ export const BusMap: React.FC<BusMapProps> = ({
             onRegionChange={handleRegionChange}
             onRegionChangeComplete={handleRegionChangeComplete}
             onMapReady={handleMapReady}
+            onStyleLoadFailed={onStyleLoadFailed}
+            onStyleLoaded={notifyStyleLoaded}
             cameraRef={cameraRef}
             mapStyle={mapStyle}
           />

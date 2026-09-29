@@ -30,6 +30,7 @@ import { describe, test } from 'node:test';
  */
 
 const read = (path: string): string => readFileSync(`${process.cwd()}/${path}`, 'utf8');
+const readBinary = (path: string): Buffer => readFileSync(`${process.cwd()}/${path}`);
 
 describe('native bus marker invariants', () => {
   const marker = read('src/features/map/BusMarker.tsx');
@@ -93,6 +94,56 @@ describe('native bus map invariants', () => {
     assert.match(pipeline, /resolveMapStyleUrl\(/, 'the style URL must come from map-style.ts');
     assert.match(map, /useMapStyle\(/, 'the surface takes its style from the pipeline');
     assert.match(map, /mapStyle=\{mapStyle\}/);
+  });
+
+  /**
+   * Deep-fix R3: a `styleLoad` failure used to be permanent — one flaky
+   * first fetch on mobile data left a dead map and a red line until the app
+   * restarted. The surface must route the engine's failure/loaded events
+   * through the style pipeline's bounded recovery, never straight at the
+   * diagnostics store, and a successful load must clear the line.
+   */
+  test('routes engine load events through the pipeline recovery, on both maps', () => {
+    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
+      const source = read(file);
+      assert.match(
+        source,
+        /onDidFailLoadingMap=\{onStyleLoadFailed\}/,
+        `${file}: the engine's failure must run the bounded re-set policy`,
+      );
+      assert.match(
+        source,
+        /onDidFinishLoadingMap=\{\(\) => \{\s*onStyleLoaded\(\);\s*onMapReady\(\);\s*\}\}/,
+        `${file}: a successful load clears the line before the camera re-fits`,
+      );
+      assert.doesNotMatch(
+        source,
+        /onDidFailLoadingMap=\{\(\) => reportMapIssue/,
+        `${file}: bare reporting has no recovery — the pipeline owns this now`,
+      );
+    }
+  });
+
+  test('the pipeline retries fetches with bounded backoff and clears on recovery', () => {
+    const pipeline = read('src/features/map/use-map-style.ts');
+    assert.match(pipeline, /runWithBackoff\(/, 'the fetch runs under the bounded policy');
+    assert.match(
+      pipeline,
+      /planStyleLoadFailure\(/,
+      'native failures are decided by the pure policy, not inline',
+    );
+    assert.match(pipeline, /clearMapIssue\('styleLoad'\)/, 'a real load clears the style line');
+    assert.match(pipeline, /clearMapIssue\('glyphs'\)/, 'a verified probe clears the label line');
+    assert.match(
+      pipeline,
+      /OFFLINE_FALLBACK_MAP_STYLE/,
+      'total exhaustion drops to the bundled offline base style',
+    );
+    assert.match(
+      pipeline,
+      /if \(!showingFallback\) clearMapIssue\('styleLoad'\)/,
+      'the fallback loading is not a recovery — the line must stay',
+    );
   });
 
   /**
@@ -188,6 +239,37 @@ describe('native bus map invariants', () => {
   });
 });
 
+describe('the marker tracks the drawn route line (R4)', () => {
+  const marker = read('src/features/map/BusMarker.tsx');
+
+  test('the marker builds one snapper per route and hands it to the motion machine', () => {
+    assert.match(marker, /createRouteSnapper\(route\)/, 'the port comes from route-snap.ts');
+    assert.match(marker, /snapToRoute,/, 'and reaches useBusMarkerMotion');
+  });
+
+  test('both native maps feed the marker the same polyline they draw', () => {
+    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
+      const source = read(file);
+      assert.match(
+        source,
+        /route=\{route\}/,
+        `${file}: the BusMarker must get the route for its display snap`,
+      );
+      assert.match(
+        source,
+        /route=\{routeCoordinates\}/,
+        `${file}: the surface's route IS the drawn stop-to-stop polyline`,
+      );
+    }
+  });
+
+  test('the hook applies the port to the machine, never to the fix', () => {
+    const hook = read('src/features/map/useBusMarkerMotion.ts');
+    assert.match(hook, /motion\.setSnapToRoute\(snapToRoute\)/);
+    assert.doesNotMatch(hook, /fix = fix && snapToRoute/, 'the raw fix must never be rewritten');
+  });
+});
+
 describe('frame updates stay off the screen render loop', () => {
   const hook = read('src/features/map/useBusMarkerMotion.ts');
 
@@ -203,6 +285,44 @@ describe('frame updates stay off the screen render loop', () => {
     assert.match(hook, /AppState\.addEventListener\('change'/);
     assert.match(hook, /motion\.cancelAnimation\(\)/);
     assert.match(hook, /motion\.reset\(\)/);
+  });
+});
+
+describe('the marker is the bundled bus sprite', () => {
+  const graphic = read('src/features/map/BusMarkerGraphic.tsx');
+
+  test('renders the bundled PNG at exactly the pinned 26 x 42 box', () => {
+    assert.match(
+      graphic,
+      /require\('\.\.\/\.\.\/\.\.\/assets\/bus-marker\.png'\)/,
+      'the marker is the bundled PNG — RN resolves @2x/@3x from this one require',
+    );
+    assert.match(
+      graphic,
+      /width: BUS_MARKER_WIDTH,\n\s*height: BUS_MARKER_HEIGHT,/,
+      'the image is drawn at exactly the pinned box, so nothing resamples at render time',
+    );
+  });
+
+  test('the bundled sprite ships @1x/@2x/@3x at exactly the pinned pixel sizes', () => {
+    // Parse the real IHDR of each file so a regenerated, mangled or dropped
+    // asset fails HERE instead of shipping blurry — or silently falling back
+    // to a hi-res file — on cheap phones.
+    const expected: [string, number, number][] = [
+      ['assets/bus-marker.png', 26, 42],
+      ['assets/bus-marker@2x.png', 52, 84],
+      ['assets/bus-marker@3x.png', 78, 126],
+    ];
+    for (const [file, width, height] of expected) {
+      const bytes = readBinary(file);
+      assert.ok(
+        bytes.length > 25 && bytes.readUInt32BE(12) === 0x49484452,
+        `${file}: a PNG with an IHDR`,
+      );
+      assert.equal(bytes.readUInt32BE(16), width, `${file}: width`);
+      assert.equal(bytes.readUInt32BE(20), height, `${file}: height`);
+      assert.equal(bytes[25], 6, `${file}: RGBA (alpha — the marker floats over tiles)`);
+    }
   });
 });
 

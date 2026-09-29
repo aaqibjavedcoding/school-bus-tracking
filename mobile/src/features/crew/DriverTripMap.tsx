@@ -44,10 +44,10 @@ import { accuracyCirclePolygon } from '../map/accuracy-circle';
 import type { BusMotionFix } from '../map/bus-motion.ts';
 import { SINGLE_POINT_ZOOM, initialCameraFor } from '../map/fit-camera.ts';
 import { MapIssueLines } from '../map/map-issue-lines';
-import { reportMapIssue } from '../map/map-diagnostics';
 import { useMapStyle } from '../map/use-map-style';
 import { mapSurfaceMode } from '../map/map-surface-mode';
 import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
+import type { RouteSnapPoint } from '../map/route-snap.ts';
 import type { RenderedMarker } from '../map/useBusMarkerMotion';
 import { driverFollowControls } from '../map/map-controls.ts';
 import { useFollowCamera } from '../map/useFollowCamera';
@@ -124,8 +124,9 @@ const MapView = Map as unknown as React.ComponentType<MapProps & { children?: Re
  * Same engine and style policy as the observer map (`map-style.ts`,
  * `docs/live-tracking-map.md` → "Map provider policy"): OpenFreeMap over
  * OpenStreetMap by default, an https-only self-hosted override later, no key
- * and no billing. With no network the tiles simply do not load; the marker,
- * the stops and the device position line are overlays and keep working.
+ * and no billing. With no network the style load retries (bounded backoff,
+ * R3) and then drops to the bundled offline base style; the marker, the stops
+ * and the device position line are overlays and keep working either way.
  */
 export interface DriverTripMapProps {
   /** The trip's stops, in order. Coordinates are optional on the API shape. */
@@ -226,6 +227,8 @@ const PLANNED_PAINT = {
 interface SurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
   routeLineFeature: Feature<LineString> | null;
+  /** The stops in order — the marker's display-only snap target (R4). */
+  route: readonly RouteSnapPoint[];
   trailFeature: Feature<LineString> | null;
   plannedFeature: Feature<LineString> | null;
   accuracyCircleFeature: Feature<Polygon> | null;
@@ -251,6 +254,9 @@ interface SurfaceProps {
   onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
+  /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
+  onStyleLoadFailed: () => void;
+  onStyleLoaded: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
 }
 
@@ -263,6 +269,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
   ({
     stops,
     routeLineFeature,
+    route,
     trailFeature,
     plannedFeature,
     accuracyCircleFeature,
@@ -279,6 +286,8 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
+    onStyleLoadFailed,
+    onStyleLoaded,
     cameraRef,
     mapStyle,
   }) => (
@@ -309,8 +318,13 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
       touchPitch={false}
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
-      onDidFinishLoadingMap={onMapReady}
-      onDidFailLoadingMap={() => reportMapIssue('styleLoad')}
+      // The style pipeline sees the load result first: a successful load is
+      // what clears the styleLoad line (R3), then the camera re-fits.
+      onDidFinishLoadingMap={() => {
+        onStyleLoaded();
+        onMapReady();
+      }}
+      onDidFailLoadingMap={onStyleLoadFailed}
     >
       {/* Uncontrolled after the initial state; imperative via cameraRef. */}
       <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
@@ -414,6 +428,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
           tripId={tripId}
           reducedMotion={reducedMotion}
           animate={animate}
+          route={route}
           title={busTitle}
           description={busDescription}
           onFrame={onFrame}
@@ -623,12 +638,13 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   }, [tripId, trailLoad]);
   const closeFullscreen = useCallback(() => setExpanded(false), []);
 
-  const { mapStyle } = useMapStyle();
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
 
   const mapSurfaceEl = (
     <DriverMapSurface
       stops={locatedStops}
       routeLineFeature={routeLineFeature}
+      route={routeCoordinates}
       trailFeature={trailFeature}
       plannedFeature={plannedFeature}
       accuracyCircleFeature={accuracyCircleFeature}
@@ -646,6 +662,8 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       onRegionChange={onRegionChange}
       onRegionChangeComplete={onRegionChangeComplete}
       onMapReady={onMapReady}
+      onStyleLoadFailed={onStyleLoadFailed}
+      onStyleLoaded={notifyStyleLoaded}
       cameraRef={cameraRef}
       mapStyle={mapStyle}
     />

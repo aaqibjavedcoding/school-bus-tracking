@@ -142,6 +142,79 @@ export const OPENFREEMAP_GLYPHS_TEMPLATE =
 /** What a map issue means for the panels (`map.issue.*` copy keys). */
 export type MapStyleIssueCode = 'styleLoad' | 'glyphs';
 
+// ── The offline fallback style (deep-fix R3) ───────────────────────────────
+//
+// When the style fetch and the bounded retries are all spent (a genuine dead
+// zone), the map must not be a dead box. This bundled style is the floor: it
+// loads with **zero network** — no tile sources, no glyphs, no sprite — and
+// paints one neutral background, so the stop dots, the bus marker, the
+// accuracy circle and the status panel (all React Native overlays, nothing
+// the style provides) still render over an honest base. The `styleLoad` issue
+// line stays up while this is on screen: the fallback is a base map, not a
+// claim that the tiles came back.
+//
+// `version: 8` is the style-spec version MapLibre natively consumes; the rest
+// is deliberately the smallest legal style. Nothing here may ever name a URL:
+// a fallback that needs the network is not a fallback (spec-pinned).
+
+/**
+ * The bundled offline base style: a plain background, no sources, no
+ * external references of any kind. Compared by reference to detect "the
+ * fallback is showing", so it must stay this one frozen object.
+ */
+export const OFFLINE_FALLBACK_MAP_STYLE: Readonly<{
+  version: 8;
+  name: string;
+  sources: Record<string, never>;
+  layers: ReadonlyArray<Record<string, unknown>>;
+}> = Object.freeze({
+  version: 8,
+  name: 'sbt-offline-fallback',
+  sources: {},
+  layers: [
+    {
+      id: 'sbt-offline-background',
+      type: 'background',
+      // neutral-200: light enough that the dark stop dots and the amber bus
+      // stay legible, grey enough not to read as a loaded street map.
+      paint: { 'background-color': '#e7e5e4' },
+    },
+  ],
+});
+
+/** True when `style` is the bundled offline fallback (reference identity). */
+export function isOfflineFallbackStyle(style: unknown): boolean {
+  return style === OFFLINE_FALLBACK_MAP_STYLE;
+}
+
+/**
+ * A re-issueable copy of a style object for a **re-set retry** (R3).
+ *
+ * `use-map-style.ts` passes the style to the Map as a prop, and the engine
+ * bridge (`@maplibre/maplibre-react-native` `Map.tsx`) forwards it as
+ * `JSON.stringify(mapStyle)` — so two objects with the same content produce
+ * the SAME string, React's prop diff sees no change, and the native view is
+ * never asked to load the style again. A retry that re-sets the identical
+ * object would silently do nothing; a root-level `metadata` entry is legal
+ * style spec and is the one byte-honest way to make the retried string
+ * differ without changing what the style means.
+ */
+export function restyleForRetry(
+  style: Record<string, unknown>,
+  retryGeneration: number,
+): Record<string, unknown> {
+  const metadata =
+    style['metadata'] !== null &&
+    typeof style['metadata'] === 'object' &&
+    !Array.isArray(style['metadata'])
+      ? (style['metadata'] as Record<string, unknown>)
+      : {};
+  return {
+    ...style,
+    metadata: { ...metadata, 'sbt:retry-generation': retryGeneration },
+  };
+}
+
 /** A serializable `TransformRequestManager` rewrite: raw fontstack → encoded. */
 export interface GlyphUrlTransform {
   /** Stable across runs — the manager keys transforms by id. */
