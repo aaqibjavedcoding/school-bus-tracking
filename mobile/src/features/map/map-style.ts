@@ -142,6 +142,34 @@ export const OPENFREEMAP_GLYPHS_TEMPLATE =
 /** What a map issue means for the panels (`map.issue.*` copy keys). */
 export type MapStyleIssueCode = 'styleLoad' | 'glyphs';
 
+/**
+ * A re-issueable copy of a style object for a **re-set retry** (R3).
+ *
+ * `use-map-style.ts` passes the style to the Map as a prop, and the engine
+ * bridge (`@maplibre/maplibre-react-native` `Map.tsx`) forwards it as
+ * `JSON.stringify(mapStyle)` — so two objects with the same content produce
+ * the SAME string, React's prop diff sees no change, and the native view is
+ * never asked to load the style again. A retry that re-sets the identical
+ * object would silently do nothing; a root-level `metadata` entry is legal
+ * style spec and is the one byte-honest way to make the retried string
+ * differ without changing what the style means.
+ */
+export function restyleForRetry(
+  style: Record<string, unknown>,
+  retryGeneration: number,
+): Record<string, unknown> {
+  const metadata =
+    style['metadata'] !== null &&
+    typeof style['metadata'] === 'object' &&
+    !Array.isArray(style['metadata'])
+      ? (style['metadata'] as Record<string, unknown>)
+      : {};
+  return {
+    ...style,
+    metadata: { ...metadata, 'sbt:retry-generation': retryGeneration },
+  };
+}
+
 /** A serializable `TransformRequestManager` rewrite: raw fontstack → encoded. */
 export interface GlyphUrlTransform {
   /** Stable across runs — the manager keys transforms by id. */

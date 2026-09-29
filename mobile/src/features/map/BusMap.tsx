@@ -26,7 +26,6 @@ import { BusMarker } from './BusMarker';
 import { StopMarker } from './StopMarker';
 import { SINGLE_POINT_ZOOM, initialCameraFor } from './fit-camera.ts';
 import { MapIssueLines } from './map-issue-lines';
-import { reportMapIssue } from './map-diagnostics';
 import { useMapStyle } from './use-map-style';
 import { mapSurfaceMode } from './map-surface-mode';
 import { NeedsDevBuildPanel } from './needs-dev-build-panel';
@@ -150,6 +149,9 @@ interface MapSurfaceProps {
   onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
+  /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
+  onStyleLoadFailed: () => void;
+  onStyleLoaded: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
   /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
   mapStyle: MapProps['mapStyle'];
@@ -176,6 +178,8 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
+    onStyleLoadFailed,
+    onStyleLoaded,
     cameraRef,
     mapStyle,
   }) => (
@@ -189,8 +193,13 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
       logo
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
-      onDidFinishLoadingMap={onMapReady}
-      onDidFailLoadingMap={() => reportMapIssue('styleLoad')}
+      // The style pipeline sees the load result first: a successful load is
+      // what clears the styleLoad line (R3), then the camera re-fits.
+      onDidFinishLoadingMap={() => {
+        onStyleLoaded();
+        onMapReady();
+      }}
+      onDidFailLoadingMap={onStyleLoadFailed}
     >
       {/*
         The camera: uncontrolled after the initial state. All movement is
@@ -439,10 +448,11 @@ export const BusMap: React.FC<BusMapProps> = ({
   // `map-surface-mode.ts` (Expo Go carries no map engine on any platform).
   const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
 
-  // The style pipeline: fetched, glyph-repaired, fontstack rewrites
-  // registered, endpoint verified — failures land in the map-diagnostics
-  // store (rendered by MapStatusPanel / the Help screen).
-  const { mapStyle } = useMapStyle();
+  // The style pipeline: fetched with bounded backoff, glyph-repaired,
+  // fontstack rewrites registered, endpoint verified — failures land in the
+  // map-diagnostics store, recovery clears them, and total exhaustion drops
+  // to the bundled offline base style (R3; `use-map-style.ts`).
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
 
   if (surfaceMode === 'no-coordinates') {
     return (
@@ -476,6 +486,8 @@ export const BusMap: React.FC<BusMapProps> = ({
             onRegionChange={handleRegionChange}
             onRegionChangeComplete={handleRegionChangeComplete}
             onMapReady={handleMapReady}
+            onStyleLoadFailed={onStyleLoadFailed}
+            onStyleLoaded={notifyStyleLoaded}
             cameraRef={cameraRef}
             mapStyle={mapStyle}
           />

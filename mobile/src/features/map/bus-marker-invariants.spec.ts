@@ -96,6 +96,46 @@ describe('native bus map invariants', () => {
   });
 
   /**
+   * Deep-fix R3: a `styleLoad` failure used to be permanent — one flaky
+   * first fetch on mobile data left a dead map and a red line until the app
+   * restarted. The surface must route the engine's failure/loaded events
+   * through the style pipeline's bounded recovery, never straight at the
+   * diagnostics store, and a successful load must clear the line.
+   */
+  test('routes engine load events through the pipeline recovery, on both maps', () => {
+    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
+      const source = read(file);
+      assert.match(
+        source,
+        /onDidFailLoadingMap=\{onStyleLoadFailed\}/,
+        `${file}: the engine's failure must run the bounded re-set policy`,
+      );
+      assert.match(
+        source,
+        /onDidFinishLoadingMap=\{\(\) => \{\s*onStyleLoaded\(\);\s*onMapReady\(\);\s*\}\}/,
+        `${file}: a successful load clears the line before the camera re-fits`,
+      );
+      assert.doesNotMatch(
+        source,
+        /onDidFailLoadingMap=\{\(\) => reportMapIssue/,
+        `${file}: bare reporting has no recovery — the pipeline owns this now`,
+      );
+    }
+  });
+
+  test('the pipeline retries fetches with bounded backoff and clears on recovery', () => {
+    const pipeline = read('src/features/map/use-map-style.ts');
+    assert.match(pipeline, /runWithBackoff\(/, 'the fetch runs under the bounded policy');
+    assert.match(
+      pipeline,
+      /planStyleLoadFailure\(/,
+      'native failures are decided by the pure policy, not inline',
+    );
+    assert.match(pipeline, /clearMapIssue\('styleLoad'\)/, 'a real load clears the style line');
+    assert.match(pipeline, /clearMapIssue\('glyphs'\)/, 'a verified probe clears the label line');
+  });
+
+  /**
    * The camera *wiring* lives in `follow-camera-controller.ts` (pure) and
    * `useFollowCamera.ts` (the React binding), so both native maps — the
    * observer map here and the Driver Trip map — run one implementation.

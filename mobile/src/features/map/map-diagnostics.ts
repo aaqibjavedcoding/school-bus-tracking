@@ -12,7 +12,8 @@
  *
  * Pure TypeScript — no React, no native imports — so `map-diagnostics.spec.ts`
  * pins the contract under plain `node --test`: at most `MAX_ISSUES` distinct
- * codes, duplicates ignored, listeners notified.
+ * codes, duplicates ignored, listeners notified, and (since deep-fix R3) an
+ * issue clears when its condition is verified gone, never just by time passing.
  */
 
 import type { MapStyleIssueCode } from './map-style.ts';
@@ -36,6 +37,25 @@ export function reportMapIssue(code: MapStyleIssueCode): void {
   if (issues.includes(code)) return;
   if (issues.length >= MAX_ISSUES) return;
   issues = [...issues, code];
+  notify();
+}
+
+/**
+ * Clears one issue — the recovery half of the store (deep-fix R3).
+ *
+ * A reported issue used to be forever: one flaky first fetch on mobile data
+ * pinned a red line until the app restarted, long after the map had silently
+ * recovered. Now a later successful style load clears `styleLoad` and a
+ * successful glyph probe clears `glyphs`, so the panel always says what is
+ * wrong **now**, not what once went wrong.
+ *
+ * Clearing an absent code is a no-op (no notify): a recovery path must be
+ * safe to run idempotently without re-rendering the panels. A cleared code
+ * may be reported again — recovery is a cycle, not an archive.
+ */
+export function clearMapIssue(code: MapStyleIssueCode): void {
+  if (!issues.includes(code)) return;
+  issues = issues.filter((current) => current !== code);
   notify();
 }
 

@@ -12,6 +12,7 @@ import {
   glyphUrlTransforms,
   inspectMapStyle,
   resolveMapStyleUrl,
+  restyleForRetry,
   __resetMapStyleWarningsForTests,
 } from './map-style.ts';
 
@@ -190,5 +191,45 @@ describe('map-style glyph helpers', () => {
     // to an already-encoded URL is a no-op, so the pipeline cannot double
     // encode (`%2520`).
     assert.equal('Noto%20Sans%20Regular'.replace('Noto Sans Regular', 'x'), 'Noto%20Sans%20Regular');
+  });
+});
+
+describe('restyleForRetry (the re-set that actually re-sets)', () => {
+  it('produces a different serialisation for the same logical style', () => {
+    const style = { version: 8, sources: {}, layers: [] };
+    const retried = restyleForRetry(style, 1);
+    assert.notEqual(
+      JSON.stringify(retried),
+      JSON.stringify(style),
+      'the engine bridge forwards JSON.stringify(mapStyle) — an identical string is a no-op re-set',
+    );
+  });
+
+  it('carries the retry generation in style-legal root metadata', () => {
+    const style = { version: 8, sources: {}, layers: [] };
+    const retried = restyleForRetry(style, 3) as { metadata: Record<string, unknown> };
+    assert.equal(retried.metadata['sbt:retry-generation'], 3);
+  });
+
+  it('preserves existing metadata and every other key', () => {
+    const style = {
+      version: 8,
+      metadata: { 'openmaptiles:version': '3.x' },
+      sources: { x: {} },
+      layers: [{ id: 'a' }],
+    };
+    const retried = restyleForRetry(style, 2);
+    const metadata = retried.metadata as Record<string, unknown>;
+    assert.equal(metadata['openmaptiles:version'], '3.x');
+    assert.equal(metadata['sbt:retry-generation'], 2);
+    assert.deepEqual(retried.sources, style.sources);
+    assert.deepEqual(retried.layers, style.layers);
+  });
+
+  it('replaces a non-object metadata slot rather than spreading it', () => {
+    const style = { version: 8, metadata: 'openmaptiles', sources: {}, layers: [] };
+    const retried = restyleForRetry(style, 1) as { metadata: Record<string, unknown> };
+    assert.equal(retried.metadata['sbt:retry-generation'], 1);
+    assert.equal(typeof retried.metadata, 'object');
   });
 });
