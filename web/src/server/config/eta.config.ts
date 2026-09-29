@@ -38,18 +38,47 @@ import { registerAs } from '../framework';
  *                                     less precise than the 100 m default
  *                                     geofence cannot localise inside it).
  *                                     A fix must additionally be at least as
- *                                     precise as half the stop's own geofence
- *                                     radius before it counts toward that stop
- *                                     (see `StopArrivalsService`), so a small
- *                                     10–50 m geofence rejects the weak indoor
- *                                     fixes a parked bus produces;
+ *                                     precise as the stop's EFFECTIVE radius
+ *                                     (see ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)
+ *                                     before it counts toward that stop —
+ *                                     accuracy ≤ min(ARRIVAL_MAX_ACCURACY_METERS,
+ *                                     effectiveRadius), no `/2` divisor.
+ *                                     Deep-fix R1: the old `radius / 2` rule
+ *                                     demanded 5–15 m accuracy from a 10–30 m
+ *                                     stop, which phones in urban/indoor
+ *                                     conditions routinely fail (10–30 m) —
+ *                                     the bus was inside the circle and still
+ *                                     never "arrived". The per-stop gate now
+ *                                     only rejects fixes too coarse to be
+ *                                     inside the circle at all; the
+ *                                     anti-cascade load is carried by the
+ *                                     departure / dwell / cooldown gates, not
+ *                                     by a tiny radius;
+ *   ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS runtime floor on every stop's
+ *                                     effective geofence radius (default 50).
+ *                                     Evaluation uses effectiveRadius =
+ *                                     max(stop.geofence_radius_meters, this
+ *                                     floor) everywhere a stop's radius
+ *                                     participates: inside-evidence, the
+ *                                     per-stop accuracy gate, the departure
+ *                                     margin and candidate selection. The
+ *                                     stored radius stays the admin's intent
+ *                                     (and new/edited stops must be ≥ 30 m);
+ *                                     the floor is the runtime safety net for
+ *                                     legacy/small stops so every arrival
+ *                                     zone is a real circle, not a point;
  *   ARRIVAL_ALLOW_MISSING_ACCURACY    whether fixes without an accuracy
  *                                     reading stay eligible (default false —
  *                                     a fix whose accuracy is unknown cannot
- *                                     be trusted to localise inside a small
- *                                     geofence, and a stationary bus indoors
- *                                     is exactly where devices drop the
- *                                     field; opt in per deployment if needed);
+ *                                     be trusted to localise inside even a
+ *                                     50 m circle; the tradeoff is that a
+ *                                     device which omits the field
+ *                                     contributes no arrival evidence, which
+ *                                     the progress diagnostics surface as
+ *                                     `missing-accuracy`. The anti-cascade
+ *                                     defences are the departure/dwell/
+ *                                     cooldown gates, so a deployment that
+ *                                     trusts its fleet may set this true);
  *   ARRIVAL_REQUIRED_CONSECUTIVE_FIXES in-a-row fixes inside a geofence
  *                                     before recording (default 2 — one fix
  *                                     is vulnerable to urban GPS jitter;
@@ -106,6 +135,7 @@ export default registerAs('eta', () => {
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),
       maxAccuracyMeters: numberFromEnv('ARRIVAL_MAX_ACCURACY_METERS', 100, 1),
       allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', false),
+      minEffectiveRadiusMeters: numberFromEnv('ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS', 50, 1),
       requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 2, 1),
       skipExtraFixes: intFromEnv('ARRIVAL_SKIP_EXTRA_FIXES', 1, 0),
       maxSkipAhead: intFromEnv('ARRIVAL_MAX_SKIP_AHEAD', 2, 1),

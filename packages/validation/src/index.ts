@@ -736,7 +736,15 @@ export const stopCreateSchema = z
     geofence_radius_meters: z
       .number()
       .int('geofence_radius_meters must be an integer')
-      .min(10, 'geofence_radius_meters must be between 10 and 2000')
+      // Deep-fix R1: a radius below ~30 m makes the arrival zone behave like
+      // a point — phones in urban/indoor conditions report 10–30 m accuracy,
+      // so a fix that IS inside a 10–30 m circle keeps failing the per-stop
+      // accuracy gate and the driver watches a parked bus "never arrive".
+      // 30 m is the smallest circle that still records from typical phone
+      // fixes; legacy smaller radii stay valid at runtime because the server
+      // floors every stop's EFFECTIVE radius (see
+      // `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` in the web eta config).
+      .min(30, 'geofence_radius_meters must be between 30 and 2000')
       .max(2000)
       .nullish(),
     sequence_number: z
@@ -2754,7 +2762,9 @@ export const stopImportRowSchema = z
     address: optionalTextCell(500, 'Address'),
     latitude: decimalCell('Latitude', { min: -90, max: 90 }),
     longitude: decimalCell('Longitude', { min: -180, max: 180 }),
-    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 10, max: 2000 }),
+    // Deep-fix R1: min 30 for the same reason as `stopCreateSchema` above —
+    // smaller circles behave like points against real phone accuracy.
+    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 30, max: 2000 }),
     estimated_arrival_time: timeCell('Estimated arrival time'),
     is_active: booleanCell('Active'),
   })

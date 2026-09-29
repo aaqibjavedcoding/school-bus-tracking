@@ -34,10 +34,13 @@ import {
 } from './eta.test-utils';
 import {
   assessFixEligibility,
+  effectiveStopRadiusMeters,
+  fixAccuracySufficientForStop,
   requiredFixesForProgression,
   selectProgressionCandidate,
   StopArrivalsService,
   DEFAULT_ARRIVAL_DETECTION_CONFIG,
+  updateInsideEvidence,
 } from './stop-arrivals.service';
 import type { StopArrivalNotificationInput } from '../notifications/notifications.service';
 
@@ -1342,6 +1345,9 @@ describe('arrival confirmation default and progression tiers', () => {
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.allowMissingAccuracy, false);
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopMs, 30_000);
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopDistanceMeters, 50);
+    // Deep-fix R1: every stop's effective radius is floored at 50 m — the
+    // arrival zone is a circle a parked bus can stand inside, never a point.
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minEffectiveRadiusMeters, 50);
   });
 
   it('maps each progression tier to its required consecutive fixes', () => {
@@ -1538,9 +1544,14 @@ describe('StopArrivalsService P0-1 stationary-bus cascade gates (production defa
     assert.equal(later.stop.id, STOP_2);
   });
 
-  it('(d) a fix with accuracy worse than half the geofence radius is ignored', async () => {
-    // A 40 m geofence demands accuracy ≤ 20 m; a 30 m fix cannot honestly place
-    // the bus inside it.
+  it('(d) a fix with accuracy worse than the stop\'s effective radius is ignored', async () => {
+    // Deep-fix R1 re-derived this case: the gate is no longer `radius / 2` but
+    // `min(ARRIVAL_MAX_ACCURACY_METERS, effectiveRadius)`. A 40 m stop has an
+    // effective radius of 50 m (the floor), so:
+    // - a 30 m fix — typical urban/indoor phone accuracy, and the reading that
+    //   the old /2 rule threw away even though the bus was inside the circle —
+    //   now COUNTS (that is the field defect this batch fixes);
+    // - a 60 m fix is coarser than the whole circle and still never counts.
     const stop = makeStop({
       id: STOP_1,
       sequence_number: 1,
@@ -1556,17 +1567,28 @@ describe('StopArrivalsService P0-1 stationary-bus cascade gates (production defa
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
     const atCenter = { latitude: 40.7003, longitude: -73.9997 };
 
-    // Two coarse fixes right on the stop — inside the circle, but too imprecise
-    // to count.
-    await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 30 }, 11_000), clock.now());
-    const coarse = await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 30 }, 11_000), clock.now());
-    assert.equal(coarse, null, 'accuracy > radius / 2 never counts toward the stop');
+    // A coarse-but-inside fix: accuracy 60 m cannot localise inside a 50 m
+    // effective circle, so it never counts toward the stop.
+    await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 60 }, 11_000), clock.now());
+    const tooCoarse = await evaluate(
+      harness,
+      trip,
+      clock.fix({ ...atCenter, accuracy: 60 }, 11_000),
+      clock.now(),
+    );
+    assert.equal(tooCoarse, null, 'accuracy > effective radius never counts toward the stop');
     assert.equal(harness.arrivals.created.length, 0);
 
-    // A precise fix records it.
-    const precise = await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 15 }, 11_000), clock.now());
-    assert.ok(precise);
-    assert.equal(precise.stop.id, STOP_1);
+    // A typical-phone fix (30 m accuracy) records the same stop: the bus is
+    // inside the circle and the fix is precise enough to say so.
+    const typicalPhone = await evaluate(
+      harness,
+      trip,
+      clock.fix({ ...atCenter, accuracy: 30 }, 11_000),
+      clock.now(),
+    );
+    assert.ok(typicalPhone, 'a 30 m-accuracy fix inside a 50 m effective circle records');
+    assert.equal(typicalPhone.stop.id, STOP_1);
   });
 
   it('(e) a crew-marked arrival also arms the departure gate', async () => {
@@ -1601,5 +1623,152 @@ describe('StopArrivalsService P0-1 stationary-bus cascade gates (production defa
     const progress = await harness.service.getProgress(trip, null, clock.now());
     assert.equal(progress.arrival_diagnostics?.last_gate_block, 'awaiting-departure');
     assert.equal(progress.arrival_diagnostics?.departure_gate?.frontier_stop_id, STOP_1);
+  });
+});
+
+/**
+ * Deep-fix R1 — the arrival zone is a standard circle, not a point.
+ *
+ * Field defect: a bus parked at a stop (live GPS wandering ±3–6 m) only
+ * recorded when a fix landed almost exactly on the stop's coordinates,
+ * because (a) legacy stops could store a 10 m radius — smaller than the
+ * phone's reported accuracy — and (b) the per-stop accuracy gate demanded
+ * accuracy ≤ radius/2 (5 m for a 10 m stop). These cases pin the fix: the
+ * effective-radius floor (max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS))
+ * everywhere the radius participates, and the accuracy gate softened to
+ * `min(ARRIVAL_MAX_ACCURACY_METERS, effectiveRadius)`.
+ */
+describe('R1 effective arrival circle (standard circle, not a point)', () => {
+  const PROD = DEFAULT_ARRIVAL_DETECTION_CONFIG;
+
+  /** ~40 m north of a point at 40.7°N (1° latitude ≈ 111.1 km). */
+  const ABOUT_40M_NORTH = { latitude: 40.70036, longitude: -74.0 };
+  /** ~80 m north of the same point. */
+  const ABOUT_80M_NORTH = { latitude: 40.70072, longitude: -74.0 };
+
+  it('floors a 10 m stop to the effective radius for evidence and selection', () => {
+    const stop = makeStop({ id: STOP_1, geofence_radius_meters: 10 });
+    // The stored radius is 10 m; the effective radius is the 50 m floor.
+    assert.equal(effectiveStopRadiusMeters(stop, PROD), 50);
+    // A larger stored radius is the admin's intent and passes through.
+    assert.equal(
+      effectiveStopRadiusMeters(makeStop({ geofence_radius_meters: 150 }), PROD),
+      150,
+    );
+
+    // Inside-evidence: a fix 40 m from the stop with typical phone accuracy
+    // accumulates evidence for the 10 m stop (outside its stored radius,
+    // inside the effective circle).
+    const inside = new Map<string, { count: number; sinceMs: number }>();
+    updateInsideEvidence(
+      inside,
+      [stop],
+      new Set<string>(),
+      undefined,
+      { latitude: ABOUT_40M_NORTH.latitude, longitude: ABOUT_40M_NORTH.longitude, accuracy: 20 },
+      1_000,
+      PROD.exitHysteresisMeters,
+      PROD,
+    );
+    assert.equal(inside.get(STOP_1)?.count, 1, 'a 40 m fix counts for a floored 10 m stop');
+
+    // Candidate selection uses the same circle: two fixes of evidence + the
+    // dwell span qualify the stop as the progression candidate.
+    const selection = selectProgressionCandidate({
+      stops: [stop],
+      arrivedStopIds: new Set<string>(),
+      seenStopIds: undefined,
+      inside: new Map<string, { count: number; sinceMs: number }>([
+        [STOP_1, { count: 2, sinceMs: 1_000 }],
+      ]),
+      fix: { ...ABOUT_40M_NORTH, recordedMs: 12_000 },
+      config: PROD,
+    });
+    assert.ok(selection, 'a fix 40 m from a 10 m stop selects it via the effective radius');
+    assert.equal(selection.stop.id, STOP_1);
+    closeTo(selection.distanceMeters, 40, 6);
+  });
+
+  it('a 10 m stop records from a fix 40 m away with 20 m accuracy (production defaults)', async () => {
+    // The exact field scenario: a small legacy stop, the bus parked ~40 m
+    // short of the pin (admins pin stops on roads), phone accuracy 20 m.
+    const harness = makeArrivalsHarness({
+      stops: [makeStop({ id: STOP_1, geofence_radius_meters: 10 })],
+      config: PROD,
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    const first = await evaluate(
+      harness,
+      trip,
+      clock.fix({ ...ABOUT_40M_NORTH, accuracy: 20 }, 11_000),
+      clock.now(),
+    );
+    assert.equal(first, null, 'the first fix only accumulates evidence');
+    const second = await evaluate(
+      harness,
+      trip,
+      clock.fix({ ...ABOUT_40M_NORTH, accuracy: 20 }, 11_000),
+      clock.now(),
+    );
+
+    assert.ok(second, 'two sustained fixes inside the effective circle record the stop');
+    assert.equal(second.stop.id, STOP_1);
+    closeTo(second.distanceMeters, 40, 6);
+    assert.equal(harness.arrivalNotifications.length, 1);
+  });
+
+  it('the accuracy gate is min(maxAccuracy, effectiveRadius) — the /2 divisor is gone', () => {
+    // The old rule: a 40 m radius demanded ≤ 20 m accuracy. The new rule uses
+    // the effective radius (50 m floor), so a 30 m fix counts and a 60 m fix
+    // does not — the gate rejects only fixes too coarse for the whole circle.
+    assert.equal(fixAccuracySufficientForStop(30, 50, PROD), true);
+    assert.equal(fixAccuracySufficientForStop(50, 50, PROD), true);
+    assert.equal(fixAccuracySufficientForStop(60, 50, PROD), false);
+    // The global ceiling still applies even to large stops.
+    assert.equal(fixAccuracySufficientForStop(120, 150, PROD), false);
+    // Unknown accuracy stays ineligible by default (anti-cascade is the
+    // departure/dwell/cooldown gates' job, not this field).
+    assert.equal(fixAccuracySufficientForStop(null, 50, PROD), false);
+    assert.equal(
+      fixAccuracySufficientForStop(null, 50, { ...PROD, allowMissingAccuracy: true }),
+      true,
+    );
+  });
+
+  it('the departure gate waits for the EFFECTIVE radius + hysteresis, not the stored one', async () => {
+    // Stop 1 stores a 10 m radius. Departure must require the bus to leave
+    // the 50 m effective circle (+20 m fringe = 70 m), not the 30 m the
+    // stored radius would imply — otherwise a bus 40 m out (still inside the
+    // effective circle) would look "departed".
+    const harness = makeArrivalsHarness({
+      stops: DEFAULT_STOPS.map((stop) =>
+        stop.id === STOP_1 ? { ...stop, geofence_radius_meters: 10 } : stop,
+      ),
+      config: { ...PROD, requiredConsecutiveFixes: 1, minDwellMs: 0 },
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Record stop 1 (AT_STOP_1 is ~41 m from the pin — inside the effective
+    // circle, outside the stored one: only the floor makes this record).
+    const recorded = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 5_000), clock.now());
+    assert.ok(recorded, 'stop 1 records via the effective radius');
+    assert.equal(recorded.stop.id, STOP_1);
+
+    // A fix 40 m north of stop 1: outside stored 10 m + 20 m fringe, but still
+    // inside the effective 50 m + 20 m = 70 m — NOT departed (and stop 2,
+    // ~840 m away, is not even a candidate yet, so nothing records).
+    await evaluate(harness, trip, clock.fix({ ...ABOUT_40M_NORTH }, 5_000), clock.now());
+    let progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.departure_gate?.departed, false);
+    assert.equal(harness.arrivals.created.length, 1);
+
+    // A fix 80 m north of stop 1 — beyond the effective circle + fringe —
+    // opens the gate.
+    await evaluate(harness, trip, clock.fix({ ...ABOUT_80M_NORTH }, 5_000), clock.now());
+    progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.departure_gate?.departed, true);
   });
 });

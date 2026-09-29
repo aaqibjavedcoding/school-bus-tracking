@@ -51,6 +51,25 @@ export interface ArrivalDetectionConfig {
   /** Whether fixes without an accuracy reading stay eligible. */
   allowMissingAccuracy: boolean;
   /**
+   * Runtime floor on every stop's EFFECTIVE geofence radius (default 50 —
+   * `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`). Evaluation uses
+   * `effectiveStopRadiusMeters(stop, config) =
+   * max(stop.geofence_radius_meters, this floor)` everywhere a stop's radius
+   * participates: inside-evidence, the per-stop accuracy gate, the
+   * departure-gate margin and candidate selection.
+   *
+   * Deep-fix R1: the field showed a bus parked at a stop whose live GPS
+   * wandered ±3–6 m only ever recording when a fix landed almost exactly on
+   * the stop's coordinates — the "zone behaves like a point" defect. Small
+   * legacy radii (10–30 m) made that inevitable: the circle itself was
+   * smaller than the phone's reported accuracy. The floor keeps the stored
+   * radius as the admin's intent while guaranteeing every arrival zone is a
+   * real circle a parked bus can stand inside. New/edited stops are
+   * additionally required to be ≥ 30 m by validation; the floor catches
+   * everything created before that.
+   */
+  minEffectiveRadiusMeters: number;
+  /**
    * In-a-row fixes inside a geofence before a stop records. The immediately
    * next stop defaults to 2 (see `DEFAULT_ARRIVAL_DETECTION_CONFIG`): one fix
    * is vulnerable to GPS jitter, and the departure / inter-stop gates (not this
@@ -94,11 +113,15 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   maxFixAgeMs: 180_000,
   futureToleranceMs: 60_000,
   maxAccuracyMeters: 100,
-  // A fix whose accuracy is unknown cannot be trusted to localise inside a
-  // small (10–50 m) geofence, and a stationary bus parked indoors is exactly
+  // A fix whose accuracy is unknown cannot be trusted to localise inside even
+  // a 50 m effective circle, and a stationary bus parked indoors is exactly
   // where devices drop the field — so unknown-accuracy fixes are ineligible by
-  // default (env-tunable per deployment).
+  // default (env-tunable per deployment). The anti-cascade defences are the
+  // departure / dwell / cooldown gates, not this field.
   allowMissingAccuracy: false,
+  // Deep-fix R1: every stop's effective radius is at least 50 m, so a legacy
+  // 10–30 m stop still gets a real circle (see the config field doc).
+  minEffectiveRadiusMeters: 50,
   // The next unarrived stop records only after TWO consecutive eligible
   // in-geofence fixes with sustained presence (`minDwellMs`). One fix is
   // vulnerable to urban GPS jitter; the departure and inter-stop gates below
@@ -135,17 +158,26 @@ export interface StopInsideEvidence {
 
 /**
  * Departure-gate memory for one trip. The next stop (any stop past the current
- * frontier) may only record once the bus has been seen OUTSIDE the frontier
- * stop's geofence — otherwise a bus parked inside several overlapping
- * geofences records every stop one per fix. The frontier stop id is derived
- * from the arrival rows on every evaluation, so the gate survives a process
- * restart and honours crew-marked arrivals too; only the "has departed yet"
- * bit needs caching between fixes.
+ * frontier) may only record once the bus has demonstrably moved on from the
+ * frontier stop — otherwise a bus parked inside several overlapping geofences
+ * records every stop one per fix. "Moved on" has been geometry-aware since
+ * deep-fix R2 (see `hasMovedOnTowardAheadStop`): either the bus has been seen
+ * OUTSIDE the frontier stop's effective geofence + hysteresis, or it is
+ * inside a LATER stop's effective circle and strictly closer to that stop
+ * than to the frontier — the only shape of "departed" a route with stops
+ * 20–40 m apart can express, where the circles necessarily overlap. The
+ * frontier stop id is derived from the arrival rows on every evaluation, so
+ * the gate survives a process restart and honours crew-marked arrivals too;
+ * only the "has departed yet" bit needs caching between fixes.
  */
 export interface DepartureGateState {
   /** Highest-sequence arrived stop the gate is currently anchored on. */
   frontierStopId: string;
-  /** True once an eligible fix has been seen outside its geofence + hysteresis. */
+  /**
+   * True once an eligible fix has been seen outside its effective geofence
+   * (stored radius floored at `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`) +
+   * hysteresis, or demonstrably moved on toward a later stop.
+   */
   departed: boolean;
 }
 
@@ -209,6 +241,7 @@ export class StopArrivalsService {
 
   /** Trips whose un-surveyed stops were already warned about (once per process). */
   private readonly warnedByTrip = new Map<string, Set<string>>();
+
 
   constructor(
     private readonly stops: typeof Stop,
@@ -783,6 +816,7 @@ export class StopArrivalsService {
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
 
+
     // Parent notification rows were already persisted inside the arrival's
     // transaction (fix D). Nothing to do here — the outbox delivers them, and
     // the notifications service broadcast the inbox event after commit.
@@ -930,11 +964,11 @@ export class StopArrivalsService {
 
   /**
    * Updates and returns the departure-gate bit for the current frontier stop:
-   * has an eligible fix been seen outside its geofence (plus the hysteresis
-   * fringe) yet? Resets to `false` whenever the frontier stop changes (a new
-   * arrival just landed). A frontier stop with no usable coordinates cannot be
-   * measured against, so the gate opens (an unsurveyable crew-marked stop must
-   * never hold the trip hostage).
+   * has an eligible fix been seen outside its EFFECTIVE geofence (plus the
+   * hysteresis fringe) yet? Resets to `false` whenever the frontier stop
+   * changes (a new arrival just landed). A frontier stop with no usable
+   * coordinates cannot be measured against, so the gate opens (an unsurveyable
+   * crew-marked stop must never hold the trip hostage).
    */
   private updateDepartureGate(tripId: string, frontierStop: Stop | null, fix: TripLocation): boolean {
     if (frontierStop === null) {
@@ -954,7 +988,10 @@ export class StopArrivalsService {
       if (distance === null) {
         // Cannot measure departure from an unsurveyed frontier — do not hold.
         departed = true;
-      } else if (distance > frontierStop.geofence_radius_meters + this.config.exitHysteresisMeters) {
+      } else if (
+        distance >
+        effectiveStopRadiusMeters(frontierStop, this.config) + this.config.exitHysteresisMeters
+      ) {
         departed = true;
       }
     }
@@ -1148,19 +1185,50 @@ function isImplausibleJump(
 }
 
 /**
- * The accuracy a fix must reach before it can count toward a specific stop:
- * the tighter of the global `maxAccuracyMeters` ceiling and HALF the stop's own
- * geofence radius. A fix reported as accurate to 50 m cannot honestly place a
- * bus inside a 30 m geofence, so a small stop rejects the weak indoor fixes a
- * parked bus produces even though the same fix would pass the global gate.
+ * The stop's EFFECTIVE geofence radius: the larger of the stored radius and
+ * the configured floor (`ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`, default 50).
  *
- * A fix without an accuracy reading is only sufficient when `allowMissingAccuracy`
- * is set — an unknown accuracy cannot be trusted to localise inside a small
- * geofence.
+ * Every place a stop's radius participates — inside-evidence, the per-stop
+ * accuracy gate, the departure-gate margin, candidate selection — must read
+ * the radius through this helper so the floor is one rule, not four copies.
+ * The stored radius stays the admin's intent; the floor is the runtime safety
+ * net for legacy/small stops (deep-fix R1: a 10 m circle is smaller than a
+ * phone's reported accuracy, so the "zone" behaved like a point).
+ */
+export function effectiveStopRadiusMeters(
+  stop: Pick<GeofenceStop, 'geofence_radius_meters'>,
+  config: Pick<ArrivalDetectionConfig, 'minEffectiveRadiusMeters'>,
+): number {
+  const stored = Number.isFinite(stop.geofence_radius_meters)
+    ? Math.max(0, stop.geofence_radius_meters)
+    : 0;
+  const floor = Number.isFinite(config.minEffectiveRadiusMeters)
+    ? Math.max(0, config.minEffectiveRadiusMeters)
+    : 0;
+  return Math.max(stored, floor);
+}
+
+/**
+ * The accuracy a fix must reach before it can count toward a specific stop:
+ * the tighter of the global `maxAccuracyMeters` ceiling and the stop's
+ * EFFECTIVE geofence radius (`effectiveStopRadiusMeters`).
+ *
+ * Deep-fix R1 removed the old `radius / 2` divisor: a 10–30 m stop demanded
+ * 5–15 m accuracy, which phones in urban/indoor conditions routinely fail
+ * (10–30 m is normal), so a fix that WAS inside the circle was discarded as
+ * evidence — the driver experienced an exact-coordinate point match. The
+ * per-stop gate now only rejects a fix too coarse to localise inside the
+ * effective circle at all; a stationary bus cascading through stops is
+ * stopped by the departure gate, the dwell span and the inter-stop cooldown,
+ * not by a tiny radius.
+ *
+ * A fix without an accuracy reading is only sufficient when
+ * `allowMissingAccuracy` is set — an unknown accuracy cannot be trusted to
+ * localise inside even a floored circle.
  */
 export function fixAccuracySufficientForStop(
   accuracy: number | null | undefined,
-  geofenceRadiusMeters: number,
+  effectiveRadiusMeters: number,
   config: Pick<ArrivalDetectionConfig, 'maxAccuracyMeters' | 'allowMissingAccuracy'>,
 ): boolean {
   if (accuracy === null || accuracy === undefined) {
@@ -1169,17 +1237,21 @@ export function fixAccuracySufficientForStop(
   if (!Number.isFinite(accuracy)) {
     return false;
   }
-  const allowed = Math.min(config.maxAccuracyMeters, geofenceRadiusMeters / 2);
+  const allowed = Math.min(config.maxAccuracyMeters, effectiveRadiusMeters);
   return accuracy <= allowed;
 }
+
+
 
 /**
  * Advances the consecutive inside-geofence evidence for one evaluated fix.
  * Stops already arrived (or seen) are skipped and pruned; every other valid
- * stop moves to `count + 1` when the fix is inside its radius AND precise
- * enough for that stop's radius, keeps its partial count inside the hysteresis
+ * stop moves to `count + 1` when the fix is inside its EFFECTIVE radius AND
+ * precise enough for that stop, keeps its partial count inside the hysteresis
  * fringe (or when the fix is inside but too coarse to trust), and resets to
- * zero outside it.
+ * zero outside it. The effective radius (stored radius floored at
+ * `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`) is what makes the zone a circle a
+ * parked bus can stand inside instead of a point it must hit.
  */
 export function updateInsideEvidence(
   inside: Map<string, StopInsideEvidence>,
@@ -1189,7 +1261,10 @@ export function updateInsideEvidence(
   fix: { latitude: number; longitude: number; accuracy?: number | null },
   recordedMs: number,
   exitHysteresisMeters: number,
-  accuracyConfig: Pick<ArrivalDetectionConfig, 'maxAccuracyMeters' | 'allowMissingAccuracy'>,
+  accuracyConfig: Pick<
+    ArrivalDetectionConfig,
+    'maxAccuracyMeters' | 'allowMissingAccuracy' | 'minEffectiveRadiusMeters'
+  >,
 ): void {
   for (const stop of routeStops) {
     if (arrivedStopIds.has(stop.id) || seenStopIds?.has(stop.id)) {
@@ -1205,14 +1280,9 @@ export function updateInsideEvidence(
       inside.set(stop.id, { count: 0, sinceMs: recordedMs });
       continue;
     }
-    if (distance <= stop.geofence_radius_meters) {
-      if (
-        !fixAccuracySufficientForStop(
-          fix.accuracy ?? null,
-          stop.geofence_radius_meters,
-          accuracyConfig,
-        )
-      ) {
+    const radius = effectiveStopRadiusMeters(stop, accuracyConfig);
+    if (distance <= radius) {
+      if (!fixAccuracySufficientForStop(fix.accuracy ?? null, radius, accuracyConfig)) {
         // Inside the circle but too coarse to localise there: preserve any
         // existing evidence without adding to it, exactly like the fringe.
         if (!inside.has(stop.id)) {
@@ -1225,7 +1295,7 @@ export function updateInsideEvidence(
         count: (previous?.count ?? 0) + 1,
         sinceMs: previous && previous.count > 0 ? previous.sinceMs : recordedMs,
       });
-    } else if (distance <= stop.geofence_radius_meters + exitHysteresisMeters) {
+    } else if (distance <= radius + exitHysteresisMeters) {
       // Hysteresis fringe: edge jitter neither confirms nor wipes evidence.
       if (!inside.has(stop.id)) {
         inside.set(stop.id, { count: 0, sinceMs: recordedMs });
@@ -1247,7 +1317,11 @@ export interface ProgressionCandidateInput {
   fix: { latitude: number; longitude: number; recordedMs: number };
   config: Pick<
     ArrivalDetectionConfig,
-    'requiredConsecutiveFixes' | 'skipExtraFixes' | 'maxSkipAhead' | 'minDwellMs'
+    | 'requiredConsecutiveFixes'
+    | 'skipExtraFixes'
+    | 'maxSkipAhead'
+    | 'minDwellMs'
+    | 'minEffectiveRadiusMeters'
   >;
 }
 
@@ -1334,7 +1408,9 @@ export function selectProgressionCandidate(
       continue; // behind the frontier: the skip is final
     }
     const distance = haversineMeters(fix.latitude, fix.longitude, stop.latitude, stop.longitude);
-    if (distance === null || distance > stop.geofence_radius_meters) {
+    // The effective (floored) radius is the circle the bus can stand inside —
+    // the stored radius alone made small stops behave like points (R1).
+    if (distance === null || distance > effectiveStopRadiusMeters(stop, config)) {
       continue;
     }
     const evidence = inside.get(stop.id);
