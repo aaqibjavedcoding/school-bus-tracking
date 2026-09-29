@@ -54,6 +54,16 @@ import { crewCopy } from '../../src/features/crew/crew-copy';
 import { useTranslation } from '../../src/lib/i18n-provider';
 
 /**
+ * A next-stop manifest slice tagged with the stop id it was fetched for, so a
+ * stale slice held by `useLoad` during a stop change is never mistaken for the
+ * new stop's data (P0-2).
+ */
+type NextStopManifest = {
+  stopId: string | null;
+  items: TripStudentManifestResponse['items'];
+};
+
+/**
  * Crew "today" screen (DRIVER + CONDUCTOR) — Phase 2: **one job, one
  * screen**. The giant status card answers the only three questions a crew
  * member has while working — *what state are we in* (background colour +
@@ -225,13 +235,34 @@ export default function CrewTripScreen() {
 
   const nextStopId = progress.nextStop?.id ?? null;
 
-  const kidsLoad = useLoad<TripStudentManifestResponse['items']>(async () => {
-    if (!trip || !nextStopId) return [];
-    return unwrapEnvelope(await apiClient.listTripStudents(trip.id, { stop_id: nextStopId })).items;
+  // The manifest slice is **self-identifying**: it carries the stop id it was
+  // fetched for. `useLoad` keeps the PREVIOUS stop's `data` while the next
+  // request is in flight and only flips `loading` inside an effect (after this
+  // render), so on the render where `nextStopId` just changed the old data is
+  // still present with `loading` still false. Filtering that stale slice by the
+  // NEW stop id yields `total: 0` — and the announcer would speak "no children"
+  // for a stop that has kids. Guarding every read on `data.stopId === nextStopId`
+  // is what makes the count wait for the matching manifest.
+  const kidsLoad = useLoad<NextStopManifest>(async () => {
+    if (!trip || !nextStopId) return { stopId: nextStopId, items: [] };
+    return {
+      stopId: nextStopId,
+      items: unwrapEnvelope(await apiClient.listTripStudents(trip.id, { stop_id: nextStopId }))
+        .items,
+    };
   }, [trip?.id, nextStopId]);
+  const kidsMatchNextStop = (kidsLoad.data?.stopId ?? null) === nextStopId;
+  // Loaded only when the settled slice belongs to the current stop — never the
+  // previous stop's data wearing the new stop's id.
+  const kidsLoaded = !kidsLoad.loading && kidsMatchNextStop;
   const nextStopKids = useMemo(
-    () => summarizeNextStopKids(kidsLoad.data ?? [], stops, nextStopId),
-    [kidsLoad.data, stops, nextStopId],
+    () =>
+      summarizeNextStopKids(
+        kidsMatchNextStop ? (kidsLoad.data?.items ?? []) : [],
+        stops,
+        nextStopId,
+      ),
+    [kidsLoad.data, kidsMatchNextStop, stops, nextStopId],
   );
 
   // Cross-device attendance: a board/drop on the other crew device is
@@ -256,7 +287,7 @@ export default function CrewTripScreen() {
   useNextStopAnnouncements({
     tripId,
     summary: nextStopKids,
-    loaded: !kidsLoad.loading,
+    loaded: kidsLoaded,
     etaMinutes: eta?.next_stop?.eta_minutes ?? null,
     distanceMeters: eta?.next_stop?.distance_meters ?? null,
   });
@@ -388,10 +419,10 @@ export default function CrewTripScreen() {
           eta={eta}
           previousFrontier={progress.frontier}
           kidsSummary={nextStopKids}
-          kidsLoaded={!kidsLoad.loading}
+          kidsLoaded={kidsLoaded}
         />
       ) : (
-        <NextStopKidCard summary={nextStopKids} loaded={!kidsLoad.loading} />
+        <NextStopKidCard summary={nextStopKids} loaded={kidsLoaded} />
       )}
 
       {/**
