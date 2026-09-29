@@ -536,6 +536,8 @@ export const mr: Dictionary = {
   'map.routeNotice': 'थांब्यांमधील सरळ रेषा — प्रत्यक्ष मार्ग नाही।',
   'map.plannedNotice': 'पिवळी रेषा: थांब्यांचा नियोजन क्रम — रस्त्याचा मार्ग नाही.',
   'map.trailNotice': 'हिरवी ठिपकेदार रेषा: प्रवास केलेला मार्ग.',
+  'map.arrivalZoneNotice':
+    'वेणीदार रिंग: पुढच्या थांब्याचा येण्याचा झोन — आत आल्यावर थांबा नोंदला जातो.',
   'map.nextBadge': 'पुढे',
   'map.expand': 'फुल स्क्रीन',
   'map.exitFullscreen': 'फुल स्क्रीन बंद करा',
@@ -663,6 +665,12 @@ export const mr: Dictionary = {
   'navigate.card.kidsWaiting.one': 'येथे {count} मूल प्रतीक्षा करत आहे',
   'navigate.card.kidsWaiting.other': 'येथे {count} मुले प्रतीक्षा करत आहेत',
   'navigate.card.kidsDone': 'या थांब्यावर सर्व मुलांची मार्किंग झाली',
+  'navigate.card.insideZone': 'येण्याच्या झोनच्या आत',
+  'navigate.card.outsideZone': 'येण्याच्या झोनच्या बाहेर',
+  'navigate.card.heldDeparture': 'आधीच्या थांब्याहून निघण्याची वाट पाहत आहे',
+  'navigate.card.heldCooldown': 'थांबा-अंतर कूलडाउनमुळे थांबले आहे',
+  'navigate.card.heldDistance': 'थांबले आहे: आधीच्या थांब्याच्या नोंदीच्या खूप जवळ',
+  'navigate.card.evidence': 'येणे निश्चित होत आहे {count}/{required}',
   'navigate.card.noStops': 'या मार्गावर अजून कोणताही थांबा नाही.',
   'navigate.card.noGeofence':
     'या मार्गाचे थांबे GEO-फेंस केलेले नाहीत — शाळेला निर्देशक जोडण्यास सांगा.',

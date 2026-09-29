@@ -1,10 +1,12 @@
-import type { Feature, LineString } from 'geojson';
+import type { Feature, LineString, Polygon } from 'geojson';
 import type {
   StopResponse,
   TripLocationHistoryResponse,
   TripLocationResponse,
 } from '@school-bus-tracking/shared-types';
 import { isValidCoordinate } from '../../lib/navigation.ts';
+import { accuracyCirclePolygon } from '../map/accuracy-circle.ts';
+import { arrivalZoneOfStop } from './arrival-zone.ts';
 
 /**
  * Driver-map line geometry — pure, React-free, MapLibre-free.
@@ -105,4 +107,30 @@ export function historyFixesForTrip(
   if (!history || !tripId) return [];
   if (history.trip_id !== tripId) return [];
   return history.items;
+}
+
+/**
+ * The NEXT stop's arrival-zone circle, or `null` when there is nothing to
+ * draw (deep-fix R1).
+ *
+ * The radius is the stop's **effective** radius (`arrival-zone.ts`: stored
+ * radius floored at 50 m) — the same circle the server's arrival engine
+ * evaluates, so a driver standing inside the dashed ring is standing inside
+ * the zone that records the stop. Only the next stop gets a zone: the map
+ * stays clean, and "which circle am I in" has one answer.
+ *
+ * `null` (never an empty feature) whenever the next stop is unknown, not on
+ * the loaded list, or has no surveyed coordinates — the same honesty rule as
+ * the lines above: nothing is drawn from a guessed position.
+ */
+export function buildArrivalZonePolygon(
+  stops: readonly StopResponse[],
+  nextStopId: string | null | undefined,
+): Feature<Polygon> | null {
+  if (!nextStopId) return null;
+  const nextStop = stops.find((stop) => stop.id === nextStopId) ?? null;
+  const zone = arrivalZoneOfStop(nextStop);
+  if (!zone) return null;
+  if (!isValidCoordinate(zone.center.latitude, zone.center.longitude)) return null;
+  return accuracyCirclePolygon(zone.center, zone.radiusMeters);
 }

@@ -515,6 +515,24 @@ two spellings on one screen.
   (`@maplibre/maplibre-react-native`) into the background-task graph;
   `DriverTripMap.web.tsx` is the dependency-free `react-native-web` fallback,
   mirroring `BusMap.web.tsx`.
+- **The next stop's arrival zone** (deep-fix R1) — the map draws one more
+  shape, and only one: a **dashed amber ring** around the *next* stop, sized
+  by the stop's **effective** radius (`max(stored radius, 50 m)` —
+  `crew/arrival-zone.ts` mirrors the server's
+  `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` floor). It is the same circle the
+  arrival engine evaluates, so a driver standing inside the ring is standing
+  inside the zone that records the stop — the field defect this fixes was a
+  zone nobody could see and no phone could hit. Styled apart from the GPS
+  accuracy circle on purpose: the zone is a dashed darker-amber ring centred
+  on the **stop**; the accuracy circle is a solid light-amber ring centred on
+  the **bus**. Next stop only, so a ten-stop route stays readable; the
+  caption under the map (`map.arrivalZoneNotice`) names what the ring means.
+  The next-stop card adds the textual twin: an "inside arrival zone"
+  indicator (pure client math over the server's own `eta.latest` fix) plus,
+  when the bus is inside and the stop is held, the reason from
+  `GET /trips/:id/progress` `arrival_diagnostics` (departure gate / cooldown
+  / confirming evidence `1/2`). Both are display only — the engine decides
+  arrivals, the screen never feeds back.
 
 Interpolated coordinates are presentation only here too: the tween is never
 written into history, ETA, attendance or notifications.

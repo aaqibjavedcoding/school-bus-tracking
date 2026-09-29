@@ -125,3 +125,23 @@ export type {
  */
 export { useNextStopAnnouncements } from './useNextStopAnnouncements';
 export type { NextStopAnnouncementSource } from './useNextStopAnnouncements';
+/**
+ * Deep-fix R1 — the next stop's arrival zone, as the driver's map and card
+ * see it: the same effective-radius circle the server's arrival engine
+ * evaluates (`arrival-zone.ts` is the pure policy, spec'd). Display only —
+ * the zone never gates anything client-side.
+ */
+export {
+  ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
+  arrivalHoldReason,
+  arrivalZoneOfStop,
+  arrivalZoneStatus,
+  effectiveArrivalRadiusMeters,
+} from './arrival-zone';
+export type {
+  ArrivalHoldReason,
+  ArrivalZone,
+  ArrivalZoneFix,
+  ArrivalZoneStatus,
+  ArrivalZoneStop,
+} from './arrival-zone';

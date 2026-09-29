@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   UserRole,
+  type TripProgressResponse,
   type TripResponse,
   type TripStudentManifestResponse,
 } from '@school-bus-tracking/shared-types';
@@ -291,6 +292,26 @@ export default function CrewTripScreen() {
   // so the payload is scoped to the trip on screen before anything reads it.
   const eta = useMemo(() => etaForTrip(live.eta ?? null, tripId), [live.eta, tripId]);
 
+  /**
+   * Deep-fix R1 — the arrival-engine diagnostics behind the next-stop card's
+   * "inside arrival zone · why is it held?" line.
+   *
+   * `GET /trips/:id/progress` is read alongside the ETA (no API change: the
+   * `arrival_diagnostics` field is already part of the response). The read is
+   * keyed to the trip, the server's next stop and each arrival broadcast —
+   * the three moments the gate state actually changes — rather than every ETA
+   * push, so it costs one request per stop transition, not one per fix.
+   * Display only: a failed or stale read degrades to "no diagnostics" and the
+   * card simply omits the held-reason line.
+   */
+  const arrivalNextStopId = eta?.next_stop?.stop_id ?? null;
+  const lastArrivalForDiagnostics = live.lastArrival;
+  const diagnosticsLoad = useLoad<TripProgressResponse | null>(async () => {
+    if (!tripId) return null;
+    return unwrapEnvelope(await apiClient.getTripProgress(tripId));
+  }, [tripId, arrivalNextStopId, lastArrivalForDiagnostics]);
+  const arrivalDiagnostics = diagnosticsLoad.data?.arrival_diagnostics ?? null;
+
   const { progress, frontierState: nextFrontierState } = useMemo(
     () =>
       deriveTripProgressForTrip(frontierState, {
@@ -433,7 +454,13 @@ export default function CrewTripScreen() {
   );
 
   return (
-    <Screen refresh={() => void refresh()} refreshing={refreshing}>
+    <Screen
+      refresh={() => {
+        void refresh();
+        void diagnosticsLoad.refresh();
+      }}
+      refreshing={refreshing}
+    >
       <StatusCard
         trip={trip}
         eta={eta}
@@ -496,6 +523,7 @@ export default function CrewTripScreen() {
           previousFrontier={progress.frontier}
           kidsSummary={nextStopKids}
           kidsLoaded={kidsLoaded}
+          arrivalDiagnostics={arrivalDiagnostics}
         />
       ) : (
         <NextStopKidCard summary={nextStopKids} loaded={kidsLoaded} />
