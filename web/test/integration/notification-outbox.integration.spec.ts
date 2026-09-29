@@ -63,6 +63,7 @@ const ARRIVAL_CONFIG: ArrivalDetectionConfig = {
   futureToleranceMs: 60_000,
   maxAccuracyMeters: 100,
   allowMissingAccuracy: true,
+  minEffectiveRadiusMeters: 50,
   requiredConsecutiveFixes: 2,
   skipExtraFixes: 1,
   maxSkipAhead: 2,

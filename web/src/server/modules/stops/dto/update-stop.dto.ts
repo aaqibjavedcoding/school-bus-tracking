@@ -64,11 +64,14 @@ export class UpdateStopDto implements StopUpdateRequest {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'Please enter a whole number for the geofence radius in metres.' })
-  @Min(10, {
-    message: 'Please enter a value between 10 and 2000 for the geofence radius in metres.',
+  // Deep-fix R1: 30 m is the smallest arrival circle that still records from
+  // typical phone accuracy (10–30 m in urban/indoor conditions); smaller
+  // legacy radii stay valid at runtime via the server's effective-radius floor.
+  @Min(30, {
+    message: 'Please enter a value between 30 and 2000 for the geofence radius in metres.',
   })
   @Max(2000, {
-    message: 'Please enter a value between 10 and 2000 for the geofence radius in metres.',
+    message: 'Please enter a value between 30 and 2000 for the geofence radius in metres.',
   })
   declare geofence_radius_meters?: number;
 

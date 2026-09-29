@@ -69,6 +69,19 @@ describe('CreateStopDto validation', () => {
     );
   });
 
+  it('rejects a radius below the 30 m arrival-circle minimum (deep-fix R1)', async () => {
+    // Radii under 30 m made the arrival zone behave like a point against real
+    // phone accuracy; the editor now enforces the same floor the server's
+    // effective-radius runtime net guarantees for legacy rows.
+    const tooSmall = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 29 });
+    assert.deepEqual(
+      tooSmall.map((error) => error.property),
+      ['geofence_radius_meters'],
+    );
+    const boundary = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 30 });
+    assert.deepEqual(boundary, []);
+  });
+
   it('rejects a non-positive sequence number', async () => {
     const errors = await validateCreate({ ...VALID_BODY, sequence_number: 0 });
     assert.deepEqual(

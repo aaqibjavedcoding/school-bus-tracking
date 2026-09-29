@@ -290,7 +290,7 @@ export const stopsImportDefinition: ImportDefinition = {
       field: 'geofence_radius_meters',
       header: 'Geofence Radius (m)',
       required: false,
-      description: 'Arrival radius, 10 to 2000 metres. Defaults to 100.',
+      description: 'Arrival radius, 30 to 2000 metres. Defaults to 100.',
       example: '100',
     },
     {

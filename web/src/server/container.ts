@@ -263,6 +263,9 @@ export class Container {
     allowMissingAccuracy:
       this.config().get<boolean>('eta.arrival.allowMissingAccuracy') ??
       DEFAULT_ARRIVAL_DETECTION_CONFIG.allowMissingAccuracy,
+    minEffectiveRadiusMeters:
+      this.config().get<number>('eta.arrival.minEffectiveRadiusMeters') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.minEffectiveRadiusMeters,
     requiredConsecutiveFixes:
       this.config().get<number>('eta.arrival.requiredConsecutiveFixes') ??
       DEFAULT_ARRIVAL_DETECTION_CONFIG.requiredConsecutiveFixes,
