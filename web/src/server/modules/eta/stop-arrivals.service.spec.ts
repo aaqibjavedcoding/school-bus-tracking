@@ -36,6 +36,7 @@ import {
   assessFixEligibility,
   effectiveStopRadiusMeters,
   fixAccuracySufficientForStop,
+  hasMovedOnTowardAheadStop,
   requiredFixesForProgression,
   selectProgressionCandidate,
   StopArrivalsService,
@@ -1344,7 +1345,9 @@ describe('arrival confirmation default and progression tiers', () => {
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minDwellMs, 10_000);
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.allowMissingAccuracy, false);
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopMs, 30_000);
-    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopDistanceMeters, 50);
+    // Deep-fix R2: the route-blind distance floor is OFF by default — it is
+    // what silently dropped close consecutive stops (see the config doc).
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopDistanceMeters, 0);
     // Deep-fix R1: every stop's effective radius is floored at 50 m — the
     // arrival zone is a circle a parked bus can stand inside, never a point.
     assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minEffectiveRadiusMeters, 50);
@@ -1770,5 +1773,159 @@ describe('R1 effective arrival circle (standard circle, not a point)', () => {
     await evaluate(harness, trip, clock.fix({ ...ABOUT_80M_NORTH }, 5_000), clock.now());
     progress = await harness.service.getProgress(trip, null, clock.now());
     assert.equal(progress.arrival_diagnostics?.departure_gate?.departed, true);
+  });
+});
+
+/**
+ * Deep-fix R2 — close consecutive stops must record when the bus serves them.
+ *
+ * Field defect: stop 2 appeared in the stops list but "the bus never took its
+ * name" — no arrival row, no voice line. Root cause (re-verified on this
+ * codebase): the stop editor's spacing rule (`2 × the larger radius`,
+ * `stops/stop-spacing.ts`) allows stops 20–30 m apart whenever both radii are
+ * ≤ 15 m — legal data at the legacy 10 m validation minimum, so such routes
+ * exist. On them:
+ *
+ * - the 50 m `ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS` gate (route-blind,
+ *   measured from the previous arrival's RECORDING FIX) blocked stop 2 for
+ *   the whole dwell, and
+ * - the departure gate (radius + 20 m hysteresis) compounded it: standing
+ *   30 m from stop 1 is never "departed" from a 10 m + 20 m = 30 m margin,
+ *   let alone the 70 m effective margin R1 introduced.
+ *
+ * By the time either gate opened, the bus had left stop 2's geofence, the
+ * frontier moved on, and "skip is final" dropped stop 2 silently.
+ *
+ * The fix (both gates): the distance gate defaults to 0 (disabled — the env
+ * stays for deployments that want an absolute floor), and the departure gate
+ * gained a geometry-aware "moved on toward a later stop" clause
+ * (`hasMovedOnTowardAheadStop`). The anti-cascade load now rests entirely on
+ * the departure gate + the 30 s cooldown + the 10 s dwell + the consecutive
+ * fix count — none of which is distance-blind.
+ */
+describe('R2 close consecutive stops (production defaults)', () => {
+  const PROD = DEFAULT_ARRIVAL_DETECTION_CONFIG;
+
+  // Two stops 30 m apart, both legacy 10 m radii (the only data shape the
+  // editor permits at that spacing). Effective radius: 50 m each (the R1
+  // floor), so the circles overlap — exactly the field geometry.
+  const CLOSE_STOPS = [
+    makeStop({ id: STOP_1, name: 'Home', sequence_number: 1, latitude: 40.7, longitude: -74.0, geofence_radius_meters: 10 }),
+    makeStop({ id: STOP_2, name: 'Oak Ave', sequence_number: 2, latitude: 40.70027, longitude: -74.0, geofence_radius_meters: 10 }),
+    makeStop({ id: STOP_3, name: 'Maple St', sequence_number: 3, latitude: 40.706, longitude: -73.99, geofence_radius_meters: 100 }),
+  ];
+  const AT_CLOSE_STOP_1 = { latitude: 40.7, longitude: -74.0 };
+  const AT_CLOSE_STOP_2 = { latitude: 40.70027, longitude: -74.0 };
+
+  it('two stops 30 m apart both record when the bus serves them (40 s dwell)', async () => {
+    const harness = makeArrivalsHarness({ stops: CLOSE_STOPS, config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // The bus dwells at stop 1: two fixes 11 s apart record it.
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    const stop1 = await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    assert.ok(stop1, 'stop 1 records');
+    assert.equal(stop1.stop.id, STOP_1);
+
+    // One more fix still parked at stop 1 — stop 2 must NOT record even
+    // though the (floored, overlapping) circle contains this fix: the bus is
+    // closest to the frontier, so the departure gate holds (the new cascade
+    // risk the effective-radius floor could have created — pinned here).
+    const stillParked = await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    assert.equal(stillParked, null, 'a stationary bus at stop 1 does not cascade to stop 2');
+
+    // The bus drives the 30 m leg and dwells ~40 s at stop 2.
+    let stop2: { stop: { id: string } } | null = null;
+    for (let i = 0; i < 5; i += 1) {
+      const recorded = await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_2, accuracy: 10 }, 11_000), clock.now());
+      if (recorded !== null) {
+        stop2 = recorded;
+        break;
+      }
+    }
+    assert.ok(stop2, 'stop 2 records once the bus is at it and the cooldown has elapsed');
+    assert.equal(stop2.stop.id, STOP_2);
+    assert.equal(harness.arrivals.created.length, 2, 'exactly the two served stops');
+    assert.equal(harness.arrivalNotifications.length, 2);
+
+    // And the diagnostics no longer claim an inter-stop-distance block.
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.notEqual(progress.arrival_diagnostics?.last_gate_block, 'inter-stop-distance');
+  });
+
+  it('the departure gate explains itself while the bus stands at the close next stop', async () => {
+    const harness = makeArrivalsHarness({ stops: CLOSE_STOPS, config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Record stop 1, then move to stop 2 immediately (within the cooldown).
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    // Still inside the 30 s cooldown: the held reason is the cooldown, not a
+    // distance gate — the reason the card shows must be actionable.
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_2, accuracy: 10 }, 11_000), clock.now());
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.last_gate_block, 'inter-stop-cooldown');
+    assert.equal(progress.arrival_diagnostics?.departure_gate?.departed, true);
+  });
+
+  it('hasMovedOnTowardAheadStop — the pure geometry of the second departure shape', () => {
+    const frontier = CLOSE_STOPS[0];
+    const ahead = CLOSE_STOPS;
+    const arrived = new Set<string>([STOP_1]);
+
+    // Standing AT stop 2: inside its circle and closer to it than to stop 1.
+    assert.equal(
+      hasMovedOnTowardAheadStop({ fix: AT_CLOSE_STOP_2, frontierStop: frontier, routeStops: ahead, arrivedStopIds: arrived, config: PROD }),
+      true,
+    );
+
+    // Standing AT the frontier stop (30 m from stop 2, inside its overlapping
+    // circle): NOT moved on — the stationary cascade stays blocked.
+    assert.equal(
+      hasMovedOnTowardAheadStop({ fix: AT_CLOSE_STOP_1, frontierStop: frontier, routeStops: ahead, arrivedStopIds: arrived, config: PROD }),
+      false,
+    );
+
+    // Exactly midway between the two (15 m each way): a tie is conservative.
+    const midway = { latitude: 40.700135, longitude: -74.0 };
+    assert.equal(
+      hasMovedOnTowardAheadStop({ fix: midway, frontierStop: frontier, routeStops: ahead, arrivedStopIds: arrived, config: PROD }),
+      false,
+    );
+
+    // Closer to stop 2 but OUTSIDE its effective circle (~55 m from stop 2,
+    // ~85 m from stop 1): not arrival evidence of anything — the gate stays
+    // closed; "moved on" must mean AT a later stop, not merely nearer to it.
+    const nearButOutside = { latitude: 40.700764, longitude: -74.0 };
+    assert.equal(
+      hasMovedOnTowardAheadStop({ fix: nearButOutside, frontierStop: frontier, routeStops: ahead, arrivedStopIds: arrived, config: PROD }),
+      false,
+    );
+
+    // Arrived stops are never "moved on toward" — the frontier comparison
+    // only looks at unarrived stops ahead of it.
+    assert.equal(
+      hasMovedOnTowardAheadStop({ fix: AT_CLOSE_STOP_2, frontierStop: frontier, routeStops: ahead, arrivedStopIds: new Set<string>([STOP_1, STOP_2]), config: PROD }),
+      false,
+    );
+  });
+
+  it('a route-blind inter-stop distance gate can still be configured for fleets that want one', async () => {
+    // The env stays meaningful: an operator can restore an absolute floor.
+    const harness = makeArrivalsHarness({
+      stops: CLOSE_STOPS,
+      config: { ...PROD, minInterStopDistanceMeters: 50 },
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    const blocked = await evaluate(harness, trip, clock.fix({ ...AT_CLOSE_STOP_2, accuracy: 10 }, 45_000), clock.now());
+    assert.equal(blocked, null, 'with the floor configured, the 30 m leg is held');
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.last_gate_block, 'inter-stop-distance');
   });
 });

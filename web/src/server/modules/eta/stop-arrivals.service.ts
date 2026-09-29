@@ -100,6 +100,16 @@ export interface ArrivalDetectionConfig {
    * Minimum distance between the fix that recorded the previous stop and the
    * fix recording the next one (0 = disabled). Kept tunable because some
    * routes have genuinely short legs.
+   *
+   * Deep-fix R2 turned the default OFF: the gate is route-blind, and on a
+   * route whose consecutive stops sit closer than the threshold (legal data
+   * at the legacy 10 m minimum radius — the editor's spacing rule is
+   * `2 × the larger radius`, so a 30 m leg implies ≤ 15 m radii) it blocked
+   * stop N+1 for the entire dwell, by which point the bus had left N+1's
+   * geofence and the stop fell behind the frontier silently. The
+   * anti-cascade load belongs to the departure gate (geometry-aware since
+   * R2), the inter-stop cooldown, the dwell span and the consecutive-fix
+   * count — none of which is distance-blind.
    */
   minInterStopDistanceMeters: number;
   /** Implied speed above which a fix is an implausible jump. */
@@ -134,7 +144,9 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   exitHysteresisMeters: 20,
   minDwellMs: 10_000,
   minInterStopMs: 30_000,
-  minInterStopDistanceMeters: 50,
+  // Deep-fix R2: 0 (disabled). The route-blind 50 m floor is what silently
+  // dropped close consecutive stops — see the config field doc above.
+  minInterStopDistanceMeters: 0,
   maxPlausibleSpeedKmh: 150,
   minJumpDistanceMeters: 500,
 };
@@ -729,7 +741,13 @@ export class StopArrivalsService {
     // Departure gate — updated on EVERY eligible fix (even one that selects no
     // candidate) so the moment the bus leaves the last stop is never missed.
     const frontierStop = this.frontierArrivedStop(routeStops, existingArrivals);
-    const departed = this.updateDepartureGate(trip.id, frontierStop, fix);
+    const departed = this.updateDepartureGate(
+      trip.id,
+      frontierStop,
+      fix,
+      routeStops,
+      arrivedStopIds,
+    );
 
     const selection = selectProgressionCandidate({
       stops: routeStops,
@@ -964,13 +982,32 @@ export class StopArrivalsService {
 
   /**
    * Updates and returns the departure-gate bit for the current frontier stop:
-   * has an eligible fix been seen outside its EFFECTIVE geofence (plus the
-   * hysteresis fringe) yet? Resets to `false` whenever the frontier stop
-   * changes (a new arrival just landed). A frontier stop with no usable
-   * coordinates cannot be measured against, so the gate opens (an unsurveyable
-   * crew-marked stop must never hold the trip hostage).
+   * has the bus demonstrably moved on from it? Two shapes of "moved on",
+   * either of which opens the gate:
+   *
+   * 1. an eligible fix has been seen OUTSIDE the frontier stop's EFFECTIVE
+   *    geofence (plus the hysteresis fringe) — the classic departure;
+   * 2. (deep-fix R2) the bus is inside a LATER stop's effective circle and
+   *    strictly closer to that stop than to the frontier — see
+   *    {@link hasMovedOnTowardAheadStop}. Without this clause a route whose
+   *    consecutive stops sit closer than `effectiveRadius + hysteresis`
+   *    (70 m at the defaults) can NEVER open the gate while legitimately
+   *    standing at the next stop: stop N+1 stayed blocked the whole dwell,
+   *    then fell behind the frontier silently — the "stop 2 was never
+   *    announced" field defect.
+   *
+   * Resets to `false` whenever the frontier stop changes (a new arrival just
+   * landed). A frontier stop with no usable coordinates cannot be measured
+   * against, so the gate opens (an unsurveyable crew-marked stop must never
+   * hold the trip hostage).
    */
-  private updateDepartureGate(tripId: string, frontierStop: Stop | null, fix: TripLocation): boolean {
+  private updateDepartureGate(
+    tripId: string,
+    frontierStop: Stop | null,
+    fix: TripLocation,
+    routeStops: Stop[],
+    arrivedStopIds: ReadonlySet<string>,
+  ): boolean {
     if (frontierStop === null) {
       // No arrival yet: the first stop is free to record on its own evidence.
       this.departureByTrip.delete(tripId);
@@ -993,6 +1030,19 @@ export class StopArrivalsService {
         effectiveStopRadiusMeters(frontierStop, this.config) + this.config.exitHysteresisMeters
       ) {
         departed = true;
+      } else {
+        // Still inside the frontier's circle: the only other legitimate
+        // "moved on" is standing at a later stop (close-stop routes, where
+        // the circles overlap). A stationary bus at the frontier itself is
+        // never closer to a later stop than to the frontier, so the
+        // stationary cascade stays blocked.
+        departed = hasMovedOnTowardAheadStop({
+          fix: { latitude: fix.latitude, longitude: fix.longitude },
+          frontierStop,
+          routeStops,
+          arrivedStopIds,
+          config: this.config,
+        });
       }
     }
     this.departureByTrip.set(tripId, { frontierStopId: frontierStop.id, departed });
@@ -1015,12 +1065,15 @@ export class StopArrivalsService {
    * the candidate must be held back, or `null` when it is free to record:
    *
    * - **departure** — a stop past the frontier may only record once the bus
-   *   has left the frontier stop's geofence (`updateDepartureGate`);
+   *   has demonstrably moved on from the frontier stop (`updateDepartureGate`
+   *   — outside its effective geofence, or at a later stop on a close-stop
+   *   route);
    * - **inter-stop time** — the previous arrival is more recent than
    *   `minInterStopMs`, measured by the fix's own `recorded_at`;
-   * - **inter-stop distance** — the fix is closer than `minInterStopDistanceMeters`
-   *   to the fix that recorded the previous stop (skipped when the previous
-   *   arrival has no coordinates, e.g. a crew mark).
+   * - **inter-stop distance** (disabled by default since deep-fix R2) — the
+   *   fix is closer than `minInterStopDistanceMeters` to the fix that
+   *   recorded the previous stop (skipped when the previous arrival has no
+   *   coordinates, e.g. a crew mark, and entirely when the gate is 0).
    */
   private evaluateProgressionGates(args: {
     trip: Trip;
@@ -1241,6 +1294,70 @@ export function fixAccuracySufficientForStop(
   return accuracy <= allowed;
 }
 
+/**
+ * The geometry-aware half of the departure gate (deep-fix R2).
+ *
+ * A route can legally have consecutive stops closer than
+ * `effectiveRadius + hysteresis` (70 m at the defaults): the stop editor's
+ * spacing rule is `2 × the larger radius`, and at the legacy 10 m minimum
+ * radius that allows stops 20–30 m apart. On such a route the bus standing
+ * at stop N+1 is mathematically never outside stop N's circle, so the
+ * classic "seen outside the geofence" departure can never fire while the bus
+ * is doing exactly what the route asks of it. Without a second shape of
+ * "moved on", stop N+1 stayed blocked for the whole dwell and then fell
+ * behind the frontier silently — the "stop 2 was never announced" field
+ * defect.
+ *
+ * This predicate supplies that second shape, and ONLY that shape: the fix is
+ * inside a later (unarrived, recordable, ahead-of-frontier) stop's EFFECTIVE
+ * circle **and strictly closer to that stop than to the frontier stop**.
+ *
+ * Why that is safe against the stationary cascade it exists alongside:
+ *
+ * - a bus parked AT the frontier stop is, by definition, closer to the
+ *   frontier than to any later stop — GPS wander of ±3–6 m cannot flip the
+ *   comparison on a 20+ m leg, and a tie counts as NOT moved on;
+ * - being "moved on" only opens the departure gate. The stop still needs its
+ *   own inside-evidence (2 consecutive fixes at production defaults), the
+ *   10 s dwell span and the 30 s inter-stop cooldown before it records, so
+ *   the gate cannot turn a wander spike into an arrival;
+ * - after a later stop records it becomes the frontier, and the bus is again
+ *   closest to the frontier — the cascade cannot chain.
+ */
+export function hasMovedOnTowardAheadStop(args: {
+  fix: { latitude: number; longitude: number };
+  frontierStop: GeofenceStop;
+  routeStops: readonly GeofenceStop[];
+  arrivedStopIds: ReadonlySet<string>;
+  config: Pick<ArrivalDetectionConfig, 'minEffectiveRadiusMeters'>;
+}): boolean {
+  const { fix, frontierStop, routeStops, arrivedStopIds, config } = args;
+  const distanceToFrontier = haversineMeters(
+    fix.latitude,
+    fix.longitude,
+    frontierStop.latitude,
+    frontierStop.longitude,
+  );
+  if (distanceToFrontier === null) {
+    // An unsurveyed frontier cannot anchor the comparison; the caller's own
+    // unsurveyed-frontier rule (do not hold) applies before this is reached.
+    return false;
+  }
+  for (const stop of routeStops) {
+    if (arrivedStopIds.has(stop.id)) continue;
+    if (!isValidGeofenceStop(stop)) continue;
+    if (stop.sequence_number <= frontierStop.sequence_number) continue;
+    const distanceToStop = haversineMeters(fix.latitude, fix.longitude, stop.latitude, stop.longitude);
+    if (distanceToStop === null) continue;
+    if (
+      distanceToStop < distanceToFrontier &&
+      distanceToStop <= effectiveStopRadiusMeters(stop, config)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 
 /**

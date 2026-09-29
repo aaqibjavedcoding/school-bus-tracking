@@ -112,9 +112,21 @@ import { registerAs } from '../framework';
  *                                     otherwise do);
  *   ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS minimum distance between the fix
  *                                     that recorded the previous stop and the
- *                                     fix recording the next (default 50 —
- *                                     kept tunable because some routes have
- *                                     genuinely short legs);
+ *                                     fix recording the next (default 0 =
+ *                                     DISABLED, deep-fix R2). The gate is
+ *                                     route-blind: on a route whose stops sit
+ *                                     20–40 m apart (legal at the legacy 10 m
+ *                                     minimum radius, so such data exists)
+ *                                     it blocked stop N+1 for the whole time
+ *                                     the bus stood there, and the stop fell
+ *                                     behind the frontier silently — the
+ *                                     "stop 2 was never announced" field
+ *                                     defect. The anti-cascade load is
+ *                                     carried by the departure gate (now
+ *                                     geometry-aware), the 30 s cooldown,
+ *                                     the 10 s dwell and the consecutive-fix
+ *                                     count. Kept env-tunable for deployments
+ *                                     that want an absolute movement floor.
  *   ARRIVAL_MAX_PLAUSIBLE_SPEED_KMH   implied speed above which a fix is an
  *                                     implausible jump (default 150 — well
  *                                     above legal bus speeds, well below
@@ -142,7 +154,7 @@ export default registerAs('eta', () => {
       exitHysteresisMeters: numberFromEnv('ARRIVAL_EXIT_HYSTERESIS_METERS', 20, 0),
       minDwellMs: intFromEnv('ARRIVAL_MIN_DWELL_MS', 10_000, 0),
       minInterStopMs: intFromEnv('ARRIVAL_MIN_INTERSTOP_MS', 30_000, 0),
-      minInterStopDistanceMeters: numberFromEnv('ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS', 50, 0),
+      minInterStopDistanceMeters: numberFromEnv('ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS', 0, 0),
       maxPlausibleSpeedKmh: numberFromEnv('ARRIVAL_MAX_PLAUSIBLE_SPEED_KMH', 150, 1),
       minJumpDistanceMeters: numberFromEnv('ARRIVAL_MIN_JUMP_DISTANCE_METERS', 500, 0),
     },

@@ -91,9 +91,34 @@ only.
   - **Inter-stop gates** — a new arrival is rejected if the previous
     arrival's `arrived_at` is closer than `ARRIVAL_MIN_INTERSTOP_MS`
     (default 30 s, compared by the fix's `recorded_at`) or the fix is
-    closer than `ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS` (default 50 m) to
+    closer than `ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS` to
     the fix that recorded the previous stop (distance kept tunable for
     genuinely short legs).
+  **2026-09 deep fix (R2 — close consecutive stops):** the distance half
+    of this gate is now **disabled by default (0)**, and the departure
+    gate gained a geometry-aware "moved on" clause. Investigation first:
+    the stop editor's spacing rule (`stops/stop-spacing.ts`) blocks stops
+    closer than `2 × the larger radius`, so a route with 20–40 m legs
+    necessarily carries 10–15 m radii (legacy-valid data at the old
+    minimum) — close stops and tiny circles are structurally coupled.
+    On such a route the 50 m distance gate (route-blind, measured from
+    the previous arrival's *recording fix*) blocked stop N+1 for the
+    entire dwell, and the departure gate compounded it (standing 30 m
+    from stop N is never outside a 30 m — let alone 70 m effective —
+    margin), so the stop fell behind the frontier and "skip is final"
+    dropped it silently: no arrival row, no announcement. Fixes:
+    - `ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS` defaults to **0** (env kept
+      for deployments that want an absolute movement floor). The
+      P0-1 cascade cases never depended on it — they are held by the
+      departure gate, the 30 s cooldown, the 10 s dwell and the
+      consecutive-fix count, which the specs pin.
+    - `hasMovedOnTowardAheadStop` (pure, spec'd) gives the departure gate
+      its second shape of "departed": the bus is inside a LATER stop's
+      effective circle and **strictly closer to that stop than to the
+      frontier**. A bus parked AT the frontier is never closer to a later
+      stop (ties count as not moved on), so the stationary cascade stays
+      blocked; a bus standing at the next stop of a close pair records it
+      once the cooldown and dwell clear.
   - **Restored confirmation strength** — `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES`
     → 2, `ARRIVAL_MIN_DWELL_MS` → 10 000 (10 s of sustained presence). The
     old "sticks at first stop" regression is avoided because the gates
@@ -104,6 +129,33 @@ only.
     `ARRIVAL_ALLOW_MISSING_ACCURACY` now defaults to **false** (an unknown
     accuracy cannot localise inside a 10–50 m geofence, which is exactly
     what a bus parked indoors produces).
+  **2026-09 deep fix (R1 — the arrival zone is a circle, not a point):** a
+    field run showed a bus parked at a stop only recording when a fix landed
+    almost exactly on the stop's coordinates. Two compounding causes, both
+    fixed at the root:
+    - *Effective-radius floor* — evaluation now uses
+      `effectiveRadius = max(stop.geofence_radius_meters,
+      ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)` (default **50**, env-tunable)
+      everywhere a stop's radius participates: inside-evidence, the per-stop
+      accuracy gate, the departure-gate margin and candidate selection. The
+      stored radius stays the admin's intent; the floor is the runtime safety
+      net for legacy/small stops. The *validation* minimum for newly
+      created/edited stops is raised to 30 m (packages/validation, the import
+      cell definition and the admin editor messages) — the DB check
+      constraint stays 10–2000 so legacy rows remain valid.
+    - *Softer accuracy gate* — the per-stop rule is now
+      `accuracy ≤ min(ARRIVAL_MAX_ACCURACY_METERS, effectiveRadius)` (the
+      `/2` divisor is gone). The old rule demanded 5–15 m accuracy from a
+      10–30 m stop, which phones in urban/indoor conditions routinely fail
+      (10–30 m reported accuracy is normal), so a fix that WAS inside the
+      circle was discarded as evidence. The anti-cascade load was never this
+      field's to carry — the departure gate, the 10 s dwell and the 30 s
+      inter-stop cooldown do that work — so the gate now only rejects a fix
+      too coarse to localise inside the effective circle at all.
+      `ARRIVAL_ALLOW_MISSING_ACCURACY` stays **false** (an unknown accuracy
+      cannot localise inside even a floored circle); the tradeoff — devices
+      that omit the field contribute no evidence — is surfaced by the
+      progress diagnostics as `missing-accuracy` instead of failing silently.
   The escalating consecutive tiers above are unchanged — out-of-order/skip
   claims still demand stronger evidence.
   - **Overlapping-geofence guardrail (fix 5):** on investigation the admin
