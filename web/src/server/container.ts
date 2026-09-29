@@ -278,6 +278,12 @@ export class Container {
     minDwellMs:
       this.config().get<number>('eta.arrival.minDwellMs') ??
       DEFAULT_ARRIVAL_DETECTION_CONFIG.minDwellMs,
+    minInterStopMs:
+      this.config().get<number>('eta.arrival.minInterStopMs') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopMs,
+    minInterStopDistanceMeters:
+      this.config().get<number>('eta.arrival.minInterStopDistanceMeters') ??
+      DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopDistanceMeters,
     maxPlausibleSpeedKmh:
       this.config().get<number>('eta.arrival.maxPlausibleSpeedKmh') ??
       DEFAULT_ARRIVAL_DETECTION_CONFIG.maxPlausibleSpeedKmh,

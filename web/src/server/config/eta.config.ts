@@ -36,11 +36,20 @@ import { registerAs } from '../framework';
  *   ARRIVAL_MAX_ACCURACY_METERS       fixes with a worse horizontal accuracy
  *                                     are ineligible (default 100 — a fix
  *                                     less precise than the 100 m default
- *                                     geofence cannot localise inside it);
+ *                                     geofence cannot localise inside it).
+ *                                     A fix must additionally be at least as
+ *                                     precise as half the stop's own geofence
+ *                                     radius before it counts toward that stop
+ *                                     (see `StopArrivalsService`), so a small
+ *                                     10–50 m geofence rejects the weak indoor
+ *                                     fixes a parked bus produces;
  *   ARRIVAL_ALLOW_MISSING_ACCURACY    whether fixes without an accuracy
- *                                     reading stay eligible (default true —
- *                                     the field is optional and some
- *                                     devices omit it);
+ *                                     reading stay eligible (default false —
+ *                                     a fix whose accuracy is unknown cannot
+ *                                     be trusted to localise inside a small
+ *                                     geofence, and a stationary bus indoors
+ *                                     is exactly where devices drop the
+ *                                     field; opt in per deployment if needed);
  *   ARRIVAL_REQUIRED_CONSECUTIVE_FIXES in-a-row fixes inside a geofence
  *                                     before recording (default 2 — one fix
  *                                     is vulnerable to urban GPS jitter;
@@ -56,11 +65,27 @@ import { registerAs } from '../framework';
  *   ARRIVAL_EXIT_HYSTERESIS_METERS    fringe band past the geofence edge
  *                                     that preserves (not resets) partial
  *                                     consecutive-fix evidence (default 20 —
- *                                     edge jitter must not wipe it);
+ *                                     edge jitter must not wipe it). It is
+ *                                     also the departure-gate margin: the bus
+ *                                     must be seen this far past a stop's edge
+ *                                     before the next stop may record;
  *   ARRIVAL_MIN_DWELL_MS              minimum span between first and
- *                                     confirming inside-fix (default 0 —
- *                                     disabled; the count rule already
- *                                     implies dwell at the GPS throttle);
+ *                                     confirming inside-fix (default 10000 —
+ *                                     10 s of sustained presence, so a fix
+ *                                     that only clips a geofence in passing
+ *                                     never records);
+ *   ARRIVAL_MIN_INTERSTOP_MS          minimum span between one arrival's
+ *                                     `arrived_at` and the fix that records
+ *                                     the next stop (default 30000 — a second
+ *                                     stop cannot record within 30 s of the
+ *                                     previous one, which is what a stationary
+ *                                     bus inside overlapping geofences would
+ *                                     otherwise do);
+ *   ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS minimum distance between the fix
+ *                                     that recorded the previous stop and the
+ *                                     fix recording the next (default 50 —
+ *                                     kept tunable because some routes have
+ *                                     genuinely short legs);
  *   ARRIVAL_MAX_PLAUSIBLE_SPEED_KMH   implied speed above which a fix is an
  *                                     implausible jump (default 150 — well
  *                                     above legal bus speeds, well below
@@ -80,12 +105,14 @@ export default registerAs('eta', () => {
       maxFixAgeMs: intFromEnv('ARRIVAL_MAX_FIX_AGE_MS', 180_000, 1000),
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),
       maxAccuracyMeters: numberFromEnv('ARRIVAL_MAX_ACCURACY_METERS', 100, 1),
-      allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', true),
-      requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 1, 1),
+      allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', false),
+      requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 2, 1),
       skipExtraFixes: intFromEnv('ARRIVAL_SKIP_EXTRA_FIXES', 1, 0),
       maxSkipAhead: intFromEnv('ARRIVAL_MAX_SKIP_AHEAD', 2, 1),
       exitHysteresisMeters: numberFromEnv('ARRIVAL_EXIT_HYSTERESIS_METERS', 20, 0),
-      minDwellMs: intFromEnv('ARRIVAL_MIN_DWELL_MS', 0, 0),
+      minDwellMs: intFromEnv('ARRIVAL_MIN_DWELL_MS', 10_000, 0),
+      minInterStopMs: intFromEnv('ARRIVAL_MIN_INTERSTOP_MS', 30_000, 0),
+      minInterStopDistanceMeters: numberFromEnv('ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS', 50, 0),
       maxPlausibleSpeedKmh: numberFromEnv('ARRIVAL_MAX_PLAUSIBLE_SPEED_KMH', 150, 1),
       minJumpDistanceMeters: numberFromEnv('ARRIVAL_MIN_JUMP_DISTANCE_METERS', 500, 0),
     },

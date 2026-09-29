@@ -2445,6 +2445,23 @@ export interface TripStopWarning {
 export type TripArrivalFixRejection =
   'stale' | 'future' | 'inaccurate' | 'missing-accuracy' | 'implausible-jump';
 
+/**
+ * Why an otherwise-eligible fix did NOT record the next stop — the progression
+ * gates that survive a stationary bus sitting inside several geofences:
+ *
+ * - `awaiting-departure` — the bus has not yet been seen outside the last
+ *   arrived stop's geofence, so the next stop cannot record (the core fix for
+ *   the stationary-bus cascade);
+ * - `inter-stop-cooldown` — the previous arrival is more recent than the
+ *   minimum inter-stop time gate;
+ * - `inter-stop-distance` — the current fix is closer to the fix that recorded
+ *   the previous stop than the minimum inter-stop distance gate.
+ */
+export type TripArrivalGateReason =
+  | 'awaiting-departure'
+  | 'inter-stop-cooldown'
+  | 'inter-stop-distance';
+
 /** Confirmation evidence accumulated for one not-yet-reached stop. */
 export interface TripArrivalPendingStop {
   stop_id: string;
@@ -2454,6 +2471,38 @@ export interface TripArrivalPendingStop {
   inside_count: number;
   /** Fixes this stop's progression tier requires before it records. */
   required_fixes: number;
+  /**
+   * Why this stop is held back independent of its evidence count (departure /
+   * inter-stop gate); `null` when nothing but more evidence is needed.
+   */
+  blocked_reason?: TripArrivalGateReason | null;
+}
+
+/** The highest-sequence arrival so far — the progress frontier's anchor. */
+export interface TripArrivalLastArrival {
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+  /** ISO-8601 arrival time of the frontier stop. */
+  arrived_at: string;
+  /**
+   * Earliest fix `recorded_at` (ISO-8601) at which the next stop may record,
+   * per the inter-stop time gate; `null` when the gate is disabled.
+   */
+  gated_until: string | null;
+}
+
+/** Departure gate state: the next stop cannot record until the bus leaves this stop. */
+export interface TripArrivalDepartureGate {
+  frontier_stop_id: string;
+  frontier_stop_name: string;
+  sequence_number: number;
+  /**
+   * True once an eligible fix has been seen outside the frontier stop's
+   * geofence (plus the exit-hysteresis fringe) — the bus has demonstrably
+   * departed and the next stop is free to record.
+   */
+  departed: boolean;
 }
 
 /**
@@ -2463,6 +2512,15 @@ export interface TripArrivalPendingStop {
 export interface TripArrivalDiagnostics {
   /** Rejection reason of the newest evaluated fix; null when it was eligible. */
   last_fix_rejection: TripArrivalFixRejection | null;
+  /**
+   * Why the newest *eligible* fix still did not record a stop (a gate held it
+   * back); null when no gate applied.
+   */
+  last_gate_block?: TripArrivalGateReason | null;
+  /** The frontier arrival, or null before the first stop is recorded. */
+  last_arrival?: TripArrivalLastArrival | null;
+  /** The departure gate, or null when no arrival has armed it yet. */
+  departure_gate?: TripArrivalDepartureGate | null;
   /** Stops that can never auto-record (no coordinates) — survey them. */
   unsurveyed_stops: TripStopWarning[];
   /** Evidence state of every recordable stop ahead of the progress frontier. */

@@ -526,8 +526,11 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     assert.equal(harness.arrivals.created.length, 0);
   });
 
-  it('accepts fixes without accuracy by default (devices may omit it)', async () => {
-    const harness = makeArrivalsHarness();
+  it('accepts fixes without accuracy when the operator allows it', async () => {
+    // The production default rejects unknown-accuracy fixes (see the
+    // `assessFixEligibility` and DEFAULT_ARRIVAL_DETECTION_CONFIG specs); this
+    // pins the opt-in path for deployments whose devices omit the field.
+    const harness = makeArrivalsHarness({ config: { allowMissingAccuracy: true } });
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
 
@@ -542,7 +545,7 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
     assert.equal(recorded.stop.id, STOP_1);
   });
 
-  it('rejects missing accuracy when the operator requires it', async () => {
+  it('rejects missing accuracy by default (and when the operator requires it)', async () => {
     const harness = makeArrivalsHarness({ config: { allowMissingAccuracy: false } });
     const trip = asTrip(makeTrip());
     const clock = clockFrom('2026-09-01T06:41:30.000Z');
@@ -683,9 +686,10 @@ describe('StopArrivalsService Phase 1 freshness and quality', () => {
           arrivalNotifications.push(input);
         },
       } as never,
-      // Pinned at base 2: the warm-up fix must not record, so the two
-      // concurrent confirmations below genuinely race for the same insert.
-      { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, requiredConsecutiveFixes: 2 },
+      // Pinned at base 2 (dwell disabled): the warm-up fix must not record, so
+      // the two concurrent confirmations below genuinely race for the same
+      // insert. Dwell has its own spec; it would otherwise mask this race.
+      { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, requiredConsecutiveFixes: 2, minDwellMs: 0 },
     );
 
     const trip = asTrip(makeTrip());
@@ -858,16 +862,19 @@ describe('assessFixEligibility', () => {
   });
 
   it('honours the missing-accuracy policy', () => {
+    // Default: an unknown accuracy cannot be trusted to localise inside a small
+    // geofence, so it is ineligible.
     assert.deepEqual(assessFixEligibility(fix({ accuracy: null }), null, NOW, config), {
-      eligible: true,
-      reason: null,
+      eligible: false,
+      reason: 'missing-accuracy',
     });
+    // Opt in per deployment (some devices legitimately omit the field).
     assert.deepEqual(
       assessFixEligibility(fix({ accuracy: null }), null, NOW, {
         ...config,
-        allowMissingAccuracy: false,
+        allowMissingAccuracy: true,
       }),
-      { eligible: false, reason: 'missing-accuracy' },
+      { eligible: true, reason: null },
     );
   });
 
@@ -928,10 +935,16 @@ describe('assessFixEligibility', () => {
 });
 
 describe('selectProgressionCandidate', () => {
-  // Tier-pure selection math: pinned at base 2 so the escalation counts in
-  // these specs ("needs 2 + 1", "2 + 1 + 1") stay independent of the product
-  // default (`requiredConsecutiveFixes`, now 1).
-  const config = { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, requiredConsecutiveFixes: 2 };
+  // Tier-pure selection math: the escalation counts in these specs
+  // ("needs 2 + 1", "2 + 1 + 1") are pinned explicitly so they stay
+  // independent of any future change to the product default. Dwell is disabled
+  // here so these count-only assertions do not depend on fix timestamps (the
+  // dwell rule has its own dedicated spec below).
+  const config = {
+    ...DEFAULT_ARRIVAL_DETECTION_CONFIG,
+    requiredConsecutiveFixes: 2,
+    minDwellMs: 0,
+  };
   const fix = { latitude: 40.7003, longitude: -73.9997, recordedMs: 100_000 };
   const stops = () => [
     makeStop({ id: STOP_1, sequence_number: 1, latitude: 40.7003, longitude: -73.9997 }),
@@ -1319,11 +1332,16 @@ describe('StopArrivalsService arrival → notification durability (fix D)', () =
 });
 
 describe('arrival confirmation default and progression tiers', () => {
-  it('defaults to a single eligible in-geofence fix for the next stop', () => {
-    // Pinned product decision (2026-09 batch 3A): confirmation must not be
-    // the weakest link of the trip — the eligibility gate is the anti-jitter
-    // gate, the immediate next stop records from one fix.
-    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.requiredConsecutiveFixes, 1);
+  it('requires two sustained in-geofence fixes for the next stop by default', () => {
+    // Deep-fix P0-1: one fix is too weak for a small geofence, so the next
+    // stop records from two consecutive eligible fixes with a 10 s dwell. The
+    // departure / inter-stop gates (not this count) are what stop a stationary
+    // bus cascading through every stop.
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.requiredConsecutiveFixes, 2);
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minDwellMs, 10_000);
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.allowMissingAccuracy, false);
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopMs, 30_000);
+    assert.equal(DEFAULT_ARRIVAL_DETECTION_CONFIG.minInterStopDistanceMeters, 50);
   });
 
   it('maps each progression tier to its required consecutive fixes', () => {
@@ -1341,11 +1359,11 @@ describe('arrival confirmation default and progression tiers', () => {
     // Beyond the skip window of the frontier: + re-sync (2 + 1 + 1).
     assert.equal(requiredFixesForProgression(4, 1, 2, tiers), 4);
     assert.equal(requiredFixesForProgression(3, 0, 2, tiers), 4);
-    // Same mapping with the product default (base 1).
-    assert.equal(requiredFixesForProgression(2, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 1);
-    assert.equal(requiredFixesForProgression(3, 1, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 2);
-    assert.equal(requiredFixesForProgression(3, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 3);
-    assert.equal(requiredFixesForProgression(4, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 3);
+    // Same mapping with the product default (base 2).
+    assert.equal(requiredFixesForProgression(2, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 2);
+    assert.equal(requiredFixesForProgression(3, 1, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 3);
+    assert.equal(requiredFixesForProgression(3, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 4);
+    assert.equal(requiredFixesForProgression(4, 0, 2, DEFAULT_ARRIVAL_DETECTION_CONFIG), 4);
   });
 });
 
@@ -1416,5 +1434,172 @@ describe('getProgress arrival_diagnostics', () => {
     // in eta.service.spec with a real EtaService).
     const pendingIds = (progress.arrival_diagnostics?.pending_stops ?? []).map((entry) => entry.stop_id);
     assert.deepEqual(pendingIds, [STOP_3]);
+  });
+});
+
+describe('StopArrivalsService P0-1 stationary-bus cascade gates (production defaults)', () => {
+  // These regression cases run with the FULL production detection config
+  // (two confirming fixes, a 10 s dwell, missing-accuracy rejected, and the
+  // 30 s / 50 m inter-stop gates) — the harness otherwise relaxes confirmation
+  // strength for the mechanic specs above.
+  const PROD = DEFAULT_ARRIVAL_DETECTION_CONFIG;
+
+  // Three heavily overlapping geofences: a bus parked at one point sits inside
+  // all three at once — the exact field condition that cascaded every stop.
+  const OVERLAPPING_STOPS = [
+    makeStop({ id: STOP_1, name: 'Home', sequence_number: 1, geofence_radius_meters: 2000 }),
+    makeStop({ id: STOP_2, name: 'Oak Ave', sequence_number: 2, longitude: -73.99, geofence_radius_meters: 2000 }),
+    makeStop({ id: STOP_3, name: 'Maple St', sequence_number: 3, longitude: -73.98, geofence_radius_meters: 2000 }),
+  ];
+
+  it('(a) a stationary bus inside three overlapping geofences records ONLY the first stop', async () => {
+    const harness = makeArrivalsHarness({ stops: OVERLAPPING_STOPS, config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Six stationary fixes, 11 s apart (satisfying the 10 s dwell). Without
+    // the departure gate this cascaded stop 1 → 2 → 3.
+    for (let i = 0; i < 6; i += 1) {
+      await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 11_000), clock.now());
+    }
+
+    assert.equal(harness.arrivals.created.length, 1, 'exactly one stop records');
+    assert.equal(harness.arrivals.created[0]['stop_id'], STOP_1);
+    assert.equal(harness.arrivalNotifications.length, 1, 'exactly one parent notification');
+    assert.equal(
+      harness.broadcasts.filter((entry) => entry.event === LIVE_TRACKING_EVENTS.stopArrived).length,
+      1,
+      'no cascade announcements',
+    );
+
+    // The subsequent fixes were rejected with an explainable diagnostic reason.
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    const diag = progress.arrival_diagnostics;
+    assert.equal(diag?.last_gate_block, 'awaiting-departure');
+    assert.equal(diag?.departure_gate?.frontier_stop_id, STOP_1);
+    assert.equal(diag?.departure_gate?.departed, false);
+    assert.equal(diag?.last_arrival?.stop_id, STOP_1);
+    const firstPending = diag?.pending_stops[0];
+    assert.equal(firstPending?.stop_id, STOP_2);
+    assert.equal(firstPending?.blocked_reason, 'awaiting-departure');
+  });
+
+  it('(b) a bus that departs stop N then enters stop N+1 records N+1 normally', async () => {
+    const harness = makeArrivalsHarness({ config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Records stop 1 (two confirming fixes, 11 s apart).
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 11_000), clock.now());
+    const recordedStop1 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 11_000), clock.now());
+    assert.ok(recordedStop1);
+    assert.equal(recordedStop1.stop.id, STOP_1);
+
+    // A fix on the road between the stops — outside stop 1's geofence — opens
+    // the departure gate.
+    await evaluate(harness, trip, clock.fix({ latitude: 40.7, longitude: -73.995 }, 11_000), clock.now());
+
+    // Two confirming fixes at stop 2, well past the 30 s / 50 m inter-stop
+    // gates: it records normally.
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 30_000), clock.now());
+    const recordedStop2 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 11_000), clock.now());
+
+    assert.ok(recordedStop2, 'a genuinely moving bus still records the next stop');
+    assert.equal(recordedStop2.stop.id, STOP_2);
+    assert.equal(harness.arrivals.created.length, 2);
+  });
+
+  it('(c) the inter-stop time gate blocks an instant re-record after a departure', async () => {
+    // Departure gate satisfied on its own, dwell/confirmation minimised — so
+    // the ONLY thing under test is the 30 s inter-stop cooldown. Distance gate
+    // disabled to isolate it.
+    const harness = makeArrivalsHarness({
+      config: { ...PROD, requiredConsecutiveFixes: 1, minDwellMs: 0, minInterStopDistanceMeters: 0 },
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Stop 1 records at t = 5 s.
+    const stop1 = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 5_000), clock.now());
+    assert.ok(stop1);
+
+    // Depart stop 1 (outside its geofence).
+    await evaluate(harness, trip, clock.fix({ latitude: 40.7, longitude: -73.995 }, 5_000), clock.now());
+
+    // Enter stop 2 only 20 s after the stop 1 arrival — the cooldown blocks it.
+    const tooSoon = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 10_000), clock.now());
+    assert.equal(tooSoon, null, 'a second stop cannot record within the cooldown');
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.last_gate_block, 'inter-stop-cooldown');
+
+    // Once the cooldown has elapsed (> 30 s after the stop 1 arrival) it records.
+    const later = await evaluate(harness, trip, clock.fix({ ...AT_STOP_2 }, 20_000), clock.now());
+    assert.ok(later, 'the same stop records once the cooldown clears');
+    assert.equal(later.stop.id, STOP_2);
+  });
+
+  it('(d) a fix with accuracy worse than half the geofence radius is ignored', async () => {
+    // A 40 m geofence demands accuracy ≤ 20 m; a 30 m fix cannot honestly place
+    // the bus inside it.
+    const stop = makeStop({
+      id: STOP_1,
+      sequence_number: 1,
+      latitude: 40.7003,
+      longitude: -73.9997,
+      geofence_radius_meters: 40,
+    });
+    const harness = makeArrivalsHarness({
+      stops: [stop],
+      config: { ...PROD, requiredConsecutiveFixes: 1, minDwellMs: 0 },
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+    const atCenter = { latitude: 40.7003, longitude: -73.9997 };
+
+    // Two coarse fixes right on the stop — inside the circle, but too imprecise
+    // to count.
+    await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 30 }, 11_000), clock.now());
+    const coarse = await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 30 }, 11_000), clock.now());
+    assert.equal(coarse, null, 'accuracy > radius / 2 never counts toward the stop');
+    assert.equal(harness.arrivals.created.length, 0);
+
+    // A precise fix records it.
+    const precise = await evaluate(harness, trip, clock.fix({ ...atCenter, accuracy: 15 }, 11_000), clock.now());
+    assert.ok(precise);
+    assert.equal(precise.stop.id, STOP_1);
+  });
+
+  it('(e) a crew-marked arrival also arms the departure gate', async () => {
+    const harness = makeArrivalsHarness({
+      stops: OVERLAPPING_STOPS,
+      config: { ...PROD, requiredConsecutiveFixes: 1, minDwellMs: 0 },
+    });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // The crew taps "Arrived" at stop 1 — the manual escape hatch, instant.
+    await harness.service.recordCrewStopMark({
+      trip,
+      stop: { id: STOP_1, name: 'Home', sequence_number: 1 },
+      actorUserId: '77777777-7777-4777-8777-777777770001',
+      skipReason: null,
+    });
+    assert.equal(harness.arrivals.created.length, 1);
+
+    // The bus is still parked at stop 1, inside stop 2's overlapping geofence.
+    // Because the crew mark armed the departure gate, stop 2 must not record.
+    for (let i = 0; i < 4; i += 1) {
+      const blocked = await evaluate(harness, trip, clock.fix({ ...AT_STOP_1 }, 11_000), clock.now());
+      assert.equal(blocked, null, `crew-marked frontier holds stop 2 (fix ${i})`);
+    }
+    assert.equal(
+      harness.arrivals.created.filter((row) => row['stop_id'] === STOP_2).length,
+      0,
+      'no geofence arrival for stop 2 while the bus has not departed stop 1',
+    );
+
+    const progress = await harness.service.getProgress(trip, null, clock.now());
+    assert.equal(progress.arrival_diagnostics?.last_gate_block, 'awaiting-departure');
+    assert.equal(progress.arrival_diagnostics?.departure_gate?.frontier_stop_id, STOP_1);
   });
 });

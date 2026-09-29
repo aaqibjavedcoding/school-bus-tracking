@@ -391,7 +391,22 @@ export function makeArrivalsHarness(
     arrivals.repo as unknown as typeof TripStopArrival,
     eta,
     notifications,
-    { ...DEFAULT_ARRIVAL_DETECTION_CONFIG, ...options.config },
+    // Most specs assert a *mechanic* (tenant isolation, dedup, ETA fan-out,
+    // eligibility, the progression / inter-stop / departure gates) and were
+    // written when the next stop recorded from a single fix. To keep those
+    // preconditions one-liners, the harness relaxes ONLY the confirmation
+    // strength (consecutive fixes, dwell, missing-accuracy) back to that
+    // single-fix behaviour by default; every gate default (inter-stop time /
+    // distance, departure, accuracy-vs-radius) is left at the production value.
+    // Tests that specifically pin the restored confirmation strength pass the
+    // full production config explicitly via `config`.
+    {
+      ...DEFAULT_ARRIVAL_DETECTION_CONFIG,
+      requiredConsecutiveFixes: 1,
+      minDwellMs: 0,
+      allowMissingAccuracy: true,
+      ...options.config,
+    },
     (transaction?.sequelize ?? null) as never,
   );
   service.attachBroadcaster((room, event, payload) => {

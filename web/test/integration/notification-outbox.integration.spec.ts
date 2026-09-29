@@ -68,6 +68,8 @@ const ARRIVAL_CONFIG: ArrivalDetectionConfig = {
   maxSkipAhead: 2,
   exitHysteresisMeters: 20,
   minDwellMs: 0,
+  minInterStopMs: 30_000,
+  minInterStopDistanceMeters: 50,
   maxPlausibleSpeedKmh: 150,
   minJumpDistanceMeters: 500,
 };
