@@ -30,6 +30,7 @@ import { describe, test } from 'node:test';
  */
 
 const read = (path: string): string => readFileSync(`${process.cwd()}/${path}`, 'utf8');
+const readBinary = (path: string): Buffer => readFileSync(`${process.cwd()}/${path}`);
 
 describe('native bus marker invariants', () => {
   const marker = read('src/features/map/BusMarker.tsx');
@@ -284,6 +285,44 @@ describe('frame updates stay off the screen render loop', () => {
     assert.match(hook, /AppState\.addEventListener\('change'/);
     assert.match(hook, /motion\.cancelAnimation\(\)/);
     assert.match(hook, /motion\.reset\(\)/);
+  });
+});
+
+describe('the marker is the bundled bus sprite', () => {
+  const graphic = read('src/features/map/BusMarkerGraphic.tsx');
+
+  test('renders the bundled PNG at exactly the pinned 26 x 42 box', () => {
+    assert.match(
+      graphic,
+      /require\('\.\.\/\.\.\/\.\.\/assets\/bus-marker\.png'\)/,
+      'the marker is the bundled PNG — RN resolves @2x/@3x from this one require',
+    );
+    assert.match(
+      graphic,
+      /width: BUS_MARKER_WIDTH,\n\s*height: BUS_MARKER_HEIGHT,/,
+      'the image is drawn at exactly the pinned box, so nothing resamples at render time',
+    );
+  });
+
+  test('the bundled sprite ships @1x/@2x/@3x at exactly the pinned pixel sizes', () => {
+    // Parse the real IHDR of each file so a regenerated, mangled or dropped
+    // asset fails HERE instead of shipping blurry — or silently falling back
+    // to a hi-res file — on cheap phones.
+    const expected: [string, number, number][] = [
+      ['assets/bus-marker.png', 26, 42],
+      ['assets/bus-marker@2x.png', 52, 84],
+      ['assets/bus-marker@3x.png', 78, 126],
+    ];
+    for (const [file, width, height] of expected) {
+      const bytes = readBinary(file);
+      assert.ok(
+        bytes.length > 25 && bytes.readUInt32BE(12) === 0x49484452,
+        `${file}: a PNG with an IHDR`,
+      );
+      assert.equal(bytes.readUInt32BE(16), width, `${file}: width`);
+      assert.equal(bytes.readUInt32BE(20), height, `${file}: height`);
+      assert.equal(bytes[25], 6, `${file}: RGBA (alpha — the marker floats over tiles)`);
+    }
   });
 });
 

@@ -1,31 +1,35 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
-import { colors } from '@school-bus-tracking/design-tokens';
-
 /**
- * The top-view school-bus marker graphic.
+ * BusMarkerGraphic.tsx — the visual school-bus marker.
  *
- * ### Why it is drawn with `View`s and not an image
+ * Renders the bundled `assets/bus-marker.png` sprite: a top-down,
+ * 3D-render-style school bus with the windshield on the nose end, nose-up,
+ * cut out on a transparent background, and hand-downsampled into
+ * @1x/@2x/@3x files (26×42 / 52×84 / 78×126 px — exactly the dp box below,
+ * so nothing them resamples at render time, and cheap mdpi phones get a
+ * crisp 26 px file instead of decoding a big one). RN picks the density
+ * file automatically from the single `require`.
  *
- * MapLibre renders custom annotations as React Native child views (rasterised
- * offscreen into a bitmap on Android, live on iOS), so a rotating marker has
- * to be a custom child view on **every** platform — the only lever is a
- * `transform`. Drawing the bus as views keeps **one** implementation for both
- * platforms — no PNG and no second, subtly different drawing. It also needs no
- * asset pipeline, no network request and no new dependency (`react-native-svg`
- * is deliberately not added; see the zero-dependency rule in `src/lib/i18n.ts`).
+ * Deep-fix R4 replaced the previous drawn-view bus: at map scale a few
+ * 5 px strips never read as a vehicle, which was part of why a wandering
+ * marker read as "a drifting speck" instead of "GPS noise on a bus". The
+ * sprite keeps every earlier property that made heading meaningful:
  *
- * ### Geometry
+ * - the image **points up** (nose at the top), so heading 0° is no rotation;
+ * - the box is still the square that circumscribes the 26 × 42 footprint,
+ *   so the annotation frame never grows or jitters while the bus spins
+ *   (still the same `BUS_MARKER_ROTATION_BOX` anchor maths);
+ * - the graphic stays **decorative for screen readers**: the Marker and the
+ *   status card carry the information, the image says nothing on its own.
  *
- * The bus is drawn **nose-up**, so heading 0° points north with no rotation
- * applied, and it is a symmetric rectangle about its own centre, so rotating it
- * about its centre keeps the vehicle centre on the GPS coordinate. Both
- * properties are what make a heading reading on this marker mean something.
- *
- * Stops stay deliberately different: they are flat, slate, un-rotating dots
- * (`StopMarker`), so a stop can never be mistaken for the bus at a glance or
- * in a screenshot.
+ * Stops stay deliberately different: flat, slate, un-rotating dots
+ * (`StopMarker`), so a stop can never be mistaken for the bus.
+ * The sprite has no network request and adds no new dependency — it is a
+ * bundled asset, keeping the zero-new-native-deps rule.
  */
+
+import React from 'react';
+import { Image, StyleSheet, View } from 'react-native';
+import { colors } from '@school-bus-tracking/design-tokens';
 
 /** Marker footprint, in dp. Exported so the anchor maths stays honest. */
 export const BUS_MARKER_WIDTH = 26;
@@ -49,58 +53,45 @@ export const BUS_MARKER_ROTATION_BOX = Math.ceil(
 export const BusMarkerGraphic: React.FC<{ width?: number; height?: number }> = ({
   width = BUS_MARKER_WIDTH,
   height = BUS_MARKER_HEIGHT,
-}) => {
-  const scale = width / BUS_MARKER_WIDTH;
-  return (
-    <View
-      pointerEvents="none"
-      // The marker is decoration: its information is carried by the callout and
-      // by the screen-reader text in the status card below the map, so a
-      // screen reader must not be handed a pile of empty nested views here.
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.body, { width, height, borderRadius: 7 * scale, borderWidth: 2 * scale }]}
-    >
-      {/* Windscreen at the top: the "this end is the front" cue. */}
-      <View
-        style={[
-          styles.windscreen,
-          { height: 5 * scale, borderRadius: 2 * scale, marginBottom: 2 * scale },
-        ]}
-      />
-      <View style={[styles.windows, { gap: 5 * scale }]}>
-        <View style={[styles.strip, { borderRadius: 2 * scale }]} />
-        <View style={[styles.strip, { borderRadius: 2 * scale }]} />
-      </View>
-      {/* Rear: darker, so the two ends are distinguishable even in monochrome. */}
-      <View style={[styles.rear, { height: 4 * scale, borderRadius: 2 * scale }]} />
-    </View>
-  );
-};
+}) => (
+  <View
+    pointerEvents="none"
+    // The marker is decoration: its information is carried by the callout and
+    // by the screen-reader text in the status card below the map, so a screen
+    // reader must not be handed the image.
+    accessibilityElementsHidden
+    importantForAccessibility="no-hide-descendants"
+    style={[styles.frame, { width, height, borderRadius: width / 2 }]}
+  >
+    <Image
+      // Metro needs the literal path inline to bundle the asset; the repo
+      // uses the same disable for its other CommonJS requires.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      source={require('../../../assets/bus-marker.png')}
+      style={[styles.image, { width, height }]}
+      resizeMode="contain"
+    />
+  </View>
+);
 
 const styles = StyleSheet.create({
-  body: {
-    // School-bus amber with a near-black outline: the outline, not the fill, is
-    // what keeps the marker legible over light *and* dark map tiles.
-    backgroundColor: colors.primary[500],
-    borderColor: colors.neutral[900],
-    padding: 3,
-    gap: 2,
+  // A soft light ellipse under the sprite: the PNG already carries a dark
+  // outline for light tiles, and this keeps it readable on dark tiles too,
+  // matching the stops' inner-ring approach. Translucent keep-in-sync with
+  // `colors.neutral[50]` (#f8fafc).
+  frame: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(248, 250, 252, 0.65)',
+    elevation: 3,
+    shadowColor: colors.neutral[900],
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
   },
-  windscreen: {
-    backgroundColor: colors.neutral[50],
-    opacity: 0.95,
-  },
-  windows: {
-    flex: 1,
-    flexDirection: 'row',
-  },
-  strip: {
-    flex: 1,
-    backgroundColor: colors.neutral[100],
-    opacity: 0.8,
-  },
-  rear: {
-    backgroundColor: colors.primary[800],
+  // The default image frame is exactly the pinned box: a 26 x 42 asset at
+  // 26 x 42 dp means RN never resamples at render time on any density.
+  image: {
+    width: BUS_MARKER_WIDTH,
+    height: BUS_MARKER_HEIGHT,
   },
 });

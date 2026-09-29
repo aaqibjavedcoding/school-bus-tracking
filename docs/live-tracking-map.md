@@ -147,7 +147,7 @@ One **pure state machine** decides what to draw; each platform only renders it.
 | `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                         |
 | `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                             |
 | `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                         |
-| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus, drawn with React Native views.                                                                                                                                                                |
+| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus: the bundled `assets/bus-marker.png` sprite (@1x/@2x/@3x, hand-downsampled) inside the pinned 26×42 dp box.                                                                                     |
 | `mobile/src/features/map/BusMarker.tsx`                                                               | The leaf marker component: the only thing that re-renders per frame.                                                                                                                                            |
 | `mobile/src/features/map/useBusMarkerMotion.ts`                                                       | Frame loop, lifecycle, reduced motion, cleanup.                                                                                                                                                                 |
 | `mobile/src/features/map/follow-camera-controller.ts`                                                 | The camera's imperative half: fit once per trip, centre-only follow pans, throttle, gesture attribution, resume. Pure, over a two-method port.                                                                  |
@@ -202,9 +202,20 @@ fallback, which lists stops instead of drawing a map) is unchanged.
 
 ## The marker
 
-A **top-view school bus**, nose up, amber (`colors.primary[500]`, `#f59e0b`)
-with a near-black outline (`colors.neutral[900]`), a light windscreen at the
-front, two window strips and a darker rear.
+A **top-view school bus**, nose up, school-bus yellow with a dark outline, a
+windshield band on the nose end and a darker rear — so the facing direction
+is unambiguous at rest, not only while moving.
+
+The native graphic is the bundled sprite `mobile/assets/bus-marker.png`
+(with `@2x` and `@3x` files, so a cheap mdpi phone decodes a crisp 26 px
+file instead of resampling a big one). The master was AI-generated with the
+image tool, cut out onto a real alpha channel, and hand-downsampled per
+density by `scripts/make-bus-marker.py`; the three tiny files are committed
+(plus the master in `mobile/assets/gen/`), so no pipeline runs at build time
+and nothing is fetched. The web marker remains inline SVG. Deep-fix R4
+replaced the earlier drawn-views bus: at 26 px a few 5 px strips never read
+as a vehicle, and the sprite fixes exactly that — while keeping the geometry
+below, which is what made heading meaningful in the first place.
 
 Two properties matter:
 
@@ -215,7 +226,11 @@ Two properties matter:
 
 Both map surfaces anchor at the vehicle centre: `anchor="center"` on the
 MapLibre `ViewAnnotation` (native), `anchor: 'center'` / CSS translate on the
-MapLibre `Marker` (web, `maplibregl.Marker` with centred element).
+MapLibre `Marker` (web, `maplibregl.Marker` with centred element). The box is
+still 26 × 42 dp inside its circumscribing rotation square
+(`BUS_MARKER_ROTATION_BOX`), pinned in `bus-marker-invariants.spec.ts`,
+which also parses the PNG IHDRs so a mangled or dropped asset fails the
+suite instead of shipping blurry.
 
 ### One implementation on both platforms
 
@@ -249,9 +264,13 @@ Two runtime boundaries remain, and both are handled the same way as before:
   `setBusIconHeading(host, heading)` which accepts the marker host or its
   element (guarded for `HTMLElement` absence in tests).
 
-The graphic is drawn with views/SVG rather than shipped as an image so there is
-**one** design, no asset pipeline, no network request and no new dependency
-(`react-native-svg` is deliberately not added).
+The native graphic is the bundled `assets/bus-marker.png` sprite (a
+generated top-down 3D-style school bus, hand-downsampled to @1x/@2x/@3x by
+`scripts/make-bus-marker.py`, committed so there is no pipeline at build time),
+inside the same pinned 26×42 dp box and circumscribing rotation square as
+before. The web marker stays inline SVG - one design language, no network
+request and no new native dependency (`react-native-svg` is deliberately not
+added).
 
 ### Content-Security-Policy
 
@@ -966,8 +985,11 @@ source types. After the swap:
   added to `@school-bus-tracking/shared-types` (run `npm run build:packages`
   before typechecking).
 
-The marker graphic is drawn with views (no image asset, no `react-native-svg`),
-so it ships in the same bundle as everything else once the engine is present.
+The marker graphic is a bundled PNG (`mobile/assets/bus-marker.png` +
+`@2x`/`@3x`; Metro ships assets in the JS bundle, resolved from the single
+`require` in `BusMarkerGraphic.tsx`), so it ships in
+the same bundle as everything else once the engine is present; no
+`react-native-svg`, no native dependency.
 
 ## Session 2 — status of the follow-ups
 
