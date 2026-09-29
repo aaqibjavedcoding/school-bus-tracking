@@ -5,6 +5,7 @@ import {
   LIVE_TRACKING_EVENTS,
   TripArrivalDiagnostics,
   TripArrivalFixRejection,
+  TripArrivalGateReason,
   TripArrivalPendingStop,
   TripProgressResponse,
   TripStopArrivalListResponse,
@@ -51,9 +52,10 @@ export interface ArrivalDetectionConfig {
   allowMissingAccuracy: boolean;
   /**
    * In-a-row fixes inside a geofence before a stop records. The immediately
-   * next stop defaults to 1 (see `DEFAULT_ARRIVAL_DETECTION_CONFIG`): its
-   * evidence must survive real GPS jitter, or the trip sticks at the first
-   * stop. Escalating tiers below still demand consecutive runs for the
+   * next stop defaults to 2 (see `DEFAULT_ARRIVAL_DETECTION_CONFIG`): one fix
+   * is vulnerable to GPS jitter, and the departure / inter-stop gates (not this
+   * count) are what stop a stationary bus cascading through every stop.
+   * Escalating tiers below still demand more consecutive runs for the
    * extraordinary claims (skipped-ahead, re-sync).
    */
   requiredConsecutiveFixes: number;
@@ -61,10 +63,26 @@ export interface ArrivalDetectionConfig {
   skipExtraFixes: number;
   /** Tier boundary: stops further beyond the frontier need re-sync evidence. */
   maxSkipAhead: number;
-  /** Fringe band past the geofence edge preserving partial evidence. */
+  /**
+   * Fringe band past the geofence edge preserving partial evidence. Doubles
+   * as the departure-gate margin: the bus must be seen this far beyond the
+   * frontier stop's edge before the next stop may record.
+   */
   exitHysteresisMeters: number;
   /** Minimum span between first and confirming inside-fix (0 = disabled). */
   minDwellMs: number;
+  /**
+   * Minimum span between the previous arrival's `arrived_at` and the fix that
+   * records the next stop (0 = disabled). Guards against a stationary bus
+   * inside overlapping geofences recording a second stop instantly.
+   */
+  minInterStopMs: number;
+  /**
+   * Minimum distance between the fix that recorded the previous stop and the
+   * fix recording the next one (0 = disabled). Kept tunable because some
+   * routes have genuinely short legs.
+   */
+  minInterStopDistanceMeters: number;
   /** Implied speed above which a fix is an implausible jump. */
   maxPlausibleSpeedKmh: number;
   /** Jumps shorter than this never trigger. */
@@ -76,19 +94,24 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   maxFixAgeMs: 180_000,
   futureToleranceMs: 60_000,
   maxAccuracyMeters: 100,
-  allowMissingAccuracy: true,
-  // The next unarrived stop records from a SINGLE eligible in-geofence fix.
-  // Requiring strictly-consecutive inside fixes made confirmation the weakest
-  // link of the trip: one edge-jitter fix outside the radius reset the run and
-  // the trip read "stuck at first" with no explanation (the sim drove one fix
-  // per stop visit and recorded nothing). The eligibility gate above is the
-  // anti-jitter gate; out-of-order claims keep the escalating consecutive
-  // tiers (`skipExtraFixes`, `maxSkipAhead`).
-  requiredConsecutiveFixes: 1,
+  // A fix whose accuracy is unknown cannot be trusted to localise inside a
+  // small (10–50 m) geofence, and a stationary bus parked indoors is exactly
+  // where devices drop the field — so unknown-accuracy fixes are ineligible by
+  // default (env-tunable per deployment).
+  allowMissingAccuracy: false,
+  // The next unarrived stop records only after TWO consecutive eligible
+  // in-geofence fixes with sustained presence (`minDwellMs`). One fix is
+  // vulnerable to urban GPS jitter; the departure and inter-stop gates below
+  // are what actually stop a stationary bus from cascading through every stop,
+  // so the confirmation count is free to stay modest and the trip never
+  // "sticks at first" — the crew manual-mark path remains the instant escape.
+  requiredConsecutiveFixes: 2,
   skipExtraFixes: 1,
   maxSkipAhead: 2,
   exitHysteresisMeters: 20,
-  minDwellMs: 0,
+  minDwellMs: 10_000,
+  minInterStopMs: 30_000,
+  minInterStopDistanceMeters: 50,
   maxPlausibleSpeedKmh: 150,
   minJumpDistanceMeters: 500,
 };
@@ -108,6 +131,22 @@ export interface StopInsideEvidence {
   count: number;
   /** `recorded_at` of the first fix of the current inside run. */
   sinceMs: number;
+}
+
+/**
+ * Departure-gate memory for one trip. The next stop (any stop past the current
+ * frontier) may only record once the bus has been seen OUTSIDE the frontier
+ * stop's geofence — otherwise a bus parked inside several overlapping
+ * geofences records every stop one per fix. The frontier stop id is derived
+ * from the arrival rows on every evaluation, so the gate survives a process
+ * restart and honours crew-marked arrivals too; only the "has departed yet"
+ * bit needs caching between fixes.
+ */
+export interface DepartureGateState {
+  /** Highest-sequence arrived stop the gate is currently anchored on. */
+  frontierStopId: string;
+  /** True once an eligible fix has been seen outside its geofence + hysteresis. */
+  departed: boolean;
 }
 
 /**
@@ -161,6 +200,12 @@ export class StopArrivalsService {
 
   /** Why the newest evaluated fix of a trip produced no evidence (diagnostics). */
   private readonly lastRejectionByTrip = new Map<string, FixRejectionReason | null>();
+
+  /** Departure-gate memory per trip (the "has left the last stop yet" bit). */
+  private readonly departureByTrip = new Map<string, DepartureGateState>();
+
+  /** Why the newest *eligible* fix of a trip still recorded nothing (a gate). */
+  private readonly lastGateBlockByTrip = new Map<string, TripArrivalGateReason | null>();
 
   /** Trips whose un-surveyed stops were already warned about (once per process). */
   private readonly warnedByTrip = new Map<string, Set<string>>();
@@ -414,6 +459,8 @@ export class StopArrivalsService {
     this.lastFixByTrip.delete(tripId);
     this.insideByTrip.delete(tripId);
     this.lastRejectionByTrip.delete(tripId);
+    this.departureByTrip.delete(tripId);
+    this.lastGateBlockByTrip.delete(tripId);
     this.warnedByTrip.delete(tripId);
   }
 
@@ -463,9 +510,11 @@ export class StopArrivalsService {
 
   /**
    * The support-facing answer to "why is next stop not moving?": un-surveyable
-   * stops, per-stop evidence against its confirmation tier, and the reason
-   * the newest evaluated fix produced nothing. Pure composition of state the
-   * evaluator already keeps — never another source of truth.
+   * stops, per-stop evidence against its confirmation tier, the frontier
+   * arrival, the departure gate, and the reason the newest evaluated fix
+   * produced nothing (an eligibility rejection or a progression gate). Pure
+   * composition of state the evaluator already keeps — never another source of
+   * truth.
    */
   private buildArrivalDiagnostics(
     trip: Trip,
@@ -476,37 +525,74 @@ export class StopArrivalsService {
     this.warnUnsurveyedStops(trip.id, unsurveyedStops);
 
     const arrivedIds = new Set(arrivals.map((arrival) => arrival.stop_id));
-    let frontier = 0;
-    for (const stop of stops) {
-      if (arrivedIds.has(stop.id) && stop.sequence_number > frontier) {
-        frontier = stop.sequence_number;
-      }
-    }
+    const frontierStop = this.frontierArrivedStop(stops, arrivals);
+    const frontier = frontierStop?.sequence_number ?? 0;
     const nextUnarrived = [...stops]
       .filter((stop) => !arrivedIds.has(stop.id) && isValidGeofenceStop(stop))
       .sort((a, b) => a.sequence_number - b.sequence_number)[0];
 
+    // The departure gate as last measured; a frontier with no cached bit means
+    // no eligible fix has been evaluated against it yet (default: not departed).
+    const gateState = frontierStop
+      ? this.departureByTrip.get(trip.id)
+      : undefined;
+    const departed =
+      frontierStop === null
+        ? true
+        : gateState?.frontierStopId === frontierStop.id
+          ? gateState.departed
+          : false;
+
+    const lastArrival = this.previousArrival(arrivals);
+    const departureBlocks = frontierStop !== null && !departed;
+
     const inside = this.insideByTrip.get(trip.id) ?? new Map<string, StopInsideEvidence>();
-    const pending_stops: TripArrivalPendingStop[] = stops
+    const pendingStops = stops
       .filter(
         (stop) => !arrivedIds.has(stop.id) && stop.sequence_number > frontier && isValidGeofenceStop(stop),
       )
-      .sort((a, b) => a.sequence_number - b.sequence_number)
-      .map((stop) => ({
-        stop_id: stop.id,
-        stop_name: stop.name,
-        sequence_number: stop.sequence_number,
-        inside_count: inside.get(stop.id)?.count ?? 0,
-        required_fixes: requiredFixesForProgression(
-          stop.sequence_number,
-          frontier,
-          nextUnarrived?.sequence_number ?? 0,
-          this.config,
-        ),
-      }));
+      .sort((a, b) => a.sequence_number - b.sequence_number);
+    const pending_stops: TripArrivalPendingStop[] = pendingStops.map((stop, index) => ({
+      stop_id: stop.id,
+      stop_name: stop.name,
+      sequence_number: stop.sequence_number,
+      inside_count: inside.get(stop.id)?.count ?? 0,
+      required_fixes: requiredFixesForProgression(
+        stop.sequence_number,
+        frontier,
+        nextUnarrived?.sequence_number ?? 0,
+        this.config,
+      ),
+      // Only the immediate next stop is meaningfully "gated": the departure
+      // gate holds every stop past the frontier, so the first pending one
+      // carries the reason support looks for.
+      blocked_reason: index === 0 && departureBlocks ? 'awaiting-departure' : null,
+    }));
 
     return {
       last_fix_rejection: this.lastRejectionByTrip.get(trip.id) ?? null,
+      last_gate_block: this.lastGateBlockByTrip.get(trip.id) ?? null,
+      last_arrival: lastArrival
+        ? {
+            stop_id: lastArrival.stop_id,
+            stop_name: stops.find((stop) => stop.id === lastArrival.stop_id)?.name ?? 'Unknown stop',
+            sequence_number:
+              stops.find((stop) => stop.id === lastArrival.stop_id)?.sequence_number ?? 0,
+            arrived_at: toIsoString(lastArrival.arrived_at),
+            gated_until:
+              this.config.minInterStopMs > 0
+                ? new Date(toMs(lastArrival.arrived_at) + this.config.minInterStopMs).toISOString()
+                : null,
+          }
+        : null,
+      departure_gate: frontierStop
+        ? {
+            frontier_stop_id: frontierStop.id,
+            frontier_stop_name: frontierStop.name,
+            sequence_number: frontierStop.sequence_number,
+            departed,
+          }
+        : null,
       unsurveyed_stops: unsurveyedStops,
       pending_stops,
     };
@@ -589,6 +675,9 @@ export class StopArrivalsService {
       recordedMs,
     });
     this.lastRejectionByTrip.set(trip.id, null);
+    // This is an eligible fix: any "no arrival" outcome below is either "no
+    // candidate" (cleared here) or a gate block (set explicitly).
+    this.lastGateBlockByTrip.set(trip.id, null);
 
     const arrivedStopIds = new Set(existingArrivals.map((arrival) => arrival.stop_id));
     const seen = this.seenByTrip.get(trip.id);
@@ -598,10 +687,16 @@ export class StopArrivalsService {
       routeStops,
       arrivedStopIds,
       seen,
-      { latitude: fix.latitude, longitude: fix.longitude },
+      { latitude: fix.latitude, longitude: fix.longitude, accuracy: fix.accuracy ?? null },
       recordedMs,
       this.config.exitHysteresisMeters,
+      this.config,
     );
+
+    // Departure gate — updated on EVERY eligible fix (even one that selects no
+    // candidate) so the moment the bus leaves the last stop is never missed.
+    const frontierStop = this.frontierArrivedStop(routeStops, existingArrivals);
+    const departed = this.updateDepartureGate(trip.id, frontierStop, fix);
 
     const selection = selectProgressionCandidate({
       stops: routeStops,
@@ -616,6 +711,27 @@ export class StopArrivalsService {
     }
     const candidate = selection.stop;
     const distanceMeters = selection.distanceMeters;
+
+    // Progression gates. The candidate has the geofence evidence; these decide
+    // whether the trip has actually MOVED on from the previous stop. Without
+    // them a bus parked inside overlapping geofences records every stop, one
+    // per fix — the field cascade. A blocked candidate is not recorded and
+    // leaves no side effects, so it re-qualifies the instant the gate clears.
+    const gateBlock = this.evaluateProgressionGates({
+      trip,
+      frontierStop,
+      departed,
+      previousArrival: this.previousArrival(existingArrivals),
+      fix,
+      recordedMs,
+    });
+    if (gateBlock !== null) {
+      this.lastGateBlockByTrip.set(trip.id, gateBlock);
+      this.logger.debug(
+        `Holding stop ${candidate.id} for trip ${trip.id}: ${gateBlock} (fix ${fix.id}).`,
+      );
+      return null;
+    }
 
     // Fix D — the arrival row and its parent-notification fan-out commit
     // together (or not at all). A crash after the arrival was saved used to
@@ -792,6 +908,124 @@ export class StopArrivalsService {
       created_at: toIsoString(arrival.created_at),
     }));
   }
+  /**
+   * The highest-sequence stop with an arrival row — the progress frontier the
+   * departure gate anchors on. Derived from the arrival rows loaded per
+   * evaluation (not a cache), so it survives a process restart and reflects
+   * crew-marked arrivals identically to geofence ones. A crew-marked stop that
+   * is not on the loaded route (should not happen) is simply ignored.
+   */
+  private frontierArrivedStop(routeStops: Stop[], arrivals: TripStopArrival[]): Stop | null {
+    const arrivedIds = new Set(arrivals.map((arrival) => arrival.stop_id));
+    let frontier: Stop | null = null;
+    for (const stop of routeStops) {
+      if (!arrivedIds.has(stop.id)) continue;
+      if (!Number.isFinite(stop.sequence_number)) continue;
+      if (frontier === null || stop.sequence_number > frontier.sequence_number) {
+        frontier = stop;
+      }
+    }
+    return frontier;
+  }
+
+  /**
+   * Updates and returns the departure-gate bit for the current frontier stop:
+   * has an eligible fix been seen outside its geofence (plus the hysteresis
+   * fringe) yet? Resets to `false` whenever the frontier stop changes (a new
+   * arrival just landed). A frontier stop with no usable coordinates cannot be
+   * measured against, so the gate opens (an unsurveyable crew-marked stop must
+   * never hold the trip hostage).
+   */
+  private updateDepartureGate(tripId: string, frontierStop: Stop | null, fix: TripLocation): boolean {
+    if (frontierStop === null) {
+      // No arrival yet: the first stop is free to record on its own evidence.
+      this.departureByTrip.delete(tripId);
+      return true;
+    }
+    const cached = this.departureByTrip.get(tripId);
+    let departed = cached?.frontierStopId === frontierStop.id ? cached.departed : false;
+    if (!departed) {
+      const distance = haversineMeters(
+        fix.latitude,
+        fix.longitude,
+        frontierStop.latitude,
+        frontierStop.longitude,
+      );
+      if (distance === null) {
+        // Cannot measure departure from an unsurveyed frontier — do not hold.
+        departed = true;
+      } else if (distance > frontierStop.geofence_radius_meters + this.config.exitHysteresisMeters) {
+        departed = true;
+      }
+    }
+    this.departureByTrip.set(tripId, { frontierStopId: frontierStop.id, departed });
+    return departed;
+  }
+
+  /** The most recent arrival by `arrived_at` — the previous stop, for the inter-stop gates. */
+  private previousArrival(arrivals: TripStopArrival[]): TripStopArrival | null {
+    let latest: TripStopArrival | null = null;
+    for (const arrival of arrivals) {
+      if (latest === null || toMs(arrival.arrived_at) > toMs(latest.arrived_at)) {
+        latest = arrival;
+      }
+    }
+    return latest;
+  }
+
+  /**
+   * The progression gates applied to a selected candidate. Returns the reason
+   * the candidate must be held back, or `null` when it is free to record:
+   *
+   * - **departure** — a stop past the frontier may only record once the bus
+   *   has left the frontier stop's geofence (`updateDepartureGate`);
+   * - **inter-stop time** — the previous arrival is more recent than
+   *   `minInterStopMs`, measured by the fix's own `recorded_at`;
+   * - **inter-stop distance** — the fix is closer than `minInterStopDistanceMeters`
+   *   to the fix that recorded the previous stop (skipped when the previous
+   *   arrival has no coordinates, e.g. a crew mark).
+   */
+  private evaluateProgressionGates(args: {
+    trip: Trip;
+    frontierStop: Stop | null;
+    departed: boolean;
+    previousArrival: TripStopArrival | null;
+    fix: TripLocation;
+    recordedMs: number;
+  }): TripArrivalGateReason | null {
+    const { frontierStop, departed, previousArrival, fix, recordedMs } = args;
+
+    if (frontierStop !== null && !departed) {
+      return 'awaiting-departure';
+    }
+
+    if (previousArrival !== null) {
+      if (this.config.minInterStopMs > 0) {
+        const previousMs = toMs(previousArrival.arrived_at);
+        if (Number.isFinite(previousMs) && recordedMs - previousMs < this.config.minInterStopMs) {
+          return 'inter-stop-cooldown';
+        }
+      }
+      if (
+        this.config.minInterStopDistanceMeters > 0 &&
+        previousArrival.latitude != null &&
+        previousArrival.longitude != null
+      ) {
+        const distance = haversineMeters(
+          previousArrival.latitude,
+          previousArrival.longitude,
+          fix.latitude,
+          fix.longitude,
+        );
+        if (distance !== null && distance < this.config.minInterStopDistanceMeters) {
+          return 'inter-stop-distance';
+        }
+      }
+    }
+
+    return null;
+  }
+
   private markSeen(tripId: string, stopId: string): void {
     const seen = this.seenByTrip.get(tripId) ?? new Set<string>();
     seen.add(stopId);
@@ -914,19 +1148,48 @@ function isImplausibleJump(
 }
 
 /**
+ * The accuracy a fix must reach before it can count toward a specific stop:
+ * the tighter of the global `maxAccuracyMeters` ceiling and HALF the stop's own
+ * geofence radius. A fix reported as accurate to 50 m cannot honestly place a
+ * bus inside a 30 m geofence, so a small stop rejects the weak indoor fixes a
+ * parked bus produces even though the same fix would pass the global gate.
+ *
+ * A fix without an accuracy reading is only sufficient when `allowMissingAccuracy`
+ * is set — an unknown accuracy cannot be trusted to localise inside a small
+ * geofence.
+ */
+export function fixAccuracySufficientForStop(
+  accuracy: number | null | undefined,
+  geofenceRadiusMeters: number,
+  config: Pick<ArrivalDetectionConfig, 'maxAccuracyMeters' | 'allowMissingAccuracy'>,
+): boolean {
+  if (accuracy === null || accuracy === undefined) {
+    return config.allowMissingAccuracy;
+  }
+  if (!Number.isFinite(accuracy)) {
+    return false;
+  }
+  const allowed = Math.min(config.maxAccuracyMeters, geofenceRadiusMeters / 2);
+  return accuracy <= allowed;
+}
+
+/**
  * Advances the consecutive inside-geofence evidence for one evaluated fix.
  * Stops already arrived (or seen) are skipped and pruned; every other valid
- * stop moves to `count + 1` when the fix is inside its radius, keeps its
- * partial count inside the hysteresis fringe, and resets to zero outside it.
+ * stop moves to `count + 1` when the fix is inside its radius AND precise
+ * enough for that stop's radius, keeps its partial count inside the hysteresis
+ * fringe (or when the fix is inside but too coarse to trust), and resets to
+ * zero outside it.
  */
 export function updateInsideEvidence(
   inside: Map<string, StopInsideEvidence>,
   routeStops: GeofenceStop[],
   arrivedStopIds: ReadonlySet<string>,
   seenStopIds: ReadonlySet<string> | undefined,
-  fix: { latitude: number; longitude: number },
+  fix: { latitude: number; longitude: number; accuracy?: number | null },
   recordedMs: number,
   exitHysteresisMeters: number,
+  accuracyConfig: Pick<ArrivalDetectionConfig, 'maxAccuracyMeters' | 'allowMissingAccuracy'>,
 ): void {
   for (const stop of routeStops) {
     if (arrivedStopIds.has(stop.id) || seenStopIds?.has(stop.id)) {
@@ -943,6 +1206,20 @@ export function updateInsideEvidence(
       continue;
     }
     if (distance <= stop.geofence_radius_meters) {
+      if (
+        !fixAccuracySufficientForStop(
+          fix.accuracy ?? null,
+          stop.geofence_radius_meters,
+          accuracyConfig,
+        )
+      ) {
+        // Inside the circle but too coarse to localise there: preserve any
+        // existing evidence without adding to it, exactly like the fringe.
+        if (!inside.has(stop.id)) {
+          inside.set(stop.id, { count: 0, sinceMs: recordedMs });
+        }
+        continue;
+      }
       const previous = inside.get(stop.id);
       inside.set(stop.id, {
         count: (previous?.count ?? 0) + 1,

@@ -115,4 +115,30 @@ describe('summarizeNextStopKids', () => {
     assert.equal(fallback?.sequenceNumber, 7);
     assert.equal(fallback?.total, 1);
   });
+
+  it('summarises only rows belonging to the requested stop (P0-2 guard contract)', () => {
+    // The function is pure and stop-scoped: it filters by `stop_id`, so a slice
+    // that mixes stops still counts only the requested one. The trip screen
+    // relies on this to be safe ONLY when it feeds the matching slice — hence
+    // the wiring guard `data.stopId === nextStopId`.
+    const mixed = [
+      student('a1', STOP_A),
+      student('a2', STOP_A, TripAttendanceStatus.BOARDED),
+      student('b1', STOP_B),
+    ];
+    const summary = summarizeNextStopKids(mixed, stops, STOP_A);
+    assert.equal(summary?.total, 2, 'only the two STOP_A rows are counted');
+
+    // The stationary-bus footgun in code form: feeding the PREVIOUS stop's rows
+    // (all STOP_B) while asking about STOP_A yields total 0 — which is exactly
+    // the false "no children" the announcer must never speak. The fix keeps
+    // this function honest and guards the call site so it is never handed this
+    // mismatched slice while `loaded` is true.
+    const stale = summarizeNextStopKids(
+      [student('b1', STOP_B), student('b2', STOP_B)],
+      stops,
+      STOP_A,
+    );
+    assert.equal(stale?.total, 0);
+  });
 });

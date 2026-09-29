@@ -72,17 +72,47 @@ only.
   presence. One fix records at most one arrival.
   **2026-09 revision (batch 3A):** the next-stop default was 2 consecutive
   inside fixes ("one fix is vulnerable to urban jitter, two cost ~2.5–5 s").
-  Field/sim evidence reversed that call: requiring strictly-consecutive
-  inside fixes made confirmation the weakest link — one edge-jitter fix
-  outside the radius reset the run, and the trip read "stuck at first
-  stop" with zero explanations (the arrival sim drives one fix per stop
-  visit and recorded nothing). The eligibility gate (fresh ≤3 min, not
-  future, accuracy ≤100 m, no implausible jump) is the anti-jitter gate;
-  with it in place one eligible in-geofence fix is proof enough for the
-  immediate next stop. The escalating consecutive tiers above are
-  unchanged — out-of-order/skip claims still demand stronger evidence.
-  If double-booking of adjacent geofences ever shows up, re-raise via
-  `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES=2` (env) before touching code.
+  Field/sim evidence reversed that call to 1 fix, on the theory that the
+  eligibility gate alone was enough.
+  **2026-09 deep fix (P0-1):** the single-fix default caused the real
+  cascade it was warned about. A bus parked at home (route's first stop)
+  sat inside several overlapping geofences; each accepted fix recorded the
+  next stop, marked the whole trip arrived and fired a false parent alert —
+  the bus never moved. The root cause was not the confirmation count but
+  the **absence of a departure gate**: nothing required the bus to leave
+  stop N before stop N+1 could record. The fix is three gates, all in
+  `stop-arrivals.service.ts` / `eta.config.ts`:
+  - **Departure gate** — a stop past the frontier records only after an
+    eligible fix has been seen *outside* the highest-sequence arrived
+    stop's geofence (+ `ARRIVAL_EXIT_HYSTERESIS_METERS`). The frontier stop
+    is derived from the loaded arrival rows each evaluation (survives
+    restarts, honours crew marks); only the "departed yet" bit is cached
+    per trip and cleared by `resetForTrip`.
+  - **Inter-stop gates** — a new arrival is rejected if the previous
+    arrival's `arrived_at` is closer than `ARRIVAL_MIN_INTERSTOP_MS`
+    (default 30 s, compared by the fix's `recorded_at`) or the fix is
+    closer than `ARRIVAL_MIN_INTERSTOP_DISTANCE_METERS` (default 50 m) to
+    the fix that recorded the previous stop (distance kept tunable for
+    genuinely short legs).
+  - **Restored confirmation strength** — `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES`
+    → 2, `ARRIVAL_MIN_DWELL_MS` → 10 000 (10 s of sustained presence). The
+    old "sticks at first stop" regression is avoided because the gates
+    (not the count) do the anti-cascade work, and the crew manual-mark path
+    remains the instant escape hatch.
+  - **Accuracy vs radius** — a fix counts toward a stop only when its
+    reported accuracy ≤ `min(ARRIVAL_MAX_ACCURACY_METERS, radius / 2)`, and
+    `ARRIVAL_ALLOW_MISSING_ACCURACY` now defaults to **false** (an unknown
+    accuracy cannot localise inside a 10–50 m geofence, which is exactly
+    what a bus parked indoors produces).
+  The escalating consecutive tiers above are unchanged — out-of-order/skip
+  claims still demand stronger evidence.
+  - **Overlapping-geofence guardrail (fix 5):** on investigation the admin
+    stop editor already *blocks* stops closer than twice the larger radius
+    (`stops/stop-spacing.ts`, enforced on create/update and import) — a
+    strictly stronger guardrail than the requested "warn on overlap", so it
+    was left in place rather than weakened. Legacy overlapping data created
+    before that block is handled at runtime by the departure/inter-stop
+    gates above.
 - Consecutive-fix evidence per trip/stop with an exit-hysteresis fringe
   (`ARRIVAL_EXIT_HYSTERESIS_METERS`, default 20 m: past-edge fixes preserve
   partial evidence instead of wiping it) and an optional dwell span
@@ -95,7 +125,11 @@ only.
 - Never-stall-explained rule (batch 3A): a stop without coordinates can
   never auto-record — the evaluator warns once per trip+stop and
   `GET /progress` exposes `arrival_diagnostics` (last fix rejection,
-  unsurveyed stops, per-stop `inside_count`/`required_fixes`), and
+  the last **gate** block reason `last_gate_block`, the frontier
+  `last_arrival` with its `gated_until`, the `departure_gate` state, the
+  unsurveyed stops, and per-stop `inside_count`/`required_fixes`/
+  `blocked_reason` — so support can answer "why hasn't the next stop
+  recorded?"), and
   `computeTripEta` derives `next_stop` from the progress frontier (first
   un-reached stop with `sequence_number > frontier`) with `warnings`
   listing un-surveyable active stops — one missed visit can no longer pin
@@ -151,8 +185,12 @@ only.
   process: a restart delays the next arrival by ~1 fix (DB still prevents
   duplicates); multi-instance deployments may each accumulate evidence but
   the unique index guarantees a single arrival/notification.
-- `minDwellMs` defaults to disabled; enable per-tenant if drive-by stops
-  need time-based confirmation.
+- `minDwellMs` defaults to 10 s (was disabled): a fix that only clips a
+  geofence in passing no longer records. Lower it per-tenant only if a
+  route has legitimate sub-10 s stops.
+- The departure and inter-stop gates are the primary anti-cascade defence;
+  the departure "departed yet" bit is in-memory per process but re-derives
+  from the DB arrival rows on the next fix after a restart.
 - Jump suppression applies to arrival alerts; the raw fix broadcast and the
   ETA still use the reported position (ETA self-corrects on the next fix).
 - No reverse-direction, loop-route repeat-visit, or per-stop exit/re-entry
