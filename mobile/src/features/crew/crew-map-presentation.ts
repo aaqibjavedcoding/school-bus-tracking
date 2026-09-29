@@ -3,6 +3,7 @@ import {
   ACCURACY_APPROXIMATE_METERS,
   ACCURACY_CIRCLE_MAX_METERS,
 } from '../map/tracking-presentation.ts';
+import type { GpsStripAction, GpsStripActions } from './gps-strip-action.ts';
 import {
   LOCAL_FIX_FRESH_WINDOW_MS,
   type CrewTrackingStatus,
@@ -261,4 +262,71 @@ export function driverStopMarkerKind(
   nextStopId: string | null | undefined,
 ): DriverStopMarkerKind {
   return nextStopId != null && stopId === nextStopId ? 'next' : 'plain';
+}
+
+// ── The "no fix yet" call to action ────────────────────────────────────────
+
+/**
+ * What the map panel offers when there is **no position to draw**.
+ *
+ * The panel used to state the problem and stop there ("No fix from this device
+ * yet."), which reads as a dead end: the driver is looking at an empty map and
+ * the screen has no opinion about what to do next. The GPS strip two cards up
+ * already knows the answer — it is the surface that decides between *start
+ * sharing*, *retry*, *ask for the permission* and *open the OS settings*
+ * (`gps-strip-action.ts`) — so this reuses that decision verbatim rather than
+ * inventing a second, parallel repair mechanism that could disagree with it.
+ *
+ * The one case the strip cannot help with is "sharing is running and we are
+ * simply waiting for the first fix": there is nothing to repair, so the tap
+ * goes to Help, where the diagnostics and the support route live.
+ *
+ * `null` means "no CTA": a position is drawn, so the panel has nothing to fix.
+ */
+export type DriverMapNoFixAction = GpsStripAction | 'help';
+
+export interface DriverMapNoFixCta {
+  action: DriverMapNoFixAction;
+  /** The label key — the strip's own words, so both surfaces say one thing. */
+  labelKey:
+    | 'gps.share'
+    | 'gps.retry'
+    | 'gps.openSettings'
+    | 'gps.requestPermission'
+    | 'gps.helpLink';
+}
+
+const NO_FIX_LABELS: Record<DriverMapNoFixAction, DriverMapNoFixCta['labelKey']> = {
+  share: 'gps.share',
+  retry: 'gps.retry',
+  'open-settings': 'gps.openSettings',
+  'request-permission': 'gps.requestPermission',
+  // A running watch has nothing to repair — Help is where the numbers are.
+  stop: 'gps.helpLink',
+  help: 'gps.helpLink',
+};
+
+export function driverMapNoFixCta(
+  state: DriverPositionState,
+  strip: GpsStripActions,
+): DriverMapNoFixCta | null {
+  if (state !== 'no-fix') return null;
+  const action: DriverMapNoFixAction = strip.primary === 'stop' ? 'help' : strip.primary;
+  return { action, labelKey: NO_FIX_LABELS[action] };
+}
+
+/** Resolves the CTA's label through the crew dictionary (one key at a time). */
+export function driverMapNoFixLabel(cta: DriverMapNoFixCta): string {
+  switch (cta.labelKey) {
+    case 'gps.share':
+      return t('gps.share');
+    case 'gps.retry':
+      return t('gps.retry');
+    case 'gps.openSettings':
+      return t('gps.openSettings');
+    case 'gps.requestPermission':
+      return t('gps.requestPermission');
+    case 'gps.helpLink':
+      return t('gps.helpLink');
+  }
 }

@@ -23,10 +23,15 @@ import {
 // Imported by path, not through the barrel: this component needs the MapLibre
 // native map module, and the crew barrel is also pulled in by headless code
 // paths that must never touch a native module.
-import { DriverTripMap } from '../../src/features/crew/DriverTripMap';
+import { DriverTripMap, EMBEDDED_MAP_MIN_HEIGHT } from '../../src/features/crew/DriverTripMap';
 import { NextStopKidCard } from '../../src/features/crew/NextStopKidCard';
 import { summarizeNextStopKids } from '../../src/features/crew/next-stop-kids';
-import { deriveDriverMapPresentation } from '../../src/features/crew/crew-map-presentation.ts';
+import {
+  deriveDriverMapPresentation,
+  driverMapNoFixCta,
+  type DriverMapNoFixAction,
+} from '../../src/features/crew/crew-map-presentation.ts';
+import { gpsStripActions } from '../../src/features/crew/gps-strip-action.ts';
 import {
   deriveTripProgressForTrip,
   etaForTrip,
@@ -52,6 +57,16 @@ import {
 import { formatDate, formatTime, roleLabel } from '../../src/lib/format';
 import { crewCopy } from '../../src/features/crew/crew-copy';
 import { useTranslation } from '../../src/lib/i18n-provider';
+
+/**
+ * Height of the embedded driver map, in dp.
+ *
+ * It used to be 200, which is too cramped to pinch in and reads as a
+ * thumbnail (P1-5). 260 sits just above the card's own floor
+ * (`EMBEDDED_MAP_MIN_HEIGHT`) and still leaves the next-stop card, the stop
+ * controls and the SOS panel reachable with one scroll.
+ */
+const EMBEDDED_MAP_HEIGHT = Math.max(260, EMBEDDED_MAP_MIN_HEIGHT);
 
 /**
  * A next-stop manifest slice tagged with the stop id it was fetched for, so a
@@ -172,6 +187,64 @@ export default function CrewTripScreen() {
       sharing.stats.lastFix?.accuracy,
       sharing.connection,
     ],
+  );
+
+  /**
+   * The map panel's repair tap while this device has produced no fix (P2-7).
+   *
+   * It is the **GPS strip's own decision**, re-read here and handed to the
+   * map: Share GPS / Retry / Request permission / Open settings, or Help when
+   * sharing is already running and the phone is simply still searching. The
+   * map must never grow a parallel recovery mechanism — one screen, one
+   * opinion about what is wrong and what fixes it.
+   */
+  const mapNoFixCta = useMemo(
+    () =>
+      driverMapNoFixCta(
+        driverMapPresentation.state,
+        gpsStripActions({
+          foregroundActive: sharing.sharing,
+          backgroundActive: sharing.backgroundActive,
+          lastStopReason: sharing.lastStopReason,
+          recoveryExhausted: sharing.statusDetail.recoveryExhausted,
+          message: sharing.message,
+          servicesEnabled: sharing.servicesEnabled,
+          foregroundPermission: sharing.foregroundPermission,
+        }),
+      ),
+    [
+      driverMapPresentation.state,
+      sharing.sharing,
+      sharing.backgroundActive,
+      sharing.lastStopReason,
+      sharing.statusDetail.recoveryExhausted,
+      sharing.message,
+      sharing.servicesEnabled,
+      sharing.foregroundPermission,
+    ],
+  );
+
+  const onMapNoFixAction = useCallback(
+    (action: DriverMapNoFixAction) => {
+      switch (action) {
+        case 'share':
+        case 'retry':
+        case 'stop':
+          // `retry()` starts the watch when nothing is running — the same call
+          // the strip's primary makes.
+          void sharing.retry();
+          return;
+        case 'open-settings':
+          void sharing.openLocationSettings();
+          return;
+        case 'request-permission':
+          void sharing.requestLocationPermission();
+          return;
+        case 'help':
+          router.push('/help');
+      }
+    },
+    [sharing, router],
   );
 
   // The ordered stops of the trip's route, used by the driver's navigation
@@ -402,7 +475,10 @@ export default function CrewTripScreen() {
           nextStopName={progress.nextStop?.name ?? null}
           nextStopDistanceMeters={eta?.next_stop?.distance_meters ?? null}
           nextStopEtaMinutes={eta?.next_stop?.eta_minutes ?? null}
-          height={200}
+          noFixCta={mapNoFixCta}
+          onNoFixAction={onMapNoFixAction}
+          busy={sharing.busy}
+          height={EMBEDDED_MAP_HEIGHT}
         />
       ) : null}
 
@@ -505,9 +581,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
   },
+  /**
+   * The two-button row above the SOS panel.
+   *
+   * The bottom margin is load-bearing: `Screen` pads its edges but puts no
+   * gap between its children, and `SosQuickPanel` has no top margin of its
+   * own, so without it the 64 dp "HOLD to send SOS" button sat flush against
+   * these two (P1-4) — a 0 px gap between a normal action and the emergency
+   * one. `spacing.md` (16 dp) is the rhythm every other card on this screen
+   * uses (`StopMarkActions`, `GpsShareStrip`, `StatusCard`).
+   */
   linkRow: {
     flexDirection: 'row',
     gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   linkButton: {
     flex: 1,

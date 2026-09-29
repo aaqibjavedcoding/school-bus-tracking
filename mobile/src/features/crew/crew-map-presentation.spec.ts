@@ -1,9 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import type { GpsStripActions } from './gps-strip-action.ts';
 import {
   deriveDriverMapPresentation,
   driverMapCopy,
+  driverMapNoFixCta,
+  driverMapNoFixLabel,
   driverStopMarkerKind,
   type DriverMapPresentationInput,
   type DriverStopMarkerKind,
@@ -339,5 +342,55 @@ describe('driver map — which stop is next', () => {
       Object.values({ plain: 'plain', next: 'next' } as const),
       kinds,
     );
+  });
+});
+
+describe('driver map — the "no fix yet" call to action', () => {
+  /**
+   * P2-7: the panel used to state the problem and offer nothing. The rule for
+   * the fix is that the map must never grow a second repair mechanism — it
+   * reuses whatever the GPS strip already decided (`gps-strip-action.ts`), so
+   * the two surfaces can never offer the driver contradictory advice.
+   */
+  const strip = (
+    primary: GpsStripActions['primary'],
+  ): GpsStripActions => ({ primary, showRetryWhileRunning: false });
+
+  it('offers nothing while a position is actually drawn', () => {
+    for (const state of ['live', 'last-known'] as const) {
+      assert.equal(driverMapNoFixCta(state, strip('retry')), null, state);
+    }
+  });
+
+  const mapped: Array<[GpsStripActions['primary'], string, string]> = [
+    ['share', 'share', 'gps.share'],
+    ['retry', 'retry', 'gps.retry'],
+    ['open-settings', 'open-settings', 'gps.openSettings'],
+    ['request-permission', 'request-permission', 'gps.requestPermission'],
+  ];
+
+  for (const [primary, action, labelKey] of mapped) {
+    it(`mirrors the strip's "${primary}" decision`, () => {
+      assert.deepEqual(driverMapNoFixCta('no-fix', strip(primary)), { action, labelKey });
+    });
+  }
+
+  it('sends a running-but-fixless driver to Help, not to a pointless retry', () => {
+    // Sharing is live and the phone simply has not produced a fix yet: there
+    // is nothing to repair, and restarting the watch would only lose time.
+    assert.deepEqual(driverMapNoFixCta('no-fix', strip('stop')), {
+      action: 'help',
+      labelKey: 'gps.helpLink',
+    });
+  });
+
+  it('resolves every label through the crew dictionary', () => {
+    for (const [primary] of mapped) {
+      const cta = driverMapNoFixCta('no-fix', strip(primary));
+      assert.ok(cta);
+      const label = driverMapNoFixLabel(cta!);
+      assert.ok(label.length > 0, `${primary} has no label`);
+      assert.ok(!label.includes('{'), 'a CTA label takes no placeholders');
+    }
   });
 });

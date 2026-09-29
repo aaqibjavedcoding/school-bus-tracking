@@ -542,6 +542,11 @@ export const mr: Dictionary = {
   'map.followOn': 'फॉलो: सुरू',
   'map.followOff': 'फॉलो: बंद',
   'map.noCoordinates': 'या मार्गात अद्याप नकाशागत थांबे नाहीत।',
+  'map.followWaitingFix': 'GPS ची वाट',
+  'map.followOffA11y': 'फॉलो बंद आहे — नकाशा जिथे आहे तिथेच राहील',
+  'map.noFixA11y': 'GPS फिक्सची वाट — फॉलो उपलब्ध नाही',
+  'map.zoomIn': 'झूम इन',
+  'map.zoomOut': 'झूम आउट',
   'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
   'map.needsDevBuildBody':
     'Expo Go मध्ये map engine load होत नाही, म्हणून या build मध्ये map दिसणार नाही। ट्रिप, थांबे आणि GPS sharing सुरूच राहतात — map पाहण्यासाठी development build वापरा।',

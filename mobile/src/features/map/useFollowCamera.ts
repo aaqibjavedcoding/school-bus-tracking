@@ -8,6 +8,7 @@ import {
   type FollowCameraPort,
 } from './follow-camera-controller';
 import { initialCameraFor } from './fit-camera.ts';
+import { zoomLimits as limitsForZoom, type ZoomLimits } from './map-controls.ts';
 import type { RenderedMarker } from './useBusMarkerMotion';
 
 /**
@@ -57,6 +58,12 @@ export interface FollowCameraBinding {
   cameraRef: React.RefObject<CameraRef | null>;
   /** True when the viewer's gesture took the camera. Drives the recenter control. */
   exploring: boolean;
+  /** Whether each on-map zoom button can still do something. */
+  zoomLimits: ZoomLimits;
+  /** One zoom level in, without leaving follow mode. */
+  zoomIn: () => boolean;
+  /** One zoom level out, without leaving follow mode. */
+  zoomOut: () => boolean;
   onFrame: (marker: RenderedMarker) => void;
   onUserGesture: () => void;
   onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
@@ -64,6 +71,9 @@ export interface FollowCameraBinding {
   onMapReady: () => void;
   recenter: () => void;
 }
+
+/** Both buttons live until the engine reports where it actually is. */
+const INITIAL_ZOOM_LIMITS: ZoomLimits = limitsForZoom(null);
 
 function nowMs(): number {
   const perf = (globalThis as { performance?: { now?: () => number } }).performance;
@@ -87,6 +97,7 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
   const { routeCoordinates, fix, tripId, singlePointZoom, edgePadding } = input;
   const cameraRef = useRef<CameraRef | null>(null);
   const [exploring, setExploring] = useState(false);
+  const [zoomLimits, setZoomLimits] = useState<ZoomLimits>(INITIAL_ZOOM_LIMITS);
   const controllerRef = useRef<FollowCameraController | null>(null);
 
   if (controllerRef.current === null) {
@@ -103,6 +114,13 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
         // is not the same thing to the native camera builder as an absent one.
         if (options.zoom !== undefined) stop.zoom = options.zoom;
         camera.easeTo(stop);
+      },
+      setZoom: (zoom, options) => {
+        const camera = cameraRef.current;
+        if (!camera) return;
+        // Zoom only: `zoomTo` keeps the centre the driver is looking at, so a
+        // +/− press never doubles as a pan.
+        camera.zoomTo(zoom, { duration: options.duration });
       },
       fitToCoordinates: (points, options) => {
         const camera = cameraRef.current;
@@ -125,6 +143,9 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
       port,
       now: nowMs,
       onModeChange: (mode) => setExploring(mode !== 'following'),
+      // Only fires when a button actually flips between enabled and disabled,
+      // so a pinch (one region event per frame) costs zero renders.
+      onZoomLimitsChange: setZoomLimits,
       singlePointZoom,
       edgePadding,
     });
@@ -183,7 +204,7 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
     (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       const view = event.nativeEvent;
       controller.regionChanged(
-        { latitudeDelta: latitudeSpanAtZoom(view.zoom) },
+        { latitudeDelta: latitudeSpanAtZoom(view.zoom), zoom: view.zoom },
         // MapLibre reports gesture attribution on every platform; a missing
         // flag is read as "not a gesture", never as "probably a gesture".
         { isGesture: view.userInteraction === true },
@@ -200,6 +221,7 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
           latitude: view.center[1],
           longitude: view.center[0],
           latitudeDelta: latitudeSpanAtZoom(view.zoom),
+          zoom: view.zoom,
         },
         { isGesture: view.userInteraction === true },
       );
@@ -211,10 +233,19 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
 
   const recenter = useCallback(() => controller.recenter(), [controller]);
 
+  // The +/− buttons. Programmatic by definition, so they do **not** end
+  // following (`follow-camera-controller.ts` → `zoomBy`): a driver who zooms
+  // in to read a street name keeps the bus centred.
+  const zoomIn = useCallback(() => controller.zoomBy('in'), [controller]);
+  const zoomOut = useCallback(() => controller.zoomBy('out'), [controller]);
+
   return useMemo(
     () => ({
       cameraRef,
       exploring,
+      zoomLimits,
+      zoomIn,
+      zoomOut,
       onFrame,
       onUserGesture,
       onRegionChange,
@@ -224,6 +255,9 @@ export function useFollowCamera(input: UseFollowCameraInput): FollowCameraBindin
     }),
     [
       exploring,
+      zoomLimits,
+      zoomIn,
+      zoomOut,
       onFrame,
       onUserGesture,
       onRegionChange,
