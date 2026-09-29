@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import type { StopResponse, TripLocationResponse } from '@school-bus-tracking/shared-types';
 
 import {
+  buildArrivalZonePolygon,
   buildPlannedLegsLine,
   buildTrailLine,
   historyFixesForTrip,
   upcomingStopsFrom,
 } from './trip-map-geometry.ts';
+import { ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS } from './arrival-zone.ts';
 
 /**
  * The driver map's two honest lines, pinned.
@@ -190,5 +192,53 @@ describe('historyFixesForTrip — the trail belongs to the trip on screen', () =
   it('returns nothing without a payload or a trip', () => {
     assert.deepEqual(historyFixesForTrip(null, 'trip-1'), []);
     assert.deepEqual(historyFixesForTrip(history, null), []);
+  });
+});
+
+describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () => {
+  it('draws the NEXT stop only, with its effective (floored) radius', () => {
+    // A 10 m legacy stop: the drawn zone must be the 50 m effective circle
+    // the server evaluates, never the invisible 10 m point match the field
+    // run suffered.
+    const stops = [
+      stop('s1', 1, 19.076, 72.8777),
+      stop('s2', 2, 19.079, 72.88),
+    ].map((entry) => ({ ...entry, geofence_radius_meters: 10 }));
+    const zone = buildArrivalZonePolygon(stops, 's2');
+    assert.ok(zone);
+    assert.equal(zone.geometry.type, 'Polygon');
+    const ring = zone.geometry.coordinates[0];
+    assert.ok(ring.length > 3, 'the circle is a many-vertex polygon');
+    // Closed ring (GeoJSON requirement) centred on the next stop: the first
+    // and last points coincide, and every vertex keeps [lng, lat] order.
+    assert.deepEqual(ring[0], ring[ring.length - 1]);
+    for (const point of ring) {
+      assert.ok(Math.abs(point[0] - 72.88) < 0.001, `longitude near the stop: ${point[0]}`);
+      assert.ok(Math.abs(point[1] - 19.079) < 0.001, `latitude near the stop: ${point[1]}`);
+    }
+    // The radius is the effective floor, not the stored 10 m: the ring's
+    // northernmost vertex sits ~50 m from the stop (0.00045° latitude).
+    const maxLatitudeDelta = Math.max(...ring.map((point) => Math.abs(point[1] - 19.079)));
+    assert.ok(
+      maxLatitudeDelta > 0.00035 && maxLatitudeDelta < 0.00055,
+      `effective radius ~${ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS} m, got ${maxLatitudeDelta.toFixed(6)}°`,
+    );
+  });
+
+  it('keeps a larger stored radius as the drawn zone', () => {
+    const stops = [stop('s1', 1, 19.076, 72.8777)];
+    const zone = buildArrivalZonePolygon(stops, 's1');
+    assert.ok(zone);
+    const ring = zone.geometry.coordinates[0];
+    const maxLatitudeDelta = Math.max(...ring.map((point) => Math.abs(point[1] - 19.076)));
+    // 100 m ≈ 0.0009° latitude.
+    assert.ok(maxLatitudeDelta > 0.0008 && maxLatitudeDelta < 0.001);
+  });
+
+  it('draws nothing without a next stop, an unknown id, or an unsurveyed stop', () => {
+    assert.equal(buildArrivalZonePolygon([stop('s1', 1, 19.076, 72.8777)], null), null);
+    assert.equal(buildArrivalZonePolygon([stop('s1', 1, 19.076, 72.8777)], 'zzz'), null);
+    assert.equal(buildArrivalZonePolygon([stop('s1', 1, null, null)], 's1'), null);
+    assert.equal(buildArrivalZonePolygon([], 's1'), null);
   });
 });

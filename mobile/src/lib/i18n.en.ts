@@ -602,6 +602,8 @@ export const en = {
   // the map, so the legend can never describe a line that is not drawn.
   'map.plannedNotice': 'Amber line: planned stop order — not the road route.',
   'map.trailNotice': 'Green dotted line: the path already driven.',
+  'map.arrivalZoneNotice':
+    "Dashed ring: the next stop's arrival zone — inside it, the stop records.",
   // The one big pin on the driver map: the stop being driven to.
   'map.nextBadge': 'NEXT',
   'map.expand': 'Full screen',
@@ -748,6 +750,14 @@ export const en = {
   'navigate.card.kidsWaiting.one': '{count} kid waiting here',
   'navigate.card.kidsWaiting.other': '{count} kids waiting here',
   'navigate.card.kidsDone': 'All kids marked at this stop',
+  // Deep-fix R1: the arrival-zone indicator + the held-reason line on the
+  // next-stop card (display only; the server's engine decides arrivals).
+  'navigate.card.insideZone': 'Inside arrival zone',
+  'navigate.card.outsideZone': 'Outside arrival zone',
+  'navigate.card.heldDeparture': 'Waiting for departure from the previous stop',
+  'navigate.card.heldCooldown': 'Held by the stop-spacing cooldown',
+  'navigate.card.heldDistance': 'Held: too close to the previous stop record',
+  'navigate.card.evidence': 'Confirming arrival {count}/{required}',
   'navigate.card.noStops': 'No stops on this route yet.',
   'navigate.card.noGeofence':
     'This route has no geofenced stops yet — ask the school to add coordinates.',

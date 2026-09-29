@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import type { StopResponse, TripEtaResponse } from '@school-bus-tracking/shared-types';
+import type {
+  StopResponse,
+  TripArrivalDiagnostics,
+  TripEtaResponse,
+} from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { Button, Card } from '../../components';
 import {
@@ -20,6 +24,7 @@ import { pluralKey, t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
 import { NextStopKidRows } from './NextStopKidCard';
 import type { NextStopKidsSummary } from './next-stop-kids.ts';
+import { arrivalHoldReason, arrivalZoneStatus } from './arrival-zone.ts';
 
 /**
  * The next-stop card (Task 44, hardened 3E, reworked N3/N6).
@@ -46,6 +51,12 @@ import type { NextStopKidsSummary } from './next-stop-kids.ts';
  *   stops" meta line (a truncated trip id) is gone — it was diagnostics, not
  *   something a driver reads at a kerb. The lat/long stays, one small muted
  *   line, because support sometimes needs to read it aloud.
+ * - **inside the arrival zone?** (deep-fix R1) — a live indicator computed
+ *   from the server's own latest fix against the same effective-radius
+ *   circle the arrival engine evaluates (`arrival-zone.ts`). When the bus is
+ *   inside and the stop is held, the reason shows too (departure gate /
+ *   cooldown / confirming evidence). Presentation only — it never gates
+ *   anything.
  *
  * 3E: uses `deriveTripProgress` — monotonic frontier, nearest-upcoming by
  * distance when available, never backward/random. Diagnostics are logged via
@@ -69,6 +80,14 @@ export interface TripNavigationCardProps {
   kidsSummary?: NextStopKidsSummary | null;
   /** False while the manifest request is in flight (no fake "no kids"). */
   kidsLoaded?: boolean;
+  /**
+   * Arrival-engine diagnostics from `GET /trips/:id/progress`
+   * (`apiClient.getTripProgress`), read by the trip screen alongside the ETA.
+   * Powers the "why is the stop held?" line when the bus is inside the zone
+   * but the arrival has not recorded yet (departure gate / cooldown /
+   * confirming evidence). Display only — it never gates anything.
+   */
+  arrivalDiagnostics?: TripArrivalDiagnostics | null;
 }
 
 export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
@@ -78,6 +97,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   previousFrontier,
   kidsSummary = null,
   kidsLoaded = true,
+  arrivalDiagnostics = null,
 }) => {
   useTranslation();
   const derived = useMemo(
@@ -171,6 +191,37 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
         .join(' · ')
     : '';
 
+  /**
+   * The arrival-zone indicator (deep-fix R1): is the bus inside the SAME
+   * effective-radius circle the server's arrival engine evaluates?
+   *
+   * Pure client math over the server's own data — `eta.latest` is the exact
+   * fix the engine last evaluated, and the radius rule mirrors the server's
+   * floor (see `arrival-zone.ts`). **Display only**: the indicator can never
+   * record, block or delay anything; the engine keeps making every decision.
+   *
+   * When the bus IS inside and the stop still has not recorded, the
+   * diagnostics line says why — the gate that holds it (departure /
+   * cooldown) or the confirming evidence still accumulating ("1/2") — so
+   * "inside the circle and waiting" reads as progress, not as a dead app.
+   */
+  const zoneStatus = arrivalZoneStatus(eta?.latest ?? null, next);
+  const holdReason = arrivalHoldReason(arrivalDiagnostics, next?.id ?? null);
+  const holdLine = (() => {
+    if (zoneStatus !== 'inside' || holdReason === null) return null;
+    if (holdReason.kind === 'gate') {
+      return holdReason.reason === 'awaiting-departure'
+        ? t('navigate.card.heldDeparture')
+        : holdReason.reason === 'inter-stop-cooldown'
+          ? t('navigate.card.heldCooldown')
+          : t('navigate.card.heldDistance');
+    }
+    return t('navigate.card.evidence', {
+      count: holdReason.count,
+      required: holdReason.required,
+    });
+  })();
+
   const kidsLine = (() => {
     if (!kidsSummary || kidsSummary.total === 0) return null;
     if (!kidsLoaded) return t('manifest.loading');
@@ -197,6 +248,26 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
           ) : (
             <Text style={styles.muted}>{t('eta.waitingForGps')}</Text>
           )}
+          {zoneStatus !== 'unknown' ? (
+            <View style={styles.zoneRow} accessibilityLiveRegion="polite">
+              <View
+                style={[styles.zoneDot, zoneStatus === 'inside' ? styles.zoneDotInside : null]}
+              />
+              <Text
+                style={[
+                  styles.zoneText,
+                  zoneStatus === 'inside' ? styles.zoneTextInside : null,
+                ]}
+              >
+                {zoneStatus === 'inside'
+                  ? t('navigate.card.insideZone')
+                  : t('navigate.card.outsideZone')}
+              </Text>
+              {holdLine !== null ? (
+                <Text style={styles.zoneHeld}>{holdLine}</Text>
+              ) : null}
+            </View>
+          ) : null}
           {kidsLine ? <Text style={styles.kidsLine}>{kidsLine}</Text> : null}
           {kidsSummary && kidsSummary.total > 0 ? (
             <NextStopKidRows summary={kidsSummary} />
@@ -295,6 +366,41 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
     marginTop: spacing.xs,
+  },
+  /**
+   * The arrival-zone indicator: one row — a dot, the state word, and (only
+   * while inside and held) the reason. The dot is what a driver matches
+   * against the dashed ring on the map; the words carry the rest.
+   */
+  zoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  zoneDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: colors.neutral[400],
+    backgroundColor: '#ffffff',
+  },
+  zoneDotInside: {
+    borderColor: colors.secondary[700],
+    backgroundColor: colors.secondary[500],
+  },
+  zoneText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '600',
+    color: colors.neutral[600],
+  },
+  zoneTextInside: {
+    color: colors.secondary[700],
+  },
+  zoneHeld: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
   },
   muted: {
     fontSize: typography.fontSizes.base,

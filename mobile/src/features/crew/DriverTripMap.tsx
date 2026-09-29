@@ -53,6 +53,7 @@ import { driverFollowControls } from '../map/map-controls.ts';
 import { useFollowCamera } from '../map/useFollowCamera';
 import { GestureIsland } from '../../components/gesture-island';
 import {
+  buildArrivalZonePolygon,
   buildPlannedLegsLine,
   buildTrailLine,
   historyFixesForTrip,
@@ -196,6 +197,21 @@ const TRAIL_FIX_LIMIT = 200;
 const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
 const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 
+/**
+ * The next stop's **arrival zone** — the circle the server's arrival engine
+ * actually evaluates (effective radius: stored radius floored at 50 m).
+ *
+ * Deep-fix R1: the zone used to be invisible, so a driver parked inside it
+ * had no way to tell "almost there" from "the app is broken". It is drawn
+ * ONLY around the next stop (the map stays clean) and deliberately unlike
+ * the GPS accuracy circle: a DASHED darker-amber ring with barely-there fill
+ * centred on the stop, where the accuracy circle is a solid light-amber ring
+ * centred on the bus. When the bus is inside the zone the two overlap — dash
+ * vs solid is what keeps them readable apart.
+ */
+const ZONE_STROKE = 'rgba(180, 83, 9, 0.9)';
+const ZONE_FILL = 'rgba(245, 158, 11, 0.06)';
+
 /** Trail and planned-legs paint, stated once for both native map instances. */
 const TRAIL_PAINT = {
   'line-color': colors.status.success,
@@ -213,6 +229,8 @@ interface SurfaceProps {
   trailFeature: Feature<LineString> | null;
   plannedFeature: Feature<LineString> | null;
   accuracyCircleFeature: Feature<Polygon> | null;
+  /** The next stop's arrival-zone circle (effective radius), or null. */
+  arrivalZoneFeature: Feature<Polygon> | null;
   initialCamera: InitialViewState | null;
   /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
   mapStyle: MapProps['mapStyle'];
@@ -248,6 +266,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
     trailFeature,
     plannedFeature,
     accuracyCircleFeature,
+    arrivalZoneFeature,
     initialCamera,
     localFix,
     tripId,
@@ -343,6 +362,31 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
             id="sbt-accuracy-stroke"
             source="sbt-accuracy"
             paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
+          />
+        </GeoJSONSource>
+      ) : null}
+
+      {/* The next stop's arrival zone: the SAME effective-radius circle the
+          server's arrival engine evaluates, so "inside" on the map is
+          "inside" to the engine. Drawn for the next stop only; the accuracy
+          circle above belongs to the bus, this one belongs to the stop. */}
+      {arrivalZoneFeature ? (
+        <GeoJSONSource id="sbt-arrival-zone" data={arrivalZoneFeature}>
+          <Layer
+            type="fill"
+            id="sbt-arrival-zone-fill"
+            source="sbt-arrival-zone"
+            paint={{ 'fill-color': ZONE_FILL }}
+          />
+          <Layer
+            type="line"
+            id="sbt-arrival-zone-stroke"
+            source="sbt-arrival-zone"
+            paint={{
+              'line-color': ZONE_STROKE,
+              'line-width': 2,
+              'line-dasharray': [3, 2],
+            }}
           />
         </GeoJSONSource>
       ) : null}
@@ -451,6 +495,15 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     );
   }, [localFix, presentation.accuracyCircleMeters]);
 
+  // The next stop's arrival-zone circle: the effective radius (stored radius
+  // floored at 50 m — see `arrival-zone.ts`) around the stop the whole screen
+  // already agrees is next. Only the next stop gets a zone, so a ten-stop
+  // route stays readable; the caption under the map names what the ring means.
+  const arrivalZoneFeature = useMemo<Feature<Polygon> | null>(
+    () => buildArrivalZonePolygon(stops, nextStopId),
+    [stops, nextStopId],
+  );
+
   // Follow is explicit, not a side effect: the camera follows the bus until
   // the driver turns it off (or pans), and off means off — the frame stream
   // stops moving the camera entirely until it is turned back on.
@@ -541,6 +594,9 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   const plannedNotice = plannedFeature ? t('map.plannedNotice') : null;
   const trailNotice = trailFeature ? t('map.trailNotice') : null;
   const routeNotice = !plannedNotice && routeCoordinates.length > 1 ? t('map.routeNotice') : null;
+  // The zone ring's meaning is not guessable from its shape — say it once,
+  // under the map, only while the ring is drawn.
+  const zoneNotice = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
 
   const initialCamera = useMemo(() => {
     const points: Array<{ latitude: number; longitude: number }> = [...routeCoordinates];
@@ -576,6 +632,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       trailFeature={trailFeature}
       plannedFeature={plannedFeature}
       accuracyCircleFeature={accuracyCircleFeature}
+      arrivalZoneFeature={arrivalZoneFeature}
       initialCamera={initialCamera}
       localFix={localFix}
       tripId={tripId}
@@ -821,6 +878,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
             </View>
             {mapBody(true)}
             <View style={styles.fullscreenNotices}>
+              {zoneNotice ? <Text style={styles.routeNotice}>{zoneNotice}</Text> : null}
               {plannedNotice ? <Text style={styles.routeNotice}>{plannedNotice}</Text> : null}
               {trailNotice ? <Text style={styles.routeNotice}>{trailNotice}</Text> : null}
               {routeNotice ? <Text style={styles.routeNotice}>{routeNotice}</Text> : null}
@@ -836,6 +894,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
           line is on the map. */}
       {surfaceMode === 'map' && !expanded ? (
         <View>
+          {zoneNotice ? <Text style={styles.routeNotice}>{zoneNotice}</Text> : null}
           {plannedNotice ? <Text style={styles.routeNotice}>{plannedNotice}</Text> : null}
           {trailNotice ? <Text style={styles.routeNotice}>{trailNotice}</Text> : null}
           {routeNotice ? <Text style={styles.routeNotice}>{routeNotice}</Text> : null}

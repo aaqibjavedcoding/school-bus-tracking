@@ -527,6 +527,8 @@ export const hi: Dictionary = {
   'map.routeNotice': 'स्टॉप के बीच सीधी रेखाएँ — चलाया गया मार्ग नहीं।',
   'map.plannedNotice': 'पीली रेखा: स्टॉप का तय क्रम — सड़क का रास्ता नहीं।',
   'map.trailNotice': 'हरी बिंदीदार रेखा: तय किया हुआ रास्ता।',
+  'map.arrivalZoneNotice':
+    'डैश वाला घेरा: अगले स्टॉप का अराइवल ज़ोन — इसके अंदर आने पर स्टॉप दर्ज होता है।',
   'map.nextBadge': 'अगला',
   'map.expand': 'फुल स्क्रीन',
   'map.exitFullscreen': 'फुल स्क्रीन बंद करें',
@@ -653,6 +655,12 @@ export const hi: Dictionary = {
   'navigate.card.kidsWaiting.one': '{count} बच्चा यहाँ रुका है',
   'navigate.card.kidsWaiting.other': '{count} बच्चे यहाँ रुके हैं',
   'navigate.card.kidsDone': 'इस स्टॉप पर सभी बच्चों की मार्किंग हो गई',
+  'navigate.card.insideZone': 'अराइवल ज़ोन के अंदर',
+  'navigate.card.outsideZone': 'अराइवल ज़ोन के बाहर',
+  'navigate.card.heldDeparture': 'पिछले स्टॉप से रवानगी का इंतज़ार',
+  'navigate.card.heldCooldown': 'स्टॉप-दूरी कूलडाउन के कारण रुका है',
+  'navigate.card.heldDistance': 'रुका है: पिछले स्टॉप रिकॉर्ड के बहुत करीब',
+  'navigate.card.evidence': 'अराइवल तय हो रहा है {count}/{required}',
   'navigate.card.noStops': 'इस रूट पर अभी कोई स्टॉप नहीं है।',
   'navigate.card.noGeofence':
     'इस रूट के स्टॉप पर लोकेशन दर्ज नहीं है — स्कूल से कोऑर्डिनेट जोड़ने को कहें।',
