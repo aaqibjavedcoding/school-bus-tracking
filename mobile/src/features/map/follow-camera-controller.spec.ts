@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  MAP_ZOOM_BUTTON_DURATION_MS,
+  SELF_MOVE_GRACE_MS,
   createFollowCameraController,
   type CameraPoint,
   type FollowCameraPort,
 } from './follow-camera-controller.ts';
 import { FOLLOW_CAMERA_THROTTLE_MS } from './follow-camera.ts';
+import { MAP_ZOOM_MAX, MAP_ZOOM_MIN, type ZoomLimits } from './map-controls.ts';
 
 /**
  * The follow-camera *binding*, against a fake camera and a fake clock.
@@ -24,7 +27,7 @@ import { FOLLOW_CAMERA_THROTTLE_MS } from './follow-camera.ts';
  */
 
 interface CameraCall {
-  kind: 'animate' | 'fit';
+  kind: 'animate' | 'fit' | 'zoom';
   center?: CameraPoint;
   zoom?: number;
   duration?: number;
@@ -47,16 +50,22 @@ function harness(now = 1_000_000) {
     fitToCoordinates(points) {
       calls.push({ kind: 'fit', points });
     },
+    setZoom(zoom, options) {
+      calls.push({ kind: 'zoom', zoom, duration: options.duration });
+    },
   };
   const modes: string[] = [];
+  const zoomLimitChanges: ZoomLimits[] = [];
   const controller = createFollowCameraController({
     port,
     now: () => clock,
     onModeChange: (mode) => modes.push(mode),
+    onZoomLimitsChange: (limits) => zoomLimitChanges.push(limits),
   });
   return {
     calls,
     modes,
+    zoomLimitChanges,
     controller,
     advance(ms: number) {
       clock += ms;
@@ -303,5 +312,182 @@ describe('follow camera controller — trip lifecycle', () => {
     ]);
     controller.dataAvailable();
     assert.equal(calls.at(-1)?.kind, 'fit');
+  });
+});
+
+describe('follow camera controller — the on-map zoom buttons', () => {
+  /** Puts the controller in a known zoom without any user gesture. */
+  function atZoom(harnessed: ReturnType<typeof harness>, zoom: number): void {
+    harnessed.controller.regionChangeComplete(
+      { latitude: 12.9, longitude: 77.5, latitudeDelta: 360 / 2 ** zoom, zoom },
+      {},
+    );
+  }
+
+  it('steps one zoom level per press, centre untouched', () => {
+    const h = harness();
+    h.controller.mapReady();
+    h.controller.setRoute(ROUTE);
+    h.controller.dataAvailable();
+    atZoom(h, 14);
+    h.calls.length = 0;
+
+    assert.equal(h.controller.zoomBy('in'), true);
+    assert.deepEqual(h.calls, [
+      { kind: 'zoom', zoom: 15, duration: MAP_ZOOM_BUTTON_DURATION_MS },
+    ]);
+    // The button's own optimistic update means a second press steps again
+    // without waiting for the engine's region report.
+    assert.equal(h.controller.currentZoom(), 15);
+    assert.equal(h.controller.zoomBy('out'), true);
+    assert.equal(h.calls.at(-1)?.zoom, 14);
+  });
+
+  it('reports a press at the bound as a no-op instead of issuing a dead command', () => {
+    const h = harness();
+    h.controller.mapReady();
+    atZoom(h, MAP_ZOOM_MAX);
+    h.calls.length = 0;
+
+    assert.equal(h.controller.zoomBy('in'), false);
+    assert.deepEqual(h.calls, [], 'no camera command for a press that cannot move');
+
+    atZoom(h, MAP_ZOOM_MIN);
+    assert.equal(h.controller.zoomBy('out'), false);
+  });
+
+  it('publishes a zoom-button limit only when it actually flips', () => {
+    const h = harness();
+    h.controller.mapReady();
+    atZoom(h, 14);
+    atZoom(h, 15);
+    assert.deepEqual(h.zoomLimitChanges, [], 'mid-range zooms change nothing');
+
+    atZoom(h, MAP_ZOOM_MAX);
+    assert.deepEqual(h.zoomLimitChanges, [{ canZoomIn: false, canZoomOut: true }]);
+
+    atZoom(h, MAP_ZOOM_MAX);
+    assert.equal(h.zoomLimitChanges.length, 1, 'the same limit is not republished');
+
+    atZoom(h, 15);
+    assert.deepEqual(h.zoomLimitChanges.at(-1), { canZoomIn: true, canZoomOut: true });
+  });
+
+  it('never leaves follow mode — not through attribution, not through the zoom fallback', () => {
+    const h = harness();
+    h.controller.mapReady();
+    h.controller.setRoute(ROUTE);
+    h.controller.setFix(AT_ROUTE);
+    h.controller.dataAvailable();
+    atZoom(h, 14);
+    h.modes.length = 0;
+
+    h.controller.zoomBy('in');
+    // Android reports our own `zoomTo` as `userInteraction: true`
+    // (CameraChangeTracker: DEVELOPER_ANIMATION counts as user interaction),
+    // and the zoom really did change — both signals fire on the same report.
+    h.controller.regionChanged(
+      { latitude: 12.9, longitude: 77.5, latitudeDelta: 360 / 2 ** 15, zoom: 15 },
+      { isGesture: true },
+    );
+    h.controller.regionChangeComplete(
+      { latitude: 12.9, longitude: 77.5, latitudeDelta: 360 / 2 ** 15, zoom: 15 },
+      { isGesture: true },
+    );
+    assert.deepEqual(h.modes, [], 'a zoom button press must not end following');
+    assert.equal(h.controller.isFollowing(), true);
+  });
+});
+
+describe('follow camera controller — self-move attribution (the Android bug)', () => {
+  /**
+   * `@maplibre/maplibre-react-native@11.4.0` on Android reports
+   * `userInteraction: true` for camera moves the *app* issued
+   * (`CameraChangeTracker.isUserInteraction` accepts `DEVELOPER_ANIMATION`,
+   * which is the reason MapLibre's `Transform` uses for `easeCamera`). Before
+   * the self-move window, the first follow pan therefore switched follow mode
+   * off by itself — the "Follow bus is broken" field report. iOS is correct
+   * (`reason & ~MLNCameraChangeReasonProgrammatic`), so the guard has to be
+   * provider-independent rather than platform-conditional.
+   */
+  function following() {
+    const h = harness();
+    h.controller.mapReady();
+    h.controller.setRoute(ROUTE);
+    h.controller.setFix(AT_ROUTE);
+    h.controller.dataAvailable();
+    // A settled region report, so the tolerance has a real view span to use.
+    h.controller.regionChangeComplete(
+      { latitude: AT_ROUTE.latitude, longitude: AT_ROUTE.longitude, latitudeDelta: 0.011, zoom: 15 },
+      {},
+    );
+    h.calls.length = 0;
+    h.modes.length = 0;
+    return h;
+  }
+
+  it('keeps following when our own pan is reported back as a user gesture', () => {
+    const h = following();
+    h.controller.frame(MOVED);
+    assert.equal(h.calls.length, 1, 'the frame panned the camera');
+
+    // The camera arrives where we asked — Android flags it as interaction.
+    h.controller.regionChanged(
+      { latitude: MOVED.latitude, longitude: MOVED.longitude, latitudeDelta: 0.011, zoom: 15 },
+      { isGesture: true },
+    );
+    h.controller.regionChangeComplete(
+      { latitude: MOVED.latitude, longitude: MOVED.longitude, latitudeDelta: 0.011, zoom: 15 },
+      { isGesture: true },
+    );
+
+    assert.deepEqual(h.modes, [], 'our own pan must not end follow mode');
+    assert.equal(h.controller.isFollowing(), true);
+  });
+
+  it('still stops following when the driver drags mid-pan', () => {
+    const h = following();
+    h.controller.frame(MOVED);
+
+    // Somewhere the camera was never asked to go: a real drag.
+    h.controller.regionChanged(
+      { latitude: 12.95, longitude: 77.62, latitudeDelta: 0.011, zoom: 15 },
+      { isGesture: true },
+    );
+
+    assert.deepEqual(h.modes, ['exploring']);
+  });
+
+  it('stops trusting the window once the animation is over', () => {
+    const h = following();
+    h.controller.frame(MOVED);
+    h.advance(FOLLOW_CAMERA_THROTTLE_MS + 50 + SELF_MOVE_GRACE_MS + 1);
+
+    // Same centre, but long after our animation could still be running: the
+    // window has expired, so attribution is authoritative again.
+    h.controller.regionChanged(
+      { latitude: MOVED.latitude, longitude: MOVED.longitude, latitudeDelta: 0.011, zoom: 15 },
+      { isGesture: true },
+    );
+    assert.deepEqual(h.modes, ['exploring']);
+  });
+
+  it('trusts attribution when the report carries no centre to check', () => {
+    const h = following();
+    h.controller.frame(MOVED);
+    h.controller.regionChanged({ latitudeDelta: 0.011 }, { isGesture: true });
+    assert.deepEqual(h.modes, ['exploring'], 'an unverifiable report is the user’s');
+  });
+
+  it('catches a pinch during our own pan through the zoom-delta fallback', () => {
+    const h = following();
+    h.controller.frame(MOVED);
+    // The centre barely moves in a pinch, so the centre check says "ours";
+    // the zoom the user changed is what gives them away.
+    h.controller.regionChangeComplete(
+      { latitude: MOVED.latitude, longitude: MOVED.longitude, latitudeDelta: 0.03, zoom: 13.5 },
+      { isGesture: true },
+    );
+    assert.deepEqual(h.modes, ['exploring']);
   });
 });

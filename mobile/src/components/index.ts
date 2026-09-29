@@ -38,6 +38,8 @@ export {
 } from './StatusBadges';
 export { ConfirmDialog, Fab, FormSheet, Select, SwitchRow } from './forms';
 export type { SelectOption } from './forms';
+export { GestureIsland, ScrollLockProvider, useScrollLockOwner } from './gesture-island';
+export type { ScrollLockContextValue } from './gesture-island';
 export { ToastProvider, useToast } from './Toast';
 export { ListCard, Pagination } from './list';
 export { ListScreen } from './list-screen';

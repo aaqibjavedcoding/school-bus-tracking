@@ -50,6 +50,14 @@ import {
   type TrackingContextDecision,
 } from './tracking-context.ts';
 import {
+  CREW_TRACKING_STATS_KEY,
+  createPersistedTrackingStats,
+  decidePersistedStatsRestore,
+  serializePersistedTrackingStats,
+  shouldPersistTrackingStats,
+  type TrackingStatsSnapshot,
+} from './tracking-stats-persistence.ts';
+import {
   acknowledgePendingFix,
   initialPendingFixState,
   offerPendingFix,
@@ -343,6 +351,16 @@ let lastRevokedReason: string | null = null;
 let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let recoveryInFlight: Promise<void> | null = null;
 let hydrateAttempted = false;
+/**
+ * What the persisted stats record currently holds, and when it was written.
+ *
+ * Kept in memory so the throttle in `shouldPersistTrackingStats` can be a pure
+ * decision: the storage layer is never read to decide whether to write to it.
+ */
+let statsWritten: TrackingStatsSnapshot | null = null;
+let statsWrittenAt: number | null = null;
+/** One write at a time: fixes arrive faster than AsyncStorage resolves. */
+let statsWriteInFlight = false;
 const policy = createRecoveryPolicy();
 const listeners = new Set<() => void>();
 
@@ -391,6 +409,9 @@ function patchStats(next: Partial<CrewLocationStats>): void {
     return;
   }
   state = { ...state, stats: { ...state.stats, ...next } };
+  // Fire-and-forget: the panel must survive a restart (P2-7), but a slow or
+  // broken disk must never delay or fail a fix.
+  void persistStatsIfDue();
   publish();
 }
 
@@ -541,14 +562,122 @@ async function persistContext(): Promise<void> {
 }
 
 async function clearPersistedContext(): Promise<void> {
+  // The stats record is scoped to the context's trip, so it dies with it:
+  // leaving it behind is exactly how a finished run's coordinate could come
+  // back as the next run's live marker.
+  statsWritten = null;
+  statsWrittenAt = null;
   try {
     await AsyncStorage.removeItem(CREW_TRACKING_CONTEXT_KEY);
     // The pre-patch key held a bare trip id with no owner; drop it so an old
     // install can never resume another account's trip.
     await AsyncStorage.removeItem(LEGACY_CREW_ACTIVE_TRIP_KEY);
+    await AsyncStorage.removeItem(CREW_TRACKING_STATS_KEY);
   } catch {
     // Best effort: the restore decision refuses a context it cannot verify.
   }
+}
+
+/** The two values worth remembering across a restart, as stored. */
+function statsSnapshot(): TrackingStatsSnapshot {
+  return {
+    tripId: state.tripId,
+    lastFixRecordedAt: state.stats.lastFix?.recorded_at ?? null,
+    lastAckAt: state.stats.lastAckAt,
+  };
+}
+
+/**
+ * Writes `lastFix` / `lastAckAt` to storage when they are new enough to be
+ * worth a disk write (see `shouldPersistTrackingStats`).
+ *
+ * Why this exists: without it the driver map claimed *"No fix from this device
+ * yet"* after every app restart, while the server already held fixes from this
+ * phone. The stored record keeps the **original** timestamps, so on hydrate
+ * `deriveCrewTrackingStatus` ages them exactly as it would have in a process
+ * that never died — a restored fix can read "last known, 4 min ago", never
+ * "live".
+ */
+async function persistStatsIfDue(): Promise<void> {
+  if (statsWriteInFlight) {
+    return;
+  }
+  const next = statsSnapshot();
+  const now = Date.now();
+  if (
+    !state.userId ||
+    !shouldPersistTrackingStats({ written: statsWritten, next, writtenAt: statsWrittenAt, now })
+  ) {
+    return;
+  }
+  const { userId, schoolId, tripId } = state;
+  if (!tripId) {
+    return;
+  }
+  statsWriteInFlight = true;
+  try {
+    await AsyncStorage.setItem(
+      CREW_TRACKING_STATS_KEY,
+      serializePersistedTrackingStats(
+        createPersistedTrackingStats({
+          userId,
+          schoolId,
+          tripId,
+          lastFix: state.stats.lastFix,
+          lastAckAt: state.stats.lastAckAt,
+          now,
+        }),
+      ),
+    );
+    statsWritten = next;
+    statsWrittenAt = now;
+  } catch {
+    // Storage unavailable: the panel simply starts empty next launch, which is
+    // the behaviour that shipped before this record existed.
+  } finally {
+    statsWriteInFlight = false;
+  }
+}
+
+/**
+ * Restores the persisted fix for `tripId` — and only for it.
+ *
+ * Refused for another user, another school, another trip or an old record;
+ * see `decidePersistedStatsRestore` for why each refusal matters. Live values
+ * already in memory always win: a running watcher knows more than the disk.
+ */
+async function restorePersistedStats(identity: {
+  userId: string;
+  schoolId: string | null;
+  tripId: string;
+}): Promise<void> {
+  if (state.stats.lastFix || state.stats.lastAckAt) {
+    return;
+  }
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(CREW_TRACKING_STATS_KEY);
+  } catch {
+    return;
+  }
+  const restore = decidePersistedStatsRestore({
+    raw,
+    session: { id: identity.userId, school_id: identity.schoolId },
+    tripId: identity.tripId,
+    now: Date.now(),
+  });
+  if (restore.decision !== 'restore' || !restore.stats) {
+    return;
+  }
+  // Baseline the throttle on what disk already holds, so hydration does not
+  // immediately rewrite the record it just read.
+  statsWritten = {
+    tripId: identity.tripId,
+    lastFixRecordedAt: restore.stats.lastFix?.recorded_at ?? null,
+    lastAckAt: restore.stats.lastAckAt,
+  };
+  statsWrittenAt = Date.now();
+  patchStats({ lastFix: restore.stats.lastFix, lastAckAt: restore.stats.lastAckAt });
 }
 
 // ── Socket wiring ──────────────────────────────────────────────────────────
@@ -1650,6 +1779,12 @@ export async function hydrateCrewTracking(identity: {
         schoolId: decision.context.schoolId,
         stats: { ...state.stats, activeTripId: decision.context.tripId },
       });
+      // Only now — the fix is restorable for the resumed trip and no other.
+      await restorePersistedStats({
+        userId: decision.context.userId,
+        schoolId: decision.context.schoolId,
+        tripId: decision.context.tripId,
+      });
       attachSocketListeners();
       if (backgroundActive) {
         void runRecovery('hydrate');
@@ -1660,6 +1795,14 @@ export async function hydrateCrewTracking(identity: {
   } else if (state.userId && state.userId !== identity.userId) {
     // The signed-in account changed under a live lifecycle: stop, never carry on.
     await stopCrewTracking('account-changed');
+  } else if (state.tripId) {
+    // A trip was already in memory (a headless run restored it): the record
+    // may still hold the newest fix this device produced for *that* trip.
+    await restorePersistedStats({
+      userId: identity.userId,
+      schoolId: identity.schoolId,
+      tripId: state.tripId,
+    });
   }
 }
 
@@ -1674,6 +1817,9 @@ export async function __resetCrewTrackingForTests(): Promise<void> {
   lastPublishedFix = null;
   epoch += 1;
   hydrateAttempted = false;
+  statsWritten = null;
+  statsWrittenAt = null;
+  statsWriteInFlight = false;
   socketListenersAttached = false;
   lastRevokedReason = null;
   state = { ...initialState, stats: { ...initialStats } };

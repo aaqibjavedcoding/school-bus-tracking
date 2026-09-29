@@ -504,7 +504,7 @@ two spellings on one screen.
   `BusMarker` now takes the motion machine's own `BusMotionFix` rather than the
   observer's `LiveFix`: the observer fix carries a server `received_at`, and a
   device-local fix has no such field and must not pretend to have one.
-- **No new plumbing** — no GPS watcher, no socket subscription, no storage. The
+- **No new plumbing** — no GPS watcher and no socket subscription. The
   position is `useCrewLocationSharing().stats.lastFix`, published by the existing
   crew lifecycle, which now also keeps the `heading`/`speed` of the payload it
   just built so the marker can point along the direction of travel without a
@@ -518,6 +518,27 @@ two spellings on one screen.
 
 Interpolated coordinates are presentation only here too: the tween is never
 written into history, ETA, attendance or notifications.
+
+The one thing the card does persist is the **last fix itself** — see
+[The last fix survives a restart](./mobile-tracking-reliability.md#the-last-fix-survives-a-restart-and-stays-honest-about-its-age).
+It is stored by the lifecycle, not by the map, scoped to the same trip and
+account as the resumable context, and restored with its original timestamp so
+it can only ever be drawn as a *last known* position.
+
+### On-map controls (field-defect batch)
+
+A real run produced four presentation defects on this card: the fullscreen
+modal opened 0 dp tall, there was no way to zoom with one hand, an Android
+pinch scrolled the screen instead of the map, and the primary **Follow bus**
+button turned following *off*. They are fixed in `map-controls.ts` (zoom step
+and bounds, the three follow-control states), `GestureIsland` +
+`scroll-lock.ts` (Android gesture ownership inside the `Screen` ScrollView)
+and `DriverTripMap`'s `wrapFull` style. The camera policy in
+`follow-camera.ts` was **not** changed — it was deciding correctly; the screen
+was describing it badly.
+
+Full rationale, the reused GPS-strip CTA for the no-fix state, and what still
+needs a physical phone: [`crew-map-field-fixes-handoff.md`](./crew-map-field-fixes-handoff.md).
 
 ### Navigation is a hand-off, not a routing engine (PR 3)
 

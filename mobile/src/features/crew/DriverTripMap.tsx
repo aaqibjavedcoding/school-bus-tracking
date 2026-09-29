@@ -49,13 +49,22 @@ import { useMapStyle } from '../map/use-map-style';
 import { mapSurfaceMode } from '../map/map-surface-mode';
 import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
 import type { RenderedMarker } from '../map/useBusMarkerMotion';
+import { driverFollowControls } from '../map/map-controls.ts';
 import { useFollowCamera } from '../map/useFollowCamera';
+import { GestureIsland } from '../../components/gesture-island';
 import {
   buildPlannedLegsLine,
   buildTrailLine,
   historyFixesForTrip,
 } from './trip-map-geometry.ts';
-import { driverMapCopy, driverStopMarkerKind, type DriverMapPresentation } from './crew-map-presentation.ts';
+import {
+  driverMapCopy,
+  driverMapNoFixLabel,
+  driverStopMarkerKind,
+  type DriverMapNoFixAction,
+  type DriverMapNoFixCta,
+  type DriverMapPresentation,
+} from './crew-map-presentation.ts';
 
 /**
  * MapLibre renders its children (Camera, sources, layers, annotations) by
@@ -126,7 +135,22 @@ export interface DriverTripMapProps {
   presentation: DriverMapPresentation;
   /** Changing trip drops the previous bus's rendered position. */
   tripId?: string | null;
+  /**
+   * Height of the embedded card. The default is the field floor: below ~240 dp
+   * a pinch has no room to resolve and the map reads as a thumbnail rather
+   * than something to operate.
+   */
   height?: number;
+  /**
+   * The repair the panel offers while no position exists, decided by
+   * `driverMapNoFixCta` from the **GPS strip's own** action — the map never
+   * invents a second recovery mechanism. `null` shows no button.
+   */
+  noFixCta?: DriverMapNoFixCta | null;
+  /** Runs the CTA. The screen owns the actions (`useCrewLocationSharing`). */
+  onNoFixAction?: (action: DriverMapNoFixAction) => void;
+  /** The sharing lifecycle is busy: the CTA must not be tapped twice. */
+  busy?: boolean;
   /**
    * The next stop's id, from `deriveTripProgressForTrip(...).nextStop?.id` —
    * the same derivation the navigation card and the kids card read. `null`
@@ -145,6 +169,17 @@ export interface DriverTripMapProps {
  * Padding that keeps markers off the edge when the route is fitted.
  */
 const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
+
+/**
+ * The floor for the embedded card, in dp.
+ *
+ * The screen used to pass 200, which is about six rows of map either side of
+ * the marker: a pinch has nowhere to resolve, the follow controls and the
+ * honesty panel take a third of it, and everything reads as a thumbnail. 240
+ * is the smallest height at which the card is still a *map* — and the driver
+ * has Full screen for anything more.
+ */
+export const EMBEDDED_MAP_MIN_HEIGHT = 240;
 
 /**
  * How many recorded fixes the trail reads per load (the endpoint caps at 500;
@@ -236,6 +271,23 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
       // top-left.
       attribution
       logo
+      // Gesture ownership, half one (half two is `<GestureIsland>` around the
+      // card). These four are documented as defaulting to `true`, but on
+      // Android the native view keeps `scrollEnabled` as a *tri-state* field
+      // that stays `null` until the prop is actually sent — and it only calls
+      // `requestDisallowInterceptTouchEvent(true)` (the call that stops the
+      // screen's ScrollView stealing the drag) while that field is `true`.
+      // Sending them explicitly is what turns the engine's own ownership path
+      // on; `features/map/maplibre-runtime.spec.ts` pins that behaviour
+      // against the installed version.
+      dragPan
+      touchZoom
+      doubleTapZoom
+      // Rotate and pitch are off by choice, not by accident: a driver glancing
+      // at a rotated or tilted map has to re-orient before reading it, and a
+      // stray two-finger twist during a pinch is how that happens.
+      touchRotate={false}
+      touchPitch={false}
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
       onDidFinishLoadingMap={onMapReady}
@@ -333,11 +385,14 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   localFix,
   presentation,
   tripId = null,
-  height = 220,
+  height = EMBEDDED_MAP_MIN_HEIGHT,
   nextStopId = null,
   nextStopName = null,
   nextStopDistanceMeters = null,
   nextStopEtaMinutes = null,
+  noFixCta = null,
+  onNoFixAction,
+  busy = false,
 }) => {
   const reducedMotion = useReducedMotion();
   const locale = useLocale();
@@ -412,6 +467,9 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   const {
     cameraRef,
     exploring,
+    zoomLimits,
+    zoomIn,
+    zoomOut,
     onFrame,
     onRegionChange,
     onRegionChangeComplete,
@@ -433,10 +491,29 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     },
     [onFrame],
   );
+  /**
+   * The primary control, in one function: follow is switched back on if it was
+   * off, and the camera re-centres on the marker either way. It is safe to
+   * press while already following — that is the point, because a bus that has
+   * drifted under the minimum-shift threshold leaves the camera slightly off
+   * and the driver's instinct is to tap the button, not to wait.
+   */
   const turnFollowOn = useCallback(() => {
     if (!followEnabledRef.current) toggleFollow();
     recenter();
   }, [toggleFollow, recenter]);
+
+  /**
+   * What the control block shows, decided by the pure policy
+   * (`map-controls.ts`) rather than inline in the JSX — three states across
+   * two buttons is exactly the kind of thing that drifts when it lives in a
+   * render function.
+   */
+  const controls = driverFollowControls({
+    hasFix: localFix !== null,
+    followEnabled,
+    exploring,
+  });
 
   // Only changes when the fix changes: a per-tick callout would re-render the
   // native surface every 5 s for a string nobody can see until they tap it.
@@ -533,42 +610,127 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
             it, only when that is true. */}
         <Text style={styles.panelNote}>{copy.position}</Text>
         {copy.delivery ? <Text style={styles.panelNote}>{copy.delivery}</Text> : null}
+        {/* With nothing to draw, the panel offers the repair the GPS strip
+            already decided on instead of leaving the driver at a dead end
+            (P2-7). It never starts a mechanism of its own — every action here
+            is one of the strip's, run by the screen. */}
+        {noFixCta ? (
+          <Pressable
+            onPress={() => onNoFixAction?.(noFixCta.action)}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={driverMapNoFixLabel(noFixCta)}
+            accessibilityState={{ disabled: busy }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.panelCta,
+              pressed ? styles.panelCtaPressed : null,
+              busy ? styles.controlDisabled : null,
+            ]}
+          >
+            <Text style={styles.panelCtaText}>{driverMapNoFixLabel(noFixCta)}</Text>
+          </Pressable>
+        ) : null}
         {/* Map style/label failures are visible here — never blank-silent. */}
         <MapIssueLines />
       </View>
 
       <View style={[styles.controls, fullHeight ? styles.controlsFull : null]}>
+        {/* One primary, one meaning: re-centre on the bus and follow it.
+            Never a toggle — the old block turned follow OFF from here while
+            following, which is what made it read as broken (P1-6). */}
         <Pressable
-          onPress={followEnabled ? toggleFollow : turnFollowOn}
+          onPress={turnFollowOn}
+          disabled={controls.primary.disabled}
           accessibilityRole="button"
-          accessibilityLabel={followEnabled ? t('map.followOn') : t('map.followOff')}
+          accessibilityLabel={t(controls.primary.labelKey)}
+          accessibilityHint={controls.waitingForFix ? t('map.noFixA11y') : undefined}
+          accessibilityState={{
+            disabled: controls.primary.disabled,
+            selected: controls.primary.active,
+          }}
           hitSlop={6}
-          style={({ pressed }) => [styles.followButton, pressed ? styles.followPressed : null]}
+          style={({ pressed }) => [
+            styles.followButton,
+            controls.primary.active ? styles.followButtonActive : null,
+            pressed ? styles.followPressed : null,
+            controls.primary.disabled ? styles.controlDisabled : null,
+          ]}
         >
-          <Text style={styles.followButtonText}>
-            {followEnabled ? t('map.followOn') : t('map.followOff')}
+          <Text
+            style={[
+              styles.followButtonText,
+              controls.primary.active ? styles.followButtonTextActive : null,
+            ]}
+          >
+            {t(controls.primary.labelKey)}
           </Text>
         </Pressable>
-        {followEnabled && exploring ? (
+
+        {/* The follow switch itself: visually distinct (small, muted), and the
+            only control that can turn following off. With follow off it is a
+            state pill, not a second way back on — that is the primary. */}
+        {controls.secondary.visible ? (
           <Pressable
-            onPress={recenter}
-            accessibilityRole="button"
-            accessibilityLabel={t('map.followBus')}
+            onPress={toggleFollow}
+            disabled={controls.secondary.disabled}
+            accessibilityRole="switch"
+            accessibilityLabel={t(controls.secondary.labelKey)}
+            accessibilityState={{
+              checked: !controls.secondary.disabled,
+              disabled: controls.secondary.disabled,
+            }}
             hitSlop={6}
-            style={({ pressed }) => [styles.followButton, pressed ? styles.followPressed : null]}
+            style={({ pressed }) => [
+              styles.followSwitch,
+              pressed ? styles.followPressed : null,
+              controls.secondary.disabled ? styles.controlDisabled : null,
+            ]}
           >
-            <Text style={styles.followButtonText}>{t('map.followBus')}</Text>
+            <Text style={styles.followSwitchText}>{t(controls.secondary.labelKey)}</Text>
           </Pressable>
         ) : null}
+
+        {/* Zoom, for one hand. A press is a programmatic camera move, so it
+            does NOT leave follow mode (`follow-camera-controller.ts`). */}
+        <View style={styles.zoomGroup}>
+          <Pressable
+            onPress={zoomIn}
+            disabled={!zoomLimits.canZoomIn}
+            accessibilityRole="button"
+            accessibilityLabel={t('map.zoomIn')}
+            accessibilityState={{ disabled: !zoomLimits.canZoomIn }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.zoomButton,
+              styles.zoomButtonTop,
+              pressed ? styles.followPressed : null,
+              zoomLimits.canZoomIn ? null : styles.controlDisabled,
+            ]}
+          >
+            <Text style={styles.zoomButtonText}>+</Text>
+          </Pressable>
+          <Pressable
+            onPress={zoomOut}
+            disabled={!zoomLimits.canZoomOut}
+            accessibilityRole="button"
+            accessibilityLabel={t('map.zoomOut')}
+            accessibilityState={{ disabled: !zoomLimits.canZoomOut }}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.zoomButton,
+              pressed ? styles.followPressed : null,
+              zoomLimits.canZoomOut ? null : styles.controlDisabled,
+            ]}
+          >
+            <Text style={styles.zoomButtonText}>−</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* The follow state is invisible to a screen reader unless spoken. */}
       <Text accessibilityLiveRegion="polite" style={styles.screenReaderOnly}>
-        {!followEnabled
-          ? t('map.followOff')
-          : exploring
-            ? t('map.exploringA11y')
-            : t('map.followingA11y')}
+        {t(controls.stateKey)}
       </Text>
     </>
   );
@@ -581,8 +743,30 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     );
   }
 
+  /**
+   * The map box.
+   *
+   * Two things that look like details and are not:
+   *
+   * 1. **`wrapFull` carries `flex: 1`.** Every child here is absolutely
+   *    positioned — the MapView is `StyleSheet.absoluteFill`, the panel and
+   *    the controls are `position: 'absolute'` — so the wrapper has no
+   *    intrinsic height at all. In the embedded card an explicit `height`
+   *    supplies it; inside the fullscreen `Modal` there was none, so the
+   *    wrapper measured **0** and the Full Map screen showed a header, two
+   *    captions and white (P1-3). `flex: 1` is what gives it the modal's
+   *    remaining space.
+   * 2. **`<GestureIsland>` owns the touches.** It disables the surrounding
+   *    `<Screen>` ScrollView while a finger is inside the map, so a pan or a
+   *    pinch that starts on the map is not stolen by the page (P1-5). It is
+   *    inert in fullscreen (no scroll view above it) and inert on the
+   *    dev-build placeholder, which has no gestures to own.
+   */
   const mapBody = (fullHeight: boolean) => (
-    <View style={[styles.wrap, { height: fullHeight ? undefined : height }]}>
+    <GestureIsland
+      enabled={surfaceMode === 'map'}
+      style={[styles.wrap, fullHeight ? styles.wrapFull : { height }]}
+    >
       {surfaceMode === 'needs-dev-build' ? (
         // The driver's GPS still works in Expo Go — only the map engine is
         // missing, so the panel names that instead of showing a blank box.
@@ -591,11 +775,11 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
         mapSurfaceEl
       )}
       {overlays(fullHeight)}
-    </View>
+    </GestureIsland>
   );
 
   return (
-    <View>
+    <View style={styles.card}>
       {/* Driving line: the card answers "what's next" before the map box, so
           the fact survives even when the tiles do not. */}
       <View style={styles.cardHeader}>
@@ -662,6 +846,15 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
 };
 
 const styles = StyleSheet.create({
+  /**
+   * The card owns the gap to whatever follows it. `Screen` only pads its
+   * edges — it puts no space between its children — so every card on the trip
+   * screen carries its own bottom margin, and one that forgets ends up flush
+   * against the next control (the same class of bug as the SOS button, P1-4).
+   */
+  card: {
+    marginBottom: spacing.md,
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -713,6 +906,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.neutral[200],
   },
+  /**
+   * Fullscreen has no explicit height to give, and every child of the wrapper
+   * is absolutely positioned, so without this the modal's map measured 0 dp
+   * high and the Full Map screen rendered as a header on white (P1-3).
+   */
+  wrapFull: {
+    flex: 1,
+    borderRadius: 0,
+    borderWidth: 0,
+  },
   map: {
     ...StyleSheet.absoluteFill,
   },
@@ -722,7 +925,9 @@ const styles = StyleSheet.create({
     left: spacing.sm,
     alignItems: 'flex-start',
     gap: 2,
-    maxWidth: '78%',
+    // The controls column owns the right-hand side; the panel keeps clear of
+    // it so a long delivery line can never run underneath the buttons.
+    maxWidth: '58%',
     backgroundColor: 'rgba(255, 255, 255, 0.94)',
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.sm + 2,
@@ -757,11 +962,16 @@ const styles = StyleSheet.create({
     right: spacing.sm,
     alignItems: 'flex-end',
     gap: spacing.xs,
+    maxWidth: '40%',
   },
   controlsFull: {
     // In fullscreen the header row above the map holds the exit button; the
     // follow controls drop below it so they never overlap it.
     top: spacing.xl,
+  },
+  /** Disabled controls stay readable — greyed, never invisible. */
+  controlDisabled: {
+    opacity: 0.55,
   },
   followButton: {
     // 44 dp is the minimum comfortable touch target on both platforms.
@@ -775,6 +985,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.neutral[300],
   },
+  /** Following and on the bus: the primary is filled, not just labelled. */
+  followButtonActive: {
+    backgroundColor: colors.primary[600],
+    borderColor: colors.primary[700],
+  },
   followPressed: {
     backgroundColor: colors.neutral[100],
   },
@@ -782,6 +997,72 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.sm,
     fontWeight: '700',
     color: colors.neutral[800],
+  },
+  followButtonTextActive: {
+    color: '#ffffff',
+  },
+  /**
+   * The follow switch: deliberately smaller and quieter than the primary, so
+   * the two controls can never be mistaken for each other.
+   */
+  followSwitch: {
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+  },
+  followSwitchText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '600',
+    color: colors.neutral[700],
+  },
+  /** +/− stacked as one control, so the pair reads as a zoom widget. */
+  zoomGroup: {
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    backgroundColor: '#ffffff',
+  },
+  zoomButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomButtonTop: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.neutral[200],
+  },
+  zoomButtonText: {
+    fontSize: typography.fontSizes.lg,
+    fontWeight: '700',
+    color: colors.neutral[800],
+    // The glyphs are centred by the box; a line height stops "+" sitting high.
+    lineHeight: 24,
+  },
+  /** The panel's repair tap while there is no fix to draw. */
+  panelCta: {
+    marginTop: 4,
+    minHeight: 36,
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.secondary[700],
+  },
+  panelCtaPressed: {
+    backgroundColor: colors.secondary[800],
+  },
+  panelCtaText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '700',
+    color: '#ffffff',
   },
   screenReaderOnly: {
     position: 'absolute',

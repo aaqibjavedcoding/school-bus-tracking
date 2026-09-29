@@ -23,6 +23,7 @@ import { fontScaleCaps, surface, text as textScale, touch } from '../theme';
 import type { Tone } from '../lib/format';
 import { keyboardBehavior } from '../lib/keyboard-aware';
 import { useKeyboardForm, useKeyboardReveal, KeyboardFormContext } from './keyboard-form';
+import { ScrollLockProvider, useScrollLockOwner } from './gesture-island';
 import { useTranslation } from '../lib/i18n-provider';
 
 /**
@@ -571,25 +572,33 @@ export const Screen: React.FC<{
   const bottomPadding = spacing.xl + insets.bottom + extraBottomSpace;
   const scrollRef = useRef<ScrollView>(null);
   const { contextValue, onScroll } = useKeyboardReveal(scrollRef);
+  // Gesture ownership: a child that owns its own drags (the driver's map card,
+  // wrapped in `<GestureIsland>`) switches this scroll view off while a finger
+  // is on it, so a pan/pinch that starts on the map cannot be stolen by the
+  // page. Nothing else on the screen is affected — see `scroll-lock.ts`.
+  const { locked, context: scrollLock } = useScrollLockOwner();
   return (
     <KeyboardFormContext.Provider value={contextValue}>
-      <KeyboardAvoidingView style={styles.screen} behavior={keyboardBehavior(Platform.OS)}>
-        <ScrollView
-          ref={scrollRef}
-          style={styles.screen}
-          contentContainerStyle={[
-            padded ? { padding: spacing.md } : null,
-            { paddingBottom: bottomPadding },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          refreshControl={screenRefreshControl(refresh, refreshing)}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-        >
-          {children}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      <ScrollLockProvider value={scrollLock}>
+        <KeyboardAvoidingView style={styles.screen} behavior={keyboardBehavior(Platform.OS)}>
+          <ScrollView
+            ref={scrollRef}
+            scrollEnabled={!locked}
+            style={styles.screen}
+            contentContainerStyle={[
+              padded ? { padding: spacing.md } : null,
+              { paddingBottom: bottomPadding },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            refreshControl={screenRefreshControl(refresh, refreshing)}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+          >
+            {children}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </ScrollLockProvider>
     </KeyboardFormContext.Provider>
   );
 };

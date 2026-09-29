@@ -174,6 +174,8 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   // next-stop pin — same floating-pill row.
   'map.followOn': 'badge',
   'map.followOff': 'badge',
+  // The disabled primary while no fix exists — same pill, same row.
+  'map.followWaitingFix': 'badge',
   'map.expand': 'badge',
   'map.nextBadge': 'badge',
   'map.status.live': 'badge',

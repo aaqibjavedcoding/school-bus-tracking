@@ -197,6 +197,35 @@ copy for exactly two cases where the plain status is not enough:
 
 Every other state renders the unchanged status copy.
 
+### The last fix survives a restart (and stays honest about its age)
+
+`lastFix` / `lastAckAt` used to live in memory only, so an app restart reset
+them and the driver map announced _"No fix from this device yet"_ while the
+server was holding fixes this phone had sent minutes earlier. The sentence was
+false and nothing on the screen could clear it.
+
+`tracking-stats-persistence.ts` stores those two values under
+`@sbt/crew-tracking-stats`, and `hydrateCrewTracking` restores them **only**
+for the trip the persisted context resumed, for the same account, inside
+`PERSISTED_FIX_MAX_AGE_MS` (12 h, aligned with the context's own limit).
+Refusals are named rather than silent: `other-user`, `other-school`,
+`other-trip`, `expired`, `corrupt`.
+
+Two properties matter more than the feature:
+
+- **the original timestamps are kept**, so `deriveCrewTrackingStatus` ages a
+  restored fix exactly as it would have in a process that never died — it can
+  read `stale` or "last known, 4 min ago", never `live`, and never as a moving
+  marker;
+- **a stored position is never shown on another trip.** The record dies with
+  the persisted context (stop, logout, account change), and a trip change
+  rewrites it immediately rather than waiting out the 10 s write throttle.
+
+Live values in memory always win over the disk, and hydration still never
+starts a watcher. Scenarios 34–37 of the tracking simulation cover the whole
+loop, including the two ways it could go wrong. See
+[`crew-map-field-fixes-handoff.md`](./crew-map-field-fixes-handoff.md).
+
 ### `killServiceOnDestroy` — the decision and the evidence
 
 Set to **`false`** in `foregroundServiceOptions()`.
@@ -379,9 +408,9 @@ notification id:
 
 ```bash
 cd mobile
-npm test                 # 902 unit tests (pure modules, guards, i18n parity, Firebase + app-config checkers)
-npm run test:sim         # 4 simulations, 56 scenarios (offline, push, feedback, tracking)
-npm run test:tracking-sim  # the tracking simulation alone (32 scenarios)
+npm test                 # 1378 unit tests (pure modules, guards, i18n parity, Firebase + app-config checkers)
+npm run test:sim         # 4 simulations, 69 scenarios (offline, push, feedback, tracking)
+npm run test:tracking-sim  # the tracking simulation alone (37 scenarios)
 npm run typecheck && (cd .. && npx eslint .)
 ```
 

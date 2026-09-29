@@ -294,6 +294,9 @@ const lifecycle = (await import(
 const contextModule = (await import(
   moduleUrl('src/features/crew/tracking-context.ts')
 )) as typeof import('./tracking-context.ts');
+const statsPersistence = (await import(
+  moduleUrl('src/features/crew/tracking-stats-persistence.ts')
+)) as typeof import('./tracking-stats-persistence.ts');
 const statusModule = (await import(
   moduleUrl('src/features/crew/tracking-status.ts')
 )) as typeof import('./tracking-status.ts');
@@ -1159,4 +1162,103 @@ test('33. successive stop visits each deliver their fix — the stream that adva
   const stats = lifecycle.getCrewLocationStats();
   assert.equal(stats.emittedCount, 3, 'three accepted fixes — three arrival candidates');
   assert.equal(stats.disconnectedCount, 0);
+});
+
+test('34. after an app restart the panel no longer claims “no fix from this device”', async () => {
+  // P2-7, end to end. A driver sends fixes, the OS kills the app, the driver
+  // reopens it mid-run. Before this batch the map panel said "No fix from this
+  // device yet" — while the server was holding fixes this very phone had sent
+  // minutes earlier. The sentence was false and nothing on screen could clear
+  // it. The persisted record exists to make the panel tell the truth.
+  persistContext();
+  await lifecycle.runHeadlessCrewLocationTask([fix()]);
+
+  const sentFix = lifecycle.getCrewLocationStats().lastFix;
+  assert.ok(sentFix, 'the delivered fix is the newest local position');
+  assert.ok(
+    storage.get(statsPersistence.CREW_TRACKING_STATS_KEY),
+    'delivering a fix writes the record',
+  );
+
+  // ── the process dies and comes back (storage survives, memory does not) ──
+  await lifecycle.__resetCrewTrackingForTests();
+  assert.equal(lifecycle.getCrewLocationStats().lastFix, null, 'memory starts empty');
+
+  await lifecycle.hydrateCrewTracking(DRIVER);
+
+  const restored = lifecycle.getCrewLocationStats().lastFix;
+  assert.ok(restored, 'the fix comes back with the resumed trip');
+  assert.equal(
+    restored?.recorded_at,
+    sentFix?.recorded_at,
+    'restored with its ORIGINAL timestamp, so the status ages it honestly',
+  );
+  assert.equal(restored?.latitude, sentFix?.latitude);
+  assert.equal(restored?.longitude, sentFix?.longitude);
+
+  const panel = mapModule.deriveDriverMapPresentation({
+    status: lifecycle.getCrewTrackingStatus().status,
+    connection: lifecycle.getCrewTrackingState().connection,
+    localFixAgeMs: 0,
+    accuracyMeters: restored?.accuracy ?? null,
+  });
+  assert.notEqual(panel.state, 'no-fix', 'the panel stops lying');
+  assert.equal(panel.positionKey, 'gps.lastUpdate');
+});
+
+test('35. a restored fix is never drawn as live — it ages from its own timestamp', async () => {
+  persistContext();
+  await lifecycle.runHeadlessCrewLocationTask([fix()]);
+  await lifecycle.__resetCrewTrackingForTests();
+  await lifecycle.hydrateCrewTracking(DRIVER);
+
+  const restored = lifecycle.getCrewLocationStats().lastFix;
+  assert.ok(restored);
+  const ageMs = statusModule.LOCAL_FIX_FRESH_WINDOW_MS + 60_000;
+  const panel = mapModule.deriveDriverMapPresentation({
+    status: 'stale',
+    connection: 'connected',
+    localFixAgeMs: ageMs,
+    accuracyMeters: restored?.accuracy ?? null,
+  });
+  // The whole point of keeping the original timestamp: an hour-old coordinate
+  // reads "last known", never as a moving bus. Hydration also never starts a
+  // watcher, so nothing pretends the position is being refreshed.
+  assert.equal(panel.state, 'last-known');
+  assert.equal(lifecycle.getCrewTrackingState().foregroundActive, false);
+});
+
+test('36. the next run never inherits the previous run’s position', async () => {
+  persistContext();
+  await lifecycle.runHeadlessCrewLocationTask([fix()]);
+  assert.ok(storage.get(statsPersistence.CREW_TRACKING_STATS_KEY));
+
+  // Restart, but the resumable context now names a different trip: the stored
+  // coordinate belongs to a run that is not on screen and must stay off it.
+  await lifecycle.__resetCrewTrackingForTests();
+  persistContext({ tripId: TRIP_2 });
+  await lifecycle.hydrateCrewTracking(DRIVER);
+
+  assert.equal(lifecycle.getCrewTrackingState().tripId, TRIP_2);
+  assert.equal(
+    lifecycle.getCrewLocationStats().lastFix,
+    null,
+    'a position from another trip is refused, not redrawn',
+  );
+
+  // And ending the run erases the record outright.
+  await lifecycle.startCrewTracking({ tripId: TRIP_2, ...DRIVER });
+  await lifecycle.stopCrewTracking('user');
+  assert.equal(storage.get(statsPersistence.CREW_TRACKING_STATS_KEY), undefined);
+});
+
+test('37. another driver on the same phone restores nothing', async () => {
+  persistContext();
+  await lifecycle.runHeadlessCrewLocationTask([fix()]);
+  await lifecycle.__resetCrewTrackingForTests();
+
+  await lifecycle.hydrateCrewTracking({ userId: 'driver-2', schoolId: 'school-1' });
+
+  assert.equal(lifecycle.getCrewTrackingState().tripId, null, 'the context itself is refused');
+  assert.equal(lifecycle.getCrewLocationStats().lastFix, null, 'so is the position');
 });

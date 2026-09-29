@@ -609,6 +609,18 @@ export const en = {
   'map.followOn': 'Follow: on',
   'map.followOff': 'Follow: off',
   'map.noCoordinates': 'This route has no mapped stops yet.',
+  /**
+   * Driver map controls (P1-5 / P1-6). One primary — "Follow bus" — that
+   * always re-centres and re-enables following; the on/off pill next to it is
+   * the explicit switch, and with no fix the primary says why it cannot work
+   * instead of looking tappable. See `features/map/map-controls.ts`.
+   */
+  'map.followWaitingFix': 'Waiting for fix',
+  'map.followOffA11y': 'Follow is off — the map stays where you left it',
+  'map.noFixA11y': 'Waiting for a GPS fix — follow is unavailable',
+  /** The on-map zoom buttons; the faces are "+" and "−", so these are spoken. */
+  'map.zoomIn': 'Zoom in',
+  'map.zoomOut': 'Zoom out',
   // The map provider is missing from this runtime itself (Expo Go on Android
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
   'map.needsDevBuildTitle': 'Map preview needs a development build',
