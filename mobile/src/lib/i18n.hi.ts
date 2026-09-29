@@ -418,6 +418,7 @@ export const hi: Dictionary = {
   'voice.stop.near': 'Stop {number} aa raha hai, {count} bachche',
   'voice.stop.recorded': 'Stop {number} record ho gaya, {count} bachche chadhenge yahan',
   'voice.stop.skipped': 'Stop {number} chhod diya gaya',
+  'voice.stop.passed': 'Stop {number} chhod diya gaya, seva nahin hui',
   // Devanagari — spoken ONLY when the phone has a `hi-IN` voice installed.
   // A student's first name stays whatever script the school typed it in; an
   // `hi-IN` engine reads a Latin name inside a Hindi sentence correctly.
@@ -443,6 +444,7 @@ export const hi: Dictionary = {
   'voice.native.stop.near': 'स्टॉप {number} आ रहा है, {count} बच्चे',
   'voice.native.stop.recorded': 'स्टॉप {number} दर्ज हो गया, यहाँ {count} बच्चे चढ़ेंगे',
   'voice.native.stop.skipped': 'स्टॉप {number} छोड़ दिया गया',
+  'voice.native.stop.passed': 'स्टॉप {number} छोड़ दिया गया, सेवा नहीं हुई',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',
@@ -509,6 +511,10 @@ export const hi: Dictionary = {
   'eta.speed': 'रफ़्तार',
   'eta.nextBadge': 'अगला',
   'eta.currentBadge': 'वर्तमान',
+  // R2 stops-list honesty: what the run actually did at a stop.
+  'eta.skippedBadge': 'छोड़ा गया',
+  'eta.skippedMeta': 'छोड़ा गया — सेवा नहीं हुई',
+  'eta.skippedReasonMeta': 'छोड़ा गया: {reason}',
   'stops.kidsBadge.one': '{count} बच्चा',
   'stops.kidsBadge.other': '{count} बच्चे',
 
@@ -655,6 +661,7 @@ export const hi: Dictionary = {
   'navigate.card.kidsWaiting.one': '{count} बच्चा यहाँ रुका है',
   'navigate.card.kidsWaiting.other': '{count} बच्चे यहाँ रुके हैं',
   'navigate.card.kidsDone': 'इस स्टॉप पर सभी बच्चों की मार्किंग हो गई',
+  'navigate.card.skippedNote': 'स्टॉप {number} ({name}) छोड़ा गया — सेवा नहीं हुई',
   'navigate.card.insideZone': 'अराइवल ज़ोन के अंदर',
   'navigate.card.outsideZone': 'अराइवल ज़ोन के बाहर',
   'navigate.card.heldDeparture': 'पिछले स्टॉप से रवानगी का इंतज़ार',

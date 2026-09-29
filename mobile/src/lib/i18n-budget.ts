@@ -113,6 +113,10 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'manifest.filter.boarded': 'chip',
   'manifest.filter.dropped': 'chip',
 
+  // R2 stops-list honesty: the skip badge on a stop row (same chip shape as
+  // the manifest summary badges above).
+  'eta.skippedBadge': 'badge',
+
   // Manifest summary badges.
   'manifest.summary.total': 'badge',
   'manifest.summary.pending': 'badge',

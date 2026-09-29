@@ -20,6 +20,7 @@ import {
   useCrewLocationSharing,
   useCrewToday,
   useNextStopAnnouncements,
+  useSkippedStopAnnouncements,
 } from '../../src/features/crew';
 // Imported by path, not through the barrel: this component needs the MapLibre
 // native map module, and the crew barrel is also pulled in by headless code
@@ -43,6 +44,7 @@ import {
 } from '../../src/features/crew/trip-progress.ts';
 import { OfflineSyncBanner } from '../../src/features/crew/offline';
 import { useLiveTripTracking } from '../../src/features/tracking/useLiveTripTracking';
+import { skippedStopNoteForCard } from '../../src/features/tracking/stop-service-state';
 import { ConnectionIndicator } from '../../src/features/tracking/ConnectionIndicator';
 import { apiClient } from '../../src/services/api';
 import { unwrapEnvelope } from '../../src/lib/errors';
@@ -386,6 +388,22 @@ export default function CrewTripScreen() {
     distanceMeters: eta?.next_stop?.distance_meters ?? null,
   });
 
+  /**
+   * Deep-fix R2 — no more silent skips, for **both roles**. When the run
+   * passes a stop without serving it, the server broadcasts
+   * `trip:stop:skipped` (exactly once per stop; never for the crew's own
+   * skip mark, which already speaks locally). The crew hears "Stop 2
+   * skipped — not served" through the same dispatcher — Voice switch, 600 ms
+   * floor, latest-wins — and the driver's card shows a written note for the
+   * legs right after the skip (`skip-announcer.ts` /
+   * `stop-service-state.ts` for the policy, both pure).
+   */
+  useSkippedStopAnnouncements({ tripId, event: live.lastSkippedStop });
+  const skippedNote = useMemo(
+    () => skippedStopNoteForCard(live.lastSkippedStop, eta?.next_stop?.sequence_number ?? null),
+    [live.lastSkippedStop, eta?.next_stop?.sequence_number],
+  );
+
   if (loading && !data) {
     return <LoadingView label={t('trip.loading')} />;
   }
@@ -524,6 +542,7 @@ export default function CrewTripScreen() {
           kidsSummary={nextStopKids}
           kidsLoaded={kidsLoaded}
           arrivalDiagnostics={arrivalDiagnostics}
+          skippedNote={skippedNote}
         />
       ) : (
         <NextStopKidCard summary={nextStopKids} loaded={kidsLoaded} />

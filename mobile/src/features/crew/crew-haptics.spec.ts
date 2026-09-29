@@ -39,6 +39,8 @@ const ALL_EVENTS: CrewFeedbackEventType[] = [
   // Crew stop marking — the server-confirmed receipts.
   'stop.recorded',
   'stop.skipped',
+  // Deep-fix R2 — the run passed a stop without serving it (server news).
+  'stop.passed',
 ];
 
 describe('the event → pattern table', () => {

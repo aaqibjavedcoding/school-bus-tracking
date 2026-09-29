@@ -73,6 +73,18 @@ export default function CrewStopsScreen() {
     void manifestLoad.reload();
   }, [lastStudentAttendance, manifestLoad.reload]);
 
+  // R2 honesty: a stop recorded on this run — by the geofence pipeline, a
+  // crew mark, or the frontier passing a stop without serving it
+  // (`trip:stop:arrived` / `trip:stop:skipped`) — changes what the stops
+  // list and the arrivals log below should say. Both arrive over the trip
+  // room, so the rows refetch instead of waiting for a manual refresh.
+  const lastArrival = live.lastArrival;
+  const lastSkippedStop = live.lastSkippedStop;
+  React.useEffect(() => {
+    if (!lastArrival && !lastSkippedStop) return;
+    void arrivalsLoad.reload();
+  }, [lastArrival, lastSkippedStop, arrivalsLoad.reload]);
+
   if (todayLoading && !today) {
     return <LoadingView label={t('stops.loading')} />;
   }
@@ -121,7 +133,11 @@ export default function CrewStopsScreen() {
       {live.error ? <Text style={styles.error}>{live.error}</Text> : null}
 
       <SectionTitle>{t('stops.routeStops')}</SectionTitle>
-      <StopsEtaList eta={live.eta} students={manifestLoad.data ?? undefined} />
+      <StopsEtaList
+        eta={live.eta}
+        students={manifestLoad.data ?? undefined}
+        arrivals={arrivalsLoad.data?.items}
+      />
 
       <SectionTitle>{t('stops.arrivals')}</SectionTitle>
       {arrivals.length === 0 ? (

@@ -66,13 +66,14 @@ function makeHandlers() {
     onTrackingStopped: record('onTrackingStopped'),
     onEtaUpdate: record('onEtaUpdate'),
     onStopArrived: record('onStopArrived'),
+    onStopSkipped: record('onStopSkipped'),
     onStudentAttendance: record('onStudentAttendance'),
   };
   return { calls, handlers };
 }
 
 describe('attachTripRoomEvents', () => {
-  it('registers exactly the six server → room trip events', () => {
+  it('registers exactly the seven server → room trip events', () => {
     const socket = makeSocket();
     const { handlers } = makeHandlers();
 
@@ -84,6 +85,7 @@ describe('attachTripRoomEvents', () => {
       LIVE_TRACKING_EVENTS.trackingStopped,
       LIVE_TRACKING_EVENTS.etaUpdate,
       LIVE_TRACKING_EVENTS.stopArrived,
+      LIVE_TRACKING_EVENTS.stopSkipped,
       LIVE_TRACKING_EVENTS.studentAttendance,
     ];
     for (const event of expected) {

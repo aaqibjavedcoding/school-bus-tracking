@@ -9,6 +9,7 @@ import {
   type TripLocationLatestResponse,
   type TripLocationUpdateEvent,
   type TripStopArrivedEvent,
+  type TripStopSkippedEvent,
   type TripStudentAttendanceEvent,
   type TripTrackingState,
 } from '@school-bus-tracking/shared-types';
@@ -61,6 +62,10 @@ export function useLiveTripTracking(tripId: string | null) {
   // pushed live through the same trip room.
   const [eta, setEta] = useState<TripEtaResponse | null>(null);
   const [lastArrival, setLastArrival] = useState<TripStopArrivedEvent | null>(null);
+  // Deep-fix R2: the latest stop the frontier passed without serving. Kept as
+  // state so the tracking screen (and anything layered on the hook) can show
+  // it; the server sends it exactly once per stop.
+  const [lastSkippedStop, setLastSkippedStop] = useState<TripStopSkippedEvent | null>(null);
   // Cross-device attendance: the latest board/drop broadcast of this trip
   // (made on the other crew device). Screens refresh their manifest when it
   // changes instead of waiting for a pull-to-refresh.
@@ -77,6 +82,7 @@ export function useLiveTripTracking(tripId: string | null) {
       setError(null);
       setEta(null);
       setLastArrival(null);
+      setLastSkippedStop(null);
       setLastStudentAttendance(null);
       setConnection('offline');
       return undefined;
@@ -187,6 +193,11 @@ export function useLiveTripTracking(tripId: string | null) {
         setTripStatus(payload.trip_status);
         setTrackingState(payload.tracking_state);
       },
+      onStopSkipped: (payload) => {
+        setLastSkippedStop(payload);
+        setTripStatus(payload.trip_status);
+        setTrackingState(payload.tracking_state);
+      },
       onStudentAttendance: (payload) => {
         setLastStudentAttendance(payload);
       },
@@ -232,6 +243,7 @@ export function useLiveTripTracking(tripId: string | null) {
     error,
     eta,
     lastArrival,
+    lastSkippedStop,
     lastStudentAttendance,
   };
 }

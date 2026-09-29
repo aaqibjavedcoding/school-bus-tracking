@@ -119,6 +119,23 @@ only.
       stop (ties count as not moved on), so the stationary cascade stays
       blocked; a bus standing at the next stop of a close pair records it
       once the cooldown and dwell clear.
+  **2026-09 deep fix (R2, part 2 — the skip is final, no longer silent):**
+    when a frontier advance (geofence arrival or crew mark) leaves an
+    active stop behind with no arrival row, the server now broadcasts
+    `trip:stop:skipped` (`stopsPassedByFrontier` is the pure derivation;
+    once per stop per trip per process, cleared by `resetForTrip`).
+    Deliberate exclusions: inactive stops are not part of the run; a
+    crew-skipped stop has a row (with its `skip_reason`) and already gets
+    a local receipt on the tapping device, so it is never re-announced on
+    the room. Clients: the web hook keeps `lastSkippedStop` state; the
+    mobile trip screen speaks "Stop {number} skipped — not served"
+    (`SkippedStopAnnouncer`, edge-triggered, once per stop) with a
+    warning haptic, the driver's navigation card carries a written note
+    for the legs right after the skip (`skippedStopNoteForCard`), and the
+    crew stops list marks each stop with what the run actually did —
+    served / crew-skipped (with reason) / passed — derived purely from
+    the live ETA + arrival rows (`stop-service-state.ts`), so the list can
+    never disagree with the record it is derived from.
   - **Restored confirmation strength** — `ARRIVAL_REQUIRED_CONSECUTIVE_FIXES`
     → 2, `ARRIVAL_MIN_DWELL_MS` → 10 000 (10 s of sustained presence). The
     old "sticks at first stop" regression is avoided because the gates

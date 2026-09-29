@@ -20,6 +20,7 @@ import {
   formatEtaMinutes,
 } from '../../lib/format';
 import { deriveTripProgress, navigationTargetOf } from './navigation-stop';
+import type { SkippedStopNote } from '../tracking/stop-service-state';
 import { pluralKey, t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
 import { NextStopKidRows } from './NextStopKidCard';
@@ -88,6 +89,14 @@ export interface TripNavigationCardProps {
    * confirming evidence). Display only — it never gates anything.
    */
   arrivalDiagnostics?: TripArrivalDiagnostics | null;
+  /**
+   * The last stop the run passed without serving (deep-fix R2), reduced to a
+   * card note by `skippedStopNoteForCard` — shown only for the legs right
+   * after the skip, because that is the window where the crew can still act
+   * on it (double back, call the school). The voice line covers the moment;
+   * this is the written reminder. `null` whenever there is nothing current.
+   */
+  skippedNote?: SkippedStopNote | null;
 }
 
 export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
@@ -98,6 +107,7 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   kidsSummary = null,
   kidsLoaded = true,
   arrivalDiagnostics = null,
+  skippedNote = null,
 }) => {
   useTranslation();
   const derived = useMemo(
@@ -268,6 +278,17 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
               ) : null}
             </View>
           ) : null}
+          {skippedNote !== null ? (
+            <View style={styles.skippedRow} accessibilityLiveRegion="polite">
+              <Ionicons name="alert-circle" size={16} color={colors.status.danger} />
+              <Text style={styles.skippedText}>
+                {t('navigate.card.skippedNote', {
+                  number: skippedNote.sequenceNumber,
+                  name: skippedNote.stopName,
+                })}
+              </Text>
+            </View>
+          ) : null}
           {kidsLine ? <Text style={styles.kidsLine}>{kidsLine}</Text> : null}
           {kidsSummary && kidsSummary.total > 0 ? (
             <NextStopKidRows summary={kidsSummary} />
@@ -401,6 +422,24 @@ const styles = StyleSheet.create({
   zoneHeld: {
     fontSize: typography.fontSizes.sm,
     color: colors.neutral[600],
+  },
+  /**
+   * The R2 skip note: one row, danger-tinted text next to the same alert icon
+   * the feedback layer's warning haptic pairs with. `accessibilityLiveRegion`
+   * so screen readers announce the skip once when it appears — the row is
+   * transient by design (it retires as the run moves on), not a permanent
+   * label like the stops-list badge.
+   */
+  skippedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  skippedText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '600',
+    color: colors.status.danger,
   },
   muted: {
     fontSize: typography.fontSizes.base,
