@@ -6,6 +6,7 @@ export {
   assessFixEligibility,
   hasMovedOnTowardAheadStop,
   selectProgressionCandidate,
+  stopsPassedByFrontier,
   updateInsideEvidence,
 } from './stop-arrivals.service';
 export type {

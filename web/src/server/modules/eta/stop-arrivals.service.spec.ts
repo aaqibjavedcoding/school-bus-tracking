@@ -39,6 +39,7 @@ import {
   hasMovedOnTowardAheadStop,
   requiredFixesForProgression,
   selectProgressionCandidate,
+  stopsPassedByFrontier,
   StopArrivalsService,
   DEFAULT_ARRIVAL_DETECTION_CONFIG,
   updateInsideEvidence,
@@ -1927,5 +1928,151 @@ describe('R2 close consecutive stops (production defaults)', () => {
     assert.equal(blocked, null, 'with the floor configured, the 30 m leg is held');
     const progress = await harness.service.getProgress(trip, null, clock.now());
     assert.equal(progress.arrival_diagnostics?.last_gate_block, 'inter-stop-distance');
+  });
+});
+
+/**
+ * Deep-fix R2 — the skip is still final, but it is no longer SILENT.
+ *
+ * The geofence path used to let the frontier pass an unarrived stop without
+ * a word: no arrival row, no event, no voice line — "stop 2 was never taken".
+ * Now every frontier advance broadcasts `trip:stop:skipped` for each active
+ * stop left behind without a row, exactly once per stop, and a crew mark
+ * advancing the frontier does the same. A stop the crew explicitly skipped
+ * has a row of its own (and a local receipt on the tapping device), so it is
+ * never re-announced on the room.
+ */
+describe('R2 trip:stop:skipped broadcast', () => {
+  const PROD = DEFAULT_ARRIVAL_DETECTION_CONFIG;
+
+  const FOUR_STOPS = [
+    makeStop({ id: STOP_1, name: 'Home', sequence_number: 1 }),
+    makeStop({ id: STOP_2, name: 'Oak Ave', sequence_number: 2, longitude: -73.99 }),
+    makeStop({ id: STOP_3, name: 'Maple St', sequence_number: 3, longitude: -73.98 }),
+    makeStop({
+      id: '22222222-2222-4222-8222-222222220007',
+      name: 'Cedar Ln',
+      sequence_number: 4,
+      longitude: -73.97,
+    }),
+  ];
+  const AT_STOP_4 = { latitude: 40.7, longitude: -73.97 };
+
+  const skipEvents = (harness: ArrivalsHarness) =>
+    harness.broadcasts.filter((entry) => entry.event === LIVE_TRACKING_EVENTS.stopSkipped);
+
+  it('fires exactly once per passed stop when the geofence frontier jumps ahead', async () => {
+    const harness = makeArrivalsHarness({ stops: FOUR_STOPS, config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Stop 1 records normally.
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    assert.equal(skipEvents(harness).length, 0, 'nothing is skipped before the frontier moves');
+
+    // The bus never enters stop 2's circle (a different street, a missed
+    // turn) and surfaces at stop 3 — the skip-ahead tier needs 3 sustained
+    // fixes + the dwell, then the cooldown from stop 1.
+    for (let i = 0; i < 4; i += 1) {
+      await evaluate(harness, trip, clock.fix({ ...AT_STOP_3, accuracy: 10 }, 12_000), clock.now());
+    }
+    assert.equal(harness.arrivals.created.length, 2, 'stop 3 recorded via the skip-ahead tier');
+    let skips = skipEvents(harness);
+    assert.equal(skips.length, 1, 'stop 2 is announced as skipped, exactly once');
+    assert.equal((skips[0]?.payload as { stop_id?: string })?.stop_id, STOP_2);
+    assert.equal((skips[0]?.payload as { stop_name?: string })?.stop_name, 'Oak Ave');
+    assert.equal((skips[0]?.payload as { sequence_number?: number })?.sequence_number, 2);
+    assert.equal((skips[0]?.payload as { source?: string })?.source, 'geofence');
+
+    // Stop 4 records later; the frontier moves again and would re-derive
+    // stop 2 — the once-per-stop memory must hold.
+    for (let i = 0; i < 4; i += 1) {
+      await evaluate(harness, trip, clock.fix({ ...AT_STOP_4, accuracy: 10 }, 12_000), clock.now());
+    }
+    assert.equal(harness.arrivals.created.length, 3, 'stop 4 recorded');
+    skips = skipEvents(harness);
+    assert.equal(skips.length, 1, 'the same passed stop is never announced twice');
+    assert.equal((skips[0]?.payload as { stop_id?: string })?.stop_id, STOP_2);
+  });
+
+  it('a crew mark advancing the frontier announces the passed stops it creates', async () => {
+    const harness = makeArrivalsHarness({ stops: FOUR_STOPS, config: PROD });
+    const trip = asTrip(makeTrip());
+    const clock = clockFrom('2026-09-01T06:41:30.000Z');
+
+    // Stop 1 by geofence; stop 2 never served.
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1, accuracy: 10 }, 11_000), clock.now());
+    await evaluate(harness, trip, clock.fix({ ...AT_STOP_1, accuracy: 10 }, 11_000), clock.now());
+
+    // The crew taps "Arrived" at stop 3 — stop 2 falls behind the frontier.
+    await harness.service.recordCrewStopMark({
+      trip,
+      stop: { id: STOP_3, name: 'Maple St', sequence_number: 3 },
+      actorUserId: '77777777-7777-4777-8777-777777770001',
+      skipReason: null,
+      now: clock.now(),
+    });
+
+    const skips = skipEvents(harness);
+    assert.equal(skips.length, 1, 'the crew-driven frontier advance announces stop 2');
+    const payload = skips[0]?.payload as { stop_id?: string; source?: string };
+    assert.equal(payload?.stop_id, STOP_2);
+    assert.equal(payload?.source, 'crew');
+
+    // A crew SKIP of stop 4 writes stop 4's own row: no skip event for it
+    // (the tapping device speaks its own receipt; the row carries the reason).
+    await harness.service.recordCrewStopMark({
+      trip,
+      stop: {
+        id: '22222222-2222-4222-8222-222222220007',
+        name: 'Cedar Ln',
+        sequence_number: 4,
+      },
+      actorUserId: '77777777-7777-4777-8777-777777770001',
+      skipReason: 'road closed',
+      now: clock.now(),
+    });
+    const afterCrewSkip = skipEvents(harness);
+    assert.equal(afterCrewSkip.length, 1, 'a crew-skipped stop is not re-announced on the room');
+    assert.equal((afterCrewSkip[0]?.payload as { stop_id?: string })?.stop_id, STOP_2);
+  });
+
+  it('stopsPassedByFrontier — the pure derivation of "left behind"', () => {
+    const stops = [
+      ...FOUR_STOPS,
+      // An inactive stop behind the frontier is not part of the run.
+      makeStop({
+        id: '22222222-2222-4222-8222-222222220008',
+        name: 'Old Lane',
+        sequence_number: 2,
+        is_active: false,
+      }),
+      // An un-surveyed stop behind the frontier was still passed — included.
+      makeStop({
+        id: STOP_NO_COORDS,
+        name: 'Unsurveyed Lane',
+        sequence_number: 2,
+        latitude: null,
+        longitude: null,
+      }),
+    ];
+    const arrived = new Set<string>([STOP_1, STOP_3]);
+    const passed = stopsPassedByFrontier(stops, arrived, 3);
+
+    assert.deepEqual(
+      passed.map((stop) => stop.id),
+      [STOP_2, STOP_NO_COORDS],
+      'unarrived active stops behind the frontier, unsurveyed included, in sequence order',
+    );
+
+    // Boundary: a stop AT the frontier sequence is the frontier itself, not
+    // passed; nothing is passed while no arrival exists (frontier 0).
+    assert.deepEqual(stopsPassedByFrontier(stops, new Set<string>(), 0), []);
+    // With only stop 2 arrived, the stop left behind is stop 1.
+    assert.deepEqual(
+      stopsPassedByFrontier(stops, new Set<string>([STOP_2]), 2).map((stop) => stop.id),
+      [STOP_1],
+    );
   });
 });

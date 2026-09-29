@@ -11,6 +11,7 @@ import {
   TripStopArrivalListResponse,
   TripStopArrivalResponse,
   TripStopArrivedEvent,
+  TripStopSkippedEvent,
   TripStopWarning,
   TripEtaUpdateEvent,
   liveTrackingRoomName,
@@ -254,6 +255,12 @@ export class StopArrivalsService {
   /** Trips whose un-surveyed stops were already warned about (once per process). */
   private readonly warnedByTrip = new Map<string, Set<string>>();
 
+  /**
+   * Stops whose `trip:stop:skipped` broadcast already went out for a trip
+   * (once per process; the frontier only moves forward, so the derivation
+   * would otherwise re-find the same passed stop on every later arrival).
+   */
+  private readonly skipAnnouncedByTrip = new Map<string, Set<string>>();
 
   constructor(
     private readonly stops: typeof Stop,
@@ -422,7 +429,66 @@ export class StopArrivalsService {
       this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
     }
 
+    // Deep-fix R2 — no more silent skips: a crew mark can advance the frontier
+    // past OTHER unarrived stops ("Arrived" at stop 3 passes stop 2). The
+    // marked stop itself is never re-announced (it has a row — for a skip,
+    // the row's `skip_reason` is the school's record and the tapping device
+    // already spoke its receipt). Only the newly-created path reaches here:
+    // the already-recorded early-return above never moves the frontier.
+    {
+      const [routeStops, arrivals] = await Promise.all([
+        this.loadRouteStops(trip),
+        this.loadArrivals(trip),
+      ]);
+      this.announceStopsPassedByFrontier(trip, routeStops, arrivals, 'crew', now);
+    }
+
     return { row, created: true };
+  }
+
+  /**
+   * Broadcasts `trip:stop:skipped` for every active stop the (new) frontier
+   * has moved past without an arrival row — once per stop per trip per
+   * process, so replayed evaluations and later frontier moves never double-
+   * announce. Best-effort by construction (same as every broadcast here): a
+   * failure is logged and swallowed.
+   */
+  private announceStopsPassedByFrontier(
+    trip: Trip,
+    routeStops: Stop[],
+    arrivals: TripStopArrival[],
+    source: TripStopArrivedEvent['source'],
+    now: Date,
+  ): void {
+    const frontierStop = this.frontierArrivedStop(routeStops, arrivals);
+    if (frontierStop === null) return;
+    const arrivalStopIds = new Set(arrivals.map((arrival) => arrival.stop_id));
+    const passed = stopsPassedByFrontier(routeStops, arrivalStopIds, frontierStop.sequence_number);
+    if (passed.length === 0) return;
+
+    const announced = this.skipAnnouncedByTrip.get(trip.id) ?? new Set<string>();
+    for (const stop of passed) {
+      if (announced.has(stop.id)) continue;
+      announced.add(stop.id);
+      const event: TripStopSkippedEvent = {
+        trip_id: trip.id,
+        school_id: trip.school_id,
+        trip_status: trip.status,
+        tracking_state: getTripTrackingState(trip.status),
+        stop_id: stop.id,
+        stop_name: stop.name,
+        sequence_number: stop.sequence_number,
+        skipped_at: now.toISOString(),
+        source,
+      };
+      this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopSkipped, event);
+      this.logger.warn(
+        `Trip ${trip.id} passed stop ${stop.id} ("${stop.name}", sequence ` +
+          `${stop.sequence_number}) without recording it — announced as skipped ` +
+          `(frontier moved to ${frontierStop.sequence_number} via ${source}).`,
+      );
+    }
+    this.skipAnnouncedByTrip.set(trip.id, announced);
   }
 
   /** The existing arrival row of one trip-stop, tenant-pinned. */
@@ -507,6 +573,7 @@ export class StopArrivalsService {
     this.departureByTrip.delete(tripId);
     this.lastGateBlockByTrip.delete(tripId);
     this.warnedByTrip.delete(tripId);
+    this.skipAnnouncedByTrip.delete(tripId);
   }
 
   /**
@@ -834,6 +901,18 @@ export class StopArrivalsService {
     };
     this.emitToTrip(trip.id, LIVE_TRACKING_EVENTS.stopArrived, event);
 
+    // Deep-fix R2 — no more silent skips: if this arrival advanced the
+    // frontier past stops that were never served, the room hears about each
+    // one exactly once. (Not inside the transaction: a broadcast must never
+    // be able to roll an arrival back, and the once-per-stop memory makes a
+    // replay harmless.)
+    this.announceStopsPassedByFrontier(
+      trip,
+      routeStops,
+      [...existingArrivals, row],
+      'geofence',
+      now,
+    );
 
     // Parent notification rows were already persisted inside the arrival's
     // transaction (fix D). Nothing to do here — the outbox delivers them, and
@@ -1359,6 +1438,45 @@ export function hasMovedOnTowardAheadStop(args: {
   return false;
 }
 
+/**
+ * The active stops the progress frontier has moved PAST without an arrival
+ * row — the stops this run will not serve (deep-fix R2).
+ *
+ * This is the derivation behind the `trip:stop:skipped` broadcast: for years
+ * the geofence path dropped such stops silently ("the skip is final" — see
+ * `selectProgressionCandidate`), so stop 2 could vanish from a run without a
+ * word and the crew only found out from a parent. The skip itself stays
+ * final — a passed stop is never recorded afterwards — but it is no longer
+ * silent.
+ *
+ * Deliberately conservative about what counts as "passed":
+ * - only stops BEHIND the frontier (`sequence_number < frontierSequence`) —
+ *   the same monotonic rule the selector enforces;
+ * - only stops with no arrival row at all. A crew-skip has a row (with its
+ *   `skip_reason`), so it is already visible in every arrivals read and the
+ *   tapping device speaks its own receipt — re-announcing it on the room
+ *   would make one action speak twice;
+ * - only ACTIVE stops — an inactive stop is not part of this run and
+ *   announcing it would be a lie.
+ *
+ * Un-surveyed stops ARE included on purpose: the run really did pass them,
+ * and their un-recordability is already warned about separately.
+ */
+export function stopsPassedByFrontier(
+  stops: readonly GeofenceStop[],
+  arrivalStopIds: ReadonlySet<string>,
+  frontierSequence: number,
+): GeofenceStop[] {
+  const passed: GeofenceStop[] = [];
+  for (const stop of stops) {
+    if (stop.is_active === false) continue;
+    if (arrivalStopIds.has(stop.id)) continue;
+    if (!Number.isFinite(stop.sequence_number)) continue;
+    if (stop.sequence_number >= frontierSequence) continue;
+    passed.push(stop);
+  }
+  return passed.sort((a, b) => a.sequence_number - b.sequence_number);
+}
 
 /**
  * Advances the consecutive inside-geofence evidence for one evaluated fix.

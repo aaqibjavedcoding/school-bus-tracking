@@ -427,6 +427,7 @@ export const mr: Dictionary = {
   'voice.stop.near': 'Thambe {number} yet aahet, {count} balek',
   'voice.stop.recorded': 'Thamba {number} nond zala, ithe {count} balek chadhtil',
   'voice.stop.skipped': 'Thamba {number} vagalla',
+  'voice.stop.passed': 'Thamba {number} vagalla, seva zali nahi',
   // Devanagari — spoken ONLY when the phone has an `mr-IN` voice installed.
   // A student's first name keeps whatever script the school typed it in; an
   // `mr-IN` engine reads a Latin name inside a Marathi sentence correctly.
@@ -452,6 +453,7 @@ export const mr: Dictionary = {
   'voice.native.stop.near': 'थांबे {number} येत आहेत, {count} मुले',
   'voice.native.stop.recorded': 'थांबा {number} नोंदला गेला, येथे {count} मुले चढतील',
   'voice.native.stop.skipped': 'थांबा {number} वगळला',
+  'voice.native.stop.passed': 'थांबा {number} वगळला — सेवा झाली नाही',
 
   // ── Login ──────────────────────────────────────────────────────────────
   'login.brandMark': 'KB',
@@ -518,6 +520,10 @@ export const mr: Dictionary = {
   'eta.speed': 'गती',
   'eta.nextBadge': 'पुढील',
   'eta.currentBadge': 'सध्याचे',
+  // R2 stops-list honesty: what the run actually did at a stop.
+  'eta.skippedBadge': 'वगळले',
+  'eta.skippedMeta': 'वगळले — सेवा झाली नाही',
+  'eta.skippedReasonMeta': 'वगळले: {reason}',
   'stops.kidsBadge.one': '{count} मूल',
   'stops.kidsBadge.other': '{count} मुले',
 
@@ -665,6 +671,7 @@ export const mr: Dictionary = {
   'navigate.card.kidsWaiting.one': 'येथे {count} मूल प्रतीक्षा करत आहे',
   'navigate.card.kidsWaiting.other': 'येथे {count} मुले प्रतीक्षा करत आहेत',
   'navigate.card.kidsDone': 'या थांब्यावर सर्व मुलांची मार्किंग झाली',
+  'navigate.card.skippedNote': 'स्टॉप {number} ({name}) वगळले — सेवा झाली नाही',
   'navigate.card.insideZone': 'येण्याच्या झोनच्या आत',
   'navigate.card.outsideZone': 'येण्याच्या झोनच्या बाहेर',
   'navigate.card.heldDeparture': 'आधीच्या थांब्याहून निघण्याची वाट पाहत आहे',

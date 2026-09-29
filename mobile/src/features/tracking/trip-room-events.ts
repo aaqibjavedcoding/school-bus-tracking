@@ -3,6 +3,7 @@ import {
   type TripEtaUpdateEvent,
   type TripLocationUpdateEvent,
   type TripStopArrivedEvent,
+  type TripStopSkippedEvent,
   type TripStudentAttendanceEvent,
   type TripTrackingStartedEvent,
   type TripTrackingStoppedEvent,
@@ -12,7 +13,7 @@ import {
  * The server → room half of one trip-room subscription, as a pure module.
  *
  * Both live-tracking hooks (web and its mobile port) subscribe to the same
- * six server-pushed events on one process-wide socket, and every handler
+ * seven server-pushed events on one process-wide socket, and every handler
  * begins with the same guard — "is this frame about *my* trip?". That wiring
  * used to live inline in the hooks where no Node test could reach it; this
  * module is the seam that makes it provable:
@@ -31,13 +32,20 @@ import {
  * `trip-room-events.spec.ts` drive it with a plain fake under `node --test`.
  */
 
-/** The six frames the server pushes into an authorization-gated trip room. */
+/** The seven frames the server pushes into an authorization-gated trip room. */
 export interface TripRoomEventHandlers {
   onLocation(payload: TripLocationUpdateEvent): void;
   onTrackingStarted(payload: TripTrackingStartedEvent): void;
   onTrackingStopped(payload: TripTrackingStoppedEvent): void;
   onEtaUpdate(payload: TripEtaUpdateEvent): void;
   onStopArrived(payload: TripStopArrivedEvent): void;
+  /**
+   * The frontier moved past a stop without an arrival row (deep-fix R2) —
+   * the stop will not be served. The trip screen speaks a short line for the
+   * crew ("Stop 2 skipped — not served") so a silent skip is never mistaken
+   * for a served one.
+   */
+  onStopSkipped(payload: TripStopSkippedEvent): void;
   /** A board/drop on (usually) the other crew device — refresh the manifest. */
   onStudentAttendance(payload: TripStudentAttendanceEvent): void;
 }
@@ -87,6 +95,7 @@ export function attachTripRoomEvents(
     [LIVE_TRACKING_EVENTS.trackingStopped, guard(handlers.onTrackingStopped)],
     [LIVE_TRACKING_EVENTS.etaUpdate, guard(handlers.onEtaUpdate)],
     [LIVE_TRACKING_EVENTS.stopArrived, guard(handlers.onStopArrived)],
+    [LIVE_TRACKING_EVENTS.stopSkipped, guard(handlers.onStopSkipped)],
     [LIVE_TRACKING_EVENTS.studentAttendance, guard(handlers.onStudentAttendance)],
   ];
 

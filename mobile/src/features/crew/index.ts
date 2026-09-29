@@ -125,6 +125,11 @@ export type {
  */
 export { useNextStopAnnouncements } from './useNextStopAnnouncements';
 export type { NextStopAnnouncementSource } from './useNextStopAnnouncements';
+// R2: the spoken "Stop N skipped — not served" line (`skip-announcer.ts` is
+// the policy, spec'd; this is the React glue).
+export { useSkippedStopAnnouncements } from './useSkippedStopAnnouncements';
+export type { SkippedStopAnnouncementSource } from './useSkippedStopAnnouncements';
+export { SkippedStopAnnouncer } from './skip-announcer';
 /**
  * Deep-fix R1 — the next stop's arrival zone, as the driver's map and card
  * see it: the same effective-radius circle the server's arrival engine

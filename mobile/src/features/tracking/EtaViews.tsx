@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type {
   TripEtaResponse,
+  TripStopArrivalResponse,
   TripStudentAttendanceResponse,
 } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius } from '@school-bus-tracking/design-tokens';
@@ -18,6 +19,11 @@ import { useTranslation } from '../../lib/i18n-provider';
 import { fullName } from '../../lib/format';
 import { kidStatusLabel } from '../crew/NextStopKidCard';
 import { settledSymbol } from '../crew/manifest-row.ts';
+import {
+  crewSkipReasonByStopId,
+  deriveStopServiceStates,
+  type StopServiceState,
+} from './stop-service-state.ts';
 
 /**
  * Task 22 ETA/progress surfaces, rendered from server-computed data only:
@@ -98,12 +104,24 @@ EtaSummaryCard.displayName = 'EtaSummaryCard';
  * parent and admin surfaces never pass it, so children's names stay off every
  * other screen — the prop's absence is the privacy boundary, not a filter
  * inside a shared list.
+ *
+ * ### Optional arrivals (deep-fix R2): stops-list honesty
+ *
+ * `arrivals` — the trip's arrival rows — lets each stop say what the run
+ * actually did: served, crew-skipped (with the reason), or **passed without
+ * serving** (derived: no row and the frontier is beyond it — the R2 defect
+ * used to render such stops as an ordinary upcoming stop forever). The
+ * derivation is pure (`stop-service-state.ts`) and presentation-only; the
+ * "passed" state is visible from the live ETA alone, the rows only refine
+ * served vs crew-skipped.
  */
 export const StopsEtaList: React.FC<{
   eta: TripEtaResponse | null;
   /** Manifest rows for the kids badges + tap-to-expand. Crew only. */
   students?: TripStudentAttendanceResponse[];
-}> = React.memo(({ eta, students }) => {
+  /** Arrival rows, for the served / crew-skipped / passed states (R2). */
+  arrivals?: readonly TripStopArrivalResponse[];
+}> = React.memo(({ eta, students, arrivals }) => {
   useTranslation();
   const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
 
@@ -118,6 +136,11 @@ export const StopsEtaList: React.FC<{
     return map;
   }, [students]);
 
+  // What the run actually did at each stop (R2) — pure derivation, so the
+  // list can never disagree with the rows it is derived from.
+  const serviceStates = useMemo(() => deriveStopServiceStates(eta, arrivals), [eta, arrivals]);
+  const skipReasons = useMemo(() => crewSkipReasonByStopId(arrivals), [arrivals]);
+
   if (!eta || eta.items.length === 0) {
     return <Text style={styles.muted}>{t('eta.noStopsConfigured')}</Text>;
   }
@@ -130,6 +153,10 @@ export const StopsEtaList: React.FC<{
         const kidCount = kids?.length ?? 0;
         const expanded = expandedStopId === stop.stop_id;
         const expandable = kidsByStop !== null && kidCount > 0;
+        // R2 honesty: unknown states fall back to the pre-R2 rendering, so a
+        // screen without arrivals data behaves exactly as it did before.
+        const serviceState: StopServiceState = serviceStates.get(stop.stop_id) ?? (stop.arrived ? 'served' : 'upcoming');
+        const crewSkipReason = serviceState === 'crew-skipped' ? (skipReasons.get(stop.stop_id) ?? '') : '';
         return (
           <View key={stop.stop_id}>
             <Pressable
@@ -152,11 +179,15 @@ export const StopsEtaList: React.FC<{
                   {stop.stop_name}
                 </Text>
                 <Text style={styles.stopMeta}>
-                  {stop.arrived
-                    ? t('eta.arrived')
-                    : formatEtaMinutes(stop.eta_minutes) !== null
-                      ? `${formatEtaMinutes(stop.eta_minutes)} · ${formatDistanceMeters(stop.distance_meters)}`
-                      : t('eta.waitingForGps')}
+                  {serviceState === 'crew-skipped'
+                    ? t('eta.skippedReasonMeta', { reason: crewSkipReason })
+                    : serviceState === 'skipped'
+                      ? t('eta.skippedMeta')
+                      : stop.arrived
+                        ? t('eta.arrived')
+                        : formatEtaMinutes(stop.eta_minutes) !== null
+                          ? `${formatEtaMinutes(stop.eta_minutes)} · ${formatDistanceMeters(stop.distance_meters)}`
+                          : t('eta.waitingForGps')}
                 </Text>
               </View>
               {kidsByStop !== null ? (
@@ -166,7 +197,14 @@ export const StopsEtaList: React.FC<{
                   </Text>
                 </View>
               ) : null}
-              {stop.arrived ? (
+              {serviceState === 'skipped' || serviceState === 'crew-skipped' ? (
+                // A stop the run will not serve — accidental or crew-decided,
+                // the badge is the same word; the reason (if any) is the meta
+                // line. Danger tone: this is the row a parent will ask about.
+                // Checked BEFORE the arrived ✓: a crew skip is an arrival row,
+                // so eta.arrived is true for it.
+                <Badge size="lg" label={t('eta.skippedBadge')} tone="danger" />
+              ) : stop.arrived ? (
                 <Badge size="lg" label="✓" tone="success" />
               ) : isNext ? (
                 <Badge size="lg" label={t('eta.nextBadge')} tone="warning" />

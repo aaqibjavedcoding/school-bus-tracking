@@ -2228,6 +2228,13 @@ export const LIVE_TRACKING_EVENTS = {
   trackingStopped: 'trip:tracking:stopped',
   /** Server → room: the bus entered a stop's geofence (Task 22 arrival). */
   stopArrived: 'trip:stop:arrived',
+  /**
+   * Server → room: the progress frontier advanced past a stop that was never
+   * served (deep-fix R2). The geofence path used to drop such stops silently
+   * — "skip is final" — so stop 2 could vanish from the run without a word;
+   * this event is the announcement that the stop will not be served.
+   */
+  stopSkipped: 'trip:stop:skipped',
   /** Server → room: the approximate trip ETA was recomputed (Task 22). */
   etaUpdate: 'trip:eta:update',
   /**
@@ -2499,8 +2506,9 @@ export interface TripArrivalDepartureGate {
   sequence_number: number;
   /**
    * True once an eligible fix has been seen outside the frontier stop's
-   * geofence (plus the exit-hysteresis fringe) — the bus has demonstrably
-   * departed and the next stop is free to record.
+   * effective geofence (the stored radius floored at the configured minimum,
+   * plus the exit-hysteresis fringe) — the bus has demonstrably departed and
+   * the next stop is free to record.
    */
   departed: boolean;
 }
@@ -2704,6 +2712,35 @@ export interface TripEtaUpdateEvent {
   trip_id: string;
   school_id: string;
   eta: TripEtaResponse;
+}
+
+/**
+ * Server → room: the progress frontier moved past a stop with no arrival row
+ * (deep-fix R2) — the stop will not be served on this run.
+ *
+ * Emitted once per trip-stop when a geofence arrival or a crew mark advances
+ * the frontier beyond an unarrived active stop. Deliberately NOT emitted for
+ * a stop the crew explicitly skipped: that stop has an arrival row (it is not
+ * "unarrived"), the tapping device already speaks its own receipt, and the
+ * row's `skip_reason` is what the school reads later.
+ *
+ * Additive contract: consumers that do not know the event simply ignore it.
+ */
+export interface TripStopSkippedEvent {
+  trip_id: string;
+  school_id: string;
+  trip_status: TripStatus;
+  tracking_state: TripTrackingState;
+  stop_id: string;
+  stop_name: string;
+  sequence_number: number;
+  /** ISO-8601 server time at which the skip was detected (frontier advanced). */
+  skipped_at: string;
+  /**
+   * What advanced the frontier past this stop: the geofence pipeline
+   * recording a later stop, or a crew mark landing beyond it.
+   */
+  source: TripStopArrivalSource;
 }
 
 /**

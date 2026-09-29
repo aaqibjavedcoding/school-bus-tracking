@@ -478,6 +478,7 @@ export const en = {
   // server confirmed it (never on the optimistic tap).
   'voice.stop.recorded': 'Stop {number} recorded, {count} students board here',
   'voice.stop.skipped': 'Stop {number} skipped',
+  'voice.stop.passed': 'Stop {number} skipped — not served',
   'voice.native.board.done': '{name} has boarded, {time}',
   'voice.native.drop.done': '{name} has got off, {time}',
   'voice.native.board.summary': '{count} students boarded',
@@ -500,6 +501,7 @@ export const en = {
   'voice.native.stop.near': 'Stop {number} coming up, {count} students',
   'voice.native.stop.recorded': 'Stop {number} recorded, {count} students board here',
   'voice.native.stop.skipped': 'Stop {number} skipped',
+  'voice.native.stop.passed': 'Stop {number} skipped — not served',
 
   // ── Login (crew path localises too; the flow/endpoint is unchanged) ────
   'login.brandMark': 'KB',
@@ -568,6 +570,10 @@ export const en = {
   'eta.speed': 'Speed',
   'eta.nextBadge': 'Next',
   'eta.currentBadge': 'Current',
+  // R2 stops-list honesty: what the run actually did at a stop.
+  'eta.skippedBadge': 'Skipped',
+  'eta.skippedMeta': 'Skipped — not served',
+  'eta.skippedReasonMeta': 'Skipped: {reason}',
   // Crew stops tab: kids assigned per stop (manifest slice).
   'stops.kidsBadge.one': '{count} kid',
   'stops.kidsBadge.other': '{count} kids',
@@ -750,6 +756,7 @@ export const en = {
   'navigate.card.kidsWaiting.one': '{count} kid waiting here',
   'navigate.card.kidsWaiting.other': '{count} kids waiting here',
   'navigate.card.kidsDone': 'All kids marked at this stop',
+  'navigate.card.skippedNote': 'Stop {number} ({name}) skipped — not served',
   // Deep-fix R1: the arrival-zone indicator + the held-reason line on the
   // next-stop card (display only; the server's engine decides arrivals).
   'navigate.card.insideZone': 'Inside arrival zone',

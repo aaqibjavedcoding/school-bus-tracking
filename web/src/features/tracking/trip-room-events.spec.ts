@@ -66,13 +66,14 @@ function makeHandlers() {
     onTrackingStopped: record('onTrackingStopped'),
     onEtaUpdate: record('onEtaUpdate'),
     onStopArrived: record('onStopArrived'),
+    onStopSkipped: record('onStopSkipped'),
     onStudentAttendance: record('onStudentAttendance'),
   };
   return { calls, handlers };
 }
 
 describe('attachTripRoomEvents', () => {
-  it('registers exactly the six server → room trip events', () => {
+  it('registers exactly the seven server → room trip events', () => {
     const socket = makeSocket();
     const { handlers } = makeHandlers();
 
@@ -84,12 +85,34 @@ describe('attachTripRoomEvents', () => {
       LIVE_TRACKING_EVENTS.trackingStopped,
       LIVE_TRACKING_EVENTS.etaUpdate,
       LIVE_TRACKING_EVENTS.stopArrived,
+      LIVE_TRACKING_EVENTS.stopSkipped,
       LIVE_TRACKING_EVENTS.studentAttendance,
     ];
     for (const event of expected) {
       assert.equal(socket.listenerCount(event), 1, `${event} is subscribed`);
     }
     assert.deepEqual([...socket.registrations.keys()].sort(), [...expected].sort());
+  });
+
+  it('delivers a stop-skipped frame of the same trip to its handler (R2)', () => {
+    const socket = makeSocket();
+    const { calls, handlers } = makeHandlers();
+    attachTripRoomEvents(socket, TRIP_A, handlers);
+
+    const frame = {
+      trip_id: TRIP_A,
+      school_id: 'school-1',
+      trip_status: 'in_progress',
+      tracking_state: 'active',
+      stop_id: 'stop-2',
+      stop_name: 'Oak Ave',
+      sequence_number: 2,
+      skipped_at: '2026-09-26T06:41:30.000Z',
+      source: 'geofence',
+    };
+    socket.emit(LIVE_TRACKING_EVENTS.stopSkipped, frame);
+
+    assert.deepEqual(calls, [{ handler: 'onStopSkipped', payload: frame }]);
   });
 
   it('delivers a student-attendance frame of the same trip to its handler', () => {

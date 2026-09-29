@@ -580,7 +580,18 @@ export type CrewFeedbackEvent =
    */
   | { type: 'stop.recorded'; sequenceNumber: number | null; studentCount: number }
   /** The same confirmation for a skip — no head count, nobody was served. */
-  | { type: 'stop.skipped'; sequenceNumber: number | null };
+  | { type: 'stop.skipped'; sequenceNumber: number | null }
+  /**
+   * Deep-fix R2: the run moved PAST a stop without serving it — the server's
+   * own `trip:stop:skipped` broadcast ("Stop 2 skipped — not served").
+   *
+   * Kept apart from `stop.skipped` (the receipt for the crew's own skip
+   * mark): this is news the crew did not ask for, about a stop that has no
+   * record at all. The server never broadcasts it for a stop the crew
+   * skipped themselves (see `stopsPassedByFrontier` on the server), so the
+   * two lines can never speak about the same tap.
+   */
+  | { type: 'stop.passed'; sequenceNumber: number | null };
 
 export type CrewFeedbackEventType = CrewFeedbackEvent['type'];
 
@@ -601,6 +612,15 @@ export const STOP_MARK_EVENTS: readonly CrewFeedbackEventType[] = [
   'stop.recorded',
   'stop.skipped',
 ];
+
+/**
+ * Server-derived run news (deep-fix R2): a stop the frontier passed without
+ * serving. Neither a next-stop prediction ({@link STOP_ANNOUNCEMENT_EVENTS})
+ * nor a receipt for something the crew did ({@link STOP_MARK_EVENTS}) — it is
+ * a fact about the run the crew needs to hear because nobody acted to cause
+ * it.
+ */
+export const STOP_RUN_NEWS_EVENTS: readonly CrewFeedbackEventType[] = ['stop.passed'];
 
 /**
  * Events that are **haptic-only**, and why each one is silent:
@@ -692,6 +712,7 @@ function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | nu
       return stopNearPhrase(event, script);
     case 'stop.recorded':
     case 'stop.skipped':
+    case 'stop.passed':
       return stopMarkPhrase(event, script);
     default:
       return null;
@@ -752,13 +773,19 @@ function stopNearPhrase(
  * written confirmation.
  */
 function stopMarkPhrase(
-  event: Extract<CrewFeedbackEvent, { type: 'stop.recorded' } | { type: 'stop.skipped' }>,
+  event: Extract<
+    CrewFeedbackEvent,
+    { type: 'stop.recorded' } | { type: 'stop.skipped' } | { type: 'stop.passed' }
+  >,
   script: VoiceScript,
 ): string | null {
   const number = event.sequenceNumber;
   if (number === null || !Number.isInteger(number) || number < 1) return null;
   if (event.type === 'stop.skipped') {
     return t(voiceLine(script, 'voice.native.stop.skipped', 'voice.stop.skipped'), { number });
+  }
+  if (event.type === 'stop.passed') {
+    return t(voiceLine(script, 'voice.native.stop.passed', 'voice.stop.passed'), { number });
   }
   return t(voiceLine(script, 'voice.native.stop.recorded', 'voice.stop.recorded'), {
     number,

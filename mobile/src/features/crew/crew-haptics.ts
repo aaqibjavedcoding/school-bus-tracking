@@ -94,6 +94,10 @@ export const HAPTIC_BY_EVENT: Readonly<Record<CrewFeedbackEventType, HapticPatte
   'stop.recorded': HapticPattern.success,
   // A skip is recorded, not achieved: accepted, but nobody was served.
   'stop.skipped': HapticPattern.warning,
+  // Deep-fix R2: the run silently passed a stop nobody marked — the crew must
+  // notice over road noise because a parent at that stop is already waiting;
+  // the warning tap matches the spoken "Stop 2 skipped — not served".
+  'stop.passed': HapticPattern.warning,
 };
 
 /** The pattern for an event. Total — every event has one. */
