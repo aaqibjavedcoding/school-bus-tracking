@@ -133,6 +133,16 @@ describe('native bus map invariants', () => {
     );
     assert.match(pipeline, /clearMapIssue\('styleLoad'\)/, 'a real load clears the style line');
     assert.match(pipeline, /clearMapIssue\('glyphs'\)/, 'a verified probe clears the label line');
+    assert.match(
+      pipeline,
+      /OFFLINE_FALLBACK_MAP_STYLE/,
+      'total exhaustion drops to the bundled offline base style',
+    );
+    assert.match(
+      pipeline,
+      /if \(!showingFallback\) clearMapIssue\('styleLoad'\)/,
+      'the fallback loading is not a recovery — the line must stay',
+    );
   });
 
   /**

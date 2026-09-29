@@ -97,6 +97,45 @@ anywhere under `src/`. The scanner allows a casual "no Leaflet" comment in
 pure modules and allows `maps.google.com` deep links (navigate) while banning
 `maps.googleapis.com` / `google.maps`.
 
+## Style failure, retry and the offline fallback (deep-fix R3)
+
+The style JSON is one small fetch, but it is the fetch a cold radio on mobile
+data fails. Before R3 that one failure was a verdict: a permanent
+`map.issue.styleLoad` line and a dead map until the app restarted. The policy
+now, all of it in `mobile/src/features/map/`:
+
+1. **Bounded retry, twice.** The JS style fetch (`use-map-style.ts`) runs
+   under `runWithBackoff` with the shared schedule `[2 s, 5 s, 15 s]`
+   (`map-style-recovery.ts`, pure — the sleeper and the attempt are injected
+   ports, spec'd with `node --test` mock timers). If the style then fails on
+   the **engine's** side (`onDidFailLoadingMap`), `planStyleLoadFailure`
+   schedules a bounded sequence of style **re-sets** on the same schedule —
+   `restyleForRetry` re-issues the inspected style with a root-level
+   `metadata` nonce, because the engine bridge forwards
+   `JSON.stringify(mapStyle)`, and an identical string is a prop-diff no-op:
+   only a changed string actually reloads the style. One recovery runs at a
+   time; in total a transient blip is recovered within ~22 s, worst case.
+2. **Recovery clears the line.** A style that genuinely finishes loading
+   (`onDidFinishLoadingMap`) clears `styleLoad` from the diagnostics store;
+   a successful glyph probe (or a style that declares nothing to label)
+   clears `glyphs` (`clearMapIssue`, `map-diagnostics.ts`). Lines say what is
+   wrong **now**, not what once went wrong, and each rendered line ends with
+   its machine-readable code — `(styleLoad)` — so a field screenshot names
+   exactly what failed.
+3. **The offline fallback.** When the bounded budget is spent on every front,
+   the map swaps to `OFFLINE_FALLBACK_MAP_STYLE`: a bundled, frozen,
+   version-8 style with **zero network references** — no sources, no glyphs,
+   no sprite — painting one neutral background. It is deliberately a *base*,
+   not a disguise: the stops, the bus marker, the accuracy circle and the
+   status panel are all React Native overlays that keep working over it, and
+   the `(styleLoad)` line stays up over it because the fallback loading is
+   not the tiles coming back (`notifyStyleLoaded` refuses to clear while the
+   fallback is showing). A later remount re-runs the whole pipeline, so the
+   real style returns when the network does.
+
+Nothing here changes the provider policy: the fallback is bundled with the
+app, needs no account and no key, and introduces no provider.
+
 ## Architecture
 
 One **pure state machine** decides what to draw; each platform only renders it.

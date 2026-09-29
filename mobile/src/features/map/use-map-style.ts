@@ -26,14 +26,20 @@
  * - **The fetch retries** (`runWithBackoff`): one flaky first fetch on mobile
  *   data used to be a permanent red line and a dead map until the app
  *   restarted. When the whole bounded budget is spent the pipeline reports
- *   `styleLoad` once.
+ *   `styleLoad` and swaps in the bundled offline base style
+ *   (`OFFLINE_FALLBACK_MAP_STYLE` — zero network, a plain background), so a
+ *   dead-zone phone still shows stops, the bus and an honest status instead
+ *   of a dead box.
  * - **The engine's own load retries** (`onStyleLoadFailed`, wired to the
  *   Map's `onDidFailLoadingMap`): `planStyleLoadFailure` schedules a bounded
  *   sequence of style **re-sets** (`restyleForRetry`, one `metadata` nonce —
- *   the bridge stringifies the style, so only a different string reloads).
+ *   the bridge stringifies the style, so only a different string reloads),
+ *   and the same offline fallback when the budget is spent.
  * - **Recovery clears the line**: `notifyStyleLoaded` (wired ahead of the
- *   camera's `onDidFinishLoadingMap`) clears `styleLoad`. A successful glyph
- *   probe (or a style with nothing to label) clears `glyphs`.
+ *   camera's `onDidFinishLoadingMap`) clears `styleLoad` — but never while
+ *   the fallback is showing, because the fallback loading is not the tiles
+ *   coming back. A successful glyph probe (or a style with nothing to label)
+ *   clears `glyphs`.
  *
  * One recovery runs at a time (`planStyleLoadFailure` → `wait` while one is
  * in flight); every timer is cleared on unmount.
@@ -46,6 +52,7 @@ import {
   type StyleSpecification,
 } from '@maplibre/maplibre-react-native';
 import {
+  OFFLINE_FALLBACK_MAP_STYLE,
   buildGlyphProbeUrl,
   glyphUrlTransforms,
   inspectMapStyle,
@@ -123,12 +130,26 @@ function createStyleController(deps: StyleControllerDeps) {
   let baseStyle: Record<string, unknown> | null = null;
   /** Re-set nonce, so the engine bridge sees a *different* style string. */
   let retryGeneration = 0;
+  /** True while the bundled offline base style is what the map shows. */
+  let showingFallback = false;
 
   function clearRetryTimer(): void {
     if (retryTimer !== null) {
       clearTimeout(retryTimer);
       retryTimer = null;
     }
+  }
+
+  /**
+   * The floor: the bundled offline base style. Reachable with zero network,
+   * so it is the one style that can always be set when everything else ran
+   * out — and the `styleLoad` line stays up over it, naming the cause.
+   */
+  function showOfflineFallback(): void {
+    clearRetryTimer();
+    showingFallback = true;
+    baseStyle = null;
+    deps.setMapStyle(OFFLINE_FALLBACK_MAP_STYLE as unknown as StyleSpecification);
   }
 
   /** The glyph-endpoint verification: probe decides, success clears. */
@@ -187,6 +208,7 @@ function createStyleController(deps: StyleControllerDeps) {
         TransformRequestManager.addUrlTransform(transform);
       }
 
+      showingFallback = false;
       consecutiveNativeFailures = 0;
       retryGeneration = 0;
       // Passing the inspected object means a successful *retried* JS fetch is
@@ -203,20 +225,25 @@ function createStyleController(deps: StyleControllerDeps) {
     } catch {
       if (disposed) return;
       reportMapIssue('styleLoad');
+      showOfflineFallback();
     } finally {
       fetching = false;
     }
   }
 
-  /** The engine said the style failed. Bounded re-sets, then stop. */
+  /** The engine said the style failed. Bounded re-sets, then the fallback. */
   function onStyleLoadFailed(): void {
     if (disposed) return;
     reportMapIssue('styleLoad');
     const action = planStyleLoadFailure({
-      showingFallback: false,
+      showingFallback,
       recoveryInFlight: fetching || retryTimer !== null,
       consecutiveFailures: consecutiveNativeFailures,
     });
+    if (action.kind === 'fallback') {
+      showOfflineFallback();
+      return;
+    }
     if (action.kind !== 'retry') return;
     consecutiveNativeFailures += 1;
     retryTimer = setTimeout(() => {
@@ -241,12 +268,13 @@ function createStyleController(deps: StyleControllerDeps) {
 
   /**
    * The engine said the style finished loading. That — not the fetch, not
-   * the re-set — is what clears the line.
+   * the re-set — is what clears the line; and only when what loaded is a real
+   * style, because the offline fallback rendering is no recovery at all.
    */
   function notifyStyleLoaded(): void {
     clearRetryTimer();
     consecutiveNativeFailures = 0;
-    clearMapIssue('styleLoad');
+    if (!showingFallback) clearMapIssue('styleLoad');
   }
 
   return {

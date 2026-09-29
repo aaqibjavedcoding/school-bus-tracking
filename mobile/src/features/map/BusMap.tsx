@@ -67,9 +67,10 @@ const MapView = Map as unknown as React.ComponentType<MapProps & { children?: Re
  * OpenFreeMap's public style over OpenStreetMap data by default, an
  * https-only override when self-hosting later. No key, no account, no billing
  * — the rule and its rationale live in `docs/live-tracking-map.md` → "Map
- * provider policy". When there is no network the tiles simply do not load;
- * the markers, the accuracy circle and the freshness panel below are
- * React Native views and overlays, so they keep working.
+ * provider policy". With no network the style load retries (bounded backoff,
+ * R3) and then drops to the bundled offline base style; the markers, the
+ * accuracy circle and the freshness panel below are React Native views and
+ * overlays, so they keep working either way.
  *
  * ### What the camera does (and does not do)
  *

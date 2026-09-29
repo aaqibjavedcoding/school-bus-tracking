@@ -5,12 +5,14 @@ import {
   DEFAULT_MAP_STYLE_URL,
   MAP_ATTRIBUTION,
   MAP_STYLE_ENV_VARIABLE,
+  OFFLINE_FALLBACK_MAP_STYLE,
   OPENFREEMAP_GLYPHS_TEMPLATE,
   buildGlyphProbeUrl,
   collectTextFontStacks,
   encodeFontStack,
   glyphUrlTransforms,
   inspectMapStyle,
+  isOfflineFallbackStyle,
   resolveMapStyleUrl,
   restyleForRetry,
   __resetMapStyleWarningsForTests,
@@ -191,6 +193,32 @@ describe('map-style glyph helpers', () => {
     // to an already-encoded URL is a no-op, so the pipeline cannot double
     // encode (`%2520`).
     assert.equal('Noto%20Sans%20Regular'.replace('Noto Sans Regular', 'x'), 'Noto%20Sans%20Regular');
+  });
+});
+
+describe('the bundled offline fallback style (R3)', () => {
+  it('is a version-8 style with a background layer and no sources', () => {
+    assert.equal(OFFLINE_FALLBACK_MAP_STYLE.version, 8);
+    assert.deepEqual(OFFLINE_FALLBACK_MAP_STYLE.sources, {});
+    assert.equal(OFFLINE_FALLBACK_MAP_STYLE.layers.length, 1);
+    assert.equal(OFFLINE_FALLBACK_MAP_STYLE.layers[0].type, 'background');
+  });
+
+  it('references no network at all — a fallback that needs one is not a fallback', () => {
+    const serialised = JSON.stringify(OFFLINE_FALLBACK_MAP_STYLE);
+    assert.equal(serialised.includes('http'), false, 'no URL of any kind in the fallback');
+    assert.equal(serialised.includes('glyphs'), false, 'no glyph template to fetch');
+    assert.equal(serialised.includes('sprite'), false, 'no sprite sheet to fetch');
+  });
+
+  it('is frozen and identified by reference', () => {
+    assert.ok(Object.isFrozen(OFFLINE_FALLBACK_MAP_STYLE));
+    assert.equal(isOfflineFallbackStyle(OFFLINE_FALLBACK_MAP_STYLE), true);
+    assert.equal(
+      isOfflineFallbackStyle(JSON.parse(JSON.stringify(OFFLINE_FALLBACK_MAP_STYLE))),
+      false,
+      'a copy with the same content is not THE fallback — identity is the signal',
+    );
   });
 });
 
