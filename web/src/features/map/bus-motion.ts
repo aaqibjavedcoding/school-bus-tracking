@@ -52,8 +52,14 @@ export const MOTION_THRESHOLDS = {
    */
   headingMinDisplacementM: 12,
 
-  /** Jitter gate floor/ceiling, and the accuracy-derived term between them. */
-  jitterMinM: 2,
+  /**
+   * Jitter gate floor/ceiling, and the accuracy-derived term between them.
+   *
+   * The floor is 8 m, kept identical to the mobile copy (`mobile/src/features/
+   * map/bus-motion.ts`, deep-fix R4): a few metres of GPS wander between fixes
+   * is noise and must not move the marker on either platform.
+   */
+  jitterMinM: 8,
   jitterMaxM: 30,
   jitterAccuracyFactor: 0.5,
 
@@ -164,10 +170,11 @@ export function easeInOutCubic(t: number): number {
  *
  * Half the accuracy radius: a fix is only believed to have *moved* the bus when
  * it moved further than the noise the device itself is reporting. Clamped to
- * 2 m (a good fix under 4 m accuracy still deserves to move the bus) and 30 m
- * (a very coarse fix must not freeze the bus for hundreds of metres — past
- * that we would be hiding real movement, which this module must never do).
- * `null` accuracy is treated as the floor, not as infinite noise.
+ * 8 m (the R4 damping floor — consumer GPS wander of a few metres is noise,
+ * and drawing it was the zig-zag) and 30 m (a very coarse fix must not freeze
+ * the bus for hundreds of metres — past that we would be hiding real movement,
+ * which this module must never do). `null` accuracy is treated as the floor,
+ * not as infinite noise.
  */
 export function jitterThresholdMeters(accuracyMeters: number | null | undefined): number {
   const { jitterAccuracyFactor, jitterMinM, jitterMaxM } = MOTION_THRESHOLDS;

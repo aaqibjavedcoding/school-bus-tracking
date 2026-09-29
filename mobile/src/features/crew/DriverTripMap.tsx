@@ -47,6 +47,7 @@ import { MapIssueLines } from '../map/map-issue-lines';
 import { useMapStyle } from '../map/use-map-style';
 import { mapSurfaceMode } from '../map/map-surface-mode';
 import { NeedsDevBuildPanel } from '../map/needs-dev-build-panel';
+import type { RouteSnapPoint } from '../map/route-snap.ts';
 import type { RenderedMarker } from '../map/useBusMarkerMotion';
 import { driverFollowControls } from '../map/map-controls.ts';
 import { useFollowCamera } from '../map/useFollowCamera';
@@ -226,6 +227,8 @@ const PLANNED_PAINT = {
 interface SurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
   routeLineFeature: Feature<LineString> | null;
+  /** The stops in order — the marker's display-only snap target (R4). */
+  route: readonly RouteSnapPoint[];
   trailFeature: Feature<LineString> | null;
   plannedFeature: Feature<LineString> | null;
   accuracyCircleFeature: Feature<Polygon> | null;
@@ -266,6 +269,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
   ({
     stops,
     routeLineFeature,
+    route,
     trailFeature,
     plannedFeature,
     accuracyCircleFeature,
@@ -424,6 +428,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
           tripId={tripId}
           reducedMotion={reducedMotion}
           animate={animate}
+          route={route}
           title={busTitle}
           description={busDescription}
           onFrame={onFrame}
@@ -639,6 +644,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     <DriverMapSurface
       stops={locatedStops}
       routeLineFeature={routeLineFeature}
+      route={routeCoordinates}
       trailFeature={trailFeature}
       plannedFeature={plannedFeature}
       accuracyCircleFeature={accuracyCircleFeature}

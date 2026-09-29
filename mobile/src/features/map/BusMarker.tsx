@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { ViewAnnotation, type ViewAnnotationRef } from '@maplibre/maplibre-react-native';
 import { BUS_MARKER_ROTATION_BOX, BusMarkerGraphic } from './BusMarkerGraphic';
 import { useBusMarkerMotion, type RenderedMarker } from './useBusMarkerMotion';
+import { createRouteSnapper, type RouteSnapPoint } from './route-snap.ts';
 import type { BusMotionFix } from './bus-motion.ts';
 
 /**
@@ -44,6 +45,15 @@ export interface BusMarkerProps {
   tripId: string | null;
   reducedMotion: boolean;
   animate: boolean;
+  /**
+   * The drawn route polyline (stops in order — the same coordinates the map
+   * draws its dashed line from). The marker's accepted fixes are projected
+   * onto it for DISPLAY, which is the R4 lateral zig-zag fix: the bus tracks
+   * the line it drives instead of redrawing every metre of GPS noise. The
+   * raw `fix` is untouched, and off-route fixes (detour, depot) are drawn
+   * raw — `route-snap.ts` owns both rules.
+   */
+  route?: readonly RouteSnapPoint[] | null;
   title: string;
   description: string;
   onFrame?: (marker: RenderedMarker) => void;
@@ -54,11 +64,25 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
   tripId,
   reducedMotion,
   animate,
+  route = null,
   title,
   description,
   onFrame,
 }) => {
-  const marker = useBusMarkerMotion({ fix, tripId, reducedMotion, animate, onFrame });
+  // One snapper per stops list: projecting is pure math, so the memo is on
+  // the route identity and costs nothing between fixes.
+  const snapToRoute = useMemo(
+    () => (route !== null && route.length >= 2 ? createRouteSnapper(route) : null),
+    [route],
+  );
+  const marker = useBusMarkerMotion({
+    fix,
+    tripId,
+    reducedMotion,
+    animate,
+    snapToRoute,
+    onFrame,
+  });
   const annotationRef = useRef<ViewAnnotationRef | null>(null);
   // The effect must not "refresh" on the very first commit: the initial
   // bitmap is captured by the layout listener when the map adds the

@@ -20,9 +20,9 @@ import { bearingDegrees, haversineMeters } from '../../lib/geo.ts';
  * ### What this module is NOT
  *
  * **It never produces tracking data.** Its output is a pixel-position input for
- * a marker. Interpolated coordinates must never be written into history, ETA,
- * attendance, notifications or any payload — those keep consuming the raw fix.
- * It also:
+ * a marker. Interpolated — and R4 *projected* — coordinates must never be
+ * written into history, ETA, attendance, notifications or any payload — those
+ * keep consuming the raw fix. It also:
  *
  * - never invents a fix (no dead reckoning, no "the bus is probably still
  *   going this way" extrapolation past the last received fix — the animation
@@ -30,6 +30,10 @@ import { bearingDegrees, haversineMeters } from '../../lib/geo.ts';
  * - is **not road matching**. Two sparse GPS points are joined by a straight
  *   line, so on a bend the bus visibly cuts the corner. That is a property of
  *   the data, not a bug in this module; `docs/live-tracking-map.md` says so.
+ *   The R4 `snapToRoute` port narrows that only for *lateral display damp*:
+ *   an accepted fix may be drawn projected onto the drawn route line
+ *   (`route-snap.ts`), never farther than the line's honesty bound allows —
+ *   and only the marker sees the projected coordinate.
  */
 
 // ── Thresholds (centralised, documented) ───────────────────────────────────
@@ -51,8 +55,17 @@ export const MOTION_THRESHOLDS = {
    */
   headingMinDisplacementM: 12,
 
-  /** Jitter gate floor/ceiling, and the accuracy-derived term between them. */
-  jitterMinM: 2,
+  /**
+   * Jitter gate floor/ceiling, and the accuracy-derived term between them.
+   *
+   * The floor is 8 m (deep-fix R4): consumer GPS at a standstill wanders a
+   * few metres between fixes, and any fix inside `max(jitterMinM, accuracy ×
+   * jitterAccuracyFactor)` of the anchor is noise that must not move the
+   * marker at all. 8 m sits above the ordinary noise band and far below any
+   * real driving move (a bus at 20 km/h covers ~22 m per 4 s fix), so held
+   * fixes pile up at the anchor instead of drawing a zig-zag.
+   */
+  jitterMinM: 8,
   jitterMaxM: 30,
   jitterAccuracyFactor: 0.5,
 
@@ -163,10 +176,11 @@ export function easeInOutCubic(t: number): number {
  *
  * Half the accuracy radius: a fix is only believed to have *moved* the bus when
  * it moved further than the noise the device itself is reporting. Clamped to
- * 2 m (a good fix under 4 m accuracy still deserves to move the bus) and 30 m
- * (a very coarse fix must not freeze the bus for hundreds of metres — past
- * that we would be hiding real movement, which this module must never do).
- * `null` accuracy is treated as the floor, not as infinite noise.
+ * 8 m (the R4 damping floor in `MOTION_THRESHOLDS.jitterMinM` — a good fix
+ * still sees GPS wander of a few metres, and drawing it was the zig-zag) and
+ * 30 m (a very coarse fix must not freeze the bus for hundreds of metres —
+ * past that we would be hiding real movement, which this module must never
+ * do). `null` accuracy is treated as the floor, not as infinite noise.
  */
 export function jitterThresholdMeters(accuracyMeters: number | null | undefined): number {
   const { jitterAccuracyFactor, jitterMinM, jitterMaxM } = MOTION_THRESHOLDS;
@@ -276,9 +290,30 @@ export type BusMotionOutcome =
       reason: 'invalid-coordinate' | 'invalid-timestamp' | 'duplicate-or-out-of-order';
     };
 
+export interface BusMotionPoint {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * The display-only snap-to-route port (deep-fix R4): accepted fix in,
+ * projected display position out — or `null` for "leave the raw fix alone"
+ * (off-route, no route yet). Implemented by `route-snap.ts`; injected here so
+ * this module stays free of route geometry and the whole behaviour is
+ * spec-able with a one-line fake.
+ *
+ * **Presentation only.** The projected point is what the marker draws (and
+ * what the heading derives from). The jitter gate, the gap/jump plausibility
+ * checks, the dedup clock and `RenderedBusPosition.source` all keep reading
+ * the RAW fix — projected coordinates never feed tracking data back.
+ */
+export type SnapToRoutePort = (point: BusMotionPoint) => BusMotionPoint | null;
+
 export interface BusMotionOptions {
   /** Skip tweening entirely: positions snap. Used for reduced-motion. */
   reducedMotion?: boolean;
+  /** Display-only route snap (see `SnapToRoutePort`). Defaults to none. */
+  snapToRoute?: SnapToRoutePort | null;
   thresholds?: Partial<typeof MOTION_THRESHOLDS>;
 }
 
@@ -308,10 +343,23 @@ export function createBusMotion(options: BusMotionOptions = {}) {
   /** Mutable so a mid-session OS preference change can be applied in place. */
   const reducedMotionRef = { current: options.reducedMotion === true };
 
+  /**
+   * The display-only route projection (`route-snap.ts`). Owned here because
+   * the route arrives (and changes) independently of fixes; `setSnapToRoute`
+   * is how the hook hands it over.
+   */
+  let snapToRoute: SnapToRoutePort | null = options.snapToRoute ?? null;
+
   /** Last fix we accepted, whatever we decided to do with it visually. */
   let lastRecordedMs: number | null = null;
-  /** Last position we committed the marker to (the jitter anchor). */
+  /** Last RAW position we committed the marker to (the jitter anchor). */
   let anchor: { latitude: number; longitude: number } | null = null;
+  /**
+   * Last DISPLAY position we committed (the projected twin of `anchor` — the
+   * two diverge when `snapToRoute` is active; heading derives between these,
+   * so a turn in the rendered path is a turn in the drawn route).
+   */
+  let displayAnchor: { latitude: number; longitude: number } | null = null;
   /** Where the marker actually is right now. */
   let rendered: { latitude: number; longitude: number } | null = null;
   let headingDeg: number | null = null;
@@ -371,6 +419,13 @@ export function createBusMotion(options: BusMotionOptions = {}) {
       recordedAtMs: recordedMs,
     };
 
+    // The display twin of `next`: projected onto the drawn route line when
+    // the snap port has an honest answer for it (`route-snap.ts` declines
+    // off-route fixes), otherwise the raw fix itself. Everything that reports
+    // or decides — the jitter gate, the gap/jump checks, `source` — keeps
+    // using `next`; only what is DRAWN uses `display`.
+    const display = snapToRoute === null ? next : (snapToRoute(next) ?? next);
+
     const first = rendered === null || anchor === null;
     const distanceMeters =
       anchor === null
@@ -384,11 +439,12 @@ export function createBusMotion(options: BusMotionOptions = {}) {
         heading: fix.heading,
         speedKmh: source.speed,
         from: null,
-        to: next,
+        to: display,
         previous: null,
       });
       anchor = next;
-      rendered = next;
+      displayAnchor = display;
+      rendered = display;
       tween = null;
       return { action: 'snapped', reason: 'first-fix', distanceMeters: 0 };
     }
@@ -404,22 +460,22 @@ export function createBusMotion(options: BusMotionOptions = {}) {
     const nextHeading = resolveHeading({
       heading: fix.heading,
       speedKmh: source.speed,
-      from: anchor,
-      to: next,
+      from: displayAnchor,
+      to: display,
       previous: headingDeg,
     });
 
     // 3. Long gap: snap. Animating a minutes-old-to-now jump would show the bus
     //    racing, and would keep it animating long after the trip moved on.
     if (gapMs !== null && gapMs > th.gapSnapMs) {
-      return commitSnap(next, nextHeading, 'long-gap', distanceMeters);
+      return commitSnap(next, display, nextHeading, 'long-gap', distanceMeters);
     }
 
     // 4. Implausible jump for the elapsed time: snap rather than race.
     if (gapMs !== null && gapMs > 0) {
       const impliedMps = distanceMeters / (gapMs / 1000);
       if (impliedMps > th.maxPlausibleSpeedMps) {
-        return commitSnap(next, nextHeading, 'implausible-jump', distanceMeters);
+        return commitSnap(next, display, nextHeading, 'implausible-jump', distanceMeters);
       }
     }
 
@@ -428,12 +484,12 @@ export function createBusMotion(options: BusMotionOptions = {}) {
     //    would be worse than a jump — `sample` refuses to advance a tween while
     //    halted, so the frame loop would spin on a position that never moves.
     if (halted) {
-      return commitSnap(next, nextHeading, 'halted', distanceMeters);
+      return commitSnap(next, display, nextHeading, 'halted', distanceMeters);
     }
 
     // 6. Reduced motion: the same destination, no travel animation.
     if (reducedMotionRef.current) {
-      return commitSnap(next, nextHeading, 'reduced-motion', distanceMeters);
+      return commitSnap(next, display, nextHeading, 'reduced-motion', distanceMeters);
     }
 
     // 7. Normal case: tween from wherever the marker currently is on screen.
@@ -441,8 +497,8 @@ export function createBusMotion(options: BusMotionOptions = {}) {
     tween = {
       fromLat: rendered!.latitude,
       fromLng: rendered!.longitude,
-      toLat: next.latitude,
-      toLng: next.longitude,
+      toLat: display.latitude,
+      toLng: display.longitude,
       fromHeading: headingDeg,
       toHeading: nextHeading,
       startMs: nowMs,
@@ -450,18 +506,21 @@ export function createBusMotion(options: BusMotionOptions = {}) {
     };
     headingDeg = nextHeading;
     anchor = next;
+    displayAnchor = display;
     return { action: 'animated', distanceMeters, durationMs };
   }
 
   function commitSnap(
     next: { latitude: number; longitude: number },
+    display: { latitude: number; longitude: number },
     nextHeading: number | null,
     reason: 'long-gap' | 'implausible-jump' | 'reduced-motion' | 'halted',
     distanceMeters: number,
   ): BusMotionOutcome {
     tween = null;
     anchor = next;
-    rendered = next;
+    displayAnchor = display;
+    rendered = display;
     headingDeg = nextHeading;
     return { action: 'snapped', reason, distanceMeters };
   }
@@ -527,12 +586,25 @@ export function createBusMotion(options: BusMotionOptions = {}) {
   }
 
   /**
+   * Replaces (or removes) the display-only route projection. Called when the
+   * stops list loads or changes; the projector applies from the next fix —
+   * the current rendered position is left alone (a marker never moves except
+   * in response to a fix), and the coming fix glides onto the line.
+   */
+  function setSnapToRoute(next: SnapToRoutePort | null): void {
+    snapToRoute = next;
+  }
+
+  /**
    * Drops everything: trip switch, logout, unmount, or a foreground resume that
    * must reconcile with current data rather than replay missed movement.
+   * The snap port survives: it is route geometry (the new trip's hook sets
+   * its own right after), not position state.
    */
   function reset(): void {
     lastRecordedMs = null;
     anchor = null;
+    displayAnchor = null;
     rendered = null;
     headingDeg = null;
     tween = null;
@@ -565,6 +637,7 @@ export function createBusMotion(options: BusMotionOptions = {}) {
     reset,
     cancelAnimation,
     setReducedMotion,
+    setSnapToRoute,
     isAnimating,
     cadence,
   };

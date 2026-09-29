@@ -29,6 +29,7 @@ import { MapIssueLines } from './map-issue-lines';
 import { useMapStyle } from './use-map-style';
 import { mapSurfaceMode } from './map-surface-mode';
 import { NeedsDevBuildPanel } from './needs-dev-build-panel';
+import type { RouteSnapPoint } from './route-snap.ts';
 import type { RenderedMarker } from './useBusMarkerMotion';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
@@ -132,6 +133,8 @@ const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
 interface MapSurfaceProps {
   stops: Array<StopResponse & { latitude: number; longitude: number }>;
   routeLineFeature: Feature<LineString> | null;
+  /** The stops in order — the marker's display-only snap target (R4). */
+  route: readonly RouteSnapPoint[];
   accuracyCircleFeature: Feature<Polygon> | null;
   initialCamera: InitialViewState | null;
   fix: LiveFix | null;
@@ -167,6 +170,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
   ({
     stops,
     routeLineFeature,
+    route,
     accuracyCircleFeature,
     initialCamera,
     fix,
@@ -280,6 +284,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
           tripId={tripId}
           reducedMotion={reducedMotion}
           animate={animate}
+          route={route}
           title={busTitle}
           description={busDescription}
           onFrame={onFrame}
@@ -474,6 +479,7 @@ export const BusMap: React.FC<BusMapProps> = ({
           <MapSurface
             stops={locatedStops}
             routeLineFeature={routeLineFeature}
+            route={routeCoordinates}
             accuracyCircleFeature={accuracyCircleFeature}
             initialCamera={initialCamera}
             fix={fix}

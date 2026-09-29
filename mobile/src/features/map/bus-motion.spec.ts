@@ -33,6 +33,8 @@ const iso = (offsetMs: number): string => new Date(T0 + offsetMs).toISOString();
 
 /** One metre of latitude, in degrees — enough to build fixtures by hand. */
 const ONE_METER_LAT = 1 / 111_320;
+/** One metre of longitude, in degrees, at the fixture latitude (~18.5° N). */
+const ONE_METER_LNG = 1 / (111_320 * Math.cos((18.5 * Math.PI) / 180));
 
 function fixAt(
   metresNorth: number,
@@ -190,9 +192,23 @@ describe('derived thresholds', () => {
     assert.equal(jitterThresholdMeters(undefined), MOTION_THRESHOLDS.jitterMinM);
     assert.equal(jitterThresholdMeters(-5), MOTION_THRESHOLDS.jitterMinM);
     assert.equal(jitterThresholdMeters(0), MOTION_THRESHOLDS.jitterMinM);
-    assert.equal(jitterThresholdMeters(8), 4);
+    // The R4 damping floor: max(8, accuracy × 0.5) — 8 × 0.5 = 4 < 8, so the
+    // floor holds; the 2 m walk a good fix reports is still noise.
+    assert.equal(jitterThresholdMeters(8), 8);
     assert.equal(jitterThresholdMeters(20), 10);
     assert.equal(jitterThresholdMeters(1_000), MOTION_THRESHOLDS.jitterMaxM);
+  });
+
+  it('floors the damping at 8 m (R4): a few metres of wander must not move the marker', () => {
+    assert.equal(MOTION_THRESHOLDS.jitterMinM, 8);
+    assert.ok(
+      MOTION_THRESHOLDS.jitterMinM > 5,
+      'the ordinary standstill noise band must stay inside the gate',
+    );
+    assert.ok(
+      MOTION_THRESHOLDS.jitterMinM < 22,
+      'a real driving move (20 km/h for one 4 s fix) must stay outside the gate',
+    );
   });
 
   it('never clamps the jitter gate high enough to hide real movement', () => {
@@ -310,7 +326,7 @@ describe('bus motion: jitter, noise and slow movement', () => {
       );
       if (outcome.action === 'animated') moved = true;
     }
-    assert.ok(moved, 'a 3 m/fix creep past a 2 m gate must eventually move the bus');
+    assert.ok(moved, 'a 3 m/fix creep past an 8 m gate must eventually move the bus');
   });
 
   it('keeps advancing the freshness clock while holding a jitter fix', () => {
@@ -329,6 +345,109 @@ describe('bus motion: jitter, noise and slow movement', () => {
     assert.equal(mid.source.accuracy, 7);
     assert.equal(mid.source.latitude, 18.5 + 100 * ONE_METER_LAT);
     assert.notEqual(mid.latitude, mid.source.latitude, 'rendered position is interpolated');
+  });
+});
+
+describe('bus motion: snap-to-route display (R4)', () => {
+  /**
+   * The fixtures model the field defect: the bus drives due north along
+   * lng 73.85 while its GPS wanders ±6 m sideways. The display must stay on
+   * the line; the raw fix must stay raw everywhere data reads it.
+   */
+  const LINE_LNG = 73.85;
+
+  function fixZig(
+    metresNorth: number,
+    metresEast: number,
+    recordedOffsetMs: number,
+    extra: Partial<BusMotionFix> = {},
+  ): BusMotionFix {
+    return fixAt(metresNorth, recordedOffsetMs, {
+      longitude: LINE_LNG + metresEast * ONE_METER_LNG,
+      ...extra,
+    });
+  }
+
+  /** Snaps every fix back onto the north line (the fake route-snap port). */
+  const snapToLine = (point: { latitude: number; longitude: number }) =>
+    point.longitude - LINE_LNG > 200 * ONE_METER_LNG
+      ? null // genuinely off the route: leave the raw fix alone
+      : { latitude: point.latitude, longitude: LINE_LNG };
+
+  it('draws the first fix on the line, not where the wobble said', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    motion.push(fixZig(0, 30, 0), T0);
+    const rendered = motion.sample(T0)!;
+    assert.equal(rendered.longitude, LINE_LNG);
+    assert.equal(rendered.source.longitude, LINE_LNG + 30 * ONE_METER_LNG, 'source stays raw');
+  });
+
+  it('keeps a zig-zag stream on the line across tweens, never drawing the wobble', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    motion.push(fixZig(0, -6, 0, { accuracy: 10 }), T0);
+    let previousNorth = motion.sample(T0)!.latitude;
+    for (let step = 1; step <= 8; step += 1) {
+      const east = step % 2 === 0 ? -6 : 6;
+      const outcome = motion.push(fixZig(step * 40, east, step * 4_000, { accuracy: 10 }), T0 + step * 4_000);
+      assert.equal(outcome.action, 'animated', 'the lateral wobble is damped, not held');
+      const rendered = motion.sample(T0 + step * 4_000 + 4_000)!;
+      assert.equal(rendered.longitude, LINE_LNG, `step ${step}: on the road line`);
+      assert.ok(rendered.latitude > previousNorth, `step ${step}: still going north`);
+      assert.equal(
+        rendered.source.longitude,
+        LINE_LNG + east * ONE_METER_LNG,
+        'the raw fix stays raw for everything that reports',
+      );
+      previousNorth = rendered.latitude;
+    }
+  });
+
+  it('draws raw when the snap port declines — a bus off the route is the truth', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    motion.push(fixZig(0, 0, 0), T0);
+    motion.push(fixZig(40, 250, 4_000), T0 + 4_000);
+    const rendered = motion.sample(T0 + 8_000)!;
+    assert.equal(rendered.longitude, LINE_LNG + 250 * ONE_METER_LNG);
+  });
+
+  it('points along the road, not along the wobble', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    // No trustworthy device heading: the bearing must derive between the two
+    // PROJECTED positions (due north), not between the two raw zig points.
+    motion.push(fixZig(0, -6, 0, { speed: null, heading: null }), T0);
+    motion.push(fixZig(40, 6, 4_000, { speed: null, heading: null }), T0 + 4_000);
+    assert.equal(motion.sample(T0 + 8_000)!.headingDeg, 0);
+  });
+
+  it('still holds a stopped bus inside the jitter gate when snapping', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    motion.push(fixZig(0, 0, 0, { accuracy: 20 }), T0);
+    // 5 m of noise with a 10 m gate: held — parked means parked, on the line.
+    const outcome = motion.push(fixZig(0, 5, 4_000, { accuracy: 20 }), T0 + 4_000);
+    assert.deepEqual(outcome.action, 'held');
+    const rendered = motion.sample(T0 + 4_000)!;
+    assert.equal(rendered.latitude, 18.5);
+    assert.equal(rendered.longitude, LINE_LNG);
+  });
+
+  it('applies the port only from the fix after it is set', () => {
+    const motion = createBusMotion();
+    motion.push(fixZig(0, 8, 0), T0);
+    assert.notEqual(motion.sample(T0)!.longitude, LINE_LNG, 'no port yet: raw first fix');
+    motion.setSnapToRoute(snapToLine);
+    motion.push(fixZig(40, 8, 4_000), T0 + 4_000);
+    assert.equal(motion.sample(T0 + 8_000)!.longitude, LINE_LNG, 'glides onto the line');
+    motion.setSnapToRoute(null);
+    motion.push(fixZig(80, 8, 8_000), T0 + 8_000);
+    assert.notEqual(motion.sample(T0 + 12_000)!.longitude, LINE_LNG, 'port removed: raw again');
+  });
+
+  it('survives reset with the port intact (trip state dies, the route lives in the hook)', () => {
+    const motion = createBusMotion({ snapToRoute: snapToLine });
+    motion.push(fixZig(0, 4, 0), T0);
+    motion.reset();
+    motion.push(fixZig(0, 30, 4_000), T0 + 4_000);
+    assert.equal(motion.sample(T0 + 4_000)!.longitude, LINE_LNG);
   });
 });
 
@@ -642,7 +761,7 @@ describe('shared thresholds are pinned identically on both platforms', () => {
       {
         headingMinSpeedKmh: 3,
         headingMinDisplacementM: 12,
-        jitterMinM: 2,
+        jitterMinM: 8,
         jitterMaxM: 30,
         jitterAccuracyFactor: 0.5,
         animationCadenceFactor: 0.8,

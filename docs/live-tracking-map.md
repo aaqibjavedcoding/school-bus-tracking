@@ -142,7 +142,8 @@ One **pure state machine** decides what to draw; each platform only renders it.
 
 | Module                                                                                                | Responsibility                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate, heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. **Pure, clock-injected, no React.** |
+| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate (floor 8 m, R4), heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. The mobile copy additionally takes the display-only `snapToRoute` port (below). **Pure, clock-injected, no React.** |
+| `mobile/src/features/map/route-snap.ts`                                                             | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
 | `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                         |
 | `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                             |
 | `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                         |
@@ -161,10 +162,13 @@ One **pure state machine** decides what to draw; each platform only renders it.
 `bus-motion.ts` and `follow-camera.ts` are **mirrored** between `mobile/` and
 `web/` rather than shared through a package, because that is how this repository
 already handles client libraries (`src/lib/format.ts`, `errors.ts`, `roles.ts`,
-`api-cache.ts`, `socket-auth.ts` all exist in both apps). The two copies differ
-only in their geodesy import, and both suites pin the identical threshold values
-so a one-sided edit fails a test rather than shipping two buses that move
-differently.
+`api-cache.ts`, `socket-auth.ts` all exist in both apps). Both suites pin the
+identical threshold values (including the R4 `jitterMinM = 8` floor) so a
+one-sided edit fails a test rather than shipping two buses that move
+differently. The **one deliberate divergence**: the mobile copy carries the
+extra display-only `snapToRoute` port (R4 fixed the zig-zag there, where the
+field report came from); the web copy has none yet, and gains it when the
+console's map asks for it — the shared thresholds stay pinned either way.
 
 The pure/adapter split is deliberate: everything that decides _what to draw_ is
 runtime-free and unit-tested; only the thin platform adapters touch
@@ -318,6 +322,34 @@ written into tracking history, ETA, attendance, notifications or any payload —
 `RenderedBusPosition.source` carries the raw, unmodified values for anything
 that reports speed, accuracy or "last updated".
 
+### Lateral damp and snap-to-route (deep-fix R4)
+
+GPS at its ordinary precision wanders a few metres sideways between fixes, and
+drawing that faithfully was the field-visible zig-zag. Two layers now stop it:
+
+1. **Damping floor 8 m** — an accepted fix inside
+   `max(8 m, accuracy × 0.5)` of the anchor is noise: the marker holds still
+   (a parked bus stays parked; the freshness clock still advances, so "last
+   updated" keeps telling the truth).
+2. **Snap-to-route for display** — a fix that clears the gate is projected
+   onto the **drawn route polyline** (nearest segment, great-circle
+   cross-track math, `route-snap.ts`) and the tween targets the *projected*
+   point, so lateral noise on a straight road disappears into the line the
+   bus is visibly following. The derived heading reads between *projected*
+   positions, so the nose points along the road, not along the wobble.
+
+The honesty rules are the same as interpolation's, stated once:
+
+- **projected coordinates are presentation only** — never written into
+  history, ETA, arrivals, attendance or notifications (the tween and the
+  projection both live inside the marker; `source` keeps the raw fix);
+- **bounded** — a fix farther than `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m) from
+  the route is drawn **raw**: a bus genuinely off the planned legs (detour,
+  depot) must not be glued to the line;
+- **the line is the drawn line, not a road claim** — the polyline connects
+  the stops in planned order and is already labelled "planned stop order —
+  not the road route"; snapping the marker to it does not turn it into one.
+
 Frames are capped at `FRAME_MIN_INTERVAL_MS = 50` (~20 fps), shared by both
 platforms. A bus at 40 km/h covers about half a metre in 50 ms, which is
 sub-pixel at tracking-card zoom.
@@ -367,7 +399,7 @@ All centralised in `MOTION_THRESHOLDS` and pinned by tests in both workspaces.
 | ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `headingMinSpeedKmh`                                 | 3                    | Below walking-pace-plus, a GPS course is Doppler noise inside the accuracy circle. It also covers the one unavailable-heading case that cannot be fixed at the source: Android's `Location.getBearing()` returns `0.0` when the fix has no bearing, and expo-location does not export `hasBearing()`, so that `0` is indistinguishable in JS from a true north course. Session 2 removed the _other_ case — iOS's `-1` is now omitted instead of uploaded as `359` (see limitations). |
 | `headingMinDisplacementM`                            | 12                   | Below this, `atan2` over two points inside one accuracy circle can swing 180° between fixes — a parked bus visibly spinning.                                                                                                                                                                                                                                                                                                                                                          |
-| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 2 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped. The floor lets a good fix move the bus; the **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                        |
+| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 8 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped to `max(8, accuracy × 0.5)`. The floor is the R4 damping bound: GPS wander of a few metres between fixes is noise and must not move the marker (a bus at 20 km/h covers ~22 m per fix, safely outside). The **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                                   |
 | `animationCadenceFactor`                             | 0.8                  | Tween = 0.8 × observed cadence, leaving ~20 % headroom so a slightly late fix does not arrive mid-tween. The old hardcoded 900 ms against a 2.5–4 s cadence is what made the web bus lurch and then sit.                                                                                                                                                                                                                                                                              |
 | `animationMinMs` / `animationMaxMs`                  | 500 / 3000           | Floor: below a couple of frames a tween just flickers. Ceiling: bounds how far the marker can lag behind the newest real fix.                                                                                                                                                                                                                                                                                                                                                         |
 | `gapSnapMs`                                          | 45 000               | >10× the nominal cadence (device watch 4 s, server throttle floor 2.5 s), so a genuine cadence can never trip it.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -700,10 +732,13 @@ app-wide floor.
 
 ## Known limitations
 
-1. **There is no road matching, and none is planned for this scope.** Two sparse
-   GPS points are joined by a straight line, so on a bend the bus visibly cuts
-   the corner, and on a hairpin it can briefly appear to drive through
-   buildings. That is a property of the data.
+1. **There is no road matching, and none is planned for this scope.** Two
+   sparse GPS points are joined by a straight line in the tween, so on a
+   hairpin the bus can still briefly appear to cut a corner. The R4
+   snap-to-route is a *display damp onto the drawn planned line*, not road
+   matching: it bounds itself to 60 m of that line, leaves off-route fixes
+   raw, and its coordinates never reach tracking data (see "Lateral damp and
+   snap-to-route").
 2. **The dashed line between stops is not a route.** It connects stop
    coordinates in sequence. It is not road-calculated and not the path the bus
    drove. The map says so (`map.routeNotice`).
@@ -778,13 +813,16 @@ if a step cannot be reproduced, say so rather than ticking it.
 **Straight road**
 
 - [ ] Bus glides between fixes instead of teleporting.
+- [ ] No lateral zig-zag between fixes: the marker tracks the drawn route
+      line instead of redrawing the GPS wander (R4).
 - [ ] Nose points along the direction of travel.
 - [ ] Marker stays the same screen size while zooming.
 
 **Turns**
 
 - [ ] Marker rotates through the short way (north-crossing turns included).
-- [ ] Marker visibly cuts the corner on a bend — this is expected, not a bug.
+- [ ] On a bend the rendered path hugs the drawn route line; a sharp corner
+      may be cut tightly mid-tween — this is expected, not a bug.
 
 **Bus stopped at a pickup**
 

@@ -238,6 +238,37 @@ describe('native bus map invariants', () => {
   });
 });
 
+describe('the marker tracks the drawn route line (R4)', () => {
+  const marker = read('src/features/map/BusMarker.tsx');
+
+  test('the marker builds one snapper per route and hands it to the motion machine', () => {
+    assert.match(marker, /createRouteSnapper\(route\)/, 'the port comes from route-snap.ts');
+    assert.match(marker, /snapToRoute,/, 'and reaches useBusMarkerMotion');
+  });
+
+  test('both native maps feed the marker the same polyline they draw', () => {
+    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
+      const source = read(file);
+      assert.match(
+        source,
+        /route=\{route\}/,
+        `${file}: the BusMarker must get the route for its display snap`,
+      );
+      assert.match(
+        source,
+        /route=\{routeCoordinates\}/,
+        `${file}: the surface's route IS the drawn stop-to-stop polyline`,
+      );
+    }
+  });
+
+  test('the hook applies the port to the machine, never to the fix', () => {
+    const hook = read('src/features/map/useBusMarkerMotion.ts');
+    assert.match(hook, /motion\.setSnapToRoute\(snapToRoute\)/);
+    assert.doesNotMatch(hook, /fix = fix && snapToRoute/, 'the raw fix must never be rewritten');
+  });
+});
+
 describe('frame updates stay off the screen render loop', () => {
   const hook = read('src/features/map/useBusMarkerMotion.ts');
 
