@@ -27,6 +27,170 @@ import {
 /** Matches the `BadgeTone` union of `components/ui` structurally. */
 export type MarketingTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
+// ------------------------------------------------------------------ template authoring
+
+/** The only variables that can be rendered by marketing delivery. */
+export const MARKETING_TEMPLATE_VARIABLES = [
+  { name: 'recipient_name', description: 'Contact name from the audience snapshot' },
+  { name: 'school_name', description: 'School name frozen when the campaign was scheduled' },
+  { name: 'campaign_url', description: 'Tracked link back to the platform' },
+  { name: 'unsubscribe_url', description: 'Per-recipient opt-out link' },
+  { name: 'current_year', description: 'Current year, for the copyright line' },
+] as const;
+
+export type MarketingTemplateVariableName = (typeof MARKETING_TEMPLATE_VARIABLES)[number]['name'];
+
+/** Safe sample values used only by the local authoring preview. */
+export const MARKETING_PREVIEW_VALUES: Readonly<Record<MarketingTemplateVariableName, string>> = {
+  recipient_name: 'Alex Morgan',
+  school_name: 'Pine Valley School',
+  campaign_url: 'https://app.zeromilesystems.com/campaigns/example',
+  unsubscribe_url: 'https://app.zeromilesystems.com/unsubscribe/sample-token',
+  current_year: String(new Date().getFullYear()),
+};
+
+const MARKETING_TEMPLATE_PLACEHOLDER_PATTERN = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g;
+const MARKETING_TEMPLATE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Replace known sample placeholders while leaving unknown tokens untouched. */
+export function substituteMarketingTemplateVariables(
+  text: string,
+  values: Readonly<Record<string, string>> = MARKETING_PREVIEW_VALUES,
+): string {
+  return text.replace(MARKETING_TEMPLATE_PLACEHOLDER_PATTERN, (match, name: string) => {
+    return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : match;
+  });
+}
+
+/** Convert a template name to the lowercase kebab-case slug the API accepts. */
+export function generateMarketingTemplateSlug(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80)
+    .replace(/-+$/g, '');
+}
+
+/** Client feedback that mirrors the server slug schema; the server remains authoritative. */
+export function validateMarketingTemplateSlug(slug: string): string | null {
+  const value = slug.trim();
+  if (!value) {
+    return 'Slug is required.';
+  }
+  if (value.length < 2) {
+    return 'Slug must be at least 2 characters.';
+  }
+  if (value.length > 80) {
+    return 'Slug must be at most 80 characters.';
+  }
+  if (!MARKETING_TEMPLATE_SLUG_PATTERN.test(value)) {
+    return 'Use lowercase letters, numbers and single dashes between words.';
+  }
+  return null;
+}
+
+/** The HTML body contains an unsubscribe anchor of its own (the server also adds a fallback). */
+export function hasMarketingUnsubscribeLink(html: string): boolean {
+  return /<a\b[^>]*href\s*=\s*["'][^"']*\{\{\s*unsubscribe_url\s*\}\}[^"']*["'][^>]*>/i.test(
+    html,
+  );
+}
+
+export interface MarketingTemplateStarterLayout {
+  id: 'announcement' | 'product-update' | 'plain-letter';
+  label: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+/** Small static presets for authors who want a safe starting shape, not a WYSIWYG. */
+export const MARKETING_STARTER_LAYOUTS: readonly MarketingTemplateStarterLayout[] = [
+  {
+    id: 'announcement',
+    label: 'Simple announcement',
+    subject: 'An announcement from {{school_name}}',
+    html: `<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #172033;">
+  <h1>News from {{school_name}}</h1>
+  <p>Hello {{recipient_name}},</p>
+  <p>We have a short announcement to share with you.</p>
+  <p><a href="{{campaign_url}}">Read the announcement</a></p>
+  <p style="font-size: 12px;"><a href="{{unsubscribe_url}}">Unsubscribe from marketing emails</a></p>
+  <p style="font-size: 12px;">&copy; {{current_year}} Zero Mile Systems</p>
+</div>`,
+    text: `Hello {{recipient_name}},
+
+News from {{school_name}}
+
+We have a short announcement to share with you.
+
+Read the announcement: {{campaign_url}}
+
+Unsubscribe: {{unsubscribe_url}}
+
+(c) {{current_year}} Zero Mile Systems`,
+  },
+  {
+    id: 'product-update',
+    label: 'Product update',
+    subject: 'What is new at Zero Mile Systems',
+    html: `<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #172033;">
+  <p>Hello {{recipient_name}},</p>
+  <h1>A quick product update</h1>
+  <p>Here are a few improvements now available for {{school_name}}:</p>
+  <ul>
+    <li>A clearer daily operations view</li>
+    <li>Faster updates for your team</li>
+    <li>More useful campaign links</li>
+  </ul>
+  <p><a href="{{campaign_url}}">See the details</a></p>
+  <p style="font-size: 12px;"><a href="{{unsubscribe_url}}">Unsubscribe from marketing emails</a></p>
+  <p style="font-size: 12px;">&copy; {{current_year}} Zero Mile Systems</p>
+</div>`,
+    text: `Hello {{recipient_name}},
+
+A quick product update for {{school_name}}
+
+- A clearer daily operations view
+- Faster updates for your team
+- More useful campaign links
+
+See the details: {{campaign_url}}
+
+Unsubscribe: {{unsubscribe_url}}
+
+(c) {{current_year}} Zero Mile Systems`,
+  },
+  {
+    id: 'plain-letter',
+    label: 'Plain letter',
+    subject: 'A note for {{school_name}}',
+    html: `<div style="font-family: Georgia, serif; line-height: 1.6; color: #172033;">
+  <p>Dear {{recipient_name}},</p>
+  <p>Thank you for being part of {{school_name}}. This note is intentionally simple so it reads well in every inbox.</p>
+  <p>Learn more at <a href="{{campaign_url}}">Zero Mile Systems</a>.</p>
+  <p>Warmly,<br />The Zero Mile Systems team</p>
+  <p style="font-size: 12px; font-family: Arial, sans-serif;"><a href="{{unsubscribe_url}}">Unsubscribe from marketing emails</a></p>
+  <p style="font-size: 12px; font-family: Arial, sans-serif;">&copy; {{current_year}} Zero Mile Systems</p>
+</div>`,
+    text: `Dear {{recipient_name}},
+
+Thank you for being part of {{school_name}}. This note is intentionally simple so it reads well in every inbox.
+
+Learn more at {{campaign_url}}.
+
+Warmly,
+The Zero Mile Systems team
+
+Unsubscribe: {{unsubscribe_url}}
+
+(c) {{current_year}} Zero Mile Systems`,
+  },
+];
+
 // ------------------------------------------------------------------ templates
 
 export function marketingTemplateStatusLabel(status: MarketingTemplateStatus): string {
@@ -150,9 +314,7 @@ export function marketingCampaignStatusTone(status: MarketingCampaignStatus): Ma
 
 /** Statuses in which the delivery worker may still claim recipients. */
 export function isCampaignActive(status: MarketingCampaignStatus): boolean {
-  return (
-    status === MarketingCampaignStatus.SCHEDULED || status === MarketingCampaignStatus.SENDING
-  );
+  return status === MarketingCampaignStatus.SCHEDULED || status === MarketingCampaignStatus.SENDING;
 }
 
 /** A campaign that can no longer change. */
@@ -287,10 +449,7 @@ export const MARKETING_DISPLAY_RATE_PER_MINUTE = 60;
  * and the reason for it — is the difference between a support ticket and an
  * informed wait.
  */
-export function describeGradualDelivery(
-  recipientCount: number,
-  ratePerMinute: number,
-): string {
+export function describeGradualDelivery(recipientCount: number, ratePerMinute: number): string {
   const rate = Math.max(1, Math.floor(ratePerMinute));
   const minutes = Math.max(1, Math.ceil(Math.max(0, recipientCount) / rate));
   const duration =
@@ -463,7 +622,6 @@ export function describeLeadEvent(event: {
   }
 }
 
-
 // --------------------------------------------------------------- suppressions
 
 export function marketingSuppressionReasonLabel(reason: MarketingSuppressionReason): string {
@@ -485,9 +643,7 @@ export function marketingSuppressionReasonLabel(reason: MarketingSuppressionReas
  * An unsubscribe is a person's instruction, not a failure: it reads as
  * neutral. A complaint is the one an operator should notice.
  */
-export function marketingSuppressionReasonTone(
-  reason: MarketingSuppressionReason,
-): MarketingTone {
+export function marketingSuppressionReasonTone(reason: MarketingSuppressionReason): MarketingTone {
   switch (reason) {
     case MarketingSuppressionReason.UNSUBSCRIBED:
       return 'info';
