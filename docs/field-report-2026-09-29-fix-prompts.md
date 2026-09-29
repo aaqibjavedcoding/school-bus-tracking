@@ -6,11 +6,16 @@ file paths, root cause, acceptance criteria sab andar hai.
 
 Background aur root-cause analysis: [`field-report-2026-09-29-analysis.md`](./field-report-2026-09-29-analysis.md)
 
-**Do decisions jo prompts chalane se pehle chahiye** (PR-3 aur PR-4 me lagenge):
+### Decisions — locked (30 Sep 2026)
 
-1. Admin ko trip ka **emergency status override** chahiye (chhupa hua, confirm ke
-   peeche) — ya bilkul nahi?
-2. **Conductor** ko live map read-only dikhna chahiye — ya driver-only hi rahe?
+Ye teen sawaal poochhe gaye the aur jawab prompts me bake kar diye gaye hain.
+Inhe dobara poochhne ki zarurat nahi:
+
+| Sawaal                            | Faisla                                                                                 | Kahan laga  |
+| --------------------------------- | -------------------------------------------------------------------------------------- | ----------- |
+| Arrival circle kitna bada?        | **Detection 25 m + display patli ring** — dono. Plus live distance + manual "mark arrived" | PR-4        |
+| Admin ko status override chahiye? | **Haan, par chhupa hua** — read-only timeline + collapsed override + confirm + audit    | PR-3        |
+| Conductor ko map dikhe?           | **Haan, read-only** — position dikhe, GPS sharing sirf driver ke phone se               | PR-5        |
 
 ---
 
@@ -186,6 +191,10 @@ Note: the API deliberately allows SCHOOL_ADMIN to PATCH /trips/:id/status
 (web/src/server/api/trips.ts:114, trips.service.ts:412) as a dispatcher override.
 Do NOT change the API contract in this PR.
 
+DECISION (locked by the product owner, 30 Sep 2026): the admin KEEPS an emergency
+override, but it must be hidden behind a disclosure + confirm dialog and recorded
+in the audit log. Do not remove SCHOOL_ADMIN from the endpoint's roles.
+
 REQUIRED
 1. Driver / conductor surfaces (web /crew page, mobile (crew)/trip.tsx) keep the
    large forward-only crew buttons exactly as they are.
@@ -232,6 +241,10 @@ CURRENT STATE (verified)
 - seeders (20260827120800) create stops at 100/120/150 m
 - The driver map draws exactly max(stored, 50) via
   mobile/src/features/crew/arrival-zone.ts:42,70 -> trip-map-geometry.ts:126
+
+DECISION (locked by the product owner, 30 Sep 2026): do BOTH halves below —
+lower the detection floor to 25 m AND change the drawing to a thin ring plus a
+live numeric distance. 5 m as a detection radius is explicitly rejected.
 
 Why 5 m cannot be the detection radius: a fix only counts toward a stop when
 `accuracy <= min(ARRIVAL_MAX_ACCURACY_METERS, effectiveRadius)`. Phone accuracy is
@@ -301,6 +314,19 @@ mobile/app/(parent)/tracking.tsx) is missing everything DriverTripMap.tsx has:
     which maplibre-runtime.spec.ts pins as required on Android
   - next-stop highlight and arrival zone
 
+DECISION (locked by the product owner, 30 Sep 2026): the CONDUCTOR must also get
+this map, READ-ONLY. Today mobile/app/(crew)/trip.tsx gates the map and the GPS
+strip behind `const isDriver = user?.role === UserRole.DRIVER` (line 133; blocks at
+502, 513, 536), so a conductor sees no map at all. Split that single gate into two:
+  - the map surface -> visible to DRIVER and CONDUCTOR,
+  - the GPS sharing strip, the location watcher, and every "start/stop sharing"
+    control -> DRIVER only, unchanged.
+A conductor therefore sees the bus, the stops, the next stop and the arrival ring,
+fed from the observer socket (useLiveTripTracking), and never starts a second GPS
+stream from their own phone. Make the conductor's map variant read-only: no no-fix
+CTA, no "your device" honesty line (it is not their device) — use the observer
+copy instead.
+
 On web, web/src/features/tracking/TripTracker.tsx forwards `mapControls` only from
 the crew console; web/src/app/(authenticated)/tracking/page.tsx and
 .../parent/tracking/page.tsx pass nothing, and web/src/features/map/MapViewInner.tsx
@@ -308,6 +334,10 @@ never adds a maplibregl NavigationControl / FullscreenControl / ScaleControl —
 NO web role gets zoom buttons or fullscreen.
 
 REQUIRED
+0. Implement the conductor read-only map described in the DECISION above, using
+   the same shared surface as everything else in this PR (variant `'observer'`).
+   A conductor's phone must still never start a location watcher — assert this
+   with a test.
 1. MOBILE: extract one `LiveMapSurface` component that owns the map body, the
    overlays and the controls, with a `variant: 'driver' | 'observer'` prop.
    Rewrite DriverTripMap and BusMap as thin wrappers over it. Do not fork the
@@ -333,6 +363,8 @@ ACCEPTANCE
   fullscreen — on web and on mobile.
 - Zooming never knocks the camera out of follow mode (same guarantee as the driver
   map; follow-camera-controller.spec.ts already pins this).
+- A conductor logging in sees the live map with the bus, and a test proves their
+  device never starts a location watcher.
 - No duplicated control policy: grep shows one definition of zoom step/bounds and
   one of the follow-control state machine.
 ```

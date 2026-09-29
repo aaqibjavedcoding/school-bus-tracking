@@ -18,7 +18,7 @@ copy-paste prompts alag file me hain:
 | 5  | Bus 2D aur basic hai, 3D + unique chahiye                    | Web = 5 rectangles ka SVG; mobile = flat top-down PNG; map me pitch/3D hai hi nahi         | `bus-marker-icon.ts:50`, `BusMarkerGraphic.tsx`                           | P1  | M/L    |
 | 6  | Trip create karte hi admin ko Boarding/Start dikha           | Admin trip page sabko crew ke lifecycle buttons dikhata hai, role gate nahi hai            | `trips/[id]/page.tsx:73`, `validation:1245`                               | P1  | S      |
 | 7  | Optimization, reuse, fast chahiye                            | web+mobile me ~2,500 lines duplicate map logic; N stops = N native annotations             | `web/src/features/map/*` ⇄ `mobile/src/features/map/*`                    | P2  | L      |
-| 8  | "Driver aur conductor role ke issue fix nahi hue"            | Conductor ko map/GPS dikhta hi nahi (`isDriver` gate) — design decision, bug nahi          | `app/(crew)/trip.tsx:502,513,536`                                         | ?   | —      |
+| 8  | "Driver aur conductor role ke issue fix nahi hue"            | Conductor ko map/GPS dikhta hi nahi (`isDriver` gate) → ab read-only map milega            | `app/(crew)/trip.tsx:133,502,513,536`                                    | P1  | S      |
 
 **Sabse pehle kya fix hona chahiye:** #2 (bus dikhe) → #3 (jhoota error band) →
 #6 (admin ko driver menu na dikhe) → #1 (circle) → #4 (admin/parent map) → #5
@@ -82,9 +82,11 @@ wahi confusion hai.
    `effective_radius_meters` API response me bhejna chahiye, taaki dono kabhi
    alag na ho sakein.
 
-> **Decision chahiye aapse:** circle chhota chahiye (25 m) ya sirf *dikhne me*
-> chhota chahiye (display fix, detection 50 m hi rahe)? Recommendation: **dono**
-> — 25 m detection + patli ring display.
+> **✅ Decided (30 Sep 2026): dono.** Detection floor 50 m → **25 m**, aur display
+> alag — patli dashed ring + stop pe precision dot + live distance readout. Saath
+> me manual "main yahin hoon, arrived mark karo" button promote hoga. 5 m
+> detection radius explicitly reject kiya gaya (phone GPS ke saath kaam nahi
+> karega).
 
 ---
 
@@ -354,8 +356,10 @@ bilkul nahi karna chahiye.
   aur `patchTripsByIdStatus` ke roles se `SCHOOL_ADMIN` nikaal do (Cancel alag
   endpoint pe already admin-only hai: `trips.ts:144`).
 
-> **Decision chahiye aapse:** admin ko emergency override *chahiye* ya bilkul
-> nahi? Recommendation: chahiye, par chhupa hua + confirm ke peeche.
+> **✅ Decided (30 Sep 2026): override rahega, par chhupa hua.** Admin page pe
+> read-only lifecycle timeline; crew buttons "Dispatcher override" collapsed
+> section me, warning + confirm dialog + audit log ke saath. API contract nahi
+> badlega — `SCHOOL_ADMIN` endpoint pe rahega.
 
 ---
 
@@ -428,10 +432,11 @@ code me jo hai wo jaan-boojh ke hai:
 Matlab: is report ke saare map fixes **conductor tak pahunchenge hi nahi**, jab
 tak hum yeh na decide karein.
 
-> **Decision chahiye aapse:** conductor ko live map **read-only** dikhna chahiye
-> (driver ke phone ki position, bina apna GPS share kiye)? Mera suggestion: haan
-> — conductor ko manifest ke liye "bus kahan hai" jaanna chahiye, par GPS
-> sharing sirf driver ke phone se ho.
+> **✅ Decided (30 Sep 2026): conductor ko read-only map milega.** `isDriver` gate
+> do hisson me toot jayega — **map** driver + conductor dono ko, **GPS sharing
+> strip aur location watcher** sirf driver ko. Conductor ka phone kabhi second
+> GPS stream start nahi karega (iska test bhi likha jayega), aur conductor ko
+> observer copy dikhegi, "your device" wali nahi. Yeh PR-5 me hai.
 
 ---
 
