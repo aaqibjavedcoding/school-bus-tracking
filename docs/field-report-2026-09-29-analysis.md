@@ -457,21 +457,25 @@ tests pure-TS policy modules pe hain (renderer ke bina). Isliye:
 
 ---
 
-## 10. Suggested order (ek PR = ek theme)
+## 10. Suggested order — 4 zaroori session + 1 optional
 
-1. **PR-1 (P0, chhota):** bus marker map-ready fix (web) + mobile web map.
-2. **PR-2 (P0, medium):** jhoota "Map failed to load" khatam — allow-list,
-   retry-exhausted gate, auto-clear, neutral copy. (web + mobile)
-3. **PR-3 (P1, chhota):** admin ko crew lifecycle buttons se hatao, read-only
-   timeline + chhupa override. (web + mobile)
-4. **PR-4 (P1, medium):** arrival zone — detection floor 25 m, display patli
-   ring + distance + precision dot, effective radius API se aaye.
-5. **PR-5 (P1, medium):** admin/parent map = driver map — shared shell, zoom,
-   follow, fullscreen, gesture island. (web + mobile)
-6. **PR-6 (P1, medium):** ek shared 3D bus (SVG → web inline + mobile PNG) +
-   3D map toggle.
-7. **PR-7 (P2, bada):** `packages/map-core` + `packages/map-assets` extraction,
-   stops → single symbol layer, trail decimation.
+Pehle 7 PR socha tha; jinke files aur test surface same the unhe merge kar diya.
 
-Har PR ke liye ready-to-paste prompt:
+1. **Session 1 (P0):** bus map pe dikhe **+** jhoota "Map failed to load" khatam.
+   (dono ek hi files me hain)
+2. **Session 2 (P1):** admin se crew lifecycle buttons hatao (read-only timeline
+   + chhupa override) **+** arrival zone — detection 25 m, display patli ring +
+   distance + manual mark-arrived.
+3. **Session 3 (P1, sabse bada):** ek shared map surface — admin/parent/conductor
+   ko zoom, follow, fullscreen, gesture island; mobile web pe asli map; **+**
+   stops = ek layer (speed win, kyunki surface waise bhi rewrite ho raha hai).
+4. **Session 4 (P1):** ek shared 3D bus (SVG → web inline + mobile PNG) + 3D map
+   toggle + UI polish. *Session 3 ke baad hi.*
+5. **Session 5 (P2, optional):** `packages/map-core` extraction + trail
+   decimation + duplicate-module guardrail. Skip bhi kar sakte ho.
+
+Session 1, 2, 3 ek dusre se independent hain — order badal sakte ho. 4 ko 3 ke
+baad hi chalana.
+
+Har session ka ready-to-paste prompt:
 [`field-report-2026-09-29-fix-prompts.md`](./field-report-2026-09-29-fix-prompts.md)
