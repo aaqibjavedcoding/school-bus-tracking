@@ -46,7 +46,12 @@ import {
   parseFilterList,
   suppressionRemovalNeedsOptOutAcknowledgement,
   canEraseMarketingLead,
+  generateMarketingTemplateSlug,
+  hasMarketingUnsubscribeLink,
+  MARKETING_PREVIEW_VALUES,
   MARKETING_TEST_SEND_NOTE,
+  substituteMarketingTemplateVariables,
+  validateMarketingTemplateSlug,
 } from './helpers.ts';
 
 /**
@@ -131,6 +136,37 @@ describe('template status presentation', () => {
   });
 });
 
+describe('template authoring helpers', () => {
+  it('substitutes each allowed sample variable without touching unknown placeholders', () => {
+    const rendered = substituteMarketingTemplateVariables(
+      'Hi {{ recipient_name }} from {{school_name}} in {{current_year}}. {{not_allowed}}',
+      MARKETING_PREVIEW_VALUES,
+    );
+    assert.match(rendered, /Hi Alex Morgan from Pine Valley School in \d{4}/);
+    assert.match(rendered, /\{\{not_allowed\}\}/);
+    assert.equal(
+      substituteMarketingTemplateVariables('<a href="{{unsubscribe_url}}">Leave</a>'),
+      `<a href="${MARKETING_PREVIEW_VALUES.unsubscribe_url}">Leave</a>`,
+    );
+  });
+
+  it('generates editable lowercase kebab-case slugs and mirrors slug validation', () => {
+    assert.equal(generateMarketingTemplateSlug('  Spring Résumé: 2027!  '), 'spring-resume-2027');
+    assert.equal(generateMarketingTemplateSlug('A name with    spaces'), 'a-name-with-spaces');
+    assert.equal(validateMarketingTemplateSlug('spring-resume-2027'), null);
+    assert.match(validateMarketingTemplateSlug('A bad_slug') ?? '', /lowercase/);
+    assert.match(validateMarketingTemplateSlug('x') ?? '', /at least 2/);
+  });
+
+  it('recognizes an unsubscribe anchor without assuming the server footer', () => {
+    assert.equal(
+      hasMarketingUnsubscribeLink('<a href="{{unsubscribe_url}}">Unsubscribe</a>'),
+      true,
+    );
+    assert.equal(hasMarketingUnsubscribeLink('<p>{{unsubscribe_url}}</p>'), false);
+  });
+});
+
 describe('template editing rules', () => {
   it('allows editing and publishing only an unpublished draft', () => {
     const draft = { published_at: null };
@@ -147,7 +183,10 @@ describe('template editing rules', () => {
   });
 
   it('never offers editing on an archived template', () => {
-    assert.equal(isTemplateVersionEditable({ published_at: null }, MarketingTemplateStatus.ARCHIVED), false);
+    assert.equal(
+      isTemplateVersionEditable({ published_at: null }, MarketingTemplateStatus.ARCHIVED),
+      false,
+    );
     assert.equal(canArchiveTemplate(MarketingTemplateStatus.ARCHIVED), false);
     assert.equal(canArchiveTemplate(MarketingTemplateStatus.PUBLISHED), true);
   });
@@ -430,7 +469,10 @@ describe('lead erasure confirmation', () => {
       canEraseMarketingLead({ confirmationText: '  asha verma ', expected: 'Asha Verma' }),
       true,
     );
-    assert.equal(canEraseMarketingLead({ confirmationText: 'Asha', expected: 'Asha Verma' }), false);
+    assert.equal(
+      canEraseMarketingLead({ confirmationText: 'Asha', expected: 'Asha Verma' }),
+      false,
+    );
     assert.equal(canEraseMarketingLead({ confirmationText: '', expected: 'Asha Verma' }), false);
   });
 });

@@ -17,7 +17,15 @@ import { canAccessPath, navItemsForRole } from '../../lib/roles.ts';
  */
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const MARKETING_DIR = path.resolve(here, '..', '..', 'app', '(authenticated)', 'admin', 'marketing');
+const MARKETING_DIR = path.resolve(
+  here,
+  '..',
+  '..',
+  'app',
+  '(authenticated)',
+  'admin',
+  'marketing',
+);
 
 const PAGES = {
   templateList: path.join(MARKETING_DIR, 'templates', 'page.tsx'),
@@ -31,6 +39,7 @@ const PAGES = {
   suppressions: path.join(MARKETING_DIR, 'suppressions', 'page.tsx'),
 };
 
+const TEMPLATE_AUTHORING = path.resolve(here, 'TemplateAuthoring.tsx');
 const DEMO_REQUEST_FORM = path.resolve(here, '..', '..', 'app', 'DemoRequestForm.tsx');
 const LANDING_PAGE = path.resolve(here, '..', '..', 'app', 'page.tsx');
 
@@ -85,12 +94,12 @@ describe('marketing pages use the shared API client', () => {
 describe('template pages', () => {
   it('offers a test send that cannot target an arbitrary address', () => {
     const source = read(PAGES.templateDetail);
-    assert.match(source, /testSendMarketingTemplateVersion\(templateId, selected\.id, \{\}\)/);
-    assert.match(source, /MARKETING_TEST_SEND_NOTE/);
-    assert.ok(
-      !/id="[^"]*recipient/i.test(source),
-      'no form control collects a test recipient',
+    assert.match(
+      source,
+      /testSendMarketingTemplateVersion\(\s*templateId,\s*selected\.id,\s*\{\}\s*,?\s*\)/,
     );
+    assert.match(source, /MARKETING_TEST_SEND_NOTE/);
+    assert.ok(!/id="[^"]*recipient/i.test(source), 'no form control collects a test recipient');
     assert.ok(
       !/test(Recipient|Email|Address)\b/i.test(source),
       'the page holds no test-address state of its own',
@@ -111,7 +120,35 @@ describe('template pages', () => {
     assert.match(source, /canPublishTemplateVersion/);
   });
 
-  it('renders the HTML preview inside a sandboxed frame', () => {
+  it('offers a debounced live preview, width toggle and starter layouts on both authoring forms', () => {
+    for (const file of [PAGES.templateCreate, PAGES.templateDetail]) {
+      const source = read(file);
+      assert.match(source, /LiveMarketingTemplatePreview/);
+      assert.match(source, /MarketingTemplateStarterLayouts/);
+      assert.match(source, /MarketingTemplateAuthoringWarnings/);
+    }
+    const authoring = read(TEMPLATE_AUTHORING);
+    assert.match(authoring, /sandbox=""/);
+    assert.match(authoring, /setTimeout/);
+    assert.match(authoring, /Desktop/);
+    assert.match(authoring, /Mobile/);
+    assert.match(authoring, /MARKETING_STARTER_LAYOUTS/);
+    assert.ok(
+      !/dangerouslySetInnerHTML/.test(authoring),
+      'a preview never injects rendered email HTML into the console origin',
+    );
+  });
+
+  it('keeps client warnings helpful without replacing server validation', () => {
+    const authoring = read(TEMPLATE_AUTHORING);
+    assert.match(authoring, /Unsupported placeholders/);
+    assert.match(authoring, /unsubscribe_url/);
+    assert.match(authoring, /plain-text body is empty/);
+    assert.match(authoring, /characters/);
+    assert.match(read(PAGES.templateCreate), /validateMarketingTemplateSlug/);
+  });
+
+  it('renders the saved HTML preview inside a sandboxed frame too', () => {
     const source = read(PAGES.templateDetail);
     assert.match(source, /sandbox=""/);
     assert.ok(
@@ -307,7 +344,7 @@ describe('suppressions console (Hardening 5B)', () => {
     );
     assert.ok(
       !manualBlock.includes('MarketingSuppressionReason.UNSUBSCRIBED'),
-      'an operator cannot assert an opt-out on someone else\'s behalf',
+      "an operator cannot assert an opt-out on someone else's behalf",
     );
   });
 

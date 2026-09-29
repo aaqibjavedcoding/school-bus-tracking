@@ -2687,6 +2687,108 @@ table.data.compact th {
   border-top: 1px solid var(--color-slate-200);
 }
 
+/* Email-template authoring: the frame follows the HTML editor on desktop and
+   naturally stacks below it on smaller screens. */
+.marketing-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.marketing-starter-layouts {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-slate-50);
+}
+
+.marketing-authoring-warnings {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.8rem;
+}
+
+.marketing-authoring-warnings p {
+  margin: 0;
+}
+
+.marketing-warning {
+  color: #9a6700;
+  font-size: 0.78rem;
+}
+
+.marketing-live-preview {
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--color-slate-50);
+}
+
+.marketing-live-preview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.marketing-live-preview__header h3 {
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.marketing-preview-toggle {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.marketing-preview-toggle .btn {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.marketing-live-preview__subject {
+  margin: 0.7rem 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-slate-700);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.marketing-preview-frame {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--color-slate-300);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.marketing-preview-frame iframe {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  border: 0;
+  background: #fff;
+}
+
+.marketing-preview-frame--mobile iframe {
+  width: 375px;
+  max-width: 100%;
+}
+
 /* Plain-text email preview. Monospaced and pre-wrapped so the recipient's
    line breaks are exactly what the operator sees. */
 .marketing-pre {
@@ -2757,4 +2859,14 @@ table.data.compact th {
   height: 9px;
   border-radius: 50%;
   flex: none;
+}
+
+@media (max-width: 900px) {
+  .marketing-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .marketing-live-preview {
+    order: 2;
+  }
 }

@@ -27,10 +27,17 @@ import { formatDateTime } from '../../../../../../lib/format';
 import { getApiErrorMessage, unwrapEnvelope } from '../../../../../../lib/errors';
 import { apiClient } from '../../../../../../services/api';
 import {
+  LiveMarketingTemplatePreview,
+  MarketingTemplateAuthoringWarnings,
+  MarketingTemplateStarterLayouts,
+} from '../../../../../../features/marketing/TemplateAuthoring';
+import {
   canArchiveTemplate,
   canPublishTemplateVersion,
   canTestSendVersion,
   isTemplateVersionEditable,
+  MARKETING_STARTER_LAYOUTS,
+  MARKETING_TEMPLATE_VARIABLES,
   marketingTemplateStatusLabel,
   marketingTemplateStatusTone,
   MARKETING_TEST_SEND_NOTE,
@@ -126,6 +133,10 @@ export default function AdminMarketingTemplateDetailPage() {
       ].sort(),
     [subject, html, text],
   );
+  const deliverable = new Set<string>(
+    MARKETING_TEMPLATE_VARIABLES.map((variable) => variable.name),
+  );
+  const unsupported = placeholders.filter((placeholder) => !deliverable.has(placeholder));
 
   const selectVersion = (version: MarketingTemplateVersionResponse) => {
     setSelectedVersionId(version.id);
@@ -133,6 +144,12 @@ export default function AdminMarketingTemplateDetailPage() {
     setHtml(version.html_body);
     setText(version.text_body);
     setPreview(null);
+  };
+
+  const selectStarterLayout = (layout: (typeof MARKETING_STARTER_LAYOUTS)[number]) => {
+    setSubject(layout.subject);
+    setHtml(layout.html);
+    setText(layout.text);
   };
 
   const run = async (label: string, action: () => Promise<string>) => {
@@ -148,8 +165,11 @@ export default function AdminMarketingTemplateDetailPage() {
     }
   };
 
-  const saveDraft = () =>
-    run('save the draft', async () => {
+  const saveDraft = () => {
+    if (unsupported.length > 0) {
+      return;
+    }
+    return run('save the draft', async () => {
       await apiClient.saveMarketingTemplateContent(templateId, {
         subject: subject.trim(),
         html_body: html,
@@ -158,6 +178,7 @@ export default function AdminMarketingTemplateDetailPage() {
       });
       return 'Draft saved.';
     });
+  };
 
   const publish = () =>
     run('publish this version', async () => {
@@ -195,7 +216,11 @@ export default function AdminMarketingTemplateDetailPage() {
         throw new Error('No version selected.');
       }
       // No address is sent: the server resolves MARKETING_TEST_RECIPIENTS.
-      const response = await apiClient.testSendMarketingTemplateVersion(templateId, selected.id, {});
+      const response = await apiClient.testSendMarketingTemplateVersion(
+        templateId,
+        selected.id,
+        {},
+      );
       return response.data?.message ?? 'Test email sent to the configured test recipients.';
     });
 
@@ -278,6 +303,7 @@ export default function AdminMarketingTemplateDetailPage() {
             : 'This version is published and read-only. Save content to start the next draft.'
         }
       >
+        <MarketingTemplateStarterLayouts disabled={!editable} onSelect={selectStarterLayout} />
         <Field id="version-subject" label="Subject line">
           <Input
             id="version-subject"
@@ -287,15 +313,18 @@ export default function AdminMarketingTemplateDetailPage() {
             maxLength={200}
           />
         </Field>
-        <Field id="version-html" label="HTML body">
-          <Textarea
-            id="version-html"
-            value={html}
-            onChange={(event) => setHtml(event.target.value)}
-            rows={12}
-            disabled={!editable}
-          />
-        </Field>
+        <div className="marketing-editor-grid">
+          <Field id="version-html" label="HTML body">
+            <Textarea
+              id="version-html"
+              value={html}
+              onChange={(event) => setHtml(event.target.value)}
+              rows={12}
+              disabled={!editable}
+            />
+          </Field>
+          <LiveMarketingTemplatePreview html={html} subject={subject} />
+        </div>
         <Field id="version-text" label="Plain-text body">
           <Textarea
             id="version-text"
@@ -305,12 +334,21 @@ export default function AdminMarketingTemplateDetailPage() {
             disabled={!editable}
           />
         </Field>
+        <MarketingTemplateAuthoringWarnings
+          subject={subject}
+          html={html}
+          text={text}
+          unsupported={unsupported}
+        />
         <p className="muted" style={{ fontSize: '0.82rem' }}>
           Variables in use: {placeholders.length > 0 ? placeholders.join(', ') : 'none'}
         </p>
 
         <div className="row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button onClick={() => void saveDraft()} disabled={busy !== null || !editable}>
+          <Button
+            onClick={() => void saveDraft()}
+            disabled={busy !== null || !editable || unsupported.length > 0}
+          >
             {busy === 'save the draft' ? 'Saving…' : 'Save draft'}
           </Button>
           <Button
@@ -346,10 +384,7 @@ export default function AdminMarketingTemplateDetailPage() {
       </Card>
 
       {preview ? (
-        <Card
-          title={`Preview of v${preview.version}`}
-          description={`Subject: ${preview.subject}`}
-        >
+        <Card title={`Preview of v${preview.version}`} description={`Subject: ${preview.subject}`}>
           <div className="row" style={{ gap: '0.5rem', marginBottom: '0.75rem' }}>
             <Button
               variant={previewTab === 'html' ? 'primary' : 'secondary'}
