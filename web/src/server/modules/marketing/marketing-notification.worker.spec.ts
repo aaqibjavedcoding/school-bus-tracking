@@ -58,19 +58,26 @@ interface JobRow {
 let sequence = 0;
 function job(overrides: Partial<JobRow> = {}): JobRow {
   sequence += 1;
+  // The fixture's reference moment: an overridden `created_at` (the tests that
+  // inject a fixed `now` pin it) or the real clock. `next_attempt_at` derives
+  // from it — a real-clock default would land *after* an injected `now` once
+  // the wall clock passes the fixture's date, making the job unclaimable and
+  // the suite permanently red (the time bomb this fixes; the fixed dates in
+  // this file are 2026-09-28/29, and CI went red once the clock passed them).
+  const created = overrides.created_at ?? new Date(Date.now() - 1000);
   return {
     id: `job-${sequence}`,
     job_type: MarketingNotificationJobType.LEAD_ADMIN_NOTIFICATION,
     lead_id: LEAD_ID,
     status: MarketingNotificationJobStatus.PENDING,
     attempts: 0,
-    next_attempt_at: new Date(Date.now() - 1000),
+    next_attempt_at: new Date(created.getTime() - 1000),
     locked_by: null,
     lease_expires_at: null,
     last_error_category: null,
     provider_message_id: null,
     sent_at: null,
-    created_at: new Date(Date.now() - 1000),
+    created_at: created,
     ...overrides,
   };
 }
