@@ -129,6 +129,7 @@ export default function AdminTrackingScreen() {
         height={280}
         tripId={activeId || null}
         connection={live.connection}
+        nextStopId={live.eta?.next_stop?.stop_id ?? null}
       />
 
       <View style={styles.etaWrap}>

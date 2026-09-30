@@ -251,7 +251,7 @@ export const TripTrackerView: React.FC<{
           fix={fix}
           stops={stops}
           highlightStopId={highlightStopId}
-          nextStopId={nextStopId}
+          nextStopId={nextStopId ?? eta?.next_stop?.stop_id ?? null}
           trail={trail}
           controls={mapControls}
           connection={connection}

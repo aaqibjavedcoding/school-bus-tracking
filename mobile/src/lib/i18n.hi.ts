@@ -549,7 +549,7 @@ export const hi: Dictionary = {
   'map.zoomOut': 'ज़ूम आउट',
   'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
   'map.needsDevBuildBody':
-    'Expo Go में map engine load नहीं होता, इसलिए इस build में map नहीं दिखेगा। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं — map देखने के लिए development build उपयोग करें।',
+    'Expo Go में map engine होता ही नहीं, इसलिए map यहाँ नहीं दिखेगा — map देखने के लिए development build ज़रूरी है। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं।',
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'स्टॉप {number}',
   'map.stopLabel': '{number}. {name}',

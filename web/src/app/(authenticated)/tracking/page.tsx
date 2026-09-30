@@ -99,6 +99,7 @@ function TrackingInner() {
             ? stopsResult.stops
             : []
         }
+        mapControls={{ fitRouteLabel: 'Fit route', followBusLabel: 'Follow bus' }}
         emptyTitle="No trip to follow"
         emptyDescription={
           selected

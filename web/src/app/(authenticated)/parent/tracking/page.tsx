@@ -126,6 +126,10 @@ function ParentTrackingInner() {
           tripId={trip.id}
           stops={tracking.data?.stops ?? []}
           highlightStopId={child.home_stop.id}
+          mapControls={{
+            fitRouteLabel: 'Show whole route',
+            followBusLabel: 'Follow the bus',
+          }}
           emptyTitle="Waiting for GPS"
           emptyDescription="Live location is not available yet."
         />

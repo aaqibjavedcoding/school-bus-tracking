@@ -184,6 +184,7 @@ export default function AdminTripDetailScreen() {
         height={240}
         tripId={tripId}
         connection={live.connection}
+        nextStopId={live.eta?.next_stop?.stop_id ?? null}
       />
       <View style={styles.etaWrap}>
         <EtaSummaryCard eta={live.eta} fix={live.fix} />

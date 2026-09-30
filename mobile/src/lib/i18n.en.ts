@@ -634,7 +634,7 @@ export const en = {
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
   'map.needsDevBuildTitle': 'Map preview needs a development build',
   'map.needsDevBuildBody':
-    'Expo Go cannot load the map engine, so the map cannot be shown in this build. The trip, stops and GPS sharing keep working — use a development build to see the map.',
+    'Expo Go carries no map engine, so the map cannot be shown here — a development build is required to see it. The trip, stops and GPS sharing keep working.',
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'Stop {number}',
   'map.stopLabel': '{number}. {name}',

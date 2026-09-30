@@ -23,6 +23,8 @@ import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 import { resolveMapStyleUrl } from './map-style';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
+import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
+import { stopsLayerCollection } from './stop-layer';
 import {
   INITIAL_MAP_ERROR_STATE,
   classifyMapErrorEvent,
@@ -96,26 +98,6 @@ function createBusMarkerElement(): HTMLDivElement {
   return container;
 }
 
-function createStopMarkerElement(
-  sequence: number,
-  kind: 'plain' | 'next' | 'current',
-  name: string,
-): HTMLDivElement {
-  const el = document.createElement('div');
-  el.className = `stop-marker ${kind}`;
-  el.textContent = String(sequence);
-  // Always-visible stop name + sequence (the shared `map.stopLabel` template
-  // '{number}. {name}' — mobile's StopMarker shows the same). The popup stays
-  // a click affordance; the label is the reading affordance. Absolutely
-  // positioned so the dot's 22px box — and the marker anchor math — never
-  // change and the label cannot block map gestures.
-  const label = document.createElement('span');
-  label.className = 'stop-marker-label';
-  label.textContent = `${sequence}. ${name}`;
-  el.appendChild(label);
-  return el;
-}
-
 export const MapViewInner: React.FC<MapViewProps> = ({
   fix,
   stops = [],
@@ -131,21 +113,29 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const [tick, setTick] = useState(0);
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
   // Explicit map-readiness signal. The map is created by an effect gated on
-  // [webglSupported, hasAnything]; every *other* effect that mutates the map
+  // [webglSupported, mapWanted]; every *other* effect that mutates the map
   // imperatively depends on this flag, so overlays are re-applied whenever the
   // map appears — including when it appears *after* the data did. Without it,
   // a trip whose only fix came from the REST snapshot never got a bus marker.
   const [mapReady, setMapReady] = useState(false);
+  /**
+   * One-way latch on `hasAnything`: the map is wanted the moment the first
+   * datum (stops or a fix) appears, and stays wanted forever after. This is
+   * what lets the map be created ONCE while preserving the PR #192 guarantee
+   * — see the dependency-array note on the map-init effect below.
+   */
+  const [mapWanted, setMapWanted] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const busElementRef = useRef<HTMLDivElement | null>(null);
   const busPopupRef = useRef<maplibregl.Popup | null>(null);
-  // 3E speed: keep stop markers by id so we don't recreate all on highlight change.
-  const stopMarkersRef = useRef<Map<string, { marker: maplibregl.Marker; element: HTMLDivElement }>>(
-    new Map(),
-  );
+  // The one stop-layer popup, re-used per click (the stop layers are canvas
+  // layers now — the popup is the click affordance, the label is the reading
+  // affordance; see `stop-layer.ts`).
+  const stopPopupRef = useRef<maplibregl.Popup | null>(null);
   const motionRef = useRef(createBusMotion({ reducedMotion }));
   const frameRef = useRef<number | null>(null);
   const lastFrameAtRef = useRef(0);
@@ -196,17 +186,48 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const trailCoords = useMemo(
     () =>
       (trail ?? [])
-        .filter(
-          (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-        )
+        .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
         .map((point) => [point.longitude, point.latitude] as [number, number]),
     [trail],
   );
 
+  // The trail as it is actually written to the source: decimated
+  // (Douglas–Peucker, ~5 m) first. The raw breadcrumb of a two-hour trip is
+  // ~1,800 mostly-jitter points, and `syncTrailLine` re-sets the whole line
+  // on every fix — the decimated subset is what the source re-tessellates.
+  const decimatedTrailCoords = useMemo(
+    () => simplifyPolylineMeters(trailCoords, TRAIL_SIMPLIFY_TOLERANCE_METERS),
+    [trailCoords],
+  );
+
+  // The stops as ONE layer: a single GeoJSON collection for the `sbt-stops`
+  // source, with the highlight (next stop / the parent's home stop) carried
+  // as a data-driven `kind` property instead of N DOM markers.
+  const stopsCollection = useMemo(
+    () => stopsLayerCollection(mappedStops, highlightStopId, nextStopId),
+    [mappedStops, highlightStopId, nextStopId],
+  );
+
   // Declared before the map-init effect: its deps gate map creation. The
-  // empty state renders no container div, so the map may only initialise (or
-  // re-initialise) once there is something to show.
+  // container div is always mounted (see the render), but the map itself is
+  // only wanted once there is something to show — the `mapWanted` latch
+  // below carries that decision to the map-init effect exactly once.
   const hasAnything = mappedStops.length > 0 || fix !== null;
+
+  // The latch: flips to true the first time there is anything to draw and
+  // never back. `hasAnything` itself may flip repeatedly (a fix going null
+  // during a trip switch, the next trip's stops still loading) — the map
+  // must not be torn down and re-created on those flips.
+  useEffect(() => {
+    if (hasAnything) setMapWanted(true);
+  }, [hasAnything]);
+
+  // The container's *visibility* (never its layout) flips with `hasAnything`;
+  // `resize()` is a no-op when nothing changed and a reconciliation if the
+  // browser did something unexpected while it was hidden.
+  useEffect(() => {
+    if (hasAnything) mapRef.current?.resize();
+  }, [hasAnything]);
 
   const presentation = useMemo(
     () =>
@@ -365,9 +386,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     };
   }, [dispatch]);
 
-  // "Fit route" (opt-in via `controls`): fit the bounds and hand the camera
-  // to the user — entering explore mode keeps the next GPS fix from panning
-  // the freshly fitted view away; "Follow bus" hands it back.
+  // "Fit route": fit the bounds and hand the camera to the user — entering
+  // explore mode keeps the next GPS fix from panning the freshly fitted view
+  // away; "Follow bus" hands it back. Default-on for every role; the `controls`
+  // prop only overrides the labels.
   const fitRouteRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     fitRouteRef.current = () => {
@@ -404,6 +426,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     if (mapRef.current) return;
     if (webglSupported === false) return;
     if (webglSupported === null) return; // wait for check
+    if (!mapWanted) return; // nothing to draw yet — see the latch above
 
     const styleUrl = resolveMapStyleUrl({
       NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
@@ -433,6 +456,19 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
 
     mapRef.current = map;
+
+    // Engine chrome, same for every role: zoom + compass, a scale bar, and
+    // fullscreen. Placement is deliberate — MapLibre pins the attribution to
+    // the bottom-right corner and the logo to the bottom-left, so the buttons
+    // live top-right (stacked) and the scale joins the logo's corner as its
+    // own float (never on top of it). The React camera buttons stay
+    // bottom-right, above the attribution bar.
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    map.addControl(
+      new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }),
+      'top-right',
+    );
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
     // Style/tile/glyph failures and WebGL context loss arrive here. MapLibre
     // fires this for every 404 tile and every request cancelled by a pan, so
@@ -516,6 +552,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
       // Driven-path line source + layer (crew console). Drawn after the
       // planned route line so the real path reads above the straight plan.
+      // The coordinates are the DECIMATED trail (~5 m, `polyline-simplify.ts`)
+      // — the same subset `syncTrailLine` writes on every fix.
       if (!map.getSource('sbt-trail')) {
         map.addSource('sbt-trail', {
           type: 'geojson',
@@ -524,7 +562,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
             properties: {},
             geometry: {
               type: 'LineString',
-              coordinates: trailCoords.length >= 2 ? trailCoords : [],
+              coordinates: decimatedTrailCoords.length >= 2 ? decimatedTrailCoords : [],
             },
           },
         });
@@ -575,6 +613,121 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         });
       }
 
+      // The stops: ONE source with a circle layer (the dot), a symbol layer
+      // for the sequence number inside it, and a symbol layer for the
+      // always-visible name label — replacing the per-stop DOM markers (see
+      // `stop-layer.ts`). The `kind` property drives the paint: `next` is the
+      // amber enlarged dot, `current` the parent's home stop in green.
+      if (!map.getSource('sbt-stops')) {
+        map.addSource('sbt-stops', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [],
+          },
+        });
+      }
+      if (!map.getLayer('sbt-stops-dot')) {
+        map.addLayer({
+          id: 'sbt-stops-dot',
+          type: 'circle',
+          source: 'sbt-stops',
+          paint: {
+            'circle-radius': ['case', ['==', ['get', 'kind'], 'next'], 13, 9],
+            'circle-color': [
+              'match',
+              ['get', 'kind'],
+              'next',
+              '#d97706',
+              'current',
+              '#16a34a',
+              '#1d4ed8',
+            ],
+            'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'next'], 3, 2],
+            'circle-stroke-color': '#ffffff',
+          },
+        });
+      }
+      if (!map.getLayer('sbt-stops-number')) {
+        map.addLayer({
+          id: 'sbt-stops-number',
+          type: 'symbol',
+          source: 'sbt-stops',
+          layout: {
+            // Explicit: a symbol layer without `text-font` falls back to
+            // MapLibre's default stack, whose OpenFreeMap font URL 404s and
+            // leaves the glyphs empty.
+            'text-font': ['Noto Sans Regular'],
+            'text-field': ['get', 'sequence'],
+            'text-size': 11,
+            'text-allow-overlap': true,
+          },
+          paint: {
+            'text-color': '#ffffff',
+          },
+        });
+      }
+      if (!map.getLayer('sbt-stops-label')) {
+        map.addLayer({
+          id: 'sbt-stops-label',
+          type: 'symbol',
+          source: 'sbt-stops',
+          layout: {
+            'text-font': ['Noto Sans Regular'],
+            'text-field': ['get', 'label'],
+            'text-size': 11,
+            'text-anchor': 'top',
+            'text-offset': [0, 1.1],
+            'text-max-width': 8,
+            'text-optional': true,
+          },
+          paint: {
+            'text-color': '#0f172a',
+            'text-halo-color': 'rgba(255, 255, 255, 0.92)',
+            'text-halo-width': 1.5,
+          },
+        });
+      }
+
+      // The stop popup, via layer click handlers (the click affordance the
+      // DOM markers used to carry). One popup instance, re-used per click;
+      // the properties travel inside the GeoJSON, so the handler has no
+      // closure over React state and never goes stale.
+      const onStopLayerClick = (event: unknown) => {
+        const click = event as {
+          lngLat?: maplibregl.LngLat;
+          features?: Array<{ properties?: unknown }>;
+        };
+        const feature = click.features?.[0];
+        if (!feature || !click.lngLat) return;
+        const properties = (feature.properties ?? {}) as {
+          sequence?: unknown;
+          name?: unknown;
+          address?: unknown;
+        };
+        const sequence = String(properties.sequence ?? '');
+        const name = String(properties.name ?? '');
+        const address = properties.address ? String(properties.address) : '';
+        stopPopupRef.current?.remove();
+        stopPopupRef.current = new maplibregl.Popup({ offset: 12, closeButton: false })
+          .setHTML(
+            `<strong>Stop ${escapeHtml(sequence)}: ${escapeHtml(name)}</strong>${
+              address ? `<div>${escapeHtml(address)}</div>` : ''
+            }`,
+          )
+          .setLngLat(click.lngLat)
+          .addTo(map);
+      };
+      map.on('click', 'sbt-stops-dot', onStopLayerClick as never);
+      map.on('click', 'sbt-stops-number', onStopLayerClick as never);
+      map.on('click', 'sbt-stops-label', onStopLayerClick as never);
+      map.on('mouseenter', 'sbt-stops-dot', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'sbt-stops-dot', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
       // Sources and layers exist: the map can now take overlays. Flip the
       // readiness flag *before* syncing so the sync helpers (which read
       // `mapReadyRef`) see a ready map, and so every overlay effect re-runs.
@@ -599,6 +752,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       map.off('idle', onMapHealthy as never);
       map.off('styledata', onStyleData as never);
       stopLoop();
+      stopPopupRef.current?.remove();
+      stopPopupRef.current = null;
       map.remove();
       // The map is gone: nothing may be applied to it until a new one loads.
       mapReadyRef.current = false;
@@ -608,19 +763,32 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       busMarkerRef.current = null;
       busElementRef.current = null;
       busPopupRef.current = null;
-      for (const { marker } of stopMarkersRef.current.values()) {
-        marker.remove();
-      }
-      stopMarkersRef.current.clear();
     };
-    // Run once when webglSupported becomes true — lineCoords/mappedStops are
-    // read inside the load handler via dispatch/fitToData and re-creating the
-    // map on every stop change would be wrong. `hasAnything` MUST be here:
-    // the empty state renders no container div, so when the first datum
-    // (stops or fix) arrives after mount the effect has to re-run — with
-    // `[webglSupported]` alone the container appeared but the map never
-    // initialised, leaving a dead map box on the admin trip page.
-  }, [webglSupported, hasAnything, applyMapErrorState]);
+    // Run once when webglSupported becomes true and the first datum has
+    // arrived — lineCoords/mappedStops are read inside the load handler via
+    // dispatch/fitToData and re-creating the map on every stop change would
+    // be wrong.
+    //
+    // `mapWanted` MUST be here, and it is a LATCH rather than `hasAnything`
+    // itself, because the two goals pull in opposite directions and the latch
+    // is what satisfies both:
+    //
+    // 1. **The PR #192 guarantee** — when the first datum (stops or fix)
+    //    arrives after mount, the map must still initialise; with
+    //    `[webglSupported]` alone the container existed but the map never
+    //    appeared, leaving a dead map box on the admin trip page. The latch
+    //    flips exactly once, on that first datum, so the effect re-runs at
+    //    that moment exactly as it did when `hasAnything` sat in this array.
+    // 2. **Create the map once** — `hasAnything` itself flips repeatedly
+    //    during normal use (a fix going null on a trip switch while the next
+    //    trip's stops are still loading), and with it in the array every flip
+    //    tore the map down and rebuilt it: a new WebGL context, a re-fetched
+    //    style, re-downloaded tiles. The latch never flips back, so the map
+    //    survives those transitions. (The container div is therefore always
+    //    mounted — hidden behind the empty state while there is nothing to
+    //    show — because React would otherwise unmount the canvas out from
+    //    under the surviving map.)
+  }, [webglSupported, mapWanted, applyMapErrorState]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {
@@ -638,7 +806,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     });
   }, [lineCoords]);
 
-  // Update driven-path line when the trail grows
+  // Update driven-path line when the trail grows. Writes the DECIMATED
+  // coordinates — a fresh fix re-sets this whole line, so the payload is the
+  // ~5 m subset, not the raw ~1,800-point breadcrumb of a two-hour run.
   const syncTrailLine = useCallback(() => {
     const map = mapRef.current;
     if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
@@ -649,10 +819,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       properties: {},
       geometry: {
         type: 'LineString',
-        coordinates: trailCoords.length >= 2 ? trailCoords : [],
+        coordinates: decimatedTrailCoords.length >= 2 ? decimatedTrailCoords : [],
       },
     });
-  }, [trailCoords]);
+  }, [decimatedTrailCoords]);
 
   // Update accuracy circle when fix or presentation changes
   const syncAccuracyCircle = useCallback(() => {
@@ -678,81 +848,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
   }, [fix, presentation.accuracyCircleMeters]);
 
-  // Stop markers — diff by id, avoid full recreate on highlight change (3E speed).
-  const syncStopMarkers = useCallback(() => {
+  // Stop layer — ONE GeoJSON source re-set wholesale (see `stop-layer.ts`).
+  // The highlight (next stop / the parent's home stop) is a data-driven paint
+  // property on the `kind`, so a highlight change re-styles the layer without
+  // touching the DOM at all — the per-stop marker diffing that used to live
+  // here is gone with the markers.
+  const syncStopsLayer = useCallback(() => {
     const map = mapRef.current;
     if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
-
-    const existing = stopMarkersRef.current;
-    const nextIds = new Set(mappedStops.map((s) => s.id));
-
-    // Remove markers for stops that no longer exist.
-    for (const [id, entry] of existing) {
-      if (!nextIds.has(id)) {
-        entry.marker.remove();
-        existing.delete(id);
-      }
-    }
-
-    // Add or update markers.
-    for (const stop of mappedStops) {
-      const kind =
-        highlightStopId === stop.id ? 'current' : nextStopId === stop.id ? 'next' : 'plain';
-      const entry = existing.get(stop.id);
-      if (entry) {
-        // Update position if changed (cheap) and kind class.
-        entry.marker.setLngLat([stop.longitude, stop.latitude]);
-        const el = entry.element;
-        // Keep label text in sync if sequence/name changed.
-        const labelSpan = el.querySelector('.stop-marker-label') as HTMLSpanElement | null;
-        const expectedLabel = `${stop.sequence_number}. ${stop.name}`;
-        if (labelSpan && labelSpan.textContent !== expectedLabel) {
-          labelSpan.textContent = expectedLabel;
-        }
-        // Update first text node (sequence number) and class.
-        if (el.firstChild && el.firstChild.nodeType === 3) {
-          const seqText = String(stop.sequence_number);
-          if (el.firstChild.textContent !== seqText) el.firstChild.textContent = seqText;
-        } else {
-          // Fallback: recreate if structure unexpected.
-          el.textContent = String(stop.sequence_number);
-          const lbl = document.createElement('span');
-          lbl.className = 'stop-marker-label';
-          lbl.textContent = expectedLabel;
-          el.appendChild(lbl);
-        }
-        el.className = `stop-marker ${kind}`;
-        continue;
-      }
-
-      const el = createStopMarkerElement(stop.sequence_number, kind, stop.name);
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([stop.longitude, stop.latitude])
-        .addTo(map);
-
-      const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(
-        `<strong>Stop ${stop.sequence_number}: ${escapeHtml(stop.name)}</strong>${
-          stop.address ? `<div>${escapeHtml(stop.address)}</div>` : ''
-        }`,
-      );
-      marker.setPopup(popup);
-      existing.set(stop.id, { marker, element: el });
-    }
-  }, [mappedStops, highlightStopId, nextStopId]);
-
-  // Highlight-only update: when only highlightStopId/nextStopId change, avoid
-  // re-diffing all stops by just toggling classes on the affected markers. The
-  // main effect above already handles highlight, but this extra effect ensures
-  // we don't re-create popups.
-  useEffect(() => {
-    for (const [id, entry] of stopMarkersRef.current) {
-      const kind = id === highlightStopId ? 'current' : id === nextStopId ? 'next' : 'plain';
-      const expected = `stop-marker ${kind}`;
-      if (entry.element.className !== expected) {
-        entry.element.className = expected;
-      }
-    }
-  }, [highlightStopId, nextStopId]);
+    const source = map.getSource('sbt-stops') as maplibregl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData(stopsCollection ?? { type: 'FeatureCollection', features: [] });
+  }, [stopsCollection]);
 
   // Bus marker creation / fix handling (motion machine)
   const syncBusMarker = useCallback(() => {
@@ -856,9 +963,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     syncRouteLine();
     syncTrailLine();
     syncAccuracyCircle();
-    syncStopMarkers();
+    syncStopsLayer();
     syncBusMarker();
-  }, [syncRouteLine, syncTrailLine, syncAccuracyCircle, syncStopMarkers, syncBusMarker]);
+  }, [syncRouteLine, syncTrailLine, syncAccuracyCircle, syncStopsLayer, syncBusMarker]);
 
   // Let `map.on('load')` reach the latest sync routine without re-creating
   // the map every time a prop changes.
@@ -890,8 +997,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
   useEffect(() => {
     if (!mapReady) return;
-    syncStopMarkers();
-  }, [mapReady, syncStopMarkers]);
+    syncStopsLayer();
+  }, [mapReady, syncStopsLayer]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -954,7 +1061,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     };
   }, [stopLoop]);
 
-  if (!hasAnything) {
+  if (webglSupported === false && !hasAnything) {
+    // Same precedence as before the always-mounted container: with nothing to
+    // show, the empty-data message wins over the WebGL message.
     return (
       <div className="map-shell">
         <div className="empty">
@@ -980,35 +1089,53 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     );
   }
 
+  // The camera buttons are default-on for every role; `controls` is a label
+  // override only (parent pages say "Show whole route", the crew console uses
+  // its translated strings).
+  const fitRouteLabel = controls?.fitRouteLabel ?? 'Fit route';
+  const followBusLabel = controls?.followBusLabel ?? 'Follow bus';
+
   return (
-    <div className="map-shell">
+    <div className="map-shell" ref={shellRef}>
+      {/*
+        The container is ALWAYS mounted — including while the trip has nothing
+        to show — because the map is created once (see the map-init effect's
+        dependency note): unmounting this div would tear the canvas out from
+        under the surviving map. While empty it is merely invisible, with the
+        empty state rendered over it.
+      */}
       <div
         ref={containerRef}
+        className={hasAnything ? undefined : 'map-container-hidden'}
         style={{ width: '100%', height: '100%', minHeight: '420px' }}
         role="region"
         aria-label="Live bus map"
       />
+      {!hasAnything ? (
+        <div className="map-empty-overlay">
+          <div className="empty">
+            <p className="muted">No GPS position or mapped stops for this trip yet.</p>
+          </div>
+        </div>
+      ) : null}
       <div className="map-camera-controls">
-        {controls ? (
-          <button
-            type="button"
-            className="map-follow-control"
-            onClick={() => fitRouteRef.current?.()}
-            aria-label={controls.fitRouteLabel}
-          >
-            {controls.fitRouteLabel}
-          </button>
-        ) : null}
-        {exploring ? (
-          <button
-            type="button"
-            className="map-follow-control"
-            onClick={() => recenterRef.current?.()}
-            aria-label={controls?.followBusLabel ?? 'Follow bus'}
-          >
-            {controls?.followBusLabel ?? 'Follow bus'}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="map-follow-control"
+          onClick={() => fitRouteRef.current?.()}
+          aria-label={fitRouteLabel}
+        >
+          {fitRouteLabel}
+        </button>
+        <button
+          type="button"
+          className={`map-follow-control${exploring ? '' : ' is-following'}`}
+          onClick={() => recenterRef.current?.()}
+          aria-label={followBusLabel}
+          aria-pressed={!exploring}
+        >
+          {followBusLabel}
+        </button>
       </div>
       <span className="sr-only" aria-live="polite">
         {exploring ? 'Map exploration — follow paused' : 'Following the bus'}

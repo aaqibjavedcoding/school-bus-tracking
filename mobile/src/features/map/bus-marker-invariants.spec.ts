@@ -61,26 +61,36 @@ describe('native bus marker invariants', () => {
     assert.match(marker, /<BusMarkerGraphic/, 'and it must be the one shared graphic');
   });
 
-  test('gives the marker a higher draw order than the stop pins', () => {
-    // No zIndex in MapLibre — annotation order in the tree IS the z-order, so
-    // the bus must render after every stop.
-    const map = read('src/features/map/BusMap.tsx');
-    const stopsAt = map.indexOf('{stops.map((stop) => (');
-    const busAt = map.indexOf('<BusMarker');
-    assert.ok(stopsAt !== -1 && busAt !== -1, 'stop markers and bus marker not found');
+  test('gives the marker a higher draw order than the stop layer', () => {
+    // No zIndex in MapLibre — tree order IS the z-order, so the bus must
+    // render after the stops. The stops are now ONE GeoJSON layer (see
+    // `stop-layer.ts`) in the shared surface, so the ordering is asserted
+    // there: the `sbt-stops` source must appear before the `<BusMarker`.
+    const surface = read('src/features/map/LiveMapSurface.tsx');
+    const stopsAt = surface.indexOf('id="sbt-stops"');
+    const busAt = surface.indexOf('<BusMarker');
+    assert.ok(stopsAt !== -1 && busAt !== -1, 'stop layer and bus marker not found');
     assert.ok(busAt > stopsAt, 'the bus must render after the stops, or it draws below them');
   });
 });
 
 describe('native bus map invariants', () => {
-  const map = read('src/features/map/BusMap.tsx');
+  // The map itself is ONE surface now: `LiveMapSurface.tsx` renders the
+  // engine, camera, layers and controls for every role, and the wrappers
+  // (`BusMap.tsx` observer, `DriverTripMap.tsx` driver) own only their panels.
+  // Surface-level invariants are asserted against the surface; the freshness
+  // and accuracy-ring invariants stay against `BusMap.tsx`, where that
+  // derivation lives.
+  const surface = read('src/features/map/LiveMapSurface.tsx');
+  const observer = read('src/features/map/BusMap.tsx');
+  const driver = read('src/features/crew/DriverTripMap.tsx');
 
   test('never drives the camera from props (the controlled-region bug stays dead)', () => {
     // MapLibre's `Map` takes no region prop; the camera is a `<Camera>` child
     // read once for its initial state, then moved only imperatively.
-    assert.match(map, /initialViewState=\{initialCamera \?\? undefined\}/);
+    assert.match(surface, /initialViewState=\{initialCamera \?\? undefined\}/);
     assert.doesNotMatch(
-      map,
+      surface,
       /flyTo\(|jumpTo\(|easeTo\(|setStop\(/,
       'no imperative camera call in the map component',
     );
@@ -88,12 +98,12 @@ describe('native bus map invariants', () => {
 
   test('keeps a single style URL, resolved by the policy module', () => {
     // The style pipeline (`use-map-style.ts`) is the one place that resolves
-    // the URL via the policy module (`map-style.ts`) and feeds both maps —
-    // components never carry a tile/style endpoint of their own.
+    // the URL via the policy module (`map-style.ts`) and feeds the map — the
+    // component never carries a tile/style endpoint of its own.
     const pipeline = read('src/features/map/use-map-style.ts');
     assert.match(pipeline, /resolveMapStyleUrl\(/, 'the style URL must come from map-style.ts');
-    assert.match(map, /useMapStyle\(/, 'the surface takes its style from the pipeline');
-    assert.match(map, /mapStyle=\{mapStyle\}/);
+    assert.match(surface, /useMapStyle\(/, 'the surface takes its style from the pipeline');
+    assert.match(surface, /mapStyle=\{mapStyle\}/);
   });
 
   /**
@@ -103,23 +113,31 @@ describe('native bus map invariants', () => {
    * through the style pipeline's bounded recovery, never straight at the
    * diagnostics store, and a successful load must clear the line.
    */
-  test('routes engine load events through the pipeline recovery, on both maps', () => {
-    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
-      const source = read(file);
-      assert.match(
-        source,
-        /onDidFailLoadingMap=\{onStyleLoadFailed\}/,
-        `${file}: the engine's failure must run the bounded re-set policy`,
-      );
-      assert.match(
-        source,
-        /onDidFinishLoadingMap=\{\(\) => \{\s*onStyleLoaded\(\);\s*onMapReady\(\);\s*\}\}/,
-        `${file}: a successful load clears the line before the camera re-fits`,
-      );
+  test('routes engine load events through the pipeline recovery, on the one shared map', () => {
+    // Both role variants (driver and observer) render this one surface, so
+    // pinning it here covers every map in the app; the wrappers must not
+    // render their own `<Map`.
+    const source = read('src/features/map/LiveMapSurface.tsx');
+    assert.match(
+      source,
+      /onDidFailLoadingMap=\{onStyleLoadFailed\}/,
+      'the engine\'s failure must run the bounded re-set policy',
+    );
+    assert.match(
+      source,
+      /onDidFinishLoadingMap=\{\(\) => \{\s*onStyleLoaded\(\);\s*onMapReady\(\);\s*\}\}/,
+      'a successful load clears the line before the camera re-fits',
+    );
+    assert.doesNotMatch(
+      source,
+      /onDidFailLoadingMap=\{\(\) => reportMapIssue/,
+      'bare reporting has no recovery — the pipeline owns this now',
+    );
+    for (const wrapper of [observer, driver]) {
       assert.doesNotMatch(
-        source,
-        /onDidFailLoadingMap=\{\(\) => reportMapIssue/,
-        `${file}: bare reporting has no recovery — the pipeline owns this now`,
+        wrapper,
+        /onDidFailLoadingMap/,
+        'the wrappers must render the shared surface, not their own map',
       );
     }
   });
@@ -184,9 +202,9 @@ describe('native bus map invariants', () => {
     // the provider-independent zoom-delta fallback.
     const hook = read('src/features/map/useFollowCamera.ts');
     assert.match(hook, /view\.userInteraction === true/, 'gesture attribution from the engine');
-    assert.match(map, /onRegionIsChanging=\{onRegionChange\}/, 'region change wired');
+    assert.match(surface, /onRegionIsChanging=\{onRegionChange\}/, 'region change wired');
     assert.match(
-      map,
+      surface,
       /onRegionDidChange=\{onRegionChangeComplete\}/,
       'region change complete wired',
     );
@@ -199,34 +217,53 @@ describe('native bus map invariants', () => {
     );
   });
 
-  test('both native maps share one camera implementation', () => {
-    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
-      const source = read(file);
-      assert.match(source, /useFollowCamera\(/, `${file} must not roll its own camera`);
+  test('every native map role shares ONE camera implementation', () => {
+    // The driver and observer variants are both `LiveMapSurface`, so there is
+    // exactly one binding — and the thin wrappers must not grow their own.
+    assert.match(surface, /useFollowCamera\(/, 'the surface must not roll its own camera');
+    for (const [name, wrapper] of [
+      ['BusMap', observer],
+      ['DriverTripMap', driver],
+    ] as const) {
       assert.doesNotMatch(
-        source,
-        /reduceFollowCamera/,
-        `${file} must not drive the camera reducer directly`,
+        wrapper,
+        /useFollowCamera\(|reduceFollowCamera/,
+        `${name} must delegate the camera to the shared surface`,
       );
+      assert.match(wrapper, /<LiveMapSurface/, `${name} must render the shared surface`);
     }
   });
 
   test('keeps map controls clear of provider attribution', () => {
     // MapLibre renders the attribution and logo in the bottom corners, so
     // nothing may sit at the bottom.
-    assert.match(map, /top: spacing\.sm,\s*\n\s*left: spacing\.sm,/, 'status panel top-left');
-    assert.match(map, /top: spacing\.sm,\s*\n\s*right: spacing\.sm,/, 'follow control top-right');
-    assert.doesNotMatch(map, /bottom:\s*spacing/, 'no control anchored to the bottom edge');
+    assert.match(observer, /top: spacing\.sm,\s*\n\s*left: spacing\.sm,/, 'status panel top-left');
+    assert.match(
+      surface,
+      /top: spacing\.sm,\s*\n\s*right: spacing\.sm,/,
+      'follow control top-right',
+    );
+    for (const [name, source] of [
+      ['LiveMapSurface', surface],
+      ['BusMap', observer],
+      ['DriverTripMap', driver],
+    ] as const) {
+      assert.doesNotMatch(
+        source,
+        /bottom:\s*spacing/,
+        `${name}: no control anchored to the bottom edge`,
+      );
+    }
   });
 
   test('keeps the attribution and the logo visible (the OSM-derived tiles require it)', () => {
-    assert.match(map, /\battribution\b/, 'attribution ornament on');
-    assert.match(map, /\blogo\b/, 'logo ornament on');
+    assert.match(surface, /\battribution\b/, 'attribution ornament on');
+    assert.match(surface, /\blogo\b/, 'logo ornament on');
   });
 
   test('keeps a real touch target on the follow control', () => {
-    assert.match(map, /minHeight: 44/);
-    assert.match(map, /minWidth: 44/);
+    assert.match(surface, /minHeight: 44/);
+    assert.match(surface, /minWidth: 44/);
   });
 
   test('hides the decorative marker graphic from screen readers', () => {
@@ -236,17 +273,17 @@ describe('native bus map invariants', () => {
   });
 
   test('never claims live motion on non-live data', () => {
-    assert.match(map, /presentation\.mayReportLiveMotion/);
-    assert.match(map, /t\('map\.status\.lastKnown'\)/);
+    assert.match(observer, /presentation\.mayReportLiveMotion/);
+    assert.match(observer, /t\('map\.status\.lastKnown'\)/);
   });
 
   test('keeps the stop connectors honest about not being a route', () => {
-    assert.match(map, /t\('map\.routeNotice'\)/);
+    assert.match(surface, /t\('map\.routeNotice'\)/);
   });
 
   test('draws the accuracy ring centred on the reported fix', () => {
-    assert.match(map, /accuracyCirclePolygon\(/, 'the ring is the measurement, not the tween');
-    assert.match(map, /latitude: fix\.latitude, longitude: fix\.longitude/);
+    assert.match(observer, /accuracyCirclePolygon\(/, 'the ring is the measurement, not the tween');
+    assert.match(observer, /latitude: fix\.latitude, longitude: fix\.longitude/);
   });
 });
 
@@ -258,20 +295,18 @@ describe('the marker tracks the drawn route line (R4)', () => {
     assert.match(marker, /snapToRoute,/, 'and reaches useBusMarkerMotion');
   });
 
-  test('both native maps feed the marker the same polyline they draw', () => {
-    for (const file of ['src/features/map/BusMap.tsx', 'src/features/crew/DriverTripMap.tsx']) {
-      const source = read(file);
-      assert.match(
-        source,
-        /route=\{route\}/,
-        `${file}: the BusMarker must get the route for its display snap`,
-      );
-      assert.match(
-        source,
-        /route=\{routeCoordinates\}/,
-        `${file}: the surface's route IS the drawn stop-to-stop polyline`,
-      );
-    }
+  test('both native map variants feed the marker the same polyline they draw', () => {
+    const source = read('src/features/map/LiveMapSurface.tsx');
+    assert.match(
+      source,
+      /route=\{route\}/,
+      'the BusMarker must get the route for its display snap',
+    );
+    assert.match(
+      source,
+      /route=\{routeCoordinates\}/,
+      'the surface\'s route IS the drawn stop-to-stop polyline',
+    );
   });
 
   test('the hook applies the port to the machine, never to the fix', () => {
