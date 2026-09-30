@@ -792,11 +792,22 @@ table.data tbody tr:hover {
   gap: 0.5rem;
 }
 
-/* Map-failure badge: visible, never silent (style/tile/glyph/WebGL loss). */
+/*
+ * Map-status badges. Two weights, because the two states are different news:
+ * `map-warning` is the map still retrying (the tiles are late, not gone), and
+ * `map-error` is reserved for a map that has genuinely given up. A single 404
+ * tile reaches neither — see `features/map/map-error-policy.ts`.
+ */
+.connection.map-warning {
+  color: var(--color-slate-500);
+  font-weight: 600;
+}
+
 .connection.map-error {
   color: var(--color-danger, #b91c1c);
 }
 
+.connection.map-warning .pulse,
 .connection.map-error .pulse {
   display: none;
 }

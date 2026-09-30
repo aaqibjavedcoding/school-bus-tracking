@@ -140,13 +140,23 @@ export function buildDiagnosticsRows(
   ];
 }
 
-/** The "Map labels" fact: OK, dash (not reported), or the issue lines. */
+/**
+ * The "Map labels" fact: OK, dash (not reported), or the issue lines.
+ *
+ * Each line carries its **raw code** in parentheses, exactly as the on-map
+ * `MapIssueLines` renders it. The copy is for the driver; the code is for the
+ * support engineer reading a photo of that driver's screen, and the two are
+ * no longer distinguishable once the copy has been softened — "Offline map"
+ * and "Map failed to load" are now genuinely different conditions, and a
+ * report has to be able to say which one fired.
+ */
 function mapLabelsValue(mapIssues: readonly MapStyleIssueCode[] | null): string {
   if (mapIssues === null) return DASH;
   if (mapIssues.length === 0) return t('help.diagnostics.mapOk');
   const labels = {
     styleLoad: 'map.issue.styleLoad',
+    styleOffline: 'map.issue.styleOffline',
     glyphs: 'map.issue.glyphs',
   } as const;
-  return mapIssues.map((code) => t(labels[code])).join(' · ');
+  return mapIssues.map((code) => `${t(labels[code])} (${code})`).join(' · ');
 }

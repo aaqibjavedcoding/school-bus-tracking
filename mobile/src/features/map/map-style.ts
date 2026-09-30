@@ -139,8 +139,23 @@ export function __resetMapStyleWarningsForTests(): void {
 export const OPENFREEMAP_GLYPHS_TEMPLATE =
   'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
-/** What a map issue means for the panels (`map.issue.*` copy keys). */
-export type MapStyleIssueCode = 'styleLoad' | 'glyphs';
+/**
+ * What a map issue means for the panels (`map.issue.*` copy keys).
+ *
+ * Three codes, and the distinction between the first two is the whole point:
+ *
+ * - `styleOffline` — the bundled offline base style is what is rendering.
+ *   The map **works**: stops, the bus, the accuracy ring and the status panel
+ *   all draw over it. This is a neutral chip with a Retry affordance, never a
+ *   red line, because calling a working map a failure is how the app started
+ *   lying about its own health.
+ * - `styleLoad` — the terminal state: the engine could not render even the
+ *   zero-network fallback. This one is red, and only this one.
+ * - `glyphs` — the fonts endpoint is verifiably unreachable, so labels cannot
+ *   draw (a single missing glyph range is not this — see
+ *   `map-log-classifier.ts`).
+ */
+export type MapStyleIssueCode = 'styleLoad' | 'styleOffline' | 'glyphs';
 
 // ── The offline fallback style (deep-fix R3) ───────────────────────────────
 //

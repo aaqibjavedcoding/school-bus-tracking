@@ -246,10 +246,19 @@ describe('buildDiagnosticsRows — Map labels row', () => {
 
     const issues: readonly MapStyleIssueCode[] = ['glyphs', 'styleLoad'];
     const broken = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, issues);
+    // The raw code rides along with every line: the copy is for the driver,
+    // the code is for the support engineer reading a photo of their screen.
     assert.equal(
       valueOf(broken, 'Map labels'),
-      'Map labels unavailable · Map failed to load — check your network connection and map tiles.',
+      'Map labels unavailable (glyphs) · Map failed to load — check your network connection and map tiles. (styleLoad)',
     );
+
+    // The degraded-but-working state is a different fact, and the row has to
+    // be able to say so — "Offline map" is not "Map failed to load".
+    const degraded = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, [
+      'styleOffline',
+    ]);
+    assert.equal(valueOf(degraded, 'Map labels'), 'Offline map — tap to retry (styleOffline)');
     // The row sits next to the socket row (map transport facts together).
     const labels = broken.map((row) => row.label);
     assert.ok(

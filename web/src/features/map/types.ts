@@ -43,9 +43,28 @@ export interface MapViewProps {
    */
   connection?: ConnectionState;
   /**
-   * Called when the map fails to load (style/tile/glyph outage, WebGL context
-   * loss, init throw). The caller surfaces "Map failed to load" — the map
-   * never fails silently.
+   * Called when the map's failure **verdict** changes — `null` means "nothing
+   * is wrong (any more)".
+   *
+   * Deliberately not "called on every error": MapLibre raises `error` for a
+   * single 404 tile and for any request aborted by a pan, and wiring those
+   * straight to a red badge is what made a working map claim it had failed.
+   * `map-error-policy.ts` owns the decision; the caller only renders what it
+   * is handed, and clears the badge on its own when this reports `null`.
    */
-  onMapError?: (message: string) => void;
+  onMapError?: (report: MapErrorReport | null) => void;
+}
+
+/** What the surface should say about the map right now. */
+export interface MapErrorReport {
+  /** Ready-to-render copy — softened while the map is still retrying. */
+  message: string;
+  /** True only once the map has genuinely given up (render it red). */
+  terminal: boolean;
+  /**
+   * Untranslated engine codes (`style:404`, `tile:openmaptiles`, …), oldest
+   * first, so a field screenshot can name what failed even though the copy
+   * stays calm.
+   */
+  codes: readonly string[];
 }

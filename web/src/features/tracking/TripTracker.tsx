@@ -17,7 +17,8 @@ import {
   tripStatusLabel,
 } from '../../lib/format';
 import { MapView } from '../map/MapView';
-import type { MapCameraControls, MapTrailPoint } from '../map/types';
+import { MAP_FAILED_MESSAGE } from '../map/map-error-policy';
+import type { MapCameraControls, MapErrorReport, MapTrailPoint } from '../map/types';
 import { deriveTrackingPresentation } from '../map/tracking-presentation';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
@@ -199,10 +200,18 @@ export const TripTrackerView: React.FC<{
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
-  // Map failure surfacing (bad style/tile/glyph, WebGL loss, render crash):
-  // the map never fails silently — the badge below the map says so, and the
-  // boundary's retry remounts the map from scratch.
-  const [mapError, setMapError] = useState<string | null>(null);
+  /**
+   * Map failure surfacing (bad style, WebGL loss, render crash).
+   *
+   * The map never fails silently — but it also never cries wolf. `MapView`
+   * hands over a verdict (`map-error-policy.ts`), not an event: a single 404
+   * tile or a request aborted by a pan never gets here at all, three
+   * consecutive style failures get the neutral "retrying…" badge, and the red
+   * line is reserved for a map that has given up. It also hands over `null`
+   * the moment the map renders again, so a badge raised in airplane mode
+   * disappears by itself when the network returns — no restart, no tap.
+   */
+  const [mapError, setMapError] = useState<MapErrorReport | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
 
   if (!tripId) {
@@ -223,7 +232,7 @@ export const TripTrackerView: React.FC<{
         fallback={
           <div className="map-shell">
             <div className="empty">
-              <p className="field-error">Map failed to load</p>
+              <p className="field-error">{MAP_FAILED_MESSAGE}</p>
               <p className="muted">Live status and stops are still available.</p>
               <button
                 type="button"
@@ -239,7 +248,11 @@ export const TripTrackerView: React.FC<{
             </div>
           </div>
         }
-        onError={() => setMapError('Map failed to load')}
+        // A render crash is terminal by definition: nothing is retrying it,
+        // only the boundary's "Retry map" remount can.
+        onError={() =>
+          setMapError({ message: MAP_FAILED_MESSAGE, terminal: true, codes: ['render:crash'] })
+        }
       >
         <MapView
           key={tripId}
@@ -256,7 +269,7 @@ export const TripTrackerView: React.FC<{
       <div className="map-overlay">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <ConnectionIndicator state={connection} mapError={mapError !== null} />
+            <ConnectionIndicator state={connection} mapError={mapError} />
             {tripStatus ? <span className="muted">{tripStatusLabel(tripStatus)}</span> : null}
           </div>
           <p className="muted" style={{ marginTop: '0.45rem' }}>

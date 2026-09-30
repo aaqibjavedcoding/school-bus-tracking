@@ -256,6 +256,8 @@ interface SurfaceProps {
   onMapReady: () => void;
   /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
   onStyleLoadFailed: () => void;
+  /** From `useMapStyle`: a fully rendered frame clears the issue lines. */
+  onTilesRendered: () => void;
   onStyleLoaded: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
 }
@@ -287,6 +289,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
     onRegionChangeComplete,
     onMapReady,
     onStyleLoadFailed,
+    onTilesRendered,
     onStyleLoaded,
     cameraRef,
     mapStyle,
@@ -325,6 +328,9 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
         onMapReady();
       }}
       onDidFailLoadingMap={onStyleLoadFailed}
+      // A frame that rendered completely is the other proof the map healed
+      // itself — the one event that fires when a dead zone quietly ends.
+      onDidFinishRenderingMapFully={onTilesRendered}
     >
       {/* Uncontrolled after the initial state; imperative via cameraRef. */}
       <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
@@ -638,7 +644,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
   }, [tripId, trailLoad]);
   const closeFullscreen = useCallback(() => setExpanded(false), []);
 
-  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded, notifyTilesRendered } = useMapStyle();
 
   const mapSurfaceEl = (
     <DriverMapSurface
@@ -664,6 +670,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       onMapReady={onMapReady}
       onStyleLoadFailed={onStyleLoadFailed}
       onStyleLoaded={notifyStyleLoaded}
+      onTilesRendered={notifyTilesRendered}
       cameraRef={cameraRef}
       mapStyle={mapStyle}
     />

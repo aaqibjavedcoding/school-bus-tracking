@@ -561,6 +561,8 @@ export const mr: Dictionary = {
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'थांबा {number}',
   'map.stopLabel': '{number}. {name}',
+  // तटस्थ चिप + रीट्राय: ऑफलाइन base style सुरू आहे, नकाशा चालतो आहे.
+  'map.issue.styleOffline': 'ऑफलाइन नकाशा — टॅप करून पुन्हा पाहा',
   'map.issue.styleLoad': 'नकाशा लोड झाला नाही — नेटवर्क आणि map tiles तपासा.',
   'map.issue.glyphs': 'नकाशावरील लेबले दिसत नाहीत',
 

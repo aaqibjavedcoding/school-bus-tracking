@@ -72,8 +72,32 @@ export function subscribeMapIssues(listener: () => void): () => void {
   };
 }
 
+// ── The retry affordance ───────────────────────────────────────────────────
+//
+// `styleOffline` is a neutral chip that says "Offline map — tap to retry", so
+// something has to own the tap. The style pipeline (`use-map-style.ts`)
+// registers its `retryNow` here on mount and clears it on unmount; the chip
+// (`map-issue-lines.tsx`) calls `runMapRetry()`.
+//
+// Registered rather than drilled as a prop because the chip renders inside
+// two `React.memo`'d map panels (`BusMap`, `DriverTripMap`) that re-render on
+// a 5 s status tick and have no business knowing about the style pipeline.
+
+let retryHandler: (() => void) | null = null;
+
+/** Registers (or clears, with `null`) the "retry the map style" action. */
+export function setMapRetryHandler(handler: (() => void) | null): void {
+  retryHandler = handler;
+}
+
+/** Runs the registered retry. A no-op when no map is mounted. */
+export function runMapRetry(): void {
+  retryHandler?.();
+}
+
 /** Test seam: back to "no issues, no listeners leaked" state. */
 export function resetMapIssuesForTests(): void {
   issues = [];
   listeners.clear();
+  retryHandler = null;
 }

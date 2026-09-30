@@ -116,6 +116,11 @@ describe('native bus map invariants', () => {
         /onDidFinishLoadingMap=\{\(\) => \{\s*onStyleLoaded\(\);\s*onMapReady\(\);\s*\}\}/,
         `${file}: a successful load clears the line before the camera re-fits`,
       );
+      assert.match(
+        source,
+        /onDidFinishRenderingMapFully=\{onTilesRendered\}/,
+        `${file}: a fully rendered frame is the other automatic recovery`,
+      );
       assert.doesNotMatch(
         source,
         /onDidFailLoadingMap=\{\(\) => reportMapIssue/,
@@ -125,25 +130,81 @@ describe('native bus map invariants', () => {
   });
 
   test('the pipeline retries fetches with bounded backoff and clears on recovery', () => {
-    const pipeline = read('src/features/map/use-map-style.ts');
-    assert.match(pipeline, /runWithBackoff\(/, 'the fetch runs under the bounded policy');
+    // The lifecycle moved into a pure, port-injected controller so it can be
+    // driven end to end by `map-style-controller.spec.ts`; the hook is now
+    // only the React/native binding.
+    const controller = read('src/features/map/map-style-controller.ts');
+    assert.match(controller, /runWithBackoff\(/, 'the fetch runs under the bounded policy');
     assert.match(
-      pipeline,
+      controller,
       /planStyleLoadFailure\(/,
       'native failures are decided by the pure policy, not inline',
     );
-    assert.match(pipeline, /clearMapIssue\('styleLoad'\)/, 'a real load clears the style line');
-    assert.match(pipeline, /clearMapIssue\('glyphs'\)/, 'a verified probe clears the label line');
+    assert.match(controller, /clearMapIssue\('styleLoad'\)/, 'a real load clears the style line');
+    assert.match(controller, /clearMapIssue\('glyphs'\)/, 'a verified probe clears the label line');
     assert.match(
-      pipeline,
+      controller,
       /OFFLINE_FALLBACK_MAP_STYLE/,
       'total exhaustion drops to the bundled offline base style',
     );
     assert.match(
-      pipeline,
-      /if \(!showingFallback\) clearMapIssue\('styleLoad'\)/,
-      'the fallback loading is not a recovery — the line must stay',
+      controller,
+      /if \(showingFallback\) return;\s*\n[\s\S]{0,200}clearMapIssue\('styleOffline'\)/,
+      'the fallback rendering is not the tiles coming back — the chip must stay',
     );
+    const hook = read('src/features/map/use-map-style.ts');
+    assert.match(hook, /createStyleController\(/, 'the hook only wires the controller up');
+  });
+
+  /**
+   * The "Map failed to load" lie (defect B1). Three separate wires each used
+   * to be able to raise a red line on a perfectly healthy map, and each of
+   * them is now gated.
+   */
+  test('nothing may raise a map issue except the style pipeline itself', () => {
+    const hook = read('src/features/map/use-map-style.ts');
+    assert.doesNotMatch(
+      hook,
+      /reportMapIssue\(/,
+      'a native log line must never report an issue by itself',
+    );
+    assert.match(
+      hook,
+      /controller\.corroborateLog\(code\)/,
+      'a log line may only corroborate a conclusion the pipeline already reached',
+    );
+
+    const controller = read('src/features/map/map-style-controller.ts');
+    const onFailed = controller.slice(
+      controller.indexOf('function onStyleLoadFailed'),
+      controller.indexOf('/** Everything a successful render proves'),
+    );
+    const beforeThePolicyRuns = onFailed.slice(0, onFailed.indexOf('planStyleLoadFailure'));
+    assert.doesNotMatch(
+      beforeThePolicyRuns,
+      /reportMapIssue\(/,
+      'reporting before the first retry has even run contradicts the backoff design',
+    );
+    assert.match(
+      onFailed,
+      /if \(showingFallback\) \{[\s\S]{0,160}reportMapIssue\('styleLoad'\)/,
+      'red is reserved for the engine failing to render even the offline style',
+    );
+
+    // The classifier is a strict allow-list, not a substring sniff.
+    const classifier = read('src/features/map/map-log-classifier.ts');
+    assert.doesNotMatch(
+      classifier,
+      /text\.includes\('maplibre'\)|text\.includes\('mbgl'\)/,
+      'any warn line containing "maplibre" is not a style failure',
+    );
+    assert.match(classifier, /FATAL_STYLE_LOG_PATTERNS/);
+  });
+
+  test('the network coming back re-runs the pipeline with no user action', () => {
+    const hook = read('src/features/map/use-map-style.ts');
+    assert.match(hook, /useNetworkStatus\(\)/, 'the hook must watch connectivity');
+    assert.match(hook, /controller\.onNetworkRestored\(\)/);
   });
 
   /**

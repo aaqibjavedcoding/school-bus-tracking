@@ -155,6 +155,8 @@ interface MapSurfaceProps {
   onMapReady: () => void;
   /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
   onStyleLoadFailed: () => void;
+  /** From `useMapStyle`: a fully rendered frame clears the issue lines. */
+  onTilesRendered: () => void;
   onStyleLoaded: () => void;
   cameraRef: React.RefObject<CameraRef | null>;
   /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
@@ -184,6 +186,7 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
     onRegionChangeComplete,
     onMapReady,
     onStyleLoadFailed,
+    onTilesRendered,
     onStyleLoaded,
     cameraRef,
     mapStyle,
@@ -205,6 +208,9 @@ const MapSurface: React.FC<MapSurfaceProps> = React.memo(
         onMapReady();
       }}
       onDidFailLoadingMap={onStyleLoadFailed}
+      // A frame that rendered completely is the other proof the map healed
+      // itself — the one event that fires when a dead zone quietly ends.
+      onDidFinishRenderingMapFully={onTilesRendered}
     >
       {/*
         The camera: uncontrolled after the initial state. All movement is
@@ -458,7 +464,7 @@ export const BusMap: React.FC<BusMapProps> = ({
   // fontstack rewrites registered, endpoint verified — failures land in the
   // map-diagnostics store, recovery clears them, and total exhaustion drops
   // to the bundled offline base style (R3; `use-map-style.ts`).
-  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded, notifyTilesRendered } = useMapStyle();
 
   if (surfaceMode === 'no-coordinates') {
     return (
@@ -495,6 +501,7 @@ export const BusMap: React.FC<BusMapProps> = ({
             onMapReady={handleMapReady}
             onStyleLoadFailed={onStyleLoadFailed}
             onStyleLoaded={notifyStyleLoaded}
+            onTilesRendered={notifyTilesRendered}
             cameraRef={cameraRef}
             mapStyle={mapStyle}
           />

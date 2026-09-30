@@ -637,6 +637,17 @@ export const en = {
   'map.busA11y': 'KidBus',
   'map.stopA11y': 'Stop {number}',
   'map.stopLabel': '{number}. {name}',
+  /**
+   * Two weights, because the two states are not the same news.
+   *
+   * `styleOffline` is the bundled offline base style rendering: the map WORKS
+   * (the stops, the bus, the accuracy ring and the panel are all app-drawn
+   * overlays), the tiles are just not there yet. It renders as a neutral chip
+   * with a retry affordance, so the copy has to name the action.
+   * `styleLoad` is the terminal state — the engine could not render even a
+   * style that needs no network — and keeps the red line.
+   */
+  'map.issue.styleOffline': 'Offline map — tap to retry',
   'map.issue.styleLoad': 'Map failed to load — check your network connection and map tiles.',
   'map.issue.glyphs': 'Map labels unavailable',
 
