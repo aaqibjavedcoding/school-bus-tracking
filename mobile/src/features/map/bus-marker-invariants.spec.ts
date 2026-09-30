@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
 /**
@@ -59,6 +59,14 @@ describe('native bus marker invariants', () => {
       'the bus must be a custom child view, not an image',
     );
     assert.match(marker, /<BusMarkerGraphic/, 'and it must be the one shared graphic');
+  });
+
+  test('gates the moving cone and pulse through the shared 3 km/h motion threshold', () => {
+    assert.match(marker, /MOTION_THRESHOLDS\.headingMinSpeedKmh/);
+    assert.match(marker, /Animated\.loop/, 'live movement gets a gentle presence halo');
+    assert.match(marker, /showPulse = liveMoving && !reducedMotion/);
+    assert.match(marker, /<BusMarkerGraphic desaturated=\{!animate\}/);
+    assert.match(marker, /The shadow is intentionally outside the rotated bus group/);
   });
 
   test('gives the marker a higher draw order than the stop layer', () => {
@@ -121,7 +129,7 @@ describe('native bus map invariants', () => {
     assert.match(
       source,
       /onDidFailLoadingMap=\{onStyleLoadFailed\}/,
-      'the engine\'s failure must run the bounded re-set policy',
+      "the engine's failure must run the bounded re-set policy",
     );
     assert.match(
       source,
@@ -305,7 +313,7 @@ describe('the marker tracks the drawn route line (R4)', () => {
     assert.match(
       source,
       /route=\{routeCoordinates\}/,
-      'the surface\'s route IS the drawn stop-to-stop polyline',
+      "the surface's route IS the drawn stop-to-stop polyline",
     );
   });
 
@@ -347,6 +355,19 @@ describe('the marker is the bundled bus sprite', () => {
       graphic,
       /width: BUS_MARKER_WIDTH,\n\s*height: BUS_MARKER_HEIGHT,/,
       'the image is drawn at exactly the pinned box, so nothing resamples at render time',
+    );
+  });
+
+  test('rasterises the density sprites from the shared SVG and keeps the master out of app assets', () => {
+    const generator = read('scripts/generate-assets.mjs');
+    assert.match(generator, /BUS_MARKER_ART_SVG/);
+    assert.match(generator, /busMarkerPng/);
+    assert.match(generator, /@school-bus-tracking\/map-assets/);
+    assert.equal(existsSync('assets/gen/bus-master.png'), false, 'the 1.6 MB master must not ship');
+    assert.equal(
+      existsSync('scripts/assets/bus-master.png'),
+      true,
+      'the build-time master was moved',
     );
   });
 

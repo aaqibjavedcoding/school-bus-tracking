@@ -7,8 +7,18 @@ import { APP_CONFIG } from '@school-bus-tracking/config';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import type { MapViewProps } from './types';
-import { busIconOptions, setBusIconHeading } from './bus-marker-icon';
-import { FRAME_MIN_INTERVAL_MS, createBusMotion } from './bus-motion';
+import {
+  BUS_MARKER_ART_ID,
+  BUS_MARKER_BOX,
+  BUS_MARKER_DEFS_SVG,
+  BUS_MARKER_SHADOW_ID,
+} from '@school-bus-tracking/map-assets';
+import {
+  setBusIconHeading,
+  setBusMarkerVisualState,
+  type BusMarkerVisualState,
+} from './bus-marker-icon';
+import { FRAME_MIN_INTERVAL_MS, MOTION_THRESHOLDS, createBusMotion } from './bus-motion';
 import { haversineMeters } from './geo';
 import {
   FOLLOW_CAMERA_MIN_SHIFT_METERS,
@@ -84,17 +94,45 @@ interface RenderedMarker {
   headingDeg: number | null;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgUse(symbolId: string, className: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', className);
+  svg.setAttribute('viewBox', `0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}`);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', `#${symbolId}`);
+  svg.append(use);
+  return svg;
+}
+
+/**
+ * Builds only lightweight wrapper nodes. The detailed art is not parsed here:
+ * it lives once in the map shell's `<defs>`, and every marker references those
+ * shared symbols with `<use>`.
+ */
 function createBusMarkerElement(): HTMLDivElement {
-  const options = busIconOptions();
   const container = document.createElement('div');
-  container.className = options.className;
-  // options.html is `<div class="bus-marker-anchor"><div class="bus-marker-rotor">SVG</div></div>`
-  container.innerHTML = options.html;
-  // The box stays zero-sized on purpose (see `.bus-marker` in `globals.css`):
-  // MapLibre positions and sizes this element itself, so the graphic must live in
-  // an absolutely positioned child, or a rotated bus is clipped to its own
-  // unrotated footprint and loses its corners on a diagonal heading.
-  container.style.cssText = 'width:0;height:0;overflow:visible;';
+  container.className = 'bus-marker';
+  container.setAttribute('aria-hidden', 'true');
+  container.style.cssText = `width:0;height:0;overflow:visible;--sbt-bus-width:${BUS_MARKER_BOX.width}px;--sbt-bus-height:${BUS_MARKER_BOX.height}px;--sbt-bus-rotation-box:${BUS_MARKER_BOX.rotationBox}px;`;
+
+  const anchor = document.createElement('div');
+  anchor.className = 'bus-marker-anchor';
+  const shadow = svgUse(BUS_MARKER_SHADOW_ID, 'bus-marker-shadow');
+  const halo = document.createElement('div');
+  halo.className = 'bus-marker-halo';
+  const rotor = document.createElement('div');
+  rotor.className = 'bus-marker-rotor';
+  const cone = document.createElement('div');
+  cone.className = 'bus-marker-heading-cone';
+  const art = svgUse(BUS_MARKER_ART_ID, 'bus-marker-art');
+
+  rotor.append(cone, art);
+  anchor.append(shadow, halo, rotor);
+  container.append(anchor);
   return container;
 }
 
@@ -132,6 +170,13 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const busElementRef = useRef<HTMLDivElement | null>(null);
   const busPopupRef = useRef<maplibregl.Popup | null>(null);
+  // The frame loop reads this ref so a heading update can change only marker
+  // classes — not React state — for live/stale, cone and pulse presentation.
+  const busVisualStateRef = useRef<BusMarkerVisualState>({
+    live: false,
+    moving: false,
+    reducedMotion: false,
+  });
   // The one stop-layer popup, re-used per click (the stop layers are canvas
   // layers now — the popup is the click affordance, the label is the reading
   // affordance; see `stop-layer.ts`).
@@ -240,6 +285,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     [fix, connection, tick],
   );
 
+  // State is deliberately derived from freshness and the one shared motion
+  // threshold. A tween ending does not turn a live, driving bus into stopped.
+  busVisualStateRef.current = {
+    live: presentation.animate,
+    moving:
+      presentation.animate &&
+      fix?.speed !== null &&
+      fix?.speed !== undefined &&
+      fix.speed >= MOTION_THRESHOLDS.headingMinSpeedKmh,
+    reducedMotion,
+  };
+
   // Freshness aging tick
   useEffect(() => {
     const id = setInterval(() => setTick((v) => v + 1), 5_000);
@@ -281,6 +338,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     busMarkerRef.current?.setLngLat(lngLat);
     if (busElementRef.current) {
       setBusIconHeading(busElementRef.current, rendered.headingDeg);
+      setBusMarkerVisualState(busElementRef.current, {
+        ...busVisualStateRef.current,
+        moving: busVisualStateRef.current.moving && rendered.headingDeg !== null,
+      });
     }
     renderedRef.current = {
       latitude: rendered.latitude,
@@ -877,6 +938,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       marker: busMarkerRef.current,
       createMarker: (readyMap, lngLat) => {
         const el = createBusMarkerElement();
+        setBusMarkerVisualState(el, busVisualStateRef.current);
         busElementRef.current = el;
         const created = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat(lngLat)
@@ -944,8 +1006,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       if (outcome.action === 'animated') startLoop();
     }
     lastFrameAtRef.current = now;
+    if (busElementRef.current)
+      setBusMarkerVisualState(busElementRef.current, busVisualStateRef.current);
     applyFrame(now);
-  }, [fix, presentation.animate, applyFrame, startLoop, dispatch]);
+  }, [fix, presentation.animate, reducedMotion, applyFrame, startLoop, dispatch]);
 
   /**
    * The single place that pushes application state onto the map.
@@ -1097,6 +1161,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
   return (
     <div className="map-shell" ref={shellRef}>
+      {/* One DOM-level SVG source. Each marker uses symbols from these defs. */}
+      <svg className="map-marker-defs" aria-hidden="true" focusable="false">
+        <defs dangerouslySetInnerHTML={{ __html: BUS_MARKER_DEFS_SVG }} />
+      </svg>
       {/*
         The container is ALWAYS mounted — including while the trip has nothing
         to show — because the map is created once (see the map-init effect's

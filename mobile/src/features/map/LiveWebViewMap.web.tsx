@@ -11,13 +11,20 @@ import type { CameraRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-n
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import {
+  BUS_MARKER_ART_ID,
+  BUS_MARKER_BOX,
+  BUS_MARKER_DEFS_SVG,
+  BUS_MARKER_SHADOW_ID,
+} from '@school-bus-tracking/map-assets';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
-import type { BusMotionFix } from './bus-motion.ts';
+import { isTrustworthyDeviceHeading, type BusMotionFix } from './bus-motion.ts';
 import { SINGLE_POINT_ZOOM, initialCameraFor } from './fit-camera.ts';
 import { resolveMapStyleUrl } from './map-style';
 import { driverFollowControls } from './map-controls.ts';
 import { useFollowCamera } from './useFollowCamera';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { stopsLayerCollection, type StopLayerStop } from './stop-layer.ts';
 import { buildArrivalZoneCenter, buildArrivalZonePolygon } from '../crew/trip-map-geometry.ts';
 
@@ -100,32 +107,82 @@ const ROUTE_PAINT: Record<WebViewMapVariant, object> = {
   },
 };
 
-// The bundled bus sprite (@1x/@2x/@3x resolved by Metro for the platform).
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const busMarkerSource = require('../../../assets/bus-marker.png') as string;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const BUS_DEFS_ID = 'sbt-mobile-web-bus-defs';
+const BUS_STYLE_ID = 'sbt-mobile-web-bus-style';
+
+/** Mount the one shared symbol definition and its small presence styles once. */
+function ensureSharedBusMarkerResources(): void {
+  if (!document.getElementById(BUS_DEFS_ID)) {
+    const root = document.createElementNS(SVG_NS, 'svg');
+    root.id = BUS_DEFS_ID;
+    root.setAttribute('aria-hidden', 'true');
+    root.setAttribute('width', '0');
+    root.setAttribute('height', '0');
+    root.style.position = 'absolute';
+    root.style.overflow = 'hidden';
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    // This happens once per document, never during marker creation. Each
+    // marker below is DOM nodes + `<use>`, not a parsed bus SVG clone.
+    defs.innerHTML = BUS_MARKER_DEFS_SVG;
+    root.append(defs);
+    document.body.append(root);
+  }
+  if (!document.getElementById(BUS_STYLE_ID)) {
+    const style = document.createElement('style');
+    style.id = BUS_STYLE_ID;
+    style.textContent = `
+      @keyframes sbt-mobile-web-bus-pulse { 0%,100% { transform:scale(.8); opacity:.06 } 50% { transform:scale(1.28); opacity:.3 } }
+      .sbt-mobile-web-bus.is-live-moving:not(.is-reduced-motion) .sbt-mobile-web-bus-halo { animation:sbt-mobile-web-bus-pulse 2.4s ease-in-out infinite; }
+      .sbt-mobile-web-bus:not(.is-live-moving) .sbt-mobile-web-bus-cone { display:none; }
+      .sbt-mobile-web-bus.is-stale .sbt-mobile-web-bus-art, .sbt-mobile-web-bus.is-stale .sbt-mobile-web-bus-shadow { filter:grayscale(1) saturate(.18); opacity:.68; }
+    `;
+    document.head.append(style);
+  }
+}
+
+function svgUse(symbolId: string, className: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', className);
+  svg.setAttribute('viewBox', `0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}`);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.style.width = `${BUS_MARKER_BOX.width}px`;
+  svg.style.height = `${BUS_MARKER_BOX.height}px`;
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', `#${symbolId}`);
+  svg.append(use);
+  return svg;
+}
 
 /**
- * The bus as a MapLibre GL JS marker: a zero-sized anchor (MapLibre
- * positions the element itself) containing a 26 × 42 rotor that carries the
- * rotation — the web twin of the native marker's rotation box, so a rotated
- * bus is never clipped to its unrotated footprint.
+ * Native web's MapLibre marker uses the same defs/use source as the console.
+ * Its shadow stays static outside the rotor; only the coach and cone rotate.
  */
 function createBusMarkerElement(): { element: HTMLDivElement; rotor: HTMLDivElement } {
+  ensureSharedBusMarkerResources();
   const element = document.createElement('div');
+  element.className = 'sbt-mobile-web-bus';
+  element.setAttribute('aria-hidden', 'true');
   element.style.cssText = 'width:0;height:0;overflow:visible;';
   const anchor = document.createElement('div');
-  anchor.style.cssText = 'position:absolute;left:0;top:0;transform:translate(-50%, -50%);';
+  anchor.style.cssText = `position:absolute;left:0;top:0;width:${BUS_MARKER_BOX.rotationBox}px;height:${BUS_MARKER_BOX.rotationBox}px;display:grid;place-items:center;transform:translate(-50%,-50%);overflow:visible;`;
+  const shadow = svgUse(BUS_MARKER_SHADOW_ID, 'sbt-mobile-web-bus-shadow');
+  shadow.style.position = 'absolute';
+  const halo = document.createElement('div');
+  halo.className = 'sbt-mobile-web-bus-halo';
+  halo.style.cssText =
+    'position:absolute;width:40px;height:40px;border-radius:999px;background:rgb(245 158 11 / .25);opacity:0;pointer-events:none;';
   const rotor = document.createElement('div');
-  rotor.style.cssText =
-    'width:26px;height:42px;overflow:visible;transform-origin:50% 50%;will-change:transform;';
-  const image = document.createElement('img');
-  image.src = busMarkerSource;
-  image.width = 26;
-  image.height = 42;
-  image.alt = '';
-  rotor.appendChild(image);
-  anchor.appendChild(rotor);
-  element.appendChild(anchor);
+  rotor.style.cssText = `position:relative;width:${BUS_MARKER_BOX.width}px;height:${BUS_MARKER_BOX.height}px;display:grid;place-items:center;overflow:visible;transform-origin:50% 50%;will-change:transform;`;
+  const cone = document.createElement('div');
+  cone.className = 'sbt-mobile-web-bus-cone';
+  cone.style.cssText =
+    'position:absolute;z-index:-1;top:-15px;left:5px;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:18px solid rgb(37 99 235 / .36);';
+  const art = svgUse(BUS_MARKER_ART_ID, 'sbt-mobile-web-bus-art');
+  rotor.append(cone, art);
+  anchor.append(shadow, halo, rotor);
+  element.append(anchor);
   return { element, rotor };
 }
 
@@ -223,6 +280,7 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
   headerTitle = null,
 }) => {
   const locale = useLocale();
+  const reducedMotion = useReducedMotion();
   useTranslation();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -545,6 +603,13 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
     } else {
       busMarkerRef.current.setLngLat([fix.longitude, fix.latitude]);
     }
+    // The same 3 km/h heading trust gate as the native motion machine: a
+    // parked bus must not show a direction cone for GPS course noise.
+    const liveMoving = animate && isTrustworthyDeviceHeading(fix.heading, fix.speed);
+    const element = busMarkerRef.current.getElement();
+    element.classList.toggle('is-stale', !animate);
+    element.classList.toggle('is-live-moving', liveMoving);
+    element.classList.toggle('is-reduced-motion', reducedMotion);
     if (busRotorRef.current) {
       busRotorRef.current.style.transform = `rotate(${fix.heading ?? 0}deg)`;
     }
@@ -556,8 +621,9 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
       longitude: fix.longitude,
       headingDeg: fix.heading ?? null,
       moving: animate,
+      sourceSpeedKmh: fix.speed ?? null,
     });
-  }, [mapReady, fix, animate, onFrame]);
+  }, [mapReady, fix, animate, reducedMotion, onFrame]);
 
   // The honest captions, the same set the native surface renders.
   const plannedNotice = plannedFeature ? t('map.plannedNotice') : null;

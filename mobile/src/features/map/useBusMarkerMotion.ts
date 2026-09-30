@@ -36,7 +36,10 @@ export interface RenderedMarker {
   latitude: number;
   longitude: number;
   headingDeg: number | null;
+  /** True only while the display-only position tween is in flight. */
   moving: boolean;
+  /** Raw source speed; used only for the visual live-moving state / cone gate. */
+  sourceSpeedKmh: number | null;
 }
 
 export interface UseBusMarkerMotionInput {
@@ -99,13 +102,15 @@ export function useBusMarkerMotion(input: UseBusMarkerMotionInput): RenderedMark
       longitude: next.longitude,
       headingDeg: next.headingDeg,
       moving: next.moving,
+      sourceSpeedKmh: next.source.speed,
     };
     setMarker((previous) =>
       previous !== null &&
       previous.latitude === rendered.latitude &&
       previous.longitude === rendered.longitude &&
       previous.headingDeg === rendered.headingDeg &&
-      previous.moving === rendered.moving
+      previous.moving === rendered.moving &&
+      previous.sourceSpeedKmh === rendered.sourceSpeedKmh
         ? previous
         : rendered,
     );

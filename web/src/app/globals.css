@@ -872,50 +872,122 @@ table.data tbody tr:hover {
 }
 
 /*
- * Top-view school-bus marker.
+ * Shared 3/4 school-bus marker.
  *
- * The box MapLibre owns is forced to **zero size** by `MapViewInner`, because a
- * marker element that is exactly the graphic's size clips the graphic the moment
- * it turns: a 26 × 42 bus rotated 45° needs about 48 × 48 dp, and the corners
- * were cut off along the box edge. Zero area leaves nothing to clip.
- *
- * The centring that size used to imply moves into `.bus-marker-anchor`: it is
- * absolutely positioned at the marker's origin (the GPS coordinate itself) and
- * pulled back by half of its own size. The rotor inside it then only rotates —
- * `setBusIconHeading` writes that transform at frame rate, and a transform
- * applied to a box already centred on the coordinate keeps the vehicle centre on
- * the fix at every heading. `transform` is compositor-only, so 20 updates a
- * second cause no relayout, and `will-change` keeps it on its own layer.
+ * MapViewInner mounts the detailed SVG symbols once in a hidden `<defs>` node.
+ * Each MapLibre marker is a tiny DOM wrapper with `<use>` references, so frame
+ * updates mutate only the rotor transform instead of parsing/rebuilding art.
+ * The zero-size MapLibre host is centred on the fix; the 50px turning box is
+ * centred inside it, preserving the GPS coordinate at every heading.
  */
+.map-marker-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .bus-marker {
   background: transparent;
   border: 0;
   overflow: visible;
-  filter: drop-shadow(0 3px 6px rgb(15 23 42 / 0.35));
 }
 
 .bus-marker-anchor {
   position: absolute;
   top: 0;
   left: 0;
+  width: var(--sbt-bus-rotation-box);
+  height: var(--sbt-bus-rotation-box);
+  display: grid;
+  place-items: center;
   transform: translate(-50%, -50%);
   overflow: visible;
 }
 
-.bus-marker-rotor {
+.bus-marker-shadow,
+.bus-marker-art {
   display: block;
-  width: 26px;
-  height: 42px;
+  width: var(--sbt-bus-width);
+  height: var(--sbt-bus-height);
+  overflow: visible;
+}
+
+.bus-marker-shadow {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.bus-marker-rotor {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: var(--sbt-bus-width);
+  height: var(--sbt-bus-height);
   overflow: visible;
   transform-origin: 50% 50%;
-  /* The rotation itself is written by `setBusIconHeading`, never here, so the
-     animation loop and the stylesheet can never fight over one property. */
+  /* setBusIconHeading owns this transform at frame rate. */
   will-change: transform;
 }
 
-.bus-marker-rotor svg {
+.bus-marker-heading-cone {
+  position: absolute;
+  z-index: -1;
+  top: -15px;
+  left: 5px;
+  width: 0;
+  height: 0;
+  display: none;
+  border-right: 8px solid transparent;
+  border-bottom: 18px solid rgb(37 99 235 / 0.36);
+  border-left: 8px solid transparent;
+  filter: drop-shadow(0 1px 1px rgb(15 23 42 / 0.16));
+}
+
+.bus-marker.is-live-moving:not(.is-reduced-motion) .bus-marker-heading-cone {
   display: block;
-  overflow: visible;
+}
+
+.bus-marker-halo {
+  position: absolute;
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: rgb(245 158 11 / 0.25);
+  opacity: 0;
+}
+
+.bus-marker.is-live-moving:not(.is-reduced-motion) .bus-marker-halo {
+  animation: bus-marker-presence 2.4s ease-in-out infinite;
+}
+
+.bus-marker.is-stale .bus-marker-art,
+.bus-marker.is-stale .bus-marker-shadow {
+  filter: grayscale(1) saturate(0.18);
+  opacity: 0.68;
+}
+
+@keyframes bus-marker-presence {
+  0%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.06;
+  }
+  50% {
+    transform: scale(1.28);
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bus-marker-halo {
+    animation: none !important;
+  }
 }
 
 /*

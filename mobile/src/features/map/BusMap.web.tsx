@@ -3,8 +3,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { formatSpeedKmh, formatTime } from '../../lib/format';
+import { fixAgeMs } from '../../lib/geo';
 import { t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
+import { useNow } from './useNow';
+import { deriveTrackingPresentation } from './tracking-presentation';
 import type { BusMapProps } from './BusMap';
 import { LiveWebViewMap, useWebgl2Supported } from './LiveWebViewMap.web';
 
@@ -29,7 +32,17 @@ export const BusMap: React.FC<BusMapProps> = ({
   nextStopId = null,
 }) => {
   useTranslation();
+  const now = useNow(5_000);
   const webgl = useWebgl2Supported();
+  const presentation = useMemo(
+    () =>
+      deriveTrackingPresentation({
+        fixAgeMs: fix ? fixAgeMs(fix.received_at, now) : null,
+        accuracyMeters: fix?.accuracy ?? null,
+        socketOffline: connection === 'offline',
+      }),
+    [fix, connection, now],
+  );
   const locatedStops = useMemo(
     () => stops.filter((stop) => stop.latitude !== null && stop.longitude !== null),
     [stops],
@@ -44,14 +57,16 @@ export const BusMap: React.FC<BusMapProps> = ({
         tripId={tripId}
         height={height}
         nextStopId={nextStopId}
-        animate={fix !== null}
+        animate={presentation.animate}
         busTitle={busTitle ?? t('map.busA11y')}
         headerTitle={busTitle ?? t('map.busA11y')}
         panel={
           <View style={styles.panel}>
             {fix ? (
               <Text style={styles.panelNote}>
-                {formatSpeedKmh(fix.speed)} · {formatTime(fix.recorded_at)}
+                {presentation.mayReportLiveMotion
+                  ? `${formatSpeedKmh(fix.speed)} · ${formatTime(fix.recorded_at)}`
+                  : `${t('map.status.lastKnown')} · ${formatTime(fix.recorded_at)}`}
               </Text>
             ) : null}
             {connection === 'offline' ? (
