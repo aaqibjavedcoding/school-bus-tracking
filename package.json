@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "postinstall": "npm run build:packages",
-    "build:packages": "npm --prefix packages/shared-types run build && npm --prefix packages/design-tokens run build && npm --prefix packages/config run build && npm --prefix packages/validation run build && npm --prefix packages/api-client run build",
+    "build:packages": "npm --prefix packages/shared-types run build && npm --prefix packages/design-tokens run build && npm --prefix packages/map-assets run build && npm --prefix packages/config run build && npm --prefix packages/validation run build && npm --prefix packages/api-client run build",
     "build:apps": "npm --prefix web run build && npm --prefix mobile run build",
     "build": "npm run build:packages && npm run build:apps",
     "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",

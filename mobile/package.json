@@ -40,6 +40,7 @@
     "@school-bus-tracking/api-client": "*",
     "@school-bus-tracking/config": "*",
     "@school-bus-tracking/design-tokens": "*",
+    "@school-bus-tracking/map-assets": "*",
     "@school-bus-tracking/shared-types": "*",
     "@school-bus-tracking/validation": "*",
     "@types/geojson": "^7946.0.16",

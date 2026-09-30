@@ -891,7 +891,6 @@ table.data tbody tr:hover {
   background: transparent;
   border: 0;
   overflow: visible;
-  filter: drop-shadow(0 3px 6px rgb(15 23 42 / 0.35));
 }
 
 .bus-marker-anchor {
@@ -902,10 +901,65 @@ table.data tbody tr:hover {
   overflow: visible;
 }
 
+/*
+ * The ground shadow sits OUTSIDE the rotor on purpose: a shadow that spun with
+ * the bus would read as the sun orbiting the vehicle. It is centred on the
+ * coordinate and never transformed.
+ */
+.bus-marker-shadow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  pointer-events: none;
+}
+
+/*
+ * The gentle pulse halo — also outside the rotor, so it stays a circle while the
+ * bus turns. Only shown for a LIVE marker, and killed under reduce-motion.
+ */
+.bus-marker-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(245 158 11 / 0.5) 0%, rgb(245 158 11 / 0) 70%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bus-marker[data-pulse='on'] .bus-marker-halo {
+  animation: bus-marker-pulse 1.9s ease-out infinite;
+}
+
+@keyframes bus-marker-pulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.7;
+  }
+  70% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
 .bus-marker-rotor {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: block;
   width: 26px;
   height: 42px;
+  margin: -21px 0 0 -13px;
   overflow: visible;
   transform-origin: 50% 50%;
   /* The rotation itself is written by `setBusIconHeading`, never here, so the
@@ -913,9 +967,57 @@ table.data tbody tr:hover {
   will-change: transform;
 }
 
-.bus-marker-rotor svg {
+.bus-marker-bus {
   display: block;
+  width: 26px;
+  height: 42px;
   overflow: visible;
+  filter: drop-shadow(0 2px 3px rgb(15 23 42 / 0.3));
+}
+
+/*
+ * The heading cone points ahead of the bus (up = north before rotation) and
+ * lives INSIDE the rotor, so it turns with the vehicle. Hidden unless the state
+ * machine says the bus is moving above the 3 km/h heading gate.
+ */
+.bus-marker-cone {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  margin-bottom: -4px;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-bottom: 22px solid rgb(245 158 11 / 0.4);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bus-marker[data-cone='on'] .bus-marker-cone {
+  opacity: 1;
+}
+
+/* Last known / stale: desaturate the whole marker and drop the shadow weight. */
+.bus-marker[data-tone='stale'] .bus-marker-rotor {
+  filter: grayscale(0.85) opacity(0.7);
+}
+
+.bus-marker[data-tone='stale'] .bus-marker-shadow {
+  opacity: 0.6;
+}
+
+/*
+ * Reduce-motion: no pulse, ever. Belt and braces alongside the `data-pulse`
+ * verdict, which already reads `usePrefersReducedMotion` so no marker is created
+ * with the halo running.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .bus-marker .bus-marker-halo {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /*
