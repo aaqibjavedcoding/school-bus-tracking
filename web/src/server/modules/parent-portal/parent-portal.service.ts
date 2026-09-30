@@ -35,6 +35,7 @@ import { LiveTrackingService } from '../live-tracking/live-tracking.service';
 import { EtaService } from '../eta/eta.service';
 import { TripAttendanceService } from '../trip-attendance/trip-attendance.service';
 import { PARENT_PORTAL_CHILD_NOT_FOUND_MESSAGE } from './parent-portal.constants';
+import { effectiveArrivalRadiusMeters } from '../../config/eta.config';
 
 /** Ranked preference when several trips exist on the same route today. */
 const TRIP_PREFERENCE: Record<TripStatus, number> = {
@@ -597,6 +598,8 @@ export class ParentPortalService {
       latitude: stop.latitude,
       longitude: stop.longitude,
       geofence_radius_meters: stop.geofence_radius_meters,
+      // Server-computed so clients never mirror the floor (see eta.config.ts).
+      effective_radius_meters: effectiveArrivalRadiusMeters(stop.geofence_radius_meters),
       sequence_number: stop.sequence_number,
       estimated_arrival_time: stop.estimated_arrival_time,
       is_active: stop.is_active,

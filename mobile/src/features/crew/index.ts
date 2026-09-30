@@ -137,10 +137,11 @@ export { SkippedStopAnnouncer } from './skip-announcer';
  * the zone never gates anything client-side.
  */
 export {
-  ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
+  OFFLINE_FALLBACK_MIN_RADIUS_METERS,
   arrivalHoldReason,
   arrivalZoneOfStop,
   arrivalZoneStatus,
+  distanceToStopMeters,
   effectiveArrivalRadiusMeters,
 } from './arrival-zone';
 export type {
@@ -150,3 +151,11 @@ export type {
   ArrivalZoneStatus,
   ArrivalZoneStop,
 } from './arrival-zone';
+
+/**
+ * The crew's manual stop-marking call (arrive / skip), shared by the
+ * dedicated `StopMarkActions` block and the one-tap hold button on the
+ * next-stop card.
+ */
+export { useCrewStopMark } from './useCrewStopMark';
+export type { CrewMarkStop } from './useCrewStopMark';

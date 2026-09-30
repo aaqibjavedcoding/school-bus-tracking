@@ -22,6 +22,7 @@ import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
 import { PlanLimitsService } from '../../common/plan-limits';
+import { effectiveArrivalRadiusMeters } from '../../config/eta.config';
 
 /**
  * Tenant-safe stop management.
@@ -348,6 +349,8 @@ export class StopsService {
       latitude: stop.latitude,
       longitude: stop.longitude,
       geofence_radius_meters: stop.geofence_radius_meters,
+      // Server-computed so clients never mirror the floor (see eta.config.ts).
+      effective_radius_meters: effectiveArrivalRadiusMeters(stop.geofence_radius_meters),
       sequence_number: stop.sequence_number,
       estimated_arrival_time: stop.estimated_arrival_time,
       is_active: stop.is_active,

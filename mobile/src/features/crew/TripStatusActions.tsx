@@ -6,7 +6,7 @@ import { apiClient } from '../../services/api';
 import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { generateIdempotencyKey } from '../../lib/idempotency';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
-import { Button, Field } from '../../components';
+import { Button, ConfirmDialog, Field } from '../../components';
 import { nextCrewTransitions, transitionLabel } from './crew-trip';
 import { transitionActionMeta } from './crew-action-meta';
 import { useOfflineAction } from './offline/useOfflineAction';
@@ -42,15 +42,30 @@ export const TripStatusActions: React.FC<{
    * this off: a dispatcher's status change is not a field action.
    */
   offlineCapable?: boolean;
+  /**
+   * Ask for an explicit confirmation before applying a forward transition.
+   * Admin screens turn this on for the dispatcher override: taking over from
+   * the crew device is deliberate, and audited. The copy is supplied by the
+   * caller so no admin-only English lands on the crew surfaces.
+   */
+  confirm?: { title: string; message: string; confirmLabel: string; cancelLabel: string } | null;
   onApplied: (trip: TripResponse) => void;
   /** Called instead of `onApplied` when the transition was queued offline. */
   onQueued?: (status: TripStatus) => void;
-}> = ({ trip, allowCancel = false, offlineCapable = false, onApplied, onQueued }) => {
+}> = ({
+  trip,
+  allowCancel = false,
+  offlineCapable = false,
+  confirm = null,
+  onApplied,
+  onQueued,
+}) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queuedNote, setQueuedNote] = useState<string | null>(null);
   const offline = useOfflineAction();
   const { user } = useAuth();
+  const [confirming, setConfirming] = useState<TripStatus | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -161,7 +176,13 @@ export const TripStatusActions: React.FC<{
             icon={meta.icon}
             tone={meta.tone}
             size="field"
-            onPress={() => void apply(next)}
+            onPress={() => {
+              if (confirm) {
+                setConfirming(next);
+                return;
+              }
+              void apply(next);
+            }}
             disabled={busy}
             busy={busy && !cancelling && transitions.length === 1}
             style={styles.action}
@@ -208,6 +229,23 @@ export const TripStatusActions: React.FC<{
             />
           </View>
         </View>
+      ) : null}
+
+      {confirm ? (
+        <ConfirmDialog
+          open={confirming !== null}
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          cancelLabel={confirm.cancelLabel}
+          busy={busy}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            const next = confirming;
+            setConfirming(null);
+            if (next) void apply(next);
+          }}
+        />
       ) : null}
 
       {queuedNote ? <Text style={styles.queued}>{queuedNote}</Text> : null}

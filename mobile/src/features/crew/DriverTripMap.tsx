@@ -17,7 +17,7 @@ import {
   type MapProps,
   type ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
-import type { Feature, LineString, Polygon } from 'geojson';
+import type { Feature, LineString, Point, Polygon } from 'geojson';
 import type {
   StopResponse,
   TripLocationHistoryResponse,
@@ -53,6 +53,7 @@ import { driverFollowControls } from '../map/map-controls.ts';
 import { useFollowCamera } from '../map/useFollowCamera';
 import { GestureIsland } from '../../components/gesture-island';
 import {
+  buildArrivalZoneCenter,
   buildArrivalZonePolygon,
   buildPlannedLegsLine,
   buildTrailLine,
@@ -211,7 +212,8 @@ const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
  * vs solid is what keeps them readable apart.
  */
 const ZONE_STROKE = 'rgba(180, 83, 9, 0.9)';
-const ZONE_FILL = 'rgba(245, 158, 11, 0.06)';
+/** The surveyed stop coordinate itself — a small solid dot inside the ring. */
+const ZONE_CENTER_DOT = 'rgb(180, 83, 9)';
 
 /** Trail and planned-legs paint, stated once for both native map instances. */
 const TRAIL_PAINT = {
@@ -232,8 +234,10 @@ interface SurfaceProps {
   trailFeature: Feature<LineString> | null;
   plannedFeature: Feature<LineString> | null;
   accuracyCircleFeature: Feature<Polygon> | null;
-  /** The next stop's arrival-zone circle (effective radius), or null. */
+  /** The next stop's arrival-zone ring (effective radius), or null. */
   arrivalZoneFeature: Feature<Polygon> | null;
+  /** The next stop's exact surveyed coordinate, drawn as a small dot. */
+  arrivalZoneCenterFeature: Feature<Point> | null;
   initialCamera: InitialViewState | null;
   /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
   mapStyle: MapProps['mapStyle'];
@@ -274,6 +278,7 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
     plannedFeature,
     accuracyCircleFeature,
     arrivalZoneFeature,
+    arrivalZoneCenterFeature,
     initialCamera,
     localFix,
     tripId,
@@ -386,20 +391,34 @@ const DriverMapSurface: React.FC<SurfaceProps> = React.memo(
           circle above belongs to the bus, this one belongs to the stop. */}
       {arrivalZoneFeature ? (
         <GeoJSONSource id="sbt-arrival-zone" data={arrivalZoneFeature}>
-          <Layer
-            type="fill"
-            id="sbt-arrival-zone-fill"
-            source="sbt-arrival-zone"
-            paint={{ 'fill-color': ZONE_FILL }}
-          />
+          {/* A THIN DASHED RING, no fill. The old heavy filled disc read as
+              "the stop is this whole blob"; the precise stop is the dot
+              below, and the ring is only the edge of the recording zone. */}
           <Layer
             type="line"
             id="sbt-arrival-zone-stroke"
             source="sbt-arrival-zone"
             paint={{
               'line-color': ZONE_STROKE,
-              'line-width': 2,
-              'line-dasharray': [3, 2],
+              'line-width': 1.5,
+              'line-opacity': 0.55,
+              'line-dasharray': [3, 3],
+            }}
+          />
+        </GeoJSONSource>
+      ) : null}
+
+      {arrivalZoneCenterFeature ? (
+        <GeoJSONSource id="sbt-arrival-zone-center" data={arrivalZoneCenterFeature}>
+          <Layer
+            type="circle"
+            id="sbt-arrival-zone-center-dot"
+            source="sbt-arrival-zone-center"
+            paint={{
+              'circle-radius': 4,
+              'circle-color': ZONE_CENTER_DOT,
+              'circle-stroke-width': 1,
+              'circle-stroke-color': '#ffffff',
             }}
           />
         </GeoJSONSource>
@@ -510,12 +529,19 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     );
   }, [localFix, presentation.accuracyCircleMeters]);
 
-  // The next stop's arrival-zone circle: the effective radius (stored radius
-  // floored at 50 m — see `arrival-zone.ts`) around the stop the whole screen
+  // The next stop's arrival-zone ring: the effective radius the SERVER
+  // returned (`effective_radius_meters`) around the stop the whole screen
   // already agrees is next. Only the next stop gets a zone, so a ten-stop
   // route stays readable; the caption under the map names what the ring means.
   const arrivalZoneFeature = useMemo<Feature<Polygon> | null>(
     () => buildArrivalZonePolygon(stops, nextStopId),
+    [stops, nextStopId],
+  );
+
+  // …and the surveyed coordinate itself, so the precise stop is visible as a
+  // dot rather than implied by the middle of a blob.
+  const arrivalZoneCenterFeature = useMemo<Feature<Point> | null>(
+    () => buildArrivalZoneCenter(stops, nextStopId),
     [stops, nextStopId],
   );
 
@@ -649,6 +675,7 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       plannedFeature={plannedFeature}
       accuracyCircleFeature={accuracyCircleFeature}
       arrivalZoneFeature={arrivalZoneFeature}
+      arrivalZoneCenterFeature={arrivalZoneCenterFeature}
       initialCamera={initialCamera}
       localFix={localFix}
       tripId={tripId}

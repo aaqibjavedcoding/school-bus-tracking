@@ -17,6 +17,7 @@ import {
   TripStatusActions,
   TripNavigationCard,
   isTripShareable,
+  useCrewStopMark,
   useCrewLocationSharing,
   useCrewToday,
   useNextStopAnnouncements,
@@ -331,6 +332,25 @@ export default function CrewTripScreen() {
 
   const nextStopId = progress.nextStop?.id ?? null;
 
+  /**
+   * The one-tap escape hatch on the next-stop card. Same hook, same offline
+   * queue and same server-confirmed receipt as the "Arrived / Skip stop"
+   * block further down — the card just puts it where the driver already is.
+   */
+  const quickMark = useCrewStopMark(
+    trip?.id ?? '',
+    progress.nextStop
+      ? {
+          id: progress.nextStop.id,
+          name: progress.nextStop.name,
+          sequence_number: progress.nextStop.sequence_number,
+        }
+      : null,
+    () => {
+      void refresh();
+    },
+  );
+
   // The manifest slice is **self-identifying**: it carries the stop id it was
   // fetched for. `useLoad` keeps the PREVIOUS stop's `data` while the next
   // request is in flight and only flips `loading` inside an effect (after this
@@ -543,6 +563,8 @@ export default function CrewTripScreen() {
           kidsLoaded={kidsLoaded}
           arrivalDiagnostics={arrivalDiagnostics}
           skippedNote={skippedNote}
+          onMarkArrived={() => void quickMark.mark('arrive')}
+          markArrivedBusy={quickMark.busy}
         />
       ) : (
         <NextStopKidCard summary={nextStopKids} loaded={kidsLoaded} />

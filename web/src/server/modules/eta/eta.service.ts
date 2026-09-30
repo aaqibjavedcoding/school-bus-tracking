@@ -5,6 +5,7 @@ import {
   TripStopWarning,
 } from '@school-bus-tracking/shared-types';
 import { getTripTrackingState } from '@school-bus-tracking/validation';
+import { effectiveArrivalRadiusMeters } from '../../config/eta.config';
 import { Stop, Trip, TripStopArrival } from '../../database/models';
 import {
   cumulativeStopDistancesMeters,
@@ -174,6 +175,8 @@ export class EtaService {
         distance_meters: arrived ? null : roundMeters(distance),
         eta_minutes: etaMinutes,
         arrived,
+        // The zone the engine measures against — the apps draw exactly this.
+        effective_radius_meters: effectiveArrivalRadiusMeters(stop.geofence_radius_meters),
       };
     });
 

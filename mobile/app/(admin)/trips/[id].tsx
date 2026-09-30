@@ -19,7 +19,8 @@ import { useLiveTripTracking } from '../../../src/features/tracking/useLiveTripT
 import { ConnectionIndicator } from '../../../src/features/tracking/ConnectionIndicator';
 import { EtaSummaryCard, StopsEtaList } from '../../../src/features/tracking/EtaViews';
 import { BusMap } from '../../../src/features/map/BusMap';
-import { isTripOpen, ManifestList, TripStatusActions } from '../../../src/features/crew';
+import { isTripOpen, ManifestList } from '../../../src/features/crew';
+import { TripLifecycleTimeline } from '../../../src/features/admin/trips/TripLifecycleTimeline';
 import {
   Card,
   EmptyState,
@@ -174,7 +175,7 @@ export default function AdminTripDetailScreen() {
         </View>
       </Card>
 
-      <TripStatusActions trip={trip} allowCancel onApplied={() => void reload()} />
+      <TripLifecycleTimeline trip={trip} onApplied={() => void reload()} />
 
       <SectionTitle>Live tracking</SectionTitle>
       <BusMap

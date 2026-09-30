@@ -12,7 +12,7 @@ import { getApiErrorMessage } from '../../lib/errors';
 import { tripStatusLabel } from '../../lib/format';
 import { generateIdempotencyKey } from '../../lib/idempotency';
 import { withIdempotencyKey } from '@school-bus-tracking/api-client';
-import { Button, Field, Input, Modal, useToast } from '../../components/ui';
+import { Button, ConfirmDialog, Field, Input, Modal, useToast } from '../../components/ui';
 
 const ACTION_VARIANT: Partial<Record<TripStatus, 'primary' | 'success' | 'danger' | 'secondary'>> =
   {
@@ -26,11 +26,18 @@ export const TripStatusActions: React.FC<{
   trip: TripResponse;
   large?: boolean;
   allowCancel?: boolean;
+  /**
+   * Ask for an explicit confirmation before applying a forward transition.
+   * Used by the admin dispatcher override, where a transition is a deliberate
+   * takeover of the crew device rather than a field action.
+   */
+  confirmBeforeApply?: boolean;
   onUpdated: (trip: TripResponse) => void;
-}> = ({ trip, large = false, allowCancel = true, onUpdated }) => {
+}> = ({ trip, large = false, allowCancel = true, confirmBeforeApply = false, onUpdated }) => {
   const toast = useToast();
   const [busy, setBusy] = useState<TripStatus | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [confirming, setConfirming] = useState<TripStatus | null>(null);
   const [reason, setReason] = useState('');
 
   const nextStatuses = TRIP_STATUS_TRANSITIONS[trip.status].filter(
@@ -75,6 +82,10 @@ export const TripStatusActions: React.FC<{
                 setCancelOpen(true);
                 return;
               }
+              if (confirmBeforeApply) {
+                setConfirming(status);
+                return;
+              }
               void apply(status);
             }}
           >
@@ -82,6 +93,23 @@ export const TripStatusActions: React.FC<{
           </Button>
         ))}
       </div>
+      <ConfirmDialog
+        open={confirming !== null}
+        title="Apply dispatcher override?"
+        message={
+          confirming
+            ? `This moves the trip to ${tripStatusLabel(confirming).toLowerCase()} on behalf of the crew. It is recorded in the audit log.`
+            : ''
+        }
+        confirmLabel="Apply override"
+        busy={busy !== null}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => {
+          const status = confirming;
+          setConfirming(null);
+          if (status) void apply(status);
+        }}
+      />
       <Modal
         title="Cancel this trip?"
         description="The run will stay in history as cancelled and live tracking will stop."

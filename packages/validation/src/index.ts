@@ -30,6 +30,7 @@ import {
   TripAttendanceStatus,
   TripStatus,
   TripTrackingState,
+  UserRole,
 } from '@school-bus-tracking/shared-types';
 import type { CrewLoginMethod } from '@school-bus-tracking/shared-types';
 
@@ -736,15 +737,14 @@ export const stopCreateSchema = z
     geofence_radius_meters: z
       .number()
       .int('geofence_radius_meters must be an integer')
-      // Deep-fix R1: a radius below ~30 m makes the arrival zone behave like
-      // a point — phones in urban/indoor conditions report 10–30 m accuracy,
-      // so a fix that IS inside a 10–30 m circle keeps failing the per-stop
-      // accuracy gate and the driver watches a parked bus "never arrive".
-      // 30 m is the smallest circle that still records from typical phone
-      // fixes; legacy smaller radii stay valid at runtime because the server
-      // floors every stop's EFFECTIVE radius (see
-      // `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` in the web eta config).
-      .min(30, 'geofence_radius_meters must be between 30 and 2000')
+      // A radius below ~15 m makes the *stored* zone smaller than the noise
+      // in a phone fix (urban/indoor accuracy is 10–30 m), so admins may now
+      // survey tight stops down to 15 m. It stays safe because DETECTION
+      // never uses the stored number directly: the server floors every stop's
+      // EFFECTIVE radius at `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` (25 m, see
+      // the web eta config for why that floor is not 5 m), and the apps draw
+      // the effective radius the API returns.
+      .min(15, 'geofence_radius_meters must be between 15 and 2000')
       .max(2000)
       .nullish(),
     sequence_number: z
@@ -1252,6 +1252,128 @@ export const TRIP_STATUS_TRANSITIONS: Readonly<Record<TripStatus, readonly TripS
 /** True when `to` is a legal next state for a trip currently in `from`. */
 export const isTripStatusTransitionAllowed = (from: TripStatus, to: TripStatus): boolean =>
   TRIP_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
+
+/** Minimal shape of the signed-in user needed to decide crew authority. */
+export interface CrewActorLike {
+  id?: string | null;
+  role?: UserRole | string | null;
+}
+
+/** Minimal shape of a trip needed to decide crew authority. */
+export interface CrewActionTripLike {
+  driver_id?: string | null;
+  conductor_id?: string | null;
+}
+
+/**
+ * True when `user` is the crew of `trip` and may drive its lifecycle from the
+ * field (the big forward-only Boarding / Start / Complete buttons).
+ *
+ * This is a *surface* decision, not an authorisation one: the API deliberately
+ * still lets a SCHOOL_ADMIN PATCH `/trips/:id/status` as a dispatcher
+ * override. Admin screens therefore render a read-only timeline and keep the
+ * transition buttons behind an explicit, audited "Dispatcher override"
+ * disclosure — they never get the crew buttons, because seeing "Boarding" the
+ * moment a trip is scheduled made dispatchers start runs by accident.
+ *
+ * Use this helper everywhere instead of inline `role === DRIVER ||
+ * role === CONDUCTOR` checks so the rule stays in one place.
+ */
+export const canActAsCrewOnTrip = (
+  user: CrewActorLike | null | undefined,
+  trip: CrewActionTripLike | null | undefined,
+): boolean => {
+  if (!user || !trip) {
+    return false;
+  }
+  if (user.role !== UserRole.DRIVER && user.role !== UserRole.CONDUCTOR) {
+    return false;
+  }
+  const userId = user.id ?? null;
+  if (!userId) {
+    return false;
+  }
+  return userId === (trip.driver_id ?? null) || userId === (trip.conductor_id ?? null);
+};
+
+/** One step of the read-only admin lifecycle timeline. */
+export interface TripLifecycleStep {
+  status: TripStatus;
+  /** `true` for the step the trip is sitting on right now. */
+  current: boolean;
+  /** `true` once the trip has passed (or is on) this step. */
+  reached: boolean;
+  /** Real timestamp for the step, when the trip carries one. */
+  at: string | null;
+}
+
+/** The forward lifecycle rendered by the admin timeline, in order. */
+export const TRIP_LIFECYCLE_ORDER: readonly TripStatus[] = Object.freeze([
+  TripStatus.SCHEDULED,
+  TripStatus.BOARDING,
+  TripStatus.IN_PROGRESS,
+  TripStatus.COMPLETED,
+]);
+
+/** Trip fields the lifecycle timeline reads. */
+export interface TripLifecycleTripLike {
+  status: TripStatus;
+  scheduled_start_at?: string | null;
+  actual_start_at?: string | null;
+  actual_end_at?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
+}
+
+/**
+ * Read-only lifecycle timeline for a trip: Scheduled → Boarding → In progress
+ * → Completed, with the trip's real timestamps and the current step flagged.
+ *
+ * CANCELLED is *not* a step on the line — it is a terminal branch (see
+ * `tripLifecycleCancellation`), so a cancelled trip keeps whatever forward
+ * progress it actually made highlighted.
+ */
+export const buildTripLifecycleSteps = (trip: TripLifecycleTripLike): TripLifecycleStep[] => {
+  const cancelled = trip.status === TripStatus.CANCELLED;
+  // A cancelled trip stops where it actually got to; timestamps tell us that.
+  const effective: TripStatus = cancelled
+    ? trip.actual_end_at
+      ? TripStatus.COMPLETED
+      : trip.actual_start_at
+        ? TripStatus.IN_PROGRESS
+        : TripStatus.SCHEDULED
+    : trip.status;
+  const reachedIndex = TRIP_LIFECYCLE_ORDER.indexOf(effective);
+
+  const timestampFor = (status: TripStatus): string | null => {
+    switch (status) {
+      case TripStatus.SCHEDULED:
+        return trip.scheduled_start_at ?? null;
+      case TripStatus.IN_PROGRESS:
+        return trip.actual_start_at ?? null;
+      case TripStatus.COMPLETED:
+        return trip.actual_end_at ?? null;
+      default:
+        // BOARDING has no dedicated column; it is shown without a time.
+        return null;
+    }
+  };
+
+  return TRIP_LIFECYCLE_ORDER.map((status, index) => ({
+    status,
+    current: !cancelled && index === reachedIndex,
+    reached: index <= reachedIndex,
+    at: timestampFor(status),
+  }));
+};
+
+/** The terminal cancelled branch of the timeline, or `null` when not cancelled. */
+export const tripLifecycleCancellation = (
+  trip: TripLifecycleTripLike,
+): { at: string | null; reason: string | null } | null =>
+  trip.status === TripStatus.CANCELLED
+    ? { at: trip.cancelled_at ?? null, reason: trip.cancellation_reason ?? null }
+    : null;
 
 /**
  * Phase 4 — Trip student attendance (boarding / drop management).
@@ -2764,7 +2886,7 @@ export const stopImportRowSchema = z
     longitude: decimalCell('Longitude', { min: -180, max: 180 }),
     // Deep-fix R1: min 30 for the same reason as `stopCreateSchema` above —
     // smaller circles behave like points against real phone accuracy.
-    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 30, max: 2000 }),
+    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 15, max: 2000 }),
     estimated_arrival_time: timeCell('Estimated arrival time'),
     is_active: booleanCell('Active'),
   })

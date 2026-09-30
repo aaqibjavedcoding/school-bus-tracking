@@ -69,16 +69,17 @@ describe('CreateStopDto validation', () => {
     );
   });
 
-  it('rejects a radius below the 30 m arrival-circle minimum (deep-fix R1)', async () => {
-    // Radii under 30 m made the arrival zone behave like a point against real
-    // phone accuracy; the editor now enforces the same floor the server's
-    // effective-radius runtime net guarantees for legacy rows.
-    const tooSmall = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 29 });
+  it('rejects a radius below the 15 m survey minimum', async () => {
+    // Admins may survey tight stops down to 15 m. It is safe because
+    // DETECTION never uses the stored number: the engine floors every stop at
+    // ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS (25 m), so a 15 m stop still gets a
+    // circle a typical phone fix can be inside.
+    const tooSmall = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 14 });
     assert.deepEqual(
       tooSmall.map((error) => error.property),
       ['geofence_radius_meters'],
     );
-    const boundary = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 30 });
+    const boundary = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 15 });
     assert.deepEqual(boundary, []);
   });
 

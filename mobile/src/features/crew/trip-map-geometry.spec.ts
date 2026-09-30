@@ -10,7 +10,7 @@ import {
   historyFixesForTrip,
   upcomingStopsFrom,
 } from './trip-map-geometry.ts';
-import { ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS } from './arrival-zone.ts';
+import { OFFLINE_FALLBACK_MIN_RADIUS_METERS } from './arrival-zone.ts';
 
 /**
  * The driver map's two honest lines, pinned.
@@ -46,6 +46,7 @@ function stop(
     longitude,
     address: null,
     geofence_radius_meters: 100,
+    effective_radius_meters: 100,
     estimated_arrival_time: null,
     is_active: true,
     created_at: '2026-01-01T00:00:00Z',
@@ -203,7 +204,9 @@ describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () =>
     const stops = [
       stop('s1', 1, 19.076, 72.8777),
       stop('s2', 2, 19.079, 72.88),
-    ].map((entry) => ({ ...entry, geofence_radius_meters: 10 }));
+      // A 10 m stop the SERVER floored to its 25 m effective radius — the map
+      // draws the server's number, it no longer re-derives a floor of its own.
+    ].map((entry) => ({ ...entry, geofence_radius_meters: 10, effective_radius_meters: 25 }));
     const zone = buildArrivalZonePolygon(stops, 's2');
     assert.ok(zone);
     assert.equal(zone.geometry.type, 'Polygon');
@@ -216,12 +219,12 @@ describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () =>
       assert.ok(Math.abs(point[0] - 72.88) < 0.001, `longitude near the stop: ${point[0]}`);
       assert.ok(Math.abs(point[1] - 19.079) < 0.001, `latitude near the stop: ${point[1]}`);
     }
-    // The radius is the effective floor, not the stored 10 m: the ring's
-    // northernmost vertex sits ~50 m from the stop (0.00045° latitude).
+    // The radius is the server's effective radius, not the stored 10 m: the
+    // ring's northernmost vertex sits ~25 m from the stop (0.000225°).
     const maxLatitudeDelta = Math.max(...ring.map((point) => Math.abs(point[1] - 19.079)));
     assert.ok(
-      maxLatitudeDelta > 0.00035 && maxLatitudeDelta < 0.00055,
-      `effective radius ~${ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS} m, got ${maxLatitudeDelta.toFixed(6)}°`,
+      maxLatitudeDelta > 0.00017 && maxLatitudeDelta < 0.00028,
+      `effective radius ~${OFFLINE_FALLBACK_MIN_RADIUS_METERS} m, got ${maxLatitudeDelta.toFixed(6)}°`,
     );
   });
 

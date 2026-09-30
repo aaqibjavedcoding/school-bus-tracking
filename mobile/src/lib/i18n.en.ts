@@ -762,6 +762,12 @@ export const en = {
   'navigate.card.skippedNote': 'Stop {number} ({name}) skipped — not served',
   // Deep-fix R1: the arrival-zone indicator + the held-reason line on the
   // next-stop card (display only; the server's engine decides arrivals).
+  // The live distance readout — the driver always gets a NUMBER, not just a
+  // colour. Same haversine metres the arrival engine measures.
+  'navigate.card.distanceInside': '{distance} from stop — inside zone',
+  'navigate.card.distanceOutside': '{distance} from stop',
+  // The escape hatch, one tap (held) on the card the driver is already on.
+  'navigate.card.markArrived': "I'm at this stop — mark arrived",
   'navigate.card.insideZone': 'Inside arrival zone',
   'navigate.card.outsideZone': 'Outside arrival zone',
   'navigate.card.heldDeparture': 'Waiting for departure from the previous stop',

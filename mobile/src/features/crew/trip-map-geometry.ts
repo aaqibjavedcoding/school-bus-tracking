@@ -1,4 +1,4 @@
-import type { Feature, LineString, Polygon } from 'geojson';
+import type { Feature, LineString, Point, Polygon } from 'geojson';
 import type {
   StopResponse,
   TripLocationHistoryResponse,
@@ -113,8 +113,8 @@ export function historyFixesForTrip(
  * The NEXT stop's arrival-zone circle, or `null` when there is nothing to
  * draw (deep-fix R1).
  *
- * The radius is the stop's **effective** radius (`arrival-zone.ts`: stored
- * radius floored at 50 m) — the same circle the server's arrival engine
+ * The radius is the stop's **effective** radius — `effective_radius_meters`
+ * as the SERVER computed it — the same circle the server's arrival engine
  * evaluates, so a driver standing inside the dashed ring is standing inside
  * the zone that records the stop. Only the next stop gets a zone: the map
  * stays clean, and "which circle am I in" has one answer.
@@ -133,4 +133,28 @@ export function buildArrivalZonePolygon(
   if (!zone) return null;
   if (!isValidCoordinate(zone.center.latitude, zone.center.longitude)) return null;
   return accuracyCirclePolygon(zone.center, zone.radiusMeters);
+}
+
+/**
+ * The next stop's exact surveyed coordinate as a point feature, or `null`
+ * when there is nothing honest to draw.
+ *
+ * Drawn as a small solid dot inside the dashed ring: the ring says "the zone
+ * that records this stop", the dot says "the stop itself". Before this the
+ * map drew only a filled disc, and drivers read the whole disc as the stop.
+ */
+export function buildArrivalZoneCenter(
+  stops: readonly StopResponse[],
+  nextStopId: string | null | undefined,
+): Feature<Point> | null {
+  if (!nextStopId) return null;
+  const nextStop = stops.find((stop) => stop.id === nextStopId) ?? null;
+  const zone = arrivalZoneOfStop(nextStop);
+  if (!zone) return null;
+  if (!isValidCoordinate(zone.center.latitude, zone.center.longitude)) return null;
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Point', coordinates: [zone.center.longitude, zone.center.latitude] },
+  };
 }

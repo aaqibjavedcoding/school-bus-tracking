@@ -31,6 +31,7 @@ const etaItem = (overrides: Partial<TripStopEta> = {}): TripStopEta => ({
   distance_meters: 100,
   eta_minutes: 1,
   arrived: false,
+  effective_radius_meters: 25,
   ...overrides,
 });
 

@@ -2883,3 +2883,75 @@ table.data.compact th {
     order: 2;
   }
 }
+
+/* --- Admin trip lifecycle timeline (read-only) --- */
+.trip-lifecycle {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.trip-lifecycle-step {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  opacity: 0.55;
+}
+
+.trip-lifecycle-step.is-reached {
+  opacity: 1;
+}
+
+.trip-lifecycle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border, #cbd5e1);
+  background: transparent;
+}
+
+.trip-lifecycle-step.is-reached .trip-lifecycle-dot {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+}
+
+.trip-lifecycle-step.is-current .trip-lifecycle-label {
+  font-weight: 700;
+}
+
+.trip-lifecycle-step.is-cancelled {
+  opacity: 1;
+  margin-left: 1.25rem;
+}
+
+.trip-lifecycle-step.is-cancelled .trip-lifecycle-dot {
+  background: var(--danger, #dc2626);
+  border-color: var(--danger, #dc2626);
+}
+
+.trip-lifecycle-time {
+  font-size: 0.82rem;
+}
+
+.dispatcher-override > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* --- Stop form: live geofence scale preview --- */
+.geofence-preview {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+}
+
+.geofence-preview svg {
+  border-radius: 8px;
+}
+
+.geofence-preview-caption {
+  font-size: 0.8rem;
+}
