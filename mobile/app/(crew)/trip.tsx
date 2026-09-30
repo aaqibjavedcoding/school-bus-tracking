@@ -27,6 +27,11 @@ import {
 // native map module, and the crew barrel is also pulled in by headless code
 // paths that must never touch a native module.
 import { DriverTripMap, EMBEDDED_MAP_MIN_HEIGHT } from '../../src/features/crew/DriverTripMap';
+// The conductor's read-only map — the same observer surface the parent and
+// admin screens render, also imported by path for the same native-module
+// reason as the driver map above.
+import { BusMap } from '../../src/features/map/BusMap';
+import { crewMapSurface } from '../../src/features/crew/crew-map-access.ts';
 import { NextStopKidCard } from '../../src/features/crew/NextStopKidCard';
 import { summarizeNextStopKids } from '../../src/features/crew/next-stop-kids';
 import {
@@ -132,6 +137,16 @@ export default function CrewTripScreen() {
   );
   const live = useLiveTripTracking(trip?.id ?? null);
   const isDriver = user?.role === UserRole.DRIVER;
+  /**
+   * Which live map this crew member gets — decided by the pure policy in
+   * `crew-map-access.ts`, not by the driver flag: the driver gets their own
+   * device's map, the conductor gets the **read-only observer map** (the same
+   * surface parents and admins see, fed from the observer socket above), and
+   * everyone else gets none. The split's other half — GPS sharing, the
+   * location watcher, the stop-marking actions — stays driver-only
+   * (`crewOwnsLocationSharing` / `crewCanMarkStops`).
+   */
+  const mapVariant = crewMapSurface(user?.role);
 
   /**
    * A **server-confirmed** lifecycle transition (never the offline-queued
@@ -524,13 +539,22 @@ export default function CrewTripScreen() {
       ) : null}
 
       {/**
-       * Driver-only, and deliberately below the GPS strip: the strip says whether
-       * the school can see the bus, the map says where this device is on the
-       * route. Neither answers the other's question, and the map is
+       * The live map — visible to BOTH crew roles (the split lives in
+       * `crew-map-access.ts`), and deliberately below the GPS strip: the strip
+       * says whether the school can see the bus, the map says where the bus is
+       * on the route. Neither answers the other's question, and the map is
        * supplementary — the next-stop card and its external Navigate hand-off
        * remain the driving workflow.
+       *
+       * - **Driver**: their own device's map — the marker is this phone's
+       *   newest fix, with the trail, the planned legs, the arrival-zone ring
+       *   and the no-fix repair CTA.
+       * - **Conductor**: the read-only observer map. The marker is the
+       *   observer socket's fix (`live.fix`) — never this phone's GPS, which
+       *   the conductor never shares — with the next-stop highlight and the
+       *   arrival-zone ring, and no driver honesty line, no CTA, no marking.
        */}
-      {isDriver ? (
+      {mapVariant === 'driver' ? (
         <DriverTripMap
           stops={stops}
           localFix={sharing.stats.lastFix}
@@ -543,6 +567,15 @@ export default function CrewTripScreen() {
           noFixCta={mapNoFixCta}
           onNoFixAction={onMapNoFixAction}
           busy={sharing.busy}
+          height={EMBEDDED_MAP_HEIGHT}
+        />
+      ) : mapVariant === 'observer' ? (
+        <BusMap
+          stops={stops}
+          fix={live.fix}
+          tripId={trip.id}
+          connection={live.connection}
+          nextStopId={nextStopId}
           height={EMBEDDED_MAP_HEIGHT}
         />
       ) : null}
@@ -571,29 +604,33 @@ export default function CrewTripScreen() {
       )}
 
       {/**
-       * The manual stop record — both roles, right under the next-stop block
-       * it refers to. The geofence stays the default; this is what the crew
-       * reaches for when it did not fire, which is exactly when the run would
-       * otherwise stick. Offline-safe by construction (see
-       * `StopMarkActions`), and its confirmation only speaks once the server
-       * has actually recorded the stop.
+       * The manual stop record — DRIVER only, right under the next-stop block
+       * it refers to (`crewCanMarkStops`: the conductor's map is read-only,
+       * and the manual record is a crew-action surface). The geofence stays
+       * the default; this is what the driver reaches for when it did not
+       * fire, which is exactly when the run would otherwise stick.
+       * Offline-safe by construction (see `StopMarkActions`), and its
+       * confirmation only speaks once the server has actually recorded the
+       * stop.
        */}
-      <StopMarkActions
-        tripId={trip.id}
-        stop={
-          progress.nextStop
-            ? {
-                id: progress.nextStop.id,
-                name: progress.nextStop.name,
-                sequence_number: progress.nextStop.sequence_number,
-              }
-            : null
-        }
-        onMarked={() => {
-          void refresh();
-          void kidsLoad.refresh();
-        }}
-      />
+      {isDriver ? (
+        <StopMarkActions
+          tripId={trip.id}
+          stop={
+            progress.nextStop
+              ? {
+                  id: progress.nextStop.id,
+                  name: progress.nextStop.name,
+                  sequence_number: progress.nextStop.sequence_number,
+                }
+              : null
+          }
+          onMarked={() => {
+            void refresh();
+            void kidsLoad.refresh();
+          }}
+        />
+      ) : null}
 
       <View style={styles.linkRow}>
         <Button

@@ -164,6 +164,7 @@ export default function ParentTrackingScreen() {
             height={280}
             tripId={tripId}
             connection={live.connection}
+            nextStopId={eta?.next_stop?.stop_id ?? null}
           />
 
           {fix ? null : (

@@ -1,52 +1,33 @@
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
-import {
-  Camera,
-  GeoJSONSource,
-  Layer,
-  Map,
-  type CameraRef,
-  type InitialViewState,
-  type MapProps,
-  type ViewStateChangeEvent,
-} from '@maplibre/maplibre-react-native';
-import type { Feature, LineString, Polygon } from 'geojson';
+import { StyleSheet, Text, View } from 'react-native';
+import type { Feature, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { fixAgeMs } from '../../lib/geo';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import { t } from '../../lib/i18n.ts';
-import { useLocale, useTranslation } from '../../lib/i18n-provider';
-import '../../lib/runtime-env.ts';
-import { getRuntime } from '../../lib/runtime-environment.ts';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { useTranslation } from '../../lib/i18n-provider';
 import type { ConnectionState, LiveFix } from '../tracking/useLiveTripTracking';
 import { accuracyCirclePolygon } from './accuracy-circle';
-import { BusMarker } from './BusMarker';
-import { StopMarker } from './StopMarker';
-import { SINGLE_POINT_ZOOM, initialCameraFor } from './fit-camera.ts';
 import { MapIssueLines } from './map-issue-lines';
-import { useMapStyle } from './use-map-style';
-import { mapSurfaceMode } from './map-surface-mode';
-import { NeedsDevBuildPanel } from './needs-dev-build-panel';
-import type { RouteSnapPoint } from './route-snap.ts';
-import type { RenderedMarker } from './useBusMarkerMotion';
+import { LiveMapSurface } from './LiveMapSurface';
 import { useNow } from './useNow';
 import { deriveTrackingPresentation, type TrackingPresentation } from './tracking-presentation';
-import { useFollowCamera } from './useFollowCamera';
 
 /**
- * MapLibre renders its children (Camera, sources, layers, annotations) by
- * spreading its props onto the native view, so children work at runtime. In
- * this monorepo the package hoists above `react-native`, so tsc cannot
- * resolve the RN `ViewProps` the component's prop type extends and silently
- * drops `children` from it — restore that one prop here rather than fight
- * the hoisted layout.
- */
-const MapView = Map as unknown as React.ComponentType<MapProps & { children?: React.ReactNode }>;
-
-/**
- * Native live-tracking map (parent tracking, admin trip detail, admin tracking).
+ * The **observer** live-tracking map — parent tracking, admin trip detail,
+ * admin tracking, and the conductor's read-only view of their own run.
+ *
+ * ### One surface, shared
+ *
+ * Everything the map does — engine and style policy, gesture ownership inside
+ * a ScrollView, the follow controls and zoom buttons, fullscreen, the
+ * one-layer stops, the next-stop highlight and the arrival-zone ring — is
+ * `features/map/LiveMapSurface.tsx` (`variant: 'observer'`), the same
+ * component the driver map renders. This wrapper owns only the observer's
+ * status panel: GPS freshness in the socket's words ("Live" / "Last known" /
+ * "No position"), never the driver's "your device" honesty line, because the
+ * position is streamed from the crew device, not produced here.
  *
  * ### Where positions come from, and where they do not
  *
@@ -62,26 +43,12 @@ const MapView = Map as unknown as React.ComponentType<MapProps & { children?: Re
  * between stops is the same kind of straight line, and the map says so. See
  * `docs/live-tracking-map.md`.
  *
- * ### The engine, and what it must never become
+ * ### The conductor
  *
- * Tiles and vector data come from one URL, resolved by `map-style.ts`:
- * OpenFreeMap's public style over OpenStreetMap data by default, an
- * https-only override when self-hosting later. No key, no account, no billing
- * — the rule and its rationale live in `docs/live-tracking-map.md` → "Map
- * provider policy". With no network the style load retries (bounded backoff,
- * R3) and then drops to the bundled offline base style; the markers, the
- * accuracy circle and the freshness panel below are React Native views and
- * overlays, so they keep working either way.
- *
- * ### What the camera does (and does not do)
- *
- * The camera is uncontrolled and owned by an explicit follow policy: fit the
- * route once per trip, then only *pan* (never zoom) while following, and any
- * genuine user gesture hands the camera to the user until they press "Follow
- * bus". One implementation, shared with the Driver Trip map: the policy lives
- * in `follow-camera.ts` (pure reducer) and `follow-camera-controller.ts`
- * (pure over a camera port); `useFollowCamera` is the React binding that
- * speaks to the MapLibre `Camera` ref.
+ * A conductor sees this map read-only: no GPS strip, no location watcher, no
+ * stop-marking actions — those are driver surfaces, gated in
+ * `crew-map-access.ts`. The conductor's position comes from the observer
+ * socket (`useLiveTripTracking`), never from their own phone.
  */
 export interface BusMapProps {
   stops: StopResponse[];
@@ -100,200 +67,13 @@ export interface BusMapProps {
    * wired it up.
    */
   connection?: ConnectionState;
-}
-
-/**
- * Padding that keeps markers off the edge when the route is fitted.
- */
-const FIT_EDGE_PADDING = { top: 48, right: 48, bottom: 48, left: 48 };
-
-/**
- * School-bus amber with an explicit alpha.
- *
- * `rgba()` rather than an 8-digit hex on purpose: the colour goes into a
- * MapLibre style-spec paint property, and `rgba()` is parsed identically on
- * both platforms, while 8-digit hex has historical portability gaps in style
- * spec parsers.
- */
-const ACCURACY_STROKE = 'rgba(245, 158, 11, 0.45)';
-const ACCURACY_FILL = 'rgba(245, 158, 11, 0.13)';
-
-/**
- * Initial framing + fit math (with the `MAP_MIN_FIT_ZOOM` floor that keeps a
- * whole route out of the "unlabeled outline" zooms) lives in `fit-camera.ts`,
- * shared with the crew driver map. Only ever used for the `Camera`'s
- * `initialViewState`, so the map opens somewhere sensible before the first
- * `fitToData` lands — deliberately **not** a controlled camera (that
- * prop-recomputed-per-fix pattern is the bug the follow-camera rewrite
- * removed).
- */
-
-// ── The map surface ────────────────────────────────────────────────────────
-
-interface MapSurfaceProps {
-  stops: Array<StopResponse & { latitude: number; longitude: number }>;
-  routeLineFeature: Feature<LineString> | null;
-  /** The stops in order — the marker's display-only snap target (R4). */
-  route: readonly RouteSnapPoint[];
-  accuracyCircleFeature: Feature<Polygon> | null;
-  initialCamera: InitialViewState | null;
-  fix: LiveFix | null;
-  tripId: string | null;
-  reducedMotion: boolean;
-  animate: boolean;
-  busTitle: string;
-  busDescription: string;
   /**
-   * Declared so the memo compares it — busting the cache on a language switch
-   * so the callouts re-translate — but deliberately NOT destructured: nothing
-   * in the tree reads it, `t()` reads module state.
+   * The next stop's id, from the screen's own ETA derivation — drives the
+   * amber highlight and the arrival-zone ring, exactly as on the driver map.
+   * `null` (or omitted) draws every stop plain.
    */
-  locale: string;
-  onFrame: (marker: RenderedMarker) => void;
-  onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
-  onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
-  onMapReady: () => void;
-  /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
-  onStyleLoadFailed: () => void;
-  onStyleLoaded: () => void;
-  cameraRef: React.RefObject<CameraRef | null>;
-  /** From `useMapStyle`: the URL, or the glyph-repaired style object. */
-  mapStyle: MapProps['mapStyle'];
+  nextStopId?: string | null;
 }
-
-/**
- * Memoised on purpose: the status panel re-renders every 5 s so its labels can
- * age, and none of that may reach the native map. Every prop below is either
- * stable per trip or changes only when the data genuinely changes.
- */
-const MapSurface: React.FC<MapSurfaceProps> = React.memo(
-  ({
-    stops,
-    routeLineFeature,
-    route,
-    accuracyCircleFeature,
-    initialCamera,
-    fix,
-    tripId,
-    reducedMotion,
-    animate,
-    busTitle,
-    busDescription,
-    onFrame,
-    onRegionChange,
-    onRegionChangeComplete,
-    onMapReady,
-    onStyleLoadFailed,
-    onStyleLoaded,
-    cameraRef,
-    mapStyle,
-  }) => (
-    <MapView
-      style={styles.map}
-      mapStyle={mapStyle}
-      // OpenStreetMap-derived tiles legally require the attribution and the
-      // logo; MapLibre renders both in the BOTTOM corners, which is why this
-      // map's own controls live in the TOP corners.
-      attribution
-      logo
-      onRegionIsChanging={onRegionChange}
-      onRegionDidChange={onRegionChangeComplete}
-      // The style pipeline sees the load result first: a successful load is
-      // what clears the styleLoad line (R3), then the camera re-fits.
-      onDidFinishLoadingMap={() => {
-        onStyleLoaded();
-        onMapReady();
-      }}
-      onDidFailLoadingMap={onStyleLoadFailed}
-    >
-      {/*
-        The camera: uncontrolled after the initial state. All movement is
-        imperative through `cameraRef` (see `useFollowCamera`), so a follow
-        pan re-renders nothing.
-      */}
-      <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
-
-      {routeLineFeature ? (
-        <GeoJSONSource id="sbt-route" data={routeLineFeature}>
-          {/*
-            Straight dashed line between stops, in sequence — the same
-            "not a route" honesty the notice below the map states
-            (`map.routeNotice`).
-          */}
-          <Layer
-            type="line"
-            id="sbt-route-line"
-            source="sbt-route"
-            paint={{
-              'line-color': colors.primary[600],
-              'line-width': 3,
-              'line-dasharray': [4, 4],
-            }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {/*
-        Uncertainty drawn rather than asserted: when the device reports a
-        coarse radius, the map shows the circle that radius describes instead
-        of implying the bus is precisely where the dot is. Centred on the
-        reported fix rather than on the interpolated marker, because the
-        radius belongs to the measurement.
-      */}
-      {accuracyCircleFeature ? (
-        <GeoJSONSource id="sbt-accuracy" data={accuracyCircleFeature}>
-          <Layer
-            type="fill"
-            id="sbt-accuracy-fill"
-            source="sbt-accuracy"
-            paint={{ 'fill-color': ACCURACY_FILL }}
-          />
-          <Layer
-            type="line"
-            id="sbt-accuracy-stroke"
-            source="sbt-accuracy"
-            paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {stops.map((stop) => (
-        // Stops keep a deliberately different species from the bus — a flat,
-        // slate, un-rotating dot — so a stop and the bus are different at a
-        // glance and in a screenshot.
-        <StopMarker
-          key={stop.id}
-          id={`stop-${stop.id}`}
-          latitude={stop.latitude}
-          longitude={stop.longitude}
-          title={stop.name}
-          label={t('map.stopLabel', { number: stop.sequence_number, name: stop.name })}
-          description={`${t('map.stopA11y', { number: stop.sequence_number })}${
-            stop.address ? ` · ${stop.address}` : ''
-          }`}
-        />
-      ))}
-
-      {/*
-        The bus: rendered AFTER the stops so it draws above them (annotation
-        order in the tree is the z-order), the way `zIndex` 2 > 1 did before.
-      */}
-      {fix ? (
-        <BusMarker
-          fix={fix}
-          tripId={tripId}
-          reducedMotion={reducedMotion}
-          animate={animate}
-          route={route}
-          title={busTitle}
-          description={busDescription}
-          onFrame={onFrame}
-        />
-      ) : null}
-    </MapView>
-  ),
-);
-MapSurface.displayName = 'MapSurface';
 
 // ── Status panel ───────────────────────────────────────────────────────────
 
@@ -355,37 +135,12 @@ export const BusMap: React.FC<BusMapProps> = ({
   busTitle,
   tripId = null,
   connection = 'offline',
+  nextStopId = null,
 }) => {
-  const reducedMotion = useReducedMotion();
-  const locale = useLocale();
   // `t()` reads module state, so subscribing is what makes a language switch
   // re-render this component.
   useTranslation();
   const now = useNow(5_000);
-
-  const locatedStops = useMemo(
-    () =>
-      stops.filter(
-        (stop): stop is StopResponse & { latitude: number; longitude: number } =>
-          stop.latitude !== null && stop.longitude !== null,
-      ),
-    [stops],
-  );
-  const routeCoordinates = useMemo(
-    () => locatedStops.map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude })),
-    [locatedStops],
-  );
-  const routeLineFeature = useMemo<Feature<LineString> | null>(() => {
-    if (routeCoordinates.length < 2) return null;
-    return {
-      type: 'Feature',
-      properties: {},
-      geometry: {
-        type: 'LineString',
-        coordinates: routeCoordinates.map((point) => [point.longitude, point.latitude]),
-      },
-    };
-  }, [routeCoordinates]);
 
   const presentation = useMemo(
     () =>
@@ -416,137 +171,25 @@ export const BusMap: React.FC<BusMapProps> = ({
         `${formatSpeedKmh(fix.speed)} · ${formatTime(fix.recorded_at)}`
       : `${t('map.status.lastKnown')} · ${formatTime(fix.recorded_at)}`;
 
-  // ── Follow camera ──────────────────────────────────────────────────────
-  //
-  // One implementation, shared with the Driver Trip map: the policy lives in
-  // `follow-camera.ts` (pure reducer) and `follow-camera-controller.ts` (pure
-  // over a camera port), and `useFollowCamera` is the React binding. Following
-  // the bus still re-renders nothing — `onFrame` is called from the marker's
-  // animation loop and moves the camera imperatively through the camera ref.
-  const {
-    cameraRef,
-    exploring,
-    onFrame: handleFrame,
-    onRegionChange: handleRegionChange,
-    onRegionChangeComplete: handleRegionChangeComplete,
-    onMapReady: handleMapReady,
-    recenter: handleRecenter,
-  } = useFollowCamera({
-    routeCoordinates,
-    fix,
-    tripId,
-    singlePointZoom: SINGLE_POINT_ZOOM,
-    edgePadding: FIT_EDGE_PADDING,
-  });
-
-  const initialCamera = useMemo(() => {
-    const points: Array<{ latitude: number; longitude: number }> = [...routeCoordinates];
-    if (fix) points.push({ latitude: fix.latitude, longitude: fix.longitude });
-    return initialCameraFor(points);
-    // Keyed on stops only: `initialViewState` is read once by the engine, and
-    // recomputing it per fix would be a controlled camera in disguise.
-    // (`fix` is read inside but deliberately not a dependency, for the same
-    // reason the old `initialRegion` was keyed on stops alone.)
-  }, [routeCoordinates]);
-
-  // Which surface fills the map's box: tiles, the labelled development-build
-  // panel, or the empty-route state. Precedence and rationale live in
-  // `map-surface-mode.ts` (Expo Go carries no map engine on any platform).
-  const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
-
-  // The style pipeline: fetched with bounded backoff, glyph-repaired,
-  // fontstack rewrites registered, endpoint verified — failures land in the
-  // map-diagnostics store, recovery clears them, and total exhaustion drops
-  // to the bundled offline base style (R3; `use-map-style.ts`).
-  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
-
-  if (surfaceMode === 'no-coordinates') {
-    return (
-      <View style={[styles.placeholder, { height }]}>
-        <Text style={styles.placeholderText}>{t('map.noCoordinates')}</Text>
-      </View>
-    );
-  }
-
   return (
-    <View>
-      <View style={[styles.wrap, { height }]}>
-        {surfaceMode === 'needs-dev-build' ? (
-          // No map engine exists in this runtime — a labelled panel says so
-          // instead of the blank grey box drivers used to get.
-          <NeedsDevBuildPanel />
-        ) : (
-          <MapSurface
-            stops={locatedStops}
-            routeLineFeature={routeLineFeature}
-            route={routeCoordinates}
-            accuracyCircleFeature={accuracyCircleFeature}
-            initialCamera={initialCamera}
-            fix={fix}
-            tripId={tripId}
-            reducedMotion={reducedMotion}
-            animate={presentation.animate}
-            busTitle={busTitle ?? t('map.busA11y')}
-            busDescription={busDescription}
-            locale={locale}
-            onFrame={handleFrame}
-            onRegionChange={handleRegionChange}
-            onRegionChangeComplete={handleRegionChangeComplete}
-            onMapReady={handleMapReady}
-            onStyleLoadFailed={onStyleLoadFailed}
-            onStyleLoaded={notifyStyleLoaded}
-            cameraRef={cameraRef}
-            mapStyle={mapStyle}
-          />
-        )}
-
-        {/* Top-left: clear of the MapLibre attribution and logo (bottom
-          corners). Kept on every surface: the freshness of the position is
-          true even when the tiles are not. */}
-        <MapStatusPanel presentation={presentation} fix={fix} now={now} />
-
-        {surfaceMode === 'map' && exploring ? (
-          <Pressable
-            onPress={handleRecenter}
-            accessibilityRole="button"
-            accessibilityLabel={t('map.followBus')}
-            hitSlop={6}
-            style={({ pressed }) => [
-              styles.followButton,
-              pressed ? styles.followButtonPressed : null,
-            ]}
-          >
-            <Text style={styles.followButtonText}>{t('map.followBus')}</Text>
-          </Pressable>
-        ) : null}
-
-        {/* The follow state is invisible to a screen reader unless spoken. */}
-        <Text accessibilityLiveRegion="polite" style={styles.screenReaderOnly}>
-          {exploring ? t('map.exploringA11y') : t('map.followingA11y')}
-        </Text>
-      </View>
-
-      {surfaceMode === 'map' && routeCoordinates.length > 1 ? (
-        /* Below the map, never over it: the bottom corners belong to the
-           provider's attribution and logo. */
-        <Text style={styles.routeNotice}>{t('map.routeNotice')}</Text>
-      ) : null}
-    </View>
+    <LiveMapSurface
+      variant="observer"
+      stops={stops}
+      fix={fix}
+      tripId={tripId}
+      height={height}
+      nextStopId={nextStopId}
+      accuracyCircleFeature={accuracyCircleFeature}
+      animate={presentation.animate}
+      busTitle={busTitle ?? t('map.busA11y')}
+      busDescription={busDescription}
+      headerTitle={busTitle ?? t('map.busA11y')}
+      panel={<MapStatusPanel presentation={presentation} fix={fix} now={now} />}
+    />
   );
 };
 
 const styles = StyleSheet.create({
-  wrap: {
-    borderRadius: borderRadius.lg,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.neutral[200],
-  },
-  map: {
-    // RN 0.86 (Expo SDK 57) removed `StyleSheet.absoluteFillObject`; the
-    // frozen `StyleSheet.absoluteFill` object is the single replacement.
-    ...StyleSheet.absoluteFill,
-  },
   panel: {
     position: 'absolute',
     top: spacing.sm,
@@ -581,53 +224,5 @@ const styles = StyleSheet.create({
   panelNote: {
     fontSize: typography.fontSizes.sm,
     color: colors.neutral[500],
-  },
-  followButton: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    // 44 dp is the minimum comfortable touch target on both platforms.
-    minHeight: 44,
-    minWidth: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    backgroundColor: '#ffffff',
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.neutral[300],
-  },
-  followButtonPressed: {
-    backgroundColor: colors.neutral[100],
-  },
-  followButtonText: {
-    fontSize: typography.fontSizes.sm,
-    fontWeight: '700',
-    color: colors.neutral[800],
-  },
-  screenReaderOnly: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-  },
-  routeNotice: {
-    marginTop: spacing.xs,
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
-  },
-  placeholder: {
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.neutral[200],
-    backgroundColor: colors.neutral[100],
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.md,
-  },
-  placeholderText: {
-    color: colors.neutral[600],
-    fontSize: typography.fontSizes.sm,
-    textAlign: 'center',
   },
 });
