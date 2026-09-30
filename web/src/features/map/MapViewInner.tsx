@@ -7,7 +7,8 @@ import { APP_CONFIG } from '@school-bus-tracking/config';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { formatRelative, formatSpeedKmh, formatTime } from '../../lib/format';
 import type { MapViewProps } from './types';
-import { busIconOptions, setBusIconHeading } from './bus-marker-icon';
+import { applyBusMarkerState, createBusMarkerElement, setBusIconHeading } from './bus-marker-icon';
+import { resolveBusMarkerVisualState } from '@school-bus-tracking/map-assets';
 import { FRAME_MIN_INTERVAL_MS, createBusMotion } from './bus-motion';
 import { haversineMeters } from './geo';
 import {
@@ -82,20 +83,6 @@ interface RenderedMarker {
   latitude: number;
   longitude: number;
   headingDeg: number | null;
-}
-
-function createBusMarkerElement(): HTMLDivElement {
-  const options = busIconOptions();
-  const container = document.createElement('div');
-  container.className = options.className;
-  // options.html is `<div class="bus-marker-anchor"><div class="bus-marker-rotor">SVG</div></div>`
-  container.innerHTML = options.html;
-  // The box stays zero-sized on purpose (see `.bus-marker` in `globals.css`):
-  // MapLibre positions and sizes this element itself, so the graphic must live in
-  // an absolutely positioned child, or a rotated bus is clipped to its own
-  // unrotated footprint and loses its corners on a diagonal heading.
-  container.style.cssText = 'width:0;height:0;overflow:visible;';
-  return container;
 }
 
 export const MapViewInner: React.FC<MapViewProps> = ({
@@ -250,6 +237,30 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   useEffect(() => {
     motionRef.current.setReducedMotion(reducedMotion);
   }, [reducedMotion]);
+
+  // Marker visual state (tone / pulse halo / heading cone). Presentation only:
+  // it writes the data-* attributes `globals.css` keys off, and never touches
+  // the marker's position, so the vehicle centre stays on the coordinate. The
+  // one verdict comes from the shared `resolveBusMarkerVisualState`, so the web
+  // and mobile markers can never disagree about the same bus.
+  const syncBusVisualState = useCallback(() => {
+    const el = busElementRef.current;
+    if (!el) return;
+    const speedMps = fix?.speed ?? null;
+    applyBusMarkerState(
+      el,
+      resolveBusMarkerVisualState({
+        live: presentation.state === 'live',
+        reducedMotion,
+        speedKmh: speedMps === null ? null : speedMps * 3.6,
+        hasHeading: (fix?.heading ?? null) !== null,
+      }),
+    );
+  }, [fix, presentation.state, reducedMotion]);
+
+  useEffect(() => {
+    syncBusVisualState();
+  }, [syncBusVisualState, mapReady, tick]);
 
   // WebGL2 support check (MapLibre GL JS v5+ requires WebGL2; supported() was removed)
   useEffect(() => {
@@ -878,6 +889,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       createMarker: (readyMap, lngLat) => {
         const el = createBusMarkerElement();
         busElementRef.current = el;
+        // Paint the initial visual state onto the fresh element before it is
+        // attached, so a marker created for a stale fix never flashes "live".
+        syncBusVisualState();
         const created = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat(lngLat)
           .addTo(readyMap);
@@ -945,7 +959,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
     lastFrameAtRef.current = now;
     applyFrame(now);
-  }, [fix, presentation.animate, applyFrame, startLoop, dispatch]);
+  }, [fix, presentation.animate, applyFrame, startLoop, dispatch, syncBusVisualState]);
 
   /**
    * The single place that pushes application state onto the map.

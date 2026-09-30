@@ -1,35 +1,38 @@
 /**
  * BusMarkerGraphic.tsx — the visual school-bus marker.
  *
- * Renders the bundled `assets/bus-marker.png` sprite: a top-down,
- * 3D-render-style school bus with the windshield on the nose end, nose-up,
- * cut out on a transparent background, and hand-downsampled into
- * @1x/@2x/@3x files (26×42 / 52×84 / 78×126 px — exactly the dp box below,
- * so nothing them resamples at render time, and cheap mdpi phones get a
- * crisp 26 px file instead of decoding a big one). RN picks the density
- * file automatically from the single `require`.
+ * Renders the bundled `assets/bus-marker.png` sprite. That sprite is no longer a
+ * hand-cut AI raster: it is rasterised from the ONE shared artwork,
+ * `@school-bus-tracking/map-assets` (`BUS_BODY_SVG`), by
+ * `scripts/make-bus-marker.mjs` — the exact same markup the web map inlines as
+ * SVG. Web and mobile therefore draw the same three-quarter isometric,
+ * distinctly 3D school bus; there is no second bus definition to drift.
  *
- * Deep-fix R4 replaced the previous drawn-view bus: at map scale a few
- * 5 px strips never read as a vehicle, which was part of why a wandering
- * marker read as "a drifting speck" instead of "GPS noise on a bus". The
- * sprite keeps every earlier property that made heading meaningful:
+ * The sprite ships @1x/@2x/@3x (26×42 / 52×84 / 78×126 px — exactly the dp box
+ * below, so nothing resamples at render time and cheap mdpi phones decode a
+ * crisp 26 px file). RN picks the density file from the single `require`.
+ *
+ * Every earlier heading/anchor property is kept:
  *
  * - the image **points up** (nose at the top), so heading 0° is no rotation;
- * - the box is still the square that circumscribes the 26 × 42 footprint,
- *   so the annotation frame never grows or jitters while the bus spins
- *   (still the same `BUS_MARKER_ROTATION_BOX` anchor maths);
- * - the graphic stays **decorative for screen readers**: the Marker and the
+ * - the box is the square that circumscribes the 26 × 42 footprint, so the
+ *   annotation frame never grows or jitters while the bus spins
+ *   (`BUS_MARKER_ROTATION_BOX`);
+ * - the graphic stays **decorative for screen readers** — the callout and the
  *   status card carry the information, the image says nothing on its own.
  *
- * Stops stay deliberately different: flat, slate, un-rotating dots
- * (`StopMarker`), so a stop can never be mistaken for the bus.
- * The sprite has no network request and adds no new dependency — it is a
- * bundled asset, keeping the zero-new-native-deps rule.
+ * The ground shadow and the pulse halo are drawn by `BusMarker`, OUTSIDE the
+ * rotating view, so they never spin with the bus.
+ *
+ * `tone` renders the freshness verdict: `'live'` is full colour; `'stale'`
+ * (last-known) mutes the sprite. RN has no CSS `grayscale()` filter without a
+ * native dependency, so "desaturated" is approximated with reduced opacity plus
+ * a translucent neutral wash — enough to read the amber as faded, in keeping
+ * with the zero-new-native-deps rule.
  */
 
 import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
-import { colors } from '@school-bus-tracking/design-tokens';
 
 /** Marker footprint, in dp. Exported so the anchor maths stays honest. */
 export const BUS_MARKER_WIDTH = 26;
@@ -46,52 +49,56 @@ export const BUS_MARKER_HEIGHT = 42;
  * corners off the bus at every diagonal heading. The marker view is therefore
  * sized to this square and the graphic is centred inside it.
  */
-export const BUS_MARKER_ROTATION_BOX = Math.ceil(
-  Math.hypot(BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT),
-);
+export const BUS_MARKER_ROTATION_BOX = Math.ceil(Math.hypot(BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT));
 
-export const BusMarkerGraphic: React.FC<{ width?: number; height?: number }> = ({
-  width = BUS_MARKER_WIDTH,
-  height = BUS_MARKER_HEIGHT,
-}) => (
-  <View
-    pointerEvents="none"
-    // The marker is decoration: its information is carried by the callout and
-    // by the screen-reader text in the status card below the map, so a screen
-    // reader must not be handed the image.
-    accessibilityElementsHidden
-    importantForAccessibility="no-hide-descendants"
-    style={[styles.frame, { width, height, borderRadius: width / 2 }]}
-  >
-    <Image
-      // Metro needs the literal path inline to bundle the asset; the repo
-      // uses the same disable for its other CommonJS requires.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      source={require('../../../assets/bus-marker.png')}
-      style={[styles.image, { width, height }]}
-      resizeMode="contain"
-    />
-  </View>
-);
+export const BusMarkerGraphic: React.FC<{
+  width?: number;
+  height?: number;
+  /** `'stale'` mutes the sprite for a last-known position. */
+  tone?: 'live' | 'stale';
+}> = ({ width = BUS_MARKER_WIDTH, height = BUS_MARKER_HEIGHT, tone = 'live' }) => {
+  const stale = tone === 'stale';
+  return (
+    <View
+      pointerEvents="none"
+      // The marker is decoration: its information is carried by the callout and
+      // by the screen-reader text in the status card below the map, so a screen
+      // reader must not be handed the image.
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.frame, { width, height, opacity: stale ? 0.6 : 1 }]}
+    >
+      <Image
+        // Metro needs the literal path inline to bundle the asset; the repo
+        // uses the same disable for its other CommonJS requires.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        source={require('../../../assets/bus-marker.png')}
+        style={[styles.image, { width, height }]}
+        resizeMode="contain"
+      />
+      {stale ? (
+        // Neutral wash: RN has no grayscale filter, so a translucent slate
+        // overlay approximates the "desaturated / last known" look.
+        <View pointerEvents="none" style={[styles.staleWash, { width, height }]} />
+      ) : null}
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
-  // A soft light ellipse under the sprite: the PNG already carries a dark
-  // outline for light tiles, and this keeps it readable on dark tiles too,
-  // matching the stops' inner-ring approach. Translucent keep-in-sync with
-  // `colors.neutral[50]` (#f8fafc).
   frame: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(248, 250, 252, 0.65)',
-    elevation: 3,
-    shadowColor: colors.neutral[900],
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
   },
   // The default image frame is exactly the pinned box: a 26 x 42 asset at
   // 26 x 42 dp means RN never resamples at render time on any density.
   image: {
     width: BUS_MARKER_WIDTH,
     height: BUS_MARKER_HEIGHT,
+  },
+  staleWash: {
+    position: 'absolute',
+    backgroundColor: 'rgba(148, 163, 184, 0.45)',
+    borderRadius: 6,
   },
 });
