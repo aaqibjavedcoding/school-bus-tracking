@@ -23,6 +23,15 @@ import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 import { resolveMapStyleUrl } from './map-style';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
+import {
+  INITIAL_MAP_ERROR_STATE,
+  classifyMapErrorEvent,
+  clearMapError,
+  describeMapError,
+  mapNoticeMessage,
+  recordMapError,
+  type MapErrorState,
+} from './map-error-policy';
 
 /**
  * Web live-tracking map — MapLibre GL JS + OpenFreeMap (vector tiles).
@@ -160,6 +169,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   // Set by the map-init effect so `map.on('load')` can sync overlays without
   // depending on a callback that did not exist when the map was created.
   const syncOverlaysRef = useRef<(() => void) | null>(null);
+  // Rolling window of recent map failures. A ref, not state: MapLibre can fire
+  // dozens of error events per second during a bad pan and none of them should
+  // cost a render unless the user-visible notice actually changes.
+  const mapErrorStateRef = useRef<MapErrorState>(INITIAL_MAP_ERROR_STATE);
 
   const mappedStops = useMemo(
     () =>
@@ -373,6 +386,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     };
   }, [maybeFollowPan]);
 
+  /**
+   * Push a new error state out to the caller, but only when the *notice*
+   * changed. `onMapError(null)` is the clear signal, which is how the badge
+   * disappears by itself once the map starts drawing again.
+   */
+  const applyMapErrorState = useCallback((next: MapErrorState) => {
+    const previous = mapErrorStateRef.current;
+    mapErrorStateRef.current = next;
+    if (previous.notice === next.notice) return;
+    onMapErrorRef.current?.(mapNoticeMessage(next.notice));
+  }, []);
+
   // Map initialization
   useEffect(() => {
     if (!containerRef.current) return;
@@ -400,22 +425,40 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         attributionControl: { compact: false },
       });
     } catch (error) {
-      // Never fail silently: the caller shows "Map failed to load".
+      // A constructor throw is terminal — there is no map object to retry
+      // with — so it skips the threshold and says so outright.
       console.error('[MapView] map initialization failed', error);
-      onMapErrorRef.current?.('Map failed to load');
+      applyMapErrorState(recordMapError(INITIAL_MAP_ERROR_STATE, 'fatal', nowMs()));
       return;
     }
 
     mapRef.current = map;
 
-    // Style/tile/glyph failures and WebGL context loss surface here — they
-    // must never leave a silent blank map box.
+    // Style/tile/glyph failures and WebGL context loss arrive here. MapLibre
+    // fires this for every 404 tile and every request cancelled by a pan, so
+    // the event is *classified* and *counted* rather than reported: only a
+    // run of style-level failures ever reaches the user. The raw code is
+    // always logged, so a field screenshot of the console still names what
+    // failed.
     const onMapErrorEvent = (event: unknown) => {
-      const message = (event as { error?: { message?: string } })?.error?.message ?? 'map error';
-      console.error('[MapView]', message);
-      onMapErrorRef.current?.('Map failed to load');
+      const kind = classifyMapErrorEvent(event, styleUrl);
+      console[kind === 'source' || kind === 'abort' ? 'warn' : 'error'](
+        `[MapView] ${kind}: ${describeMapError(event)}`,
+      );
+      applyMapErrorState(recordMapError(mapErrorStateRef.current, kind, nowMs()));
     };
     map.on('error', onMapErrorEvent as never);
+
+    // The map drew something. Whatever was failing has stopped failing, so
+    // the notice clears itself — no restart, no "Retry map" tap.
+    const onMapHealthy = () => {
+      applyMapErrorState(clearMapError(mapErrorStateRef.current));
+    };
+    const onStyleData = () => {
+      if (map.isStyleLoaded()) onMapHealthy();
+    };
+    map.on('idle', onMapHealthy as never);
+    map.on('styledata', onStyleData as never);
 
     // Gesture detection via originalEvent (MapLibre's documented signal)
     const onMoveStart = (e: maplibregl.MapLibreEvent & { originalEvent?: unknown }) => {
@@ -553,6 +596,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     return () => {
       map.off('movestart', onMoveStart as never);
       map.off('error', onMapErrorEvent as never);
+      map.off('idle', onMapHealthy as never);
+      map.off('styledata', onStyleData as never);
       stopLoop();
       map.remove();
       // The map is gone: nothing may be applied to it until a new one loads.
@@ -575,7 +620,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     // (stops or fix) arrives after mount the effect has to re-run — with
     // `[webglSupported]` alone the container appeared but the map never
     // initialised, leaving a dead map box on the admin trip page.
-  }, [webglSupported, hasAnything]);
+  }, [webglSupported, hasAnything, applyMapErrorState]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {

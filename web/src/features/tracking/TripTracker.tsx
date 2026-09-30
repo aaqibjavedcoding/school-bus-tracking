@@ -19,6 +19,7 @@ import {
 import { MapView } from '../map/MapView';
 import type { MapCameraControls, MapTrailPoint } from '../map/types';
 import { deriveTrackingPresentation } from '../map/tracking-presentation';
+import { MAP_FAILED_MESSAGE } from '../map/map-error-policy';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { useLiveTripTracking, type ConnectionState, type LiveFix } from './useLiveTripTracking';
@@ -199,9 +200,13 @@ export const TripTrackerView: React.FC<{
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
-  // Map failure surfacing (bad style/tile/glyph, WebGL loss, render crash):
-  // the map never fails silently — the badge below the map says so, and the
-  // boundary's retry remounts the map from scratch.
+  // Map health surfacing.
+  //
+  // `MapView` now owns the judgement call (see map-error-policy.ts): it only
+  // calls back for a sustained *style-level* failure, and it calls back with
+  // `null` the moment the map draws again. So this state is a plain mirror of
+  // the map's current notice — including its automatic clearing, which is why
+  // a blip no longer pins a red badge here until someone taps "Retry map".
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
 
@@ -223,7 +228,7 @@ export const TripTrackerView: React.FC<{
         fallback={
           <div className="map-shell">
             <div className="empty">
-              <p className="field-error">Map failed to load</p>
+              <p className="field-error">{MAP_FAILED_MESSAGE}</p>
               <p className="muted">Live status and stops are still available.</p>
               <button
                 type="button"
@@ -239,7 +244,7 @@ export const TripTrackerView: React.FC<{
             </div>
           </div>
         }
-        onError={() => setMapError('Map failed to load')}
+        onError={() => setMapError(MAP_FAILED_MESSAGE)}
       >
         <MapView
           key={tripId}
@@ -256,7 +261,7 @@ export const TripTrackerView: React.FC<{
       <div className="map-overlay">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <ConnectionIndicator state={connection} mapError={mapError !== null} />
+            <ConnectionIndicator state={connection} mapError={mapError} />
             {tripStatus ? <span className="muted">{tripStatusLabel(tripStatus)}</span> : null}
           </div>
           <p className="muted" style={{ marginTop: '0.45rem' }}>
