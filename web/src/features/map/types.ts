@@ -8,9 +8,11 @@ export interface MapTrailPoint {
 }
 
 /**
- * Opt-in camera buttons (crew console). When present, a "Fit route" button
- * is always visible and the existing follow control uses `followBusLabel`.
- * Callers that omit this keep the exact previous behaviour and wording.
+ * Label overrides for the camera buttons, which are **default-on for every
+ * role** ("Fit route" / "Follow bus"). When present, the buttons use these
+ * strings instead — the crew console passes its translated strings, the
+ * parent pages pass parent-facing wording ("Show whole route" / "Follow the
+ * bus").
  */
 export interface MapCameraControls {
   fitRouteLabel: string;
@@ -22,10 +24,11 @@ export interface MapViewProps {
   stops?: StopResponse[];
   highlightStopId?: string | null;
   /**
-   * The stop the bus should head to now — rendered enlarged (`.stop-marker.next`).
-   * Separate from `highlightStopId` on purpose: parent pages highlight a
-   * child's home stop (green `current`), the crew page highlights the route's
-   * next stop; the two must not fight over one prop.
+   * The stop the bus should head to now — rendered enlarged and amber (the
+   * `next` kind on the one stop layer). Separate from `highlightStopId` on
+   * purpose: parent pages highlight a child's home stop (green `current`),
+   * the crew page highlights the route's next stop; the two must not fight
+   * over one prop.
    */
   nextStopId?: string | null;
   /**
@@ -34,7 +37,7 @@ export interface MapViewProps {
    * straight planned line between stops. Omitted = no trail layer at all.
    */
   trail?: readonly MapTrailPoint[];
-  /** Opt-in "Fit route" / "Follow bus" buttons; omitted = previous behaviour. */
+  /** Label overrides for the default-on "Fit route" / "Follow bus" buttons. */
   controls?: MapCameraControls;
   /**
    * Socket state, so the map can label a position "offline" independently of
