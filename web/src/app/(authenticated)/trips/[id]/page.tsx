@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import React from 'react';
 import { UserRole } from '@school-bus-tracking/shared-types';
+import { canActAsCrewOnTrip } from '@school-bus-tracking/validation';
 import { Badge, Card, ErrorState, PageHeader, Skeleton } from '../../../../components/ui';
 import { ManifestList } from '../../../../features/attendance/ManifestList';
 import { useAuth } from '../../../../features/auth/AuthProvider';
 import { TripTracker } from '../../../../features/tracking/TripTracker';
+import { DispatcherOverride } from '../../../../features/trips/DispatcherOverride';
+import { TripLifecycleTimeline } from '../../../../features/trips/TripLifecycleTimeline';
 import { TripStatusActions } from '../../../../features/trips/TripStatusActions';
 import { useLoad } from '../../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../../lib/errors';
@@ -48,6 +51,8 @@ export default function TripDetailPage() {
   }
 
   const canRecord = user?.role === UserRole.SCHOOL_ADMIN;
+  // One rule, one helper: crew of *this* trip act; everyone else reads.
+  const crewActor = canActAsCrewOnTrip(user, data.trip);
 
   return (
     <div className="page">
@@ -70,12 +75,23 @@ export default function TripDetailPage() {
       />
       <div className="grid grid-2">
         <Card title="Lifecycle">
-          <TripStatusActions trip={data.trip} onUpdated={(trip) => setData({ ...data, trip })} />
-          {data.trip.cancellation_reason ? (
-            <p className="muted" style={{ marginTop: '0.75rem' }}>
-              Cancelled: {data.trip.cancellation_reason}
-            </p>
-          ) : null}
+          {crewActor ? (
+            /* A driver/conductor assigned to this trip keeps the crew buttons. */
+            <TripStatusActions
+              trip={data.trip}
+              allowCancel={false}
+              large
+              onUpdated={(trip) => setData({ ...data, trip })}
+            />
+          ) : (
+            <>
+              <TripLifecycleTimeline trip={data.trip} />
+              <DispatcherOverride
+                trip={data.trip}
+                onUpdated={(trip) => setData({ ...data, trip })}
+              />
+            </>
+          )}
         </Card>
         <Card title="Live position">
           <TripTracker tripId={data.trip.id} stops={data.stops} />
