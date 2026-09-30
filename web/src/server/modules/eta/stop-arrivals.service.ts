@@ -132,7 +132,7 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   allowMissingAccuracy: false,
   // Deep-fix R1: every stop's effective radius is at least 50 m, so a legacy
   // 10–30 m stop still gets a real circle (see the config field doc).
-  minEffectiveRadiusMeters: 50,
+  minEffectiveRadiusMeters: 25,
   // The next unarrived stop records only after TWO consecutive eligible
   // in-geofence fixes with sustained presence (`minDwellMs`). One fix is
   // vulnerable to urban GPS jitter; the departure and inter-stop gates below

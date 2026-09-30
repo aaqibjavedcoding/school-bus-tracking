@@ -136,6 +136,11 @@ import { registerAs } from '../framework';
  *                                     coinciding timestamps must not
  *                                     suppress arrivals).
  */
+/** Detection floor: 25 m balances reliable phone accuracy (usually 5–30 m) with
+ * arrival detection. Do not lower this to 5 m: the accuracy gate would reject
+ * almost every fix and a parked bus could never open its manifest. */
+export const ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 25;
+
 export default registerAs('eta', () => {
   return {
     fallbackSpeedKmh: numberFromEnv('ETA_FALLBACK_SPEED_KMH', 25, 1),
@@ -147,7 +152,7 @@ export default registerAs('eta', () => {
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),
       maxAccuracyMeters: numberFromEnv('ARRIVAL_MAX_ACCURACY_METERS', 100, 1),
       allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', false),
-      minEffectiveRadiusMeters: numberFromEnv('ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS', 50, 1),
+      minEffectiveRadiusMeters: numberFromEnv('ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS', ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS, 1),
       requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 2, 1),
       skipExtraFixes: intFromEnv('ARRIVAL_SKIP_EXTRA_FIXES', 1, 0),
       maxSkipAhead: intFromEnv('ARRIVAL_MAX_SKIP_AHEAD', 2, 1),

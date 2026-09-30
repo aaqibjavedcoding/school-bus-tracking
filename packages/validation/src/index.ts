@@ -744,7 +744,7 @@ export const stopCreateSchema = z
       // fixes; legacy smaller radii stay valid at runtime because the server
       // floors every stop's EFFECTIVE radius (see
       // `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` in the web eta config).
-      .min(30, 'geofence_radius_meters must be between 30 and 2000')
+      .min(15, 'geofence_radius_meters must be between 15 and 2000')
       .max(2000)
       .nullish(),
     sequence_number: z
@@ -2764,7 +2764,7 @@ export const stopImportRowSchema = z
     longitude: decimalCell('Longitude', { min: -180, max: 180 }),
     // Deep-fix R1: min 30 for the same reason as `stopCreateSchema` above —
     // smaller circles behave like points against real phone accuracy.
-    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 30, max: 2000 }),
+    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 15, max: 2000 }),
     estimated_arrival_time: timeCell('Estimated arrival time'),
     is_active: booleanCell('Active'),
   })

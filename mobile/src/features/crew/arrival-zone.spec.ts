@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import type { TripArrivalDiagnostics } from '@school-bus-tracking/shared-types';
 import {
-  ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
   arrivalHoldReason,
   arrivalZoneOfStop,
   arrivalZoneStatus,
@@ -35,10 +34,10 @@ const stopWith = (radius: number, coords = BASE) => ({
 
 describe('effectiveArrivalRadiusMeters', () => {
   it('floors small legacy radii at the 50 m minimum', () => {
-    assert.equal(effectiveArrivalRadiusMeters(10), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(0), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(null), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(undefined), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+    assert.equal(effectiveArrivalRadiusMeters(10), 25);
+    assert.equal(effectiveArrivalRadiusMeters(0), 25);
+    assert.equal(effectiveArrivalRadiusMeters(null), 25);
+    assert.equal(effectiveArrivalRadiusMeters(undefined), 25);
   });
 
   it('keeps the admin\'s larger radius as the intent', () => {
@@ -48,7 +47,7 @@ describe('effectiveArrivalRadiusMeters', () => {
 
   it('never returns NaN for garbage input', () => {
     assert.ok(Number.isFinite(effectiveArrivalRadiusMeters(Number.NaN)));
-    assert.equal(effectiveArrivalRadiusMeters(Number.NaN), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+    assert.equal(effectiveArrivalRadiusMeters(Number.NaN), 25);
   });
 });
 

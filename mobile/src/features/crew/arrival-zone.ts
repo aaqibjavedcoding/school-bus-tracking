@@ -38,14 +38,15 @@ import { haversineMeters } from '../../lib/geo.ts';
  * is rendered, nothing more. It must never block, queue or rewrite anything.
  */
 
-/** Mirror of the server's `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` default (m). */
-export const ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 50;
+/** Offline-only fallback; online payloads must provide effective_radius_meters. */
+const OFFLINE_EFFECTIVE_RADIUS_METERS = 25;
 
 /** The structural stop surface the zone math needs. */
 export interface ArrivalZoneStop {
   latitude: number | null;
   longitude: number | null;
   geofence_radius_meters: number;
+  effective_radius_meters?: number | null;
 }
 
 /** The structural fix surface the zone math needs. */
@@ -61,12 +62,16 @@ export interface ArrivalZoneFix {
  */
 export function effectiveArrivalRadiusMeters(
   storedRadiusMeters: number | null | undefined,
+  serverEffectiveRadiusMeters?: number | null,
 ): number {
   const stored =
     typeof storedRadiusMeters === 'number' && Number.isFinite(storedRadiusMeters)
       ? Math.max(0, storedRadiusMeters)
       : 0;
-  return Math.max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+  const serverRadius = typeof serverEffectiveRadiusMeters === 'number' && Number.isFinite(serverEffectiveRadiusMeters)
+    ? serverEffectiveRadiusMeters
+    : OFFLINE_EFFECTIVE_RADIUS_METERS;
+  return serverEffectiveRadiusMeters == null ? Math.max(stored, serverRadius) : serverRadius;
 }
 
 /** A drawable zone: a centre and the effective radius around it. */

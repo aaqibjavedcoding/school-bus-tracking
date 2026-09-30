@@ -10,7 +10,6 @@ import {
   historyFixesForTrip,
   upcomingStopsFrom,
 } from './trip-map-geometry.ts';
-import { ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS } from './arrival-zone.ts';
 
 /**
  * The driver map's two honest lines, pinned.
@@ -221,7 +220,7 @@ describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () =>
     const maxLatitudeDelta = Math.max(...ring.map((point) => Math.abs(point[1] - 19.079)));
     assert.ok(
       maxLatitudeDelta > 0.00035 && maxLatitudeDelta < 0.00055,
-      `effective radius ~${ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS} m, got ${maxLatitudeDelta.toFixed(6)}°`,
+      `effective radius ~${25} m, got ${maxLatitudeDelta.toFixed(6)}°`,
     );
   });
 

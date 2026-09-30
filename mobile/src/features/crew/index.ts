@@ -137,7 +137,6 @@ export { SkippedStopAnnouncer } from './skip-announcer';
  * the zone never gates anything client-side.
  */
 export {
-  ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
   arrivalHoldReason,
   arrivalZoneOfStop,
   arrivalZoneStatus,
