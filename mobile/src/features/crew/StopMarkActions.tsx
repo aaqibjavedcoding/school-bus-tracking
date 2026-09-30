@@ -1,17 +1,11 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { withIdempotencyKey } from '@school-bus-tracking/api-client';
-import type { TripStopCrewMarkResponse } from '@school-bus-tracking/shared-types';
 import { isValidStopSkipReason } from '@school-bus-tracking/validation';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
-import { apiClient } from '../../services/api';
-import { getApiErrorMessage, unwrapEnvelope } from '../../lib/errors';
 import { Button, Field, useToast } from '../../components';
 import { t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
-import { useAuth } from '../auth/AuthProvider';
-import { feedback } from './crew-feedback.ts';
-import { useOfflineAction } from './offline/useOfflineAction';
+import { useCrewStopMark } from './useCrewStopMark.ts';
 
 /**
  * "Arrived" / "Skip stop" — the crew's hand on the stop record.
@@ -58,114 +52,38 @@ export interface StopMarkActionsProps {
 
 export const StopMarkActions: React.FC<StopMarkActionsProps> = ({ tripId, stop, onMarked }) => {
   useTranslation();
-  const { user } = useAuth();
   const toast = useToast();
-  const offline = useOfflineAction();
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [skipping, setSkipping] = useState(false);
   const [reason, setReason] = useState('');
+
+  // The marking itself lives in `useCrewStopMark`, shared with the one-tap
+  // hold button on the next-stop card — one queue path, one receipt rule.
+  const { busy, error, note, reset, mark: runMark } = useCrewStopMark(
+    tripId,
+    stop,
+    onMarked,
+    (message, tone) => toast.push(message, tone),
+  );
+
+  const mark = async (action: 'arrive' | 'skip', skipReason?: string): Promise<void> => {
+    await runMark(action, skipReason);
+    setSkipping(false);
+    setReason('');
+  };
+
+  const [skipError, setSkipError] = useState<string | null>(null);
 
   if (!stop) {
     return null;
   }
-
-  /**
-   * Reports a **server-confirmed** mark: a short written confirmation plus
-   * the spoken receipt. Never called on the queued path.
-   */
-  const confirm = (result: TripStopCrewMarkResponse, action: 'arrive' | 'skip'): void => {
-    const number = result.stop_sequence_number;
-    const count = result.students_expected;
-
-    if (action === 'skip') {
-      const message = t('trip.stopMark.skipped', { number });
-      setNote(message);
-      toast.push(message, 'info');
-      feedback.on({ type: 'stop.skipped', sequenceNumber: number });
-      return;
-    }
-
-    // `created: false` means the stop was already recorded (the geofence
-    // caught up, or this very tap was replayed). The stop *is* recorded, so
-    // this is not an error — but it is not news either, so it gets the
-    // written line without the announcement.
-    if (!result.created) {
-      const message = t('trip.stopMark.alreadyRecorded', { number });
-      setNote(message);
-      toast.push(message, 'info');
-      return;
-    }
-
-    const message =
-      count > 0
-        ? t('trip.stopMark.recorded', { number, count })
-        : t('trip.stopMark.recordedNoKids', { number });
-    setNote(message);
-    toast.push(message, 'success');
-    feedback.on({ type: 'stop.recorded', sequenceNumber: number, studentCount: count });
-  };
-
-  const mark = async (action: 'arrive' | 'skip', skipReason?: string): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    setNote(null);
-    try {
-      let result: TripStopCrewMarkResponse | null = null;
-      const outcome = await offline.execute(
-        {
-          kind: 'stop_mark',
-          userId: user?.id ?? null,
-          tripId,
-          stopId: stop.id,
-          stopAction: action,
-          ...(skipReason === undefined ? {} : { skipReason }),
-        },
-        async (key) => {
-          // The key is the queue reservation's, so a later replay of this very
-          // item is a dedupe hit rather than a second stop record.
-          const envelope =
-            action === 'skip'
-              ? await apiClient.skipTripStop(
-                  tripId,
-                  stop.id,
-                  { reason: skipReason ?? '' },
-                  withIdempotencyKey(key),
-                )
-              : await apiClient.markTripStopArrived(tripId, stop.id, withIdempotencyKey(key));
-          result = unwrapEnvelope(envelope);
-        },
-      );
-
-      if (outcome.mode === 'queued') {
-        // No voice: the bus has not been told anything by the server yet.
-        setNote(t('trip.stopMark.queued'));
-        setSkipping(false);
-        setReason('');
-        return;
-      }
-      if (result) {
-        confirm(result, action);
-        setSkipping(false);
-        setReason('');
-        onMarked?.();
-      }
-    } catch (caught) {
-      feedback.on({ type: 'action.rejected' });
-      setError(getApiErrorMessage(caught, t('trip.stopMark.failed')));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const confirmSkip = (): void => {
     const trimmed = reason.trim();
     if (!isValidStopSkipReason(trimmed)) {
       // The server enforces the same rule; refusing here saves the crew a
       // round trip to be told something the phone already knew.
-      setError(t('trip.stopMark.reasonTooShort'));
+      setSkipError(t('trip.stopMark.reasonTooShort'));
       return;
     }
     void mark('skip', trimmed);
@@ -202,7 +120,7 @@ export const StopMarkActions: React.FC<StopMarkActionsProps> = ({ tripId, stop, 
               onPress={() => {
                 setSkipping(false);
                 setReason('');
-                setError(null);
+                setSkipError(null);
               }}
               disabled={busy}
             />
@@ -226,8 +144,8 @@ export const StopMarkActions: React.FC<StopMarkActionsProps> = ({ tripId, stop, 
             variant="secondary"
             size="field"
             onPress={() => {
-              setError(null);
-              setNote(null);
+              setSkipError(null);
+              reset();
               setSkipping(true);
             }}
             disabled={busy}
@@ -237,7 +155,7 @@ export const StopMarkActions: React.FC<StopMarkActionsProps> = ({ tripId, stop, 
       )}
 
       {note ? <Text style={styles.note}>{note}</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ?? skipError ? <Text style={styles.error}>{error ?? skipError}</Text> : null}
     </View>
   );
 };

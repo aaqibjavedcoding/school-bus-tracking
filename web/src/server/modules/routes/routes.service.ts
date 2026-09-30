@@ -40,6 +40,7 @@ import { ListRoutesQueryDto } from './dto/list-routes-query.dto';
 import { UpdateRouteDto } from './dto/update-route.dto';
 import { ReorderRouteStopsDto } from './dto/reorder-route-stops.dto';
 import { PlanLimitsService } from '../../common/plan-limits';
+import { effectiveArrivalRadiusMeters } from '../../config/eta.config';
 
 /**
  * Tenant-safe route management.
@@ -586,6 +587,8 @@ export class RoutesService {
       latitude: stop.latitude,
       longitude: stop.longitude,
       geofence_radius_meters: stop.geofence_radius_meters,
+      // Server-computed so clients never mirror the floor (see eta.config.ts).
+      effective_radius_meters: effectiveArrivalRadiusMeters(stop.geofence_radius_meters),
       sequence_number: stop.sequence_number,
       estimated_arrival_time: stop.estimated_arrival_time,
       is_active: stop.is_active,

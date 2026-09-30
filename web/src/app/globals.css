@@ -2940,3 +2940,18 @@ table.data.compact th {
   cursor: pointer;
   font-weight: 600;
 }
+
+/* --- Stop form: live geofence scale preview --- */
+.geofence-preview {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+}
+
+.geofence-preview svg {
+  border-radius: 8px;
+}
+
+.geofence-preview-caption {
+  font-size: 0.8rem;
+}

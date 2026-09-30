@@ -1,4 +1,5 @@
 import { Logger } from '../../framework';
+import { ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS } from '../../config/eta.config';
 import { UniqueConstraintError, type Transaction } from 'sequelize';
 import type { Sequelize } from 'sequelize-typescript';
 import {
@@ -125,14 +126,17 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   futureToleranceMs: 60_000,
   maxAccuracyMeters: 100,
   // A fix whose accuracy is unknown cannot be trusted to localise inside even
-  // a 50 m effective circle, and a stationary bus parked indoors is exactly
+  // the effective circle, and a stationary bus parked indoors is exactly
   // where devices drop the field — so unknown-accuracy fixes are ineligible by
   // default (env-tunable per deployment). The anti-cascade defences are the
   // departure / dwell / cooldown gates, not this field.
   allowMissingAccuracy: false,
-  // Deep-fix R1: every stop's effective radius is at least 50 m, so a legacy
-  // 10–30 m stop still gets a real circle (see the config field doc).
-  minEffectiveRadiusMeters: 50,
+  // Deep-fix R1: every stop's effective radius is floored, so a legacy small
+  // stop still gets a real circle. The number itself lives in exactly one
+  // place — `config/eta.config.ts` — together with the reasoning for why it
+  // is 25 m and must not be dropped to 5 m (a 5 m radius makes the accuracy
+  // gate unsatisfiable for a typical phone fix).
+  minEffectiveRadiusMeters: ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
   // The next unarrived stop records only after TWO consecutive eligible
   // in-geofence fixes with sustained presence (`minDwellMs`). One fix is
   // vulnerable to urban GPS jitter; the departure and inter-stop gates below
@@ -145,7 +149,7 @@ export const DEFAULT_ARRIVAL_DETECTION_CONFIG: ArrivalDetectionConfig = {
   exitHysteresisMeters: 20,
   minDwellMs: 10_000,
   minInterStopMs: 30_000,
-  // Deep-fix R2: 0 (disabled). The route-blind 50 m floor is what silently
+  // Deep-fix R2: 0 (disabled). The route-blind distance floor is what silently
   // dropped close consecutive stops — see the config field doc above.
   minInterStopDistanceMeters: 0,
   maxPlausibleSpeedKmh: 150,
@@ -1318,7 +1322,7 @@ function isImplausibleJump(
 
 /**
  * The stop's EFFECTIVE geofence radius: the larger of the stored radius and
- * the configured floor (`ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`, default 50).
+ * the configured floor (`ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`, default 25).
  *
  * Every place a stop's radius participates — inside-evidence, the per-stop
  * accuracy gate, the departure-gate margin, candidate selection — must read

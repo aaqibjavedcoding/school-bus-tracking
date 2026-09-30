@@ -19,17 +19,19 @@ import { haversineMeters } from '../../lib/geo.ts';
  * a zone you cannot see is a gate you cannot reason about — so the map draws
  * it and the next-stop card says whether the bus is inside it.
  *
- * ### One rule, mirrored — and the mirror is deliberate
+ * ### One source of truth — the SERVER's number, not a mirror
  *
- * `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` mirrors the SERVER default in
- * `web/src/server/config/eta.config.ts` (`eta.arrival.minEffectiveRadiusMeters`).
- * It is a display constant, not a second engine: the arrival decision is made
- * server-side from the same floored radius, and this module only has to agree
- * about *where the circle's edge is* so the indicator never contradicts the
- * recording. A deployment that tunes the server floor should mirror it here
- * (the value is exported for the spec to pin). If the two ever drift, the
- * worst case is an indicator that says "inside" for a fix the engine treats
- * as fringe — the indicator is presentation only and never gates anything.
+ * There used to be an `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 50` constant in
+ * this file mirroring the server default. It is gone. The API now returns
+ * `effective_radius_meters` on every stop / trip-progress payload — exactly
+ * the `max(stored, floor)` the arrival engine measures against — and this
+ * module draws that. Changing `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` in the
+ * deployment's env now changes what the driver's map draws, with nothing to
+ * keep in sync by hand.
+ *
+ * {@link OFFLINE_FALLBACK_MIN_RADIUS_METERS} exists ONLY so a cached stop
+ * fetched before the field existed still renders a circle instead of a point
+ * while offline. It is a rendering fallback, never a detection rule.
  *
  * ### Display never feeds back
  *
@@ -38,14 +40,22 @@ import { haversineMeters } from '../../lib/geo.ts';
  * is rendered, nothing more. It must never block, queue or rewrite anything.
  */
 
-/** Mirror of the server's `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` default (m). */
-export const ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 50;
+/**
+ * OFFLINE RENDERING FALLBACK ONLY (metres).
+ *
+ * Used when a stop payload carries no `effective_radius_meters` — i.e. a row
+ * cached by an older app/server pair. It is deliberately *not* the detection
+ * floor and must never be treated as one: detection lives on the server.
+ */
+export const OFFLINE_FALLBACK_MIN_RADIUS_METERS = 25;
 
 /** The structural stop surface the zone math needs. */
 export interface ArrivalZoneStop {
   latitude: number | null;
   longitude: number | null;
   geofence_radius_meters: number;
+  /** The server's effective radius. Absent only on pre-field cached rows. */
+  effective_radius_meters?: number | null;
 }
 
 /** The structural fix surface the zone math needs. */
@@ -55,18 +65,24 @@ export interface ArrivalZoneFix {
 }
 
 /**
- * The stop's effective arrival radius in metres: the stored radius floored at
- * {@link ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS}. Non-numeric input degrades to
- * the floor (never `NaN` on a screen).
+ * The stop's effective arrival radius in metres, as the SERVER computed it.
+ *
+ * Reads `effective_radius_meters` when present — that is the authority. Only
+ * when it is absent (old cached row, offline) does it degrade to
+ * `max(stored, OFFLINE_FALLBACK_MIN_RADIUS_METERS)` so the map still draws a
+ * circle rather than a point. Never `NaN` on a screen.
  */
-export function effectiveArrivalRadiusMeters(
-  storedRadiusMeters: number | null | undefined,
-): number {
+export function effectiveArrivalRadiusMeters(stop: ArrivalZoneStop | null | undefined): number {
+  const fromServer = stop?.effective_radius_meters;
+  if (typeof fromServer === 'number' && Number.isFinite(fromServer) && fromServer > 0) {
+    return fromServer;
+  }
   const stored =
-    typeof storedRadiusMeters === 'number' && Number.isFinite(storedRadiusMeters)
-      ? Math.max(0, storedRadiusMeters)
+    typeof stop?.geofence_radius_meters === 'number' &&
+    Number.isFinite(stop.geofence_radius_meters)
+      ? Math.max(0, stop.geofence_radius_meters)
       : 0;
-  return Math.max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+  return Math.max(stored, OFFLINE_FALLBACK_MIN_RADIUS_METERS);
 }
 
 /** A drawable zone: a centre and the effective radius around it. */
@@ -84,7 +100,7 @@ export function arrivalZoneOfStop(stop: ArrivalZoneStop | null | undefined): Arr
   if (!stop || stop.latitude === null || stop.longitude === null) return null;
   return {
     center: { latitude: stop.latitude, longitude: stop.longitude },
-    radiusMeters: effectiveArrivalRadiusMeters(stop.geofence_radius_meters),
+    radiusMeters: effectiveArrivalRadiusMeters(stop),
   };
 }
 
@@ -165,4 +181,21 @@ export function arrivalHoldReason(
 export function stopById(stops: StopResponse[] | null | undefined, stopId: string | null | undefined): StopResponse | null {
   if (!stops || !stopId) return null;
   return stops.find((stop) => stop.id === stopId) ?? null;
+}
+
+/**
+ * Straight-line metres from the bus to the stop — the same haversine the
+ * arrival engine uses — or `null` when either side is unknown. The next-stop
+ * card renders this so the driver always has a number, not just a colour.
+ */
+export function distanceToStopMeters(
+  fix: ArrivalZoneFix | null | undefined,
+  stop: ArrivalZoneStop | null | undefined,
+): number | null {
+  if (!fix || !stop || stop.latitude === null || stop.longitude === null) return null;
+  const meters = haversineMeters(
+    { latitude: fix.latitude, longitude: fix.longitude },
+    { latitude: stop.latitude, longitude: stop.longitude },
+  );
+  return Number.isFinite(meters) ? meters : null;
 }

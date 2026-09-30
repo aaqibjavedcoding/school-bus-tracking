@@ -2434,6 +2434,12 @@ export interface TripStopEta {
   eta_minutes: number | null;
   /** True when this trip-stop visit has already produced an arrival event. */
   arrived: boolean;
+  /**
+   * The stop's effective arrival radius in metres — the same
+   * `max(stored, floor)` the engine measures against, so the crew map draws
+   * the real zone instead of a mirrored guess.
+   */
+  effective_radius_meters: number;
 }
 
 /** Successful payload of `GET /api/v1/trips/:tripId/eta`. */
@@ -3033,6 +3039,15 @@ export interface StopResponse {
   latitude: number | null;
   longitude: number | null;
   geofence_radius_meters: number;
+  /**
+   * The radius the arrival engine actually uses, and the one the apps draw:
+   * `max(geofence_radius_meters, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)`.
+   *
+   * Server-computed so there is exactly one source of truth — changing the
+   * deployment's floor changes what the driver's map draws, with no mirrored
+   * client constant to drift.
+   */
+  effective_radius_meters: number;
   sequence_number: number;
   estimated_arrival_time: string | null;
   is_active: boolean;

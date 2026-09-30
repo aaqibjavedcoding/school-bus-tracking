@@ -35,6 +35,7 @@ import {
   unwrapEnvelope,
 } from '../../../../lib/errors';
 import { pickFieldLabels } from '../../../../lib/field-errors';
+import { GeofencePreview, GEOFENCE_RADIUS_HELP } from '../../../../features/stops/GeofencePreview';
 import { stopCode } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
 
@@ -330,6 +331,7 @@ export default function RouteDetailPage() {
           <Field
             id="geofence"
             label="Geofence radius (m)"
+            hint={GEOFENCE_RADIUS_HELP}
             error={fieldErrors.geofence_radius_meters}
           >
             <Input
@@ -339,6 +341,12 @@ export default function RouteDetailPage() {
               onChange={(event) => setForm({ ...form, geofence_radius_meters: event.target.value })}
             />
           </Field>
+          {/* Live, to-scale preview so the radius is a picture, not a number. */}
+          <GeofencePreview
+            radiusMeters={
+              form.geofence_radius_meters.trim() ? Number(form.geofence_radius_meters) : null
+            }
+          />
           <Field
             id="eta"
             label="Estimated arrival (HH:MM)"

@@ -25,7 +25,8 @@ import { pluralKey, t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
 import { NextStopKidRows } from './NextStopKidCard';
 import type { NextStopKidsSummary } from './next-stop-kids.ts';
-import { arrivalHoldReason, arrivalZoneStatus } from './arrival-zone.ts';
+import { arrivalHoldReason, arrivalZoneStatus, distanceToStopMeters } from './arrival-zone.ts';
+import { HoldToConfirmButton } from './HoldToConfirmButton';
 
 /**
  * The next-stop card (Task 44, hardened 3E, reworked N3/N6).
@@ -97,6 +98,15 @@ export interface TripNavigationCardProps {
    * this is the written reminder. `null` whenever there is nothing current.
    */
   skippedNote?: SkippedStopNote | null;
+  /**
+   * The crew's manual "I'm at this stop" escape hatch, surfaced right here on
+   * the card the driver is already looking at (it used to live only on a
+   * separate block further down the screen). Held, not tapped, so a pocket
+   * touch cannot record a stop. Omit to hide the button.
+   */
+  onMarkArrived?: () => void;
+  /** True while a manual mark is in flight. */
+  markArrivedBusy?: boolean;
 }
 
 export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
@@ -108,6 +118,8 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   kidsLoaded = true,
   arrivalDiagnostics = null,
   skippedNote = null,
+  onMarkArrived,
+  markArrivedBusy = false,
 }) => {
   useTranslation();
   const derived = useMemo(
@@ -216,6 +228,24 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
    * "inside the circle and waiting" reads as progress, not as a dead app.
    */
   const zoneStatus = arrivalZoneStatus(eta?.latest ?? null, next);
+  /**
+   * The live distance readout: "12 m from stop — inside zone" / "48 m from
+   * stop". Straight-line metres from the server's own latest fix with the
+   * same haversine the arrival engine uses, so the number on the card and
+   * the ring on the map cannot disagree. The card always shows a NUMBER when
+   * there is a fix — a coloured pill alone told a driver nothing about how
+   * much further to creep forward.
+   */
+  const zoneDistanceMeters = distanceToStopMeters(eta?.latest ?? null, next);
+  const zoneDistanceLine =
+    zoneDistanceMeters === null
+      ? null
+      : t(
+          zoneStatus === 'inside'
+            ? 'navigate.card.distanceInside'
+            : 'navigate.card.distanceOutside',
+          { distance: formatDistanceMeters(zoneDistanceMeters) },
+        );
   const holdReason = arrivalHoldReason(arrivalDiagnostics, next?.id ?? null);
   const holdLine = (() => {
     if (zoneStatus !== 'inside' || holdReason === null) return null;
@@ -277,6 +307,21 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
                 <Text style={styles.zoneHeld}>{holdLine}</Text>
               ) : null}
             </View>
+          ) : null}
+          {zoneDistanceLine !== null ? (
+            <Text style={styles.zoneDistance} accessibilityLiveRegion="polite">
+              {zoneDistanceLine}
+            </Text>
+          ) : null}
+          {onMarkArrived ? (
+            <HoldToConfirmButton
+              label={t('navigate.card.markArrived')}
+              icon="checkmark-circle"
+              onFire={onMarkArrived}
+              busy={markArrivedBusy}
+              accessibilityLabel={t('navigate.card.markArrived')}
+              style={styles.action}
+            />
           ) : null}
           {skippedNote !== null ? (
             <View style={styles.skippedRow} accessibilityLiveRegion="polite">
@@ -418,6 +463,12 @@ const styles = StyleSheet.create({
   },
   zoneTextInside: {
     color: colors.secondary[700],
+  },
+  zoneDistance: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.neutral[900],
+    marginTop: spacing.xs,
   },
   zoneHeld: {
     fontSize: typography.fontSizes.sm,

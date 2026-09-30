@@ -55,7 +55,8 @@ import { registerAs } from '../framework';
  *                                     departure / dwell / cooldown gates, not
  *                                     by a tiny radius;
  *   ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS runtime floor on every stop's
- *                                     effective geofence radius (default 50).
+ *                                     effective geofence radius (default 25 —
+ *                                     see the note below on why it is not 5).
  *                                     Evaluation uses effectiveRadius =
  *                                     max(stop.geofence_radius_meters, this
  *                                     floor) everywhere a stop's radius
@@ -63,7 +64,7 @@ import { registerAs } from '../framework';
  *                                     per-stop accuracy gate, the departure
  *                                     margin and candidate selection. The
  *                                     stored radius stays the admin's intent
- *                                     (and new/edited stops must be ≥ 30 m);
+ *                                     (and new/edited stops must be ≥ 15 m);
  *                                     the floor is the runtime safety net for
  *                                     legacy/small stops so every arrival
  *                                     zone is a real circle, not a point;
@@ -135,7 +136,66 @@ import { registerAs } from '../framework';
  *                                     (default 500 — small GPS wander at
  *                                     coinciding timestamps must not
  *                                     suppress arrivals).
+ *
+ * ## Why the detection floor is 25 m and MUST NOT be silently lowered to 5 m
+ *
+ * The map used to draw a fat 50 m disc over a stop surveyed at 25 m, so the
+ * obvious reading of the complaint ("the circle is far too large") is "make
+ * the radius 5 m". That is a DISPLAY fix being applied to a DETECTION
+ * constant, and it reintroduces the original "bus parked, manifest never
+ * opens" defect:
+ *
+ *   a fix only counts as evidence for a stop when
+ *       accuracy <= min(ARRIVAL_MAX_ACCURACY_METERS, effectiveRadius)
+ *
+ * Consumer phone accuracy is typically 5–30 m (worse in urban canyons, under
+ * trees, or inside a school porch). With a 5 m effective radius essentially
+ * NO real fix qualifies, so a bus can sit at the stop indefinitely and never
+ * record an arrival. 25 m is the smallest floor at which a typical 15 m
+ * accuracy fix still qualifies while the drawn zone stops looking like half
+ * a street.
+ *
+ * The "too large" complaint is answered on the DISPLAY side instead: the crew
+ * map draws a thin dashed ring at the true effective radius plus a solid dot
+ * at the surveyed coordinate, and the next-stop card shows the live metre
+ * distance. If you are about to lower this number, lower the drawing, not
+ * the detection.
  */
+/**
+ * The single source of truth for the arrival-zone floor (metres).
+ *
+ * Everything that needs the floor — the Nest config above, the detection
+ * engine's `DEFAULT_ARRIVAL_DETECTION_CONFIG`, and the `effective_radius_meters`
+ * the API puts on stop / trip-progress payloads for the apps to draw — reads
+ * it from here. There is no second copy. See the docblock above for why it is
+ * 25 and not 5.
+ */
+export const ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 25;
+
+/** The floor in effect for this process (env override applied). */
+export function arrivalMinEffectiveRadiusMeters(): number {
+  return numberFromEnv(
+    'ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS',
+    ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
+    1,
+  );
+}
+
+/**
+ * A stop's effective arrival radius: the admin's stored radius, floored.
+ * This is the number the apps draw and the engine measures against — one
+ * function, so a deployment that tunes the env changes both at once.
+ */
+export function effectiveArrivalRadiusMeters(
+  storedRadiusMeters: number | null | undefined,
+): number {
+  const stored =
+    typeof storedRadiusMeters === 'number' && Number.isFinite(storedRadiusMeters)
+      ? Math.max(0, storedRadiusMeters)
+      : 0;
+  return Math.max(stored, arrivalMinEffectiveRadiusMeters());
+}
+
 export default registerAs('eta', () => {
   return {
     fallbackSpeedKmh: numberFromEnv('ETA_FALLBACK_SPEED_KMH', 25, 1),
@@ -147,7 +207,7 @@ export default registerAs('eta', () => {
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),
       maxAccuracyMeters: numberFromEnv('ARRIVAL_MAX_ACCURACY_METERS', 100, 1),
       allowMissingAccuracy: booleanFromEnv('ARRIVAL_ALLOW_MISSING_ACCURACY', false),
-      minEffectiveRadiusMeters: numberFromEnv('ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS', 50, 1),
+      minEffectiveRadiusMeters: arrivalMinEffectiveRadiusMeters(),
       requiredConsecutiveFixes: intFromEnv('ARRIVAL_REQUIRED_CONSECUTIVE_FIXES', 2, 1),
       skipExtraFixes: intFromEnv('ARRIVAL_SKIP_EXTRA_FIXES', 1, 0),
       maxSkipAhead: intFromEnv('ARRIVAL_MAX_SKIP_AHEAD', 2, 1),

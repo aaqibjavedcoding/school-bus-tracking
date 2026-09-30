@@ -36,6 +36,10 @@ import {
   SwitchRow,
   useToast,
 } from '../../../../src/components';
+import {
+  GeofencePreview,
+  GEOFENCE_RADIUS_HELP,
+} from '../../../../src/features/admin/stops/GeofencePreview';
 
 const EMPTY = {
   name: '',
@@ -377,7 +381,14 @@ export default function ManageRouteStopsScreen() {
           value={form.geofence_radius_meters}
           onChangeText={(text) => setForm({ ...form, geofence_radius_meters: text })}
           keyboardType="number-pad"
+          hint={GEOFENCE_RADIUS_HELP}
           error={fieldErrors.geofence_radius_meters}
+        />
+        {/* Live, to-scale preview so the radius is a picture, not a number. */}
+        <GeofencePreview
+          radiusMeters={
+            form.geofence_radius_meters.trim() ? Number(form.geofence_radius_meters) : null
+          }
         />
         <Field
           label="Estimated arrival (HH:MM)"

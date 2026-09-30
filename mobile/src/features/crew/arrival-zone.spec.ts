@@ -2,10 +2,11 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import type { TripArrivalDiagnostics } from '@school-bus-tracking/shared-types';
 import {
-  ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
+  OFFLINE_FALLBACK_MIN_RADIUS_METERS,
   arrivalHoldReason,
   arrivalZoneOfStop,
   arrivalZoneStatus,
+  distanceToStopMeters,
   effectiveArrivalRadiusMeters,
   stopById,
 } from './arrival-zone.ts';
@@ -13,8 +14,8 @@ import {
 /**
  * Deep-fix R1 — the client's arrival-zone math.
  *
- * Everything here mirrors the SERVER's effective-radius rule
- * (`max(stored radius, 50)`): the map's circle, the card's "inside arrival
+ * Everything here reads the SERVER's `effective_radius_meters`: the map's
+ * circle, the card's "inside arrival
  * zone" pill and the held-reason line must agree with the circle the arrival
  * engine actually evaluates, or the driver is shown a gate they cannot see
  * the edges of. The indicator is display-only — these specs also pin that
@@ -24,31 +25,51 @@ import {
 
 /** ~1° latitude ≈ 111.1 km; 0.001° north of the base point is ~111 m. */
 const BASE = { latitude: 40.7, longitude: -74.0 };
+const ABOUT_20M_NORTH = { latitude: 40.70018, longitude: -74.0 };
 const ABOUT_40M_NORTH = { latitude: 40.70036, longitude: -74.0 };
 const ABOUT_120M_NORTH = { latitude: 40.70108, longitude: -74.0 };
 
-const stopWith = (radius: number, coords = BASE) => ({
+/**
+ * A stop as the SERVER sends it: the stored radius plus the effective radius
+ * the arrival engine uses. `effectiveRadius` defaults to the server's 25 m
+ * floor applied to the stored value.
+ */
+const stopWith = (radius: number, coords = BASE, effectiveRadius = Math.max(radius, 25)) => ({
+  latitude: coords.latitude,
+  longitude: coords.longitude,
+  geofence_radius_meters: radius,
+  effective_radius_meters: effectiveRadius,
+});
+
+/** A stop cached before the server carried `effective_radius_meters`. */
+const legacyStopWith = (radius: number, coords = BASE) => ({
   latitude: coords.latitude,
   longitude: coords.longitude,
   geofence_radius_meters: radius,
 });
 
 describe('effectiveArrivalRadiusMeters', () => {
-  it('floors small legacy radii at the 50 m minimum', () => {
-    assert.equal(effectiveArrivalRadiusMeters(10), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(0), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(null), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
-    assert.equal(effectiveArrivalRadiusMeters(undefined), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+  it('uses the radius the SERVER computed, whatever it is', () => {
+    assert.equal(effectiveArrivalRadiusMeters(stopWith(10, BASE, 25)), 25);
+    assert.equal(effectiveArrivalRadiusMeters(stopWith(120, BASE, 120)), 120);
+    // The server env moved the floor: the app draws the new number, unchanged
+    // and unfloored by any client constant.
+    assert.equal(effectiveArrivalRadiusMeters(stopWith(10, BASE, 40)), 40);
   });
 
-  it('keeps the admin\'s larger radius as the intent', () => {
-    assert.equal(effectiveArrivalRadiusMeters(100), 100);
-    assert.equal(effectiveArrivalRadiusMeters(2000), 2000);
+  it('falls back to max(stored, offline floor) only for a pre-field cached row', () => {
+    assert.equal(effectiveArrivalRadiusMeters(legacyStopWith(10)), OFFLINE_FALLBACK_MIN_RADIUS_METERS);
+    assert.equal(effectiveArrivalRadiusMeters(legacyStopWith(0)), OFFLINE_FALLBACK_MIN_RADIUS_METERS);
+    assert.equal(effectiveArrivalRadiusMeters(legacyStopWith(120)), 120);
   });
 
   it('never returns NaN for garbage input', () => {
-    assert.ok(Number.isFinite(effectiveArrivalRadiusMeters(Number.NaN)));
-    assert.equal(effectiveArrivalRadiusMeters(Number.NaN), ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS);
+    assert.ok(Number.isFinite(effectiveArrivalRadiusMeters(legacyStopWith(Number.NaN))));
+    assert.equal(
+      effectiveArrivalRadiusMeters(legacyStopWith(Number.NaN)),
+      OFFLINE_FALLBACK_MIN_RADIUS_METERS,
+    );
+    assert.equal(effectiveArrivalRadiusMeters(null), OFFLINE_FALLBACK_MIN_RADIUS_METERS);
   });
 });
 
@@ -56,22 +77,34 @@ describe('arrivalZoneOfStop', () => {
   it('builds the zone from the surveyed stop with the effective radius', () => {
     const zone = arrivalZoneOfStop(stopWith(10));
     assert.deepEqual(zone?.center, BASE);
-    assert.equal(zone?.radiusMeters, 50);
+    assert.equal(zone?.radiusMeters, 25);
     assert.equal(arrivalZoneOfStop(stopWith(120))?.radiusMeters, 120);
   });
 
   it('returns null for an unsurveyed stop — nothing honest to draw', () => {
-    assert.equal(arrivalZoneOfStop({ latitude: null, longitude: null, geofence_radius_meters: 100 }), null);
+    assert.equal(
+      arrivalZoneOfStop({
+        latitude: null,
+        longitude: null,
+        geofence_radius_meters: 100,
+        effective_radius_meters: 100,
+      }),
+      null,
+    );
     assert.equal(arrivalZoneOfStop(null), null);
   });
 });
 
 describe('arrivalZoneStatus', () => {
-  it('a fix 40 m from a 10 m stop is INSIDE the effective circle', () => {
-    // The exact field defect: the stored 10 m circle would say "outside"
-    // (40 > 10) and the driver watches a parked bus never arrive. The
-    // effective circle says inside, matching what the server records.
-    assert.equal(arrivalZoneStatus(ABOUT_40M_NORTH, stopWith(10)), 'inside');
+  it('a fix 20 m from a 10 m stop is INSIDE the effective circle', () => {
+    // The original field defect: the stored 10 m circle would say "outside"
+    // (20 > 10) and the driver watches a parked bus never arrive. The
+    // server's 25 m effective circle says inside, matching what it records.
+    assert.equal(arrivalZoneStatus(ABOUT_20M_NORTH, stopWith(10)), 'inside');
+  });
+
+  it('a fix 40 m out is outside a 25 m effective circle — the zone is no longer 50 m', () => {
+    assert.equal(arrivalZoneStatus(ABOUT_40M_NORTH, stopWith(10)), 'outside');
   });
 
   it('a fix 120 m out is outside even with the floor', () => {
@@ -87,7 +120,12 @@ describe('arrivalZoneStatus', () => {
     assert.equal(arrivalZoneStatus(null, stopWith(100)), 'unknown');
     assert.equal(arrivalZoneStatus(ABOUT_40M_NORTH, null), 'unknown');
     assert.equal(
-      arrivalZoneStatus(ABOUT_40M_NORTH, { latitude: null, longitude: null, geofence_radius_meters: 100 }),
+      arrivalZoneStatus(ABOUT_40M_NORTH, {
+        latitude: null,
+        longitude: null,
+        geofence_radius_meters: 100,
+        effective_radius_meters: 100,
+      }),
       'unknown',
     );
   });
@@ -184,5 +222,30 @@ describe('stopById', () => {
     assert.equal(stopById(stops, 'zzz'), null);
     assert.equal(stopById(null, 'a'), null);
     assert.equal(stopById(stops, null), null);
+  });
+});
+
+describe('distanceToStopMeters — the number the next-stop card always shows', () => {
+  it('measures straight-line metres with the engine\'s haversine', () => {
+    const meters = distanceToStopMeters(ABOUT_20M_NORTH, stopWith(30));
+    assert.ok(meters !== null && meters > 15 && meters < 25, `got ${String(meters)}`);
+  });
+
+  it('is 0 at the stop itself', () => {
+    assert.equal(Math.round(distanceToStopMeters(BASE, stopWith(30)) ?? -1), 0);
+  });
+
+  it('is null without a fix or without surveyed coordinates', () => {
+    assert.equal(distanceToStopMeters(null, stopWith(30)), null);
+    assert.equal(distanceToStopMeters(ABOUT_20M_NORTH, null), null);
+    assert.equal(
+      distanceToStopMeters(ABOUT_20M_NORTH, {
+        latitude: null,
+        longitude: null,
+        geofence_radius_meters: 100,
+        effective_radius_meters: 100,
+      }),
+      null,
+    );
   });
 });
