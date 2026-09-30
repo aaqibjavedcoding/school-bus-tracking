@@ -12,6 +12,7 @@ import { TripStatusActions } from '../../../../features/trips/TripStatusActions'
 import { useLoad } from '../../../../hooks/useLoad';
 import { unwrapEnvelope } from '../../../../lib/errors';
 import { formatDateTime, tripStatusLabel, tripStatusTone } from '../../../../lib/format';
+import { canActAsCrewOnTrip } from '../../../../lib/crew-permissions';
 import { apiClient } from '../../../../services/api';
 
 export default function TripDetailPage() {
@@ -70,12 +71,25 @@ export default function TripDetailPage() {
       />
       <div className="grid grid-2">
         <Card title="Lifecycle">
-          <TripStatusActions trip={data.trip} onUpdated={(trip) => setData({ ...data, trip })} />
-          {data.trip.cancellation_reason ? (
-            <p className="muted" style={{ marginTop: '0.75rem' }}>
-              Cancelled: {data.trip.cancellation_reason}
-            </p>
-          ) : null}
+          {canActAsCrewOnTrip(user, data.trip) ? (
+            <TripStatusActions trip={data.trip} large onUpdated={(trip) => setData({ ...data, trip })} />
+          ) : (
+            <>
+              <ol className="timeline" aria-label="Trip lifecycle">
+                {[['SCHEDULED', data.trip.created_at], ['BOARDING', null], ['IN_PROGRESS', data.trip.actual_start_at], ['COMPLETED', data.trip.actual_end_at]].map(([status, timestamp]) => (
+                  <li key={status} aria-current={data.trip.status === status ? 'step' : undefined}>
+                    <strong>{tripStatusLabel(status as any)}</strong>{timestamp ? ` · ${formatDateTime(timestamp as string)}` : ''}
+                  </li>
+                ))}
+                {data.trip.status === 'CANCELLED' ? <li aria-current="step"><strong>Cancelled</strong>{data.trip.cancellation_reason ? ` · ${data.trip.cancellation_reason}` : ''}</li> : null}
+              </ol>
+              <details style={{ marginTop: '1rem' }}>
+                <summary>Dispatcher override</summary>
+                <p className="muted">Use only when the crew device cannot act — this is recorded in the audit log</p>
+                <TripStatusActions trip={data.trip} onUpdated={(trip) => setData({ ...data, trip })} confirmBeforeApply />
+              </details>
+            </>
+          )}
         </Card>
         <Card title="Live position">
           <TripTracker tripId={data.trip.id} stops={data.stops} />

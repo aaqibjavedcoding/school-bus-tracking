@@ -27,7 +27,8 @@ export const TripStatusActions: React.FC<{
   large?: boolean;
   allowCancel?: boolean;
   onUpdated: (trip: TripResponse) => void;
-}> = ({ trip, large = false, allowCancel = true, onUpdated }) => {
+  confirmBeforeApply?: boolean;
+}> = ({ trip, large = false, allowCancel = true, onUpdated, confirmBeforeApply = false }) => {
   const toast = useToast();
   const [busy, setBusy] = useState<TripStatus | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -75,6 +76,7 @@ export const TripStatusActions: React.FC<{
                 setCancelOpen(true);
                 return;
               }
+              if (confirmBeforeApply && !window.confirm(`Apply ${tripStatusLabel(status)} to this trip?`)) return;
               void apply(status);
             }}
           >
