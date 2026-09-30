@@ -1,58 +1,22 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { View } from 'react-native';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { ViewAnnotation, type ViewAnnotationRef } from '@maplibre/maplibre-react-native';
 import { BUS_MARKER_ROTATION_BOX, BusMarkerGraphic } from './BusMarkerGraphic';
 import { useBusMarkerMotion, type RenderedMarker } from './useBusMarkerMotion';
 import { createRouteSnapper, type RouteSnapPoint } from './route-snap.ts';
-import type { BusMotionFix } from './bus-motion.ts';
+import { MOTION_THRESHOLDS, type BusMotionFix } from './bus-motion.ts';
 
 /**
- * The bus marker — a leaf component, and the **only** thing that re-renders per
- * animation frame.
- *
- * Keeping the ~20 fps state inside a component that renders a single
- * `<ViewAnnotation>` is what stops per-frame movement from re-rendering the
- * tracking screen: the parent's `<Map>`, its route layer and its stop markers
- * never see these updates.
- *
- * ### Rotation, per platform (verified against @maplibre/maplibre-react-native 11.4.0)
- *
- * MapLibre annotations have no native "rotate the marker" prop — the child
- * view is the marker — so the bus turns with a `transform` on the child view
- * on **both** platforms:
- *
- * - **Android** — the child is rendered offscreen and rasterised into a
- *   bitmap (`MLRNPointAnnotation.kt`). A transform change never triggers a
- *   layout change, so the bitmap is re-captured explicitly: an effect calls
- *   the annotation's `refresh()` whenever the heading actually changes.
- *   Position changes do not touch the bitmap — the symbol's coordinate is
- *   updated natively (`setLngLat`), which is what keeps ~20 fps cheap.
- * - **iOS** — the child view is rendered live; `refresh()` is a no-op there.
- *
- * Both paths anchor at the vehicle centre (`anchor="center"`), which is what
- * makes the rotation happen *around* the GPS coordinate rather than swinging
- * the marker off it.
+ * The bus marker — a leaf component, and the only thing that re-renders per
+ * animation frame. Its annotation stays centred on the GPS coordinate while a
+ * fixed outer turning box prevents Android's raster snapshot from clipping it.
  */
 export interface BusMarkerProps {
-  /**
-   * The newest raw fix, whatever delivered it: the observer socket, or the
-   * device's own GPS watcher on the Driver Trip screen. Only the position,
-   * heading, speed and timestamp are read here; no prop of this component
-   * describes *where the fix came from*, which is deliberately the caller's
-   * job (see `crew-map-presentation.ts`).
-   */
   fix: BusMotionFix | null;
   tripId: string | null;
   reducedMotion: boolean;
+  /** Fresh GPS only: stale / last-known positions are frozen and slate. */
   animate: boolean;
-  /**
-   * The drawn route polyline (stops in order — the same coordinates the map
-   * draws its dashed line from). The marker's accepted fixes are projected
-   * onto it for DISPLAY, which is the R4 lateral zig-zag fix: the bus tracks
-   * the line it drives instead of redrawing every metre of GPS noise. The
-   * raw `fix` is untouched, and off-route fixes (detour, depot) are drawn
-   * raw — `route-snap.ts` owns both rules.
-   */
   route?: readonly RouteSnapPoint[] | null;
   title: string;
   description: string;
@@ -69,8 +33,6 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
   description,
   onFrame,
 }) => {
-  // One snapper per stops list: projecting is pure math, so the memo is on
-  // the route identity and costs nothing between fixes.
   const snapToRoute = useMemo(
     () => (route !== null && route.length >= 2 ? createRouteSnapper(route) : null),
     [route],
@@ -84,16 +46,23 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
     onFrame,
   });
   const annotationRef = useRef<ViewAnnotationRef | null>(null);
-  // The effect must not "refresh" on the very first commit: the initial
-  // bitmap is captured by the layout listener when the map adds the
-  // annotation, and the map may not be ready yet.
   const hasCommittedRef = useRef(false);
+  const pulse = useRef(new Animated.Value(0)).current;
 
   const heading = marker ? (marker.headingDeg ?? 0) : 0;
+  // The cone uses the motion module's existing 3 km/h heading gate, rather
+  // than inventing a visual-only threshold. A live bus below it is stopped.
+  const sourceSpeedKmh = marker?.sourceSpeedKmh ?? null;
+  const liveMoving =
+    animate &&
+    marker?.headingDeg !== null &&
+    sourceSpeedKmh !== null &&
+    sourceSpeedKmh >= MOTION_THRESHOLDS.headingMinSpeedKmh;
+  const showPulse = liveMoving && !reducedMotion;
+  const showCone = liveMoving;
 
-  // Android re-captures the offscreen bitmap when the rotation changes — a
-  // transform never fires a layout change, so the change has to be announced.
-  // iOS renders the child live; `refresh()` is a documented no-op there.
+  // Android rasterises annotation children. A heading transform is therefore
+  // explicitly re-captured; iOS renders it live and treats refresh as a no-op.
   useEffect(() => {
     if (!hasCommittedRef.current) {
       hasCommittedRef.current = true;
@@ -102,38 +71,107 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
     annotationRef.current?.refresh();
   }, [heading]);
 
-  if (!marker) {
-    return null;
-  }
+  // A soft live-moving presence halo. It never starts for stopped/stale data,
+  // and reduced motion stops it immediately along with the position tween.
+  useEffect(() => {
+    pulse.stopAnimation();
+    pulse.setValue(0);
+    if (!showPulse) return;
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse, showPulse]);
+
+  if (!marker) return null;
+
+  const pulseStyle = {
+    opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0] }),
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.3] }) }],
+  };
 
   return (
     <ViewAnnotation
       ref={annotationRef}
       lngLat={[marker.longitude, marker.latitude]}
+      // The GPS coordinate is the marker centre at every heading, never the
+      // nose/tail: this is the load-bearing anchor invariant.
       anchor="center"
       title={title}
       snippet={description}
     >
-      {/*
-        Two views, and the split is the whole point: the outer box is square and
-        *unrotated*, so the frame Android measures (and rasterises) already
-        contains the marker at any heading, while the inner view carries the
-        rotation. Rotating the only view would clip the bus to its own unrotated
-        26 × 42 footprint and cut the corners off on a diagonal heading.
-      */}
-      <View
-        style={{
-          width: BUS_MARKER_ROTATION_BOX,
-          height: BUS_MARKER_ROTATION_BOX,
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'visible',
-        }}
-      >
-        <View style={{ transform: [{ rotate: `${heading}deg` }], overflow: 'visible' }}>
-          <BusMarkerGraphic />
+      <View style={styles.rotationBox}>
+        {/* The shadow is intentionally outside the rotated bus group. */}
+        <View style={[styles.groundShadow, animate ? null : styles.groundShadowStale]} />
+        {showPulse ? (
+          <Animated.View pointerEvents="none" style={[styles.pulseHalo, pulseStyle]} />
+        ) : null}
+        <View style={[styles.rotor, { transform: [{ rotate: `${heading}deg` }] }]}>
+          {showCone ? <View pointerEvents="none" style={styles.headingCone} /> : null}
+          <BusMarkerGraphic desaturated={!animate} />
         </View>
       </View>
     </ViewAnnotation>
   );
 };
+
+const styles = StyleSheet.create({
+  rotationBox: {
+    width: BUS_MARKER_ROTATION_BOX,
+    height: BUS_MARKER_ROTATION_BOX,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+  },
+  rotor: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+  },
+  groundShadow: {
+    position: 'absolute',
+    width: 28,
+    height: 7,
+    borderRadius: 99,
+    top: 38,
+    backgroundColor: 'rgba(15, 23, 42, 0.25)',
+    transform: [{ scaleX: 1.18 }],
+  },
+  groundShadowStale: {
+    opacity: 0.55,
+  },
+  pulseHalo: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(245, 158, 11, 0.38)',
+  },
+  headingCone: {
+    position: 'absolute',
+    top: -14,
+    left: 5,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 8,
+    borderRightWidth: 8,
+    borderBottomWidth: 17,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(37, 99, 235, 0.38)',
+  },
+});

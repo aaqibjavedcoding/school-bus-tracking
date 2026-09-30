@@ -1,125 +1,89 @@
-/**
- * The top-view school-bus marker, drawn as inline SVG.
- *
- * ### Why SVG and not the emoji it replaces
- *
- * The previous marker was `🚌` inside a rotated `div`. The glyph is a
- * three-quarter front view, so `transform: rotate(340deg)` spun a picture of a
- * bus that was not pointing anywhere — the rotation was decoration, not a
- * heading. A top-view silhouette is the only shape for which "rotated 90°"
- * means "facing east".
- *
- * It also matches the native marker: `mobile/src/features/map/BusMarkerGraphic.tsx`
- * draws the same body, windscreen, window strips and darker rear with React
- * Native views, so a parent switching between the app and the console sees one
- * bus, not two.
- *
- * ### No network, no asset pack
- *
- * The SVG is inlined into a MapLibre `Marker` element, so there is no tile
- * request, no CDN, no extra `img-src` entry, and nothing paid.
- *
- * ### Geometry
- *
- * Nose-up, so heading 0° is north with no rotation applied, and symmetric about
- * its own centre so rotating it keeps the vehicle centre on the GPS coordinate.
- * Anchor is the exact centre for the same reason.
- */
+import {
+  BUS_MARKER_ART_ID,
+  BUS_MARKER_BOX,
+  BUS_MARKER_SVG as SHARED_BUS_MARKER_SVG,
+} from '@school-bus-tracking/map-assets';
 
 /**
- * Plain-data replacement for Leaflet's DivIconOptions — no leaflet dependency.
- * Keeps the marker geometry testable under `node --test`.
+ * Web marker geometry is owned by the shared map-assets package. Keeping these
+ * aliases preserves the focused geometry tests and makes the MapLibre anchor
+ * math explicit at the call site.
  */
+export const BUS_MARKER_WIDTH = BUS_MARKER_BOX.width;
+export const BUS_MARKER_HEIGHT = BUS_MARKER_BOX.height;
+export const BUS_MARKER_ROTATION_BOX = BUS_MARKER_BOX.rotationBox;
+export const BUS_MARKER_SVG = SHARED_BUS_MARKER_SVG;
+
+/** Plain data kept testable without a MapLibre / DOM runtime. */
 export interface BusIconOptions {
   className: string;
+  /** Structural preview only; marker creation builds this with DOM APIs. */
   html: string;
   iconSize: [number, number];
   iconAnchor: [number, number];
   popupAnchor: [number, number];
 }
 
-export const BUS_MARKER_WIDTH = 26;
-export const BUS_MARKER_HEIGHT = 42;
-
-/** School-bus amber / near-black outline, straight from the design tokens. */
-const BODY_FILL = '#f59e0b';
-const OUTLINE = '#0f172a';
-const GLASS = '#f8fafc';
-const REAR = '#92400e';
-
-export const BUS_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${BUS_MARKER_WIDTH} ${BUS_MARKER_HEIGHT}" width="${BUS_MARKER_WIDTH}" height="${BUS_MARKER_HEIGHT}" role="img" focusable="false">
-  <rect x="1.5" y="1.5" width="23" height="39" rx="6" fill="${BODY_FILL}" stroke="${OUTLINE}" stroke-width="2.5"/>
-  <rect x="6" y="5" width="14" height="5" rx="2" fill="${GLASS}" opacity="0.95"/>
-  <rect x="4.75" y="13" width="4.5" height="19" rx="2" fill="${GLASS}" opacity="0.8"/>
-  <rect x="16.75" y="13" width="4.5" height="19" rx="2" fill="${GLASS}" opacity="0.8"/>
-  <rect x="6" y="34.5" width="14" height="3.5" rx="1.75" fill="${REAR}"/>
-</svg>`;
-
-/**
- * The marker options, as plain data.
- *
- * Kept free of any map runtime import on purpose so geometry is directly
- * testable. Deliberately heading-independent: rotation is applied to the inner
- * `.bus-marker-rotor` element by the animation loop, so a heading change never
- * rebuilds the icon DOM.
- */
 export function busIconOptions(): BusIconOptions {
   return {
     className: 'bus-marker',
-    // `bus-marker-anchor` centres the graphic on the marker's origin; the rotor
-    // inside it is what the heading is written to. Splitting the two is what lets
-    // the marker box be zero-sized (so a turned bus is never clipped) without
-    // losing the centring. See `globals.css`.
-    html: `<div class="bus-marker-anchor"><div class="bus-marker-rotor">${BUS_MARKER_SVG}</div></div>`,
+    // This string is never assigned to innerHTML. The actual SVG definition is
+    // mounted once in MapViewInner's `<defs>` and marker instances use `<use>`.
+    html: `<div class="bus-marker-anchor"><div class="bus-marker-rotor"><svg><use href="#${BUS_MARKER_ART_ID}"/></svg></div></div>`,
     iconSize: [BUS_MARKER_WIDTH, BUS_MARKER_HEIGHT],
     iconAnchor: [BUS_MARKER_WIDTH / 2, BUS_MARKER_HEIGHT / 2],
     popupAnchor: [0, -BUS_MARKER_HEIGHT / 2],
   };
 }
 
-/** The minimum host this module needs — MapLibre Marker element or legacy host. */
+type QueryRoot = {
+  querySelector: (selector: string) => { style: { transform: string } } | null;
+};
+
+/** The minimum host setBusIconHeading needs — a MapLibre marker element or host. */
 export interface IconHost {
-  getElement():
-    { querySelector: (sel: string) => { style: { transform: string } } | null } | null | undefined;
+  getElement(): QueryRoot | null | undefined;
 }
 
 /**
- * Rotates the icon's inner element in place.
- *
- * Mutating one `style.transform` keeps rotation off React and off the DOM
- * construction path; it is a compositor-only property. Works with both a direct
- * HTMLElement (MapLibre marker element) and a host exposing `getElement()` (legacy
- * Leaflet marker). Guarded for `node --test` where `HTMLElement` may not exist.
+ * Rotates one already-created inner element. The map marker DOM and the shared
+ * SVG source never need to be rebuilt while the bus is moving.
  */
 export function setBusIconHeading(
-  host:
-    IconHost | { querySelector: (sel: string) => { style: { transform: string } } | null } | null,
+  host: IconHost | QueryRoot | null,
   headingDeg: number | null,
 ): void {
   if (!host) return;
-
-  let element:
-    { querySelector: (sel: string) => { style: { transform: string } } | null } | null | undefined;
-
-  // Direct element (MapLibre marker element or fake DOM in tests)
+  let element: QueryRoot | null | undefined;
   if (typeof (host as { querySelector?: unknown }).querySelector === 'function') {
-    element = host as { querySelector: (sel: string) => { style: { transform: string } } | null };
+    element = host as QueryRoot;
   } else if (typeof (host as IconHost).getElement === 'function') {
     try {
-      element = (host as IconHost).getElement() as unknown as {
-        querySelector: (sel: string) => { style: { transform: string } } | null;
-      } | null;
+      element = (host as IconHost).getElement();
     } catch {
       return;
     }
-  } else {
-    return;
   }
+  const rotor = element?.querySelector('.bus-marker-rotor');
+  if (rotor) rotor.style.transform = `rotate(${headingDeg ?? 0}deg)`;
+}
 
+export interface BusMarkerVisualState {
+  /** Fresh GPS data only — stale/last-known state is deliberately slate. */
+  live: boolean;
+  /** Already speed-gated in the caller with bus-motion's 3 km/h threshold. */
+  moving: boolean;
+  /** Motion preference removes the pulse, never the status card's information. */
+  reducedMotion: boolean;
+}
+
+/** Apply lightweight classes only; all drawing stays in the shared SVG/CSS. */
+export function setBusMarkerVisualState(
+  element: HTMLElement | null,
+  state: BusMarkerVisualState,
+): void {
   if (!element) return;
-  const rotor = element.querySelector('.bus-marker-rotor') as {
-    style: { transform: string };
-  } | null;
-  if (!rotor) return;
-  rotor.style.transform = `rotate(${headingDeg ?? 0}deg)`;
+  element.classList.toggle('is-stale', !state.live);
+  element.classList.toggle('is-live-moving', state.live && state.moving);
+  element.classList.toggle('is-reduced-motion', state.reducedMotion);
 }

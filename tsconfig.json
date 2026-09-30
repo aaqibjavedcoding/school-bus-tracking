@@ -11,6 +11,7 @@
     { "path": "./packages/config" },
     { "path": "./packages/validation" },
     { "path": "./packages/api-client" },
+    { "path": "./packages/map-assets" },
     { "path": "./web" },
     { "path": "./mobile" }
   ]
