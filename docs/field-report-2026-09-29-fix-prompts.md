@@ -125,6 +125,13 @@ B2 — WEB. Files: web/src/features/map/MapViewInner.tsx (~line 394-402), web/sr
 > patli ring + exact distance. Is session me map engine ko haath nahi lagana.
 
 ```
+=== HOW TO WORK THIS TASK (read this first) ===
+- node_modules is NOT installed in a fresh checkout. Your FIRST command is `npm install` from the repo root (~40 s; its postinstall builds the five workspace packages). Nothing — typecheck, lint, tests — works before that.
+- The diagnosis below is already verified against this codebase, with file paths and line numbers. Do NOT re-read whole files to confirm it, and do NOT re-diagnose from scratch. Open a file only when you are about to change it, and read only the region you are changing.
+- Work file by file and EDIT AS YOU GO. Exploring everything up front is what exhausts a session before a single line of code is written.
+- Run the verification suite ONCE, at the end.
+- If you start running low on room: stop, make the part you have already finished green and committed, and say plainly which part is untouched.
+
 Two independent P1 fixes in the trip/stop domain. No map-engine work in this session.
 
 === PART 1: the admin sees the crew's Boarding/Start buttons the moment a trip is created ===
@@ -180,6 +187,13 @@ Required:
 > (stops = ek layer) usi me muft mil jayega.
 
 ```
+=== HOW TO WORK THIS TASK (read this first) ===
+- node_modules is NOT installed in a fresh checkout. Your FIRST command is `npm install` from the repo root (~40 s; its postinstall builds the five workspace packages). Nothing — typecheck, lint, tests — works before that.
+- The diagnosis below is already verified against this codebase, with file paths and line numbers. Do NOT re-read whole files to confirm it, and do NOT re-diagnose from scratch. Open a file only when you are about to change it, and read only the region you are changing.
+- Work file by file and EDIT AS YOU GO. Exploring everything up front is what exhausts a session before a single line of code is written.
+- Run the verification suite ONCE, at the end.
+- If you start running low on room: stop, make the part you have already finished green and committed, and say plainly which part is untouched.
+
 Give the admin, parent and conductor maps everything the driver map already has, by SHARING one implementation instead of copying it — and take the free performance win while the surface is being rewritten.
 
 === THE GAP (verified) ===
@@ -236,6 +250,13 @@ The conductor's position comes from the observer socket (useLiveTripTracking), n
 > **Session 3 ke baad hi chalao.**
 
 ```
+=== HOW TO WORK THIS TASK (read this first) ===
+- node_modules is NOT installed in a fresh checkout. Your FIRST command is `npm install` from the repo root (~40 s; its postinstall builds the five workspace packages). Nothing — typecheck, lint, tests — works before that.
+- The diagnosis below is already verified against this codebase, with file paths and line numbers. Do NOT re-read whole files to confirm it, and do NOT re-diagnose from scratch. Open a file only when you are about to change it, and read only the region you are changing.
+- Work file by file and EDIT AS YOU GO. Exploring everything up front is what exhausts a session before a single line of code is written.
+- Run the verification suite ONCE, at the end.
+- If you start running low on room: stop, make the part you have already finished green and committed, and say plainly which part is untouched.
+
 Replace both bus markers with ONE shared, distinctly 3D-looking school bus, and add an optional 3D map camera. This builds on the shared LiveMapSurface from the previous session.
 
 === CURRENT STATE ===
@@ -289,6 +310,13 @@ Replace both bus markers with ONE shared, distinctly 3D-looking school bus, and 
 > skip kar do.
 
 ```
+=== HOW TO WORK THIS TASK (read this first) ===
+- node_modules is NOT installed in a fresh checkout. Your FIRST command is `npm install` from the repo root (~40 s; its postinstall builds the five workspace packages). Nothing — typecheck, lint, tests — works before that.
+- The diagnosis below is already verified against this codebase, with file paths and line numbers. Do NOT re-read whole files to confirm it, and do NOT re-diagnose from scratch. Open a file only when you are about to change it, and read only the region you are changing.
+- Work file by file and EDIT AS YOU GO. Exploring everything up front is what exhausts a session before a single line of code is written.
+- Run the verification suite ONCE, at the end.
+- If you start running low on room: stop, make the part you have already finished green and committed, and say plainly which part is untouched.
+
 Remove the web/mobile map-code duplication. This is a pure refactor: behaviour must not change and every moved spec must keep passing. Run it only after the previous sessions are merged and stable.
 
 === DUPLICATION (verified — near-identical copies, with duplicated specs) ===
