@@ -22,6 +22,7 @@ import { deriveTrackingPresentation } from './tracking-presentation';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 import { resolveMapStyleUrl } from './map-style';
 import { accuracyCirclePolygon } from './accuracy-circle';
+import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
 
 /**
  * Web live-tracking map — MapLibre GL JS + OpenFreeMap (vector tiles).
@@ -120,6 +121,12 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const [exploring, setExploring] = useState(false);
   const [tick, setTick] = useState(0);
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
+  // Explicit map-readiness signal. The map is created by an effect gated on
+  // [webglSupported, hasAnything]; every *other* effect that mutates the map
+  // imperatively depends on this flag, so overlays are re-applied whenever the
+  // map appears — including when it appears *after* the data did. Without it,
+  // a trip whose only fix came from the REST snapshot never got a bus marker.
+  const [mapReady, setMapReady] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -143,6 +150,16 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
   const onMapErrorRef = useRef(onMapError);
   onMapErrorRef.current = onMapError;
+  // Mirror of `mapReady` for the imperative helpers (they run inside MapLibre
+  // callbacks where the state value captured at render time may be stale).
+  const mapReadyRef = useRef(false);
+  mapReadyRef.current = mapReady;
+  // Identity of the last fix handed to the motion machine, so re-running the
+  // overlay sync for an unrelated reason cannot double-push a sample.
+  const lastPushedFixRef = useRef<typeof fix>(null);
+  // Set by the map-init effect so `map.on('load')` can sync overlays without
+  // depending on a callback that did not exist when the map was created.
+  const syncOverlaysRef = useRef<(() => void) | null>(null);
 
   const mappedStops = useMemo(
     () =>
@@ -515,6 +532,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         });
       }
 
+      // Sources and layers exist: the map can now take overlays. Flip the
+      // readiness flag *before* syncing so the sync helpers (which read
+      // `mapReadyRef`) see a ready map, and so every overlay effect re-runs.
+      mapReadyRef.current = true;
+      setMapReady(true);
+
+      // Apply everything the data effects may have tried to apply while the
+      // map did not exist yet. This is the belt to `mapReady`'s braces: the
+      // ordering bug that hid the bus marker cannot come back through either
+      // path alone.
+      syncOverlaysRef.current?.();
+
       // Initial fit once per trip
       if (mappedStops.length > 0 || fixRef.current) {
         dispatch({ type: 'data-available' });
@@ -526,7 +555,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       map.off('error', onMapErrorEvent as never);
       stopLoop();
       map.remove();
+      // The map is gone: nothing may be applied to it until a new one loads.
+      mapReadyRef.current = false;
+      setMapReady(false);
       mapRef.current = null;
+      lastPushedFixRef.current = null;
       busMarkerRef.current = null;
       busElementRef.current = null;
       busPopupRef.current = null;
@@ -545,9 +578,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   }, [webglSupported, hasAnything]);
 
   // Update route line when stops change
-  useEffect(() => {
+  const syncRouteLine = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
     const source = map.getSource('sbt-route') as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
     source.setData({
@@ -561,9 +594,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   }, [lineCoords]);
 
   // Update driven-path line when the trail grows
-  useEffect(() => {
+  const syncTrailLine = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
     const source = map.getSource('sbt-trail') as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
     source.setData({
@@ -577,9 +610,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   }, [trailCoords]);
 
   // Update accuracy circle when fix or presentation changes
-  useEffect(() => {
+  const syncAccuracyCircle = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
     const source = map.getSource('sbt-accuracy') as maplibregl.GeoJSONSource | undefined;
     if (!source) return;
 
@@ -601,9 +634,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   }, [fix, presentation.accuracyCircleMeters]);
 
   // Stop markers — diff by id, avoid full recreate on highlight change (3E speed).
-  useEffect(() => {
+  const syncStopMarkers = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!canSyncOverlays(map, mapReadyRef.current) || !map) return;
 
     const existing = stopMarkersRef.current;
     const nextIds = new Set(mappedStops.map((s) => s.id));
@@ -677,31 +710,54 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   }, [highlightStopId, nextStopId]);
 
   // Bus marker creation / fix handling (motion machine)
-  useEffect(() => {
+  const syncBusMarker = useCallback(() => {
     const map = mapRef.current;
-    if (!map) return;
+
+    // `reconcileBusMarker` owns the three-way decision (create / keep /
+    // defer) so it can be pinned by a spec without a GL context. Crucially it
+    // returns `deferred` — rather than tearing the marker down — when the map
+    // is not ready yet, and the `mapReady` dep on the effect below guarantees
+    // we are called again the moment it becomes ready.
+    const outcomeMarker = reconcileBusMarker({
+      map,
+      ready: mapReadyRef.current,
+      position: fix ? { latitude: fix.latitude, longitude: fix.longitude } : null,
+      marker: busMarkerRef.current,
+      createMarker: (readyMap, lngLat) => {
+        const el = createBusMarkerElement();
+        busElementRef.current = el;
+        const created = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat(lngLat)
+          .addTo(readyMap);
+        const popup = new maplibregl.Popup({ offset: 24, closeButton: true });
+        busPopupRef.current = popup;
+        created.setPopup(popup);
+        return created;
+      },
+    });
+    busMarkerRef.current = outcomeMarker.marker;
+
+    if (outcomeMarker.action === 'deferred') return;
+
     if (!fix) {
-      // Remove bus marker if fix disappears
-      busMarkerRef.current?.remove();
-      busMarkerRef.current = null;
+      // Fix disappeared: `reconcileBusMarker` already removed the marker.
       busElementRef.current = null;
       busPopupRef.current = null;
       motionRef.current.reset();
       renderedRef.current = null;
+      lastPushedFixRef.current = null;
       return;
     }
 
-    if (!busMarkerRef.current) {
-      const el = createBusMarkerElement();
-      busElementRef.current = el;
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([fix.longitude, fix.latitude])
-        .addTo(map);
-      busMarkerRef.current = marker;
-
-      const popup = new maplibregl.Popup({ offset: 24, closeButton: true });
-      busPopupRef.current = popup;
-      marker.setPopup(popup);
+    if (outcomeMarker.action === 'created') {
+      // The camera must frame the bus the first time it appears. When the fix
+      // arrived *before* the map existed, the one-shot `data-available`
+      // dispatch below had already been swallowed by the empty map, so the
+      // initial fit never happened. Re-dispatch here; `reduceFollowCamera`
+      // makes it a no-op once a fit has been performed.
+      if (!followRef.current.hasFitted) {
+        dispatch({ type: 'data-available' });
+      }
     }
 
     // Update popup content
@@ -716,23 +772,86 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       busPopupRef.current.setHTML(html);
     }
 
-    // Push into motion machine
+    // Push into motion machine. Guarded by identity so that syncing overlays
+    // for an unrelated reason (a stop list change, the map's `load` event)
+    // cannot feed the same sample to the motion machine twice.
     const now = nowMs();
-    const outcome = motionRef.current.push(
-      {
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        heading: fix.heading,
-        speed: fix.speed,
-        accuracy: fix.accuracy,
-        recorded_at: fix.recorded_at,
-      },
-      now,
-    );
+    if (lastPushedFixRef.current !== fix) {
+      lastPushedFixRef.current = fix;
+      const outcome = motionRef.current.push(
+        {
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+          heading: fix.heading,
+          speed: fix.speed,
+          accuracy: fix.accuracy,
+          recorded_at: fix.recorded_at,
+        },
+        now,
+      );
+      if (outcome.action === 'animated') startLoop();
+    }
     lastFrameAtRef.current = now;
     applyFrame(now);
-    if (outcome.action === 'animated') startLoop();
-  }, [fix, presentation.animate, applyFrame, startLoop]);
+  }, [fix, presentation.animate, applyFrame, startLoop, dispatch]);
+
+  /**
+   * The single place that pushes application state onto the map.
+   *
+   * Called from two directions, which is the whole point:
+   *
+   * - from the data effects below, whenever a prop changes;
+   * - from `map.on('load')`, whenever the map itself (re)appears.
+   *
+   * Because both directions funnel through here, "data arrived before the map
+   * existed" and "the map appeared before any data" produce the same end
+   * state, so the ordering bug that hid the bus marker cannot regress.
+   */
+  const syncOverlays = useCallback(() => {
+    syncRouteLine();
+    syncTrailLine();
+    syncAccuracyCircle();
+    syncStopMarkers();
+    syncBusMarker();
+  }, [syncRouteLine, syncTrailLine, syncAccuracyCircle, syncStopMarkers, syncBusMarker]);
+
+  // Let `map.on('load')` reach the latest sync routine without re-creating
+  // the map every time a prop changes.
+  useEffect(() => {
+    syncOverlaysRef.current = syncOverlays;
+    return () => {
+      syncOverlaysRef.current = null;
+    };
+  }, [syncOverlays]);
+
+  // Overlay effects. `mapReady` is in every dependency array on purpose: an
+  // overlay whose data settled before the map loaded must be re-applied the
+  // instant the map is ready, which is exactly what a dependency on the
+  // readiness flag buys us.
+  useEffect(() => {
+    if (!mapReady) return;
+    syncRouteLine();
+  }, [mapReady, syncRouteLine]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    syncTrailLine();
+  }, [mapReady, syncTrailLine]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    syncAccuracyCircle();
+  }, [mapReady, syncAccuracyCircle]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    syncStopMarkers();
+  }, [mapReady, syncStopMarkers]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    syncBusMarker();
+  }, [mapReady, syncBusMarker]);
 
   // Freshness handling: halt/resume animation
   useEffect(() => {
@@ -763,16 +882,24 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [dispatch, applyFrame, startLoop, stopLoop]);
 
-  // Fit once per trip when data becomes available (stops or fix)
+  // Fit once per trip when data becomes available (stops or fix).
+  //
+  // Gated on `mapReady` because `reduceFollowCamera` burns its one-shot
+  // `hasFitted` flag on the first `data-available`/`fix-arrived` it sees. Fired
+  // against a map that does not exist yet, the fit is dropped on the floor by
+  // `fitToData` but the flag is spent, so the real fit never happens and the
+  // camera sits at [0, 0] with the bus off-screen.
   useEffect(() => {
+    if (!mapReady) return;
     if (mappedStops.length > 0 || fix) {
       dispatch({ type: 'data-available' });
     }
-  }, [dispatch, mappedStops.length, fix]);
+  }, [mapReady, dispatch, mappedStops.length, fix]);
 
   useEffect(() => {
+    if (!mapReady) return;
     if (fix) dispatch({ type: 'fix-arrived' });
-  }, [dispatch, fix]);
+  }, [mapReady, dispatch, fix]);
 
   // Trip switch cleanup (when fix is null or component unmounts)
   useEffect(() => {
