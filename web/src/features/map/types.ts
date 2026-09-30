@@ -43,9 +43,18 @@ export interface MapViewProps {
    */
   connection?: ConnectionState;
   /**
-   * Called when the map fails to load (style/tile/glyph outage, WebGL context
-   * loss, init throw). The caller surfaces "Map failed to load" — the map
-   * never fails silently.
+   * Called when the map's health notice changes.
+   *
+   * A message string is the text to surface; `null` means "whatever was wrong
+   * has cleared, drop the notice". The map decides *whether* something is
+   * worth surfacing (see `map-error-policy.ts`): a single 404 tile or a
+   * request aborted by a pan never reaches this callback, and a sustained
+   * style outage reports "Map tiles unavailable — retrying…" before it ever
+   * reports the flat "Map failed to load".
+   *
+   * Callers must handle `null` — that is the automatic recovery path, and it
+   * is what stops a transient blip from pinning a red badge to the screen
+   * until someone taps "Retry map".
    */
-  onMapError?: (message: string) => void;
+  onMapError?: (message: string | null) => void;
 }

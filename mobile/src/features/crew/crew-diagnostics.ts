@@ -3,6 +3,7 @@ import { t } from '../../lib/i18n.ts';
 import { formatTime } from '../../lib/format.ts';
 import type { RuntimeEnvironment } from '../../lib/runtime-environment.ts';
 import type { MapStyleIssueCode } from '../map/map-style.ts';
+import type { MapLogRecord } from '../map/map-diagnostics.ts';
 import type { CrewTrackingState } from './tracking-lifecycle.ts';
 import { apiHost } from './tracking-status.ts';
 
@@ -45,6 +46,16 @@ export function buildDiagnosticsRows(
    * (dash); `[]` = OK; non-empty = the `map.issue.*` lines, joined.
    */
   mapIssues?: readonly MapStyleIssueCode[] | null,
+  /**
+   * Raw native map log records from the map-diagnostics store.
+   *
+   * Since native log lines stopped raising map issues (they were turning
+   * every routine MapLibre warning into a red "Map failed to load"), this is
+   * where the evidence lives. Untranslated on purpose: it is the text a field
+   * screenshot quotes verbatim, so a support report can still name exactly
+   * what the engine complained about. Omitted/empty = no row.
+   */
+  mapLogs?: readonly MapLogRecord[],
 ): DiagnosticsRow[] {
   const host = apiHost(apiBaseUrl);
 
@@ -128,6 +139,9 @@ export function buildDiagnosticsRows(
     ...(mapIssues === undefined
       ? []
       : [{ label: t('help.diagnostics.map'), value: mapLabelsValue(mapIssues) }]),
+    ...(mapLogs === undefined || mapLogs.length === 0
+      ? []
+      : [{ label: t('help.diagnostics.mapLog'), value: mapLogValue(mapLogs) }]),
     { label: t('help.diagnostics.connection'), value: state.connection },
     { label: t('help.diagnostics.locationServices'), value: servicesValue },
     { label: t('help.diagnostics.foregroundPermission'), value: state.foregroundPermission },
@@ -140,12 +154,23 @@ export function buildDiagnosticsRows(
   ];
 }
 
+/**
+ * The "Map engine log" fact: the raw native lines, newest last, with a `×N`
+ * when one repeated. Never translated — see `mapLogs` above.
+ */
+function mapLogValue(mapLogs: readonly MapLogRecord[]): string {
+  return mapLogs
+    .map((record) => (record.count > 1 ? `${record.text} ×${record.count}` : record.text))
+    .join(' · ');
+}
+
 /** The "Map labels" fact: OK, dash (not reported), or the issue lines. */
 function mapLabelsValue(mapIssues: readonly MapStyleIssueCode[] | null): string {
   if (mapIssues === null) return DASH;
   if (mapIssues.length === 0) return t('help.diagnostics.mapOk');
   const labels = {
     styleLoad: 'map.issue.styleLoad',
+    offlineFallback: 'map.issue.offlineFallback',
     glyphs: 'map.issue.glyphs',
   } as const;
   return mapIssues.map((code) => t(labels[code])).join(' · ');

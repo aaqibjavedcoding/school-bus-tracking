@@ -72,8 +72,88 @@ export function subscribeMapIssues(listener: () => void): () => void {
   };
 }
 
+// ── Raw native-log records (diagnostics only, never user-visible) ─────────
+//
+// Native MapLibre log lines used to *raise* map issues directly, which is how
+// a routine warning ("unsupported style property", one sprite miss, a request
+// cancelled by a fast pan) turned into a red "Map failed to load" over a map
+// that was working. Log lines no longer raise anything — that judgement
+// belongs to the style pipeline, which actually knows whether the style
+// rendered.
+//
+// They are still recorded here, verbatim, so Help → Diagnostics can name what
+// failed from a field screenshot. A record is evidence, not a verdict.
+
+/** Cap on remembered log records — most recent wins; this is not a log file. */
+export const MAX_LOG_RECORDS = 5;
+
+export interface MapLogRecord {
+  /** What the line looked like about, for grouping. */
+  code: MapStyleIssueCode;
+  /** The raw native text, untranslated, as the screenshot will show it. */
+  text: string;
+  /** How many times an identical line has been seen. */
+  count: number;
+}
+
+let logRecords: readonly MapLogRecord[] = [];
+
+/**
+ * Records one classified native log line for diagnostics.
+ *
+ * Deliberately does **not** call `reportMapIssue`: corroborating evidence for
+ * a conclusion the pipeline reached is useful, inventing the conclusion from a
+ * warning is the bug this whole change exists to remove.
+ */
+export function recordMapLog(code: MapStyleIssueCode, text: string): void {
+  const trimmed = text.trim();
+  const existing = logRecords.find((record) => record.code === code && record.text === trimmed);
+  if (existing) {
+    logRecords = logRecords.map((record) =>
+      record === existing ? { ...record, count: record.count + 1 } : record,
+    );
+    notify();
+    return;
+  }
+  logRecords = [...logRecords, { code, text: trimmed, count: 1 }].slice(-MAX_LOG_RECORDS);
+  notify();
+}
+
+/** The raw log records, oldest first. */
+export function getMapLogRecords(): readonly MapLogRecord[] {
+  return logRecords;
+}
+
 /** Test seam: back to "no issues, no listeners leaked" state. */
 export function resetMapIssuesForTests(): void {
   issues = [];
+  logRecords = [];
+  retryHandler = null;
   listeners.clear();
+}
+
+// ── Retry affordance ──────────────────────────────────────────────────────
+//
+// `MapIssueLines` renders inside both map panels and reads this store
+// directly rather than taking props through two component trees. The retry
+// button it shows for the degraded (offline-fallback) state needs to reach
+// the style pipeline, so the pipeline registers its retry here the same way
+// it reports issues here.
+
+let retryHandler: (() => void) | null = null;
+
+/** `useMapStyle` registers its "re-run the style pipeline now" callback. */
+export function setMapRetryHandler(handler: (() => void) | null): void {
+  retryHandler = handler;
+  notify();
+}
+
+/** True when a retry affordance can actually do something. */
+export function canRetryMap(): boolean {
+  return retryHandler !== null;
+}
+
+/** Invoked by the retry affordance on the map panel. No-op when unregistered. */
+export function requestMapRetry(): void {
+  retryHandler?.();
 }

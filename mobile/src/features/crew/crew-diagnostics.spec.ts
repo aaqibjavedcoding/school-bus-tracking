@@ -230,6 +230,32 @@ describe('buildDiagnosticsRows', () => {
   });
 });
 
+describe('buildDiagnosticsRows — Map engine log row', () => {
+  /**
+   * Native log lines no longer raise map issues (a routine MapLibre warning
+   * was turning into a red "Map failed to load"), so the raw text is what a
+   * field screenshot has to carry instead. Untranslated, verbatim.
+   */
+  it('is absent when nothing was logged', () => {
+    const quiet = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, []);
+    assert.equal(quiet.find((row) => row.label === 'Map engine log'), undefined);
+
+    const empty = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, [], []);
+    assert.equal(empty.find((row) => row.label === 'Map engine log'), undefined);
+  });
+
+  it('records the raw codes verbatim, with a count for a repeated line', () => {
+    const rows = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, [], [
+      { code: 'styleLoad', text: 'Mbgl Failed to load style: timeout', count: 1 },
+      { code: 'glyphs', text: 'Mbgl HTTP 404 /fonts/Noto/0-255.pbf', count: 3 },
+    ]);
+    assert.equal(
+      valueOf(rows, 'Map engine log'),
+      'Mbgl Failed to load style: timeout · Mbgl HTTP 404 /fonts/Noto/0-255.pbf ×3',
+    );
+  });
+});
+
 describe('buildDiagnosticsRows — Map labels row', () => {
   it('appears only when the caller has a map (4th argument)', () => {
     // Historical callers (no map) keep the exact old row set.
@@ -243,6 +269,12 @@ describe('buildDiagnosticsRows — Map labels row', () => {
 
     const notReported = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, null);
     assert.equal(valueOf(notReported, 'Map labels'), '—');
+
+    // The degraded (working offline map) state has its own neutral copy.
+    const degraded = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, [
+      'offlineFallback',
+    ]);
+    assert.equal(valueOf(degraded, 'Map labels'), 'Offline map — tap to retry');
 
     const issues: readonly MapStyleIssueCode[] = ['glyphs', 'styleLoad'];
     const broken = buildDiagnosticsRows(makeState(), RUNTIME_DEV_BUILD_IOS, null, issues);

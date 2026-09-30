@@ -801,6 +801,19 @@ table.data tbody tr:hover {
   display: none;
 }
 
+/*
+ * Degraded, not failed: the map is still retrying and the last drawn tiles
+ * are still on screen. Red here would be a lie — it reads as muted text so it
+ * informs without alarming, and it clears itself when the map draws again.
+ */
+.connection.map-degraded {
+  color: var(--color-slate-500, #64748b);
+}
+
+.connection.map-degraded .pulse {
+  display: none;
+}
+
 @keyframes pulse {
   70% {
     box-shadow: 0 0 0 8px rgb(34 197 94 / 0);
