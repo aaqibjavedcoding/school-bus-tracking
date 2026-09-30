@@ -562,7 +562,9 @@ export const mr: Dictionary = {
   'map.stopA11y': 'थांबा {number}',
   'map.stopLabel': '{number}. {name}',
   'map.issue.styleLoad': 'नकाशा लोड झाला नाही — नेटवर्क आणि map tiles तपासा.',
+  'map.issue.offlineFallback': 'ऑफलाइन नकाशा — पुन्हा प्रयत्न करा',
   'map.issue.glyphs': 'नकाशावरील लेबले दिसत नाहीत',
+  'map.issue.retry': 'पुन्हा',
 
   /**
    * ड्रायव्हर ट्रिप नकाशा: मार्कर याच डिव्हाइसचा GPS आहे. डिलिव्हरीबद्दल फक्त

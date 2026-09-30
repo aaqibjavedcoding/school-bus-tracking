@@ -139,10 +139,21 @@ describe('native bus map invariants', () => {
       /OFFLINE_FALLBACK_MAP_STYLE/,
       'total exhaustion drops to the bundled offline base style',
     );
+    // The offline fallback rendering is not the tiles coming back, so the
+    // degraded chip must survive it. Note which code that is now: the map
+    // *works* while the bundled fallback draws, so the state it advertises is
+    // `offlineFallback` (neutral, retryable) and not the terminal `styleLoad`
+    // — which is exactly why `styleLoad` is cleared unconditionally by a load
+    // that succeeded (something rendered) one line above.
     assert.match(
       pipeline,
-      /if \(!showingFallback\) clearMapIssue\('styleLoad'\)/,
-      'the fallback loading is not a recovery — the line must stay',
+      /if \(!showingFallback\) clearMapIssue\('offlineFallback'\)/,
+      'the fallback loading is not a recovery — the degraded chip must stay',
+    );
+    assert.match(
+      pipeline,
+      /reportMapIssue\('offlineFallback'\)/,
+      'a working offline map is degraded, never "failed"',
     );
   });
 

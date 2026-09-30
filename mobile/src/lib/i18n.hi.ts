@@ -553,7 +553,9 @@ export const hi: Dictionary = {
   'map.stopA11y': 'स्टॉप {number}',
   'map.stopLabel': '{number}. {name}',
   'map.issue.styleLoad': 'नक्शा लोड नहीं हो सका — नेटवर्क और map tiles जाँचें।',
+  'map.issue.offlineFallback': 'ऑफ़लाइन नक्शा — फिर से कोशिश करें',
   'map.issue.glyphs': 'नक्शे के लेबल नहीं दिख रहे',
+  'map.issue.retry': 'फिर कोशिश',
 
   /**
    * ड्राइवर ट्रिप मैप: मार्कर इसी डिवाइस का GPS है। डिलीवरी की बात केवल तब कही

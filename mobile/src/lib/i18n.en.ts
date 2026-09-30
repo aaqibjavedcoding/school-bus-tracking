@@ -638,7 +638,9 @@ export const en = {
   'map.stopA11y': 'Stop {number}',
   'map.stopLabel': '{number}. {name}',
   'map.issue.styleLoad': 'Map failed to load — check your network connection and map tiles.',
+  'map.issue.offlineFallback': 'Offline map — tap to retry',
   'map.issue.glyphs': 'Map labels unavailable',
+  'map.issue.retry': 'Retry',
 
   /**
    * Driver Trip map (Session 2) — see `src/features/crew/crew-map-presentation.ts`.

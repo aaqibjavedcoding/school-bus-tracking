@@ -146,6 +146,7 @@ function mapLabelsValue(mapIssues: readonly MapStyleIssueCode[] | null): string 
   if (mapIssues.length === 0) return t('help.diagnostics.mapOk');
   const labels = {
     styleLoad: 'map.issue.styleLoad',
+    offlineFallback: 'map.issue.offlineFallback',
     glyphs: 'map.issue.glyphs',
   } as const;
   return mapIssues.map((code) => t(labels[code])).join(' · ');

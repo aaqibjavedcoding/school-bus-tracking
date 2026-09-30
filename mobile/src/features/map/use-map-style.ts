@@ -66,11 +66,20 @@ import {
   runWithBackoff,
 } from './map-style-recovery.ts';
 import {
+  classifyMapLog,
+  planStyleFailureReporting,
+  planStyleLoadedReporting,
+  shouldRetryOnNetworkChange,
+} from './map-issue-policy.ts';
+import {
   clearMapIssue,
   getMapIssues,
+  recordMapLog,
   reportMapIssue,
+  setMapRetryHandler,
   subscribeMapIssues,
 } from './map-diagnostics.ts';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus.ts';
 
 export interface MapStyleState {
   /** Value for the map's `mapStyle` prop: URL while loading, then the inspected style object. */
@@ -87,22 +96,22 @@ export interface MapStyleState {
    * the load that actually succeeded is what clears the `styleLoad` line.
    */
   notifyStyleLoaded: () => void;
+  /**
+   * Re-run the style pipeline from scratch, resetting the bounded budget.
+   *
+   * Driven from two places: the "tap to retry" affordance on the degraded
+   * chip, and automatically when the device network comes back. The second
+   * is what makes "turn airplane mode off and the notice clears itself, with
+   * no restart and no tap" true.
+   */
+  retryStyleLoad: () => void;
 }
 
-/** Classifies a native log line into a map issue code, or `null` to ignore. */
-export function classifyMapLog(
-  level: string,
-  tag: string | null,
-  message: string | null,
-): MapStyleIssueCode | null {
-  if (level !== 'error' && level !== 'warn') return null;
-  const text = `${tag ?? ''} ${message ?? ''}`.toLowerCase();
-  if (text.includes('glyph') || text.includes('font')) return 'glyphs';
-  if (text.includes('style') || text.includes('maplibre') || text.includes('mbgl')) {
-    return 'styleLoad';
-  }
-  return null;
-}
+/**
+ * Re-exported from `map-issue-policy.ts`, where it moved so the allow-list
+ * can be pinned without React or the native module in scope.
+ */
+export { classifyMapLog } from './map-issue-policy.ts';
 
 interface StyleControllerDeps {
   setMapStyle: (style: StyleSpecification) => void;
@@ -133,6 +142,12 @@ function createStyleController(deps: StyleControllerDeps) {
   /** True while the bundled offline base style is what the map shows. */
   let showingFallback = false;
 
+  /** Applies a `MapIssuePlan` from the pure policy to the diagnostics store. */
+  function applyIssuePlan(plan: { report: readonly MapStyleIssueCode[]; clear: readonly MapStyleIssueCode[] }): void {
+    for (const code of plan.clear) clearMapIssue(code);
+    for (const code of plan.report) reportMapIssue(code);
+  }
+
   function clearRetryTimer(): void {
     if (retryTimer !== null) {
       clearTimeout(retryTimer);
@@ -143,12 +158,20 @@ function createStyleController(deps: StyleControllerDeps) {
   /**
    * The floor: the bundled offline base style. Reachable with zero network,
    * so it is the one style that can always be set when everything else ran
-   * out — and the `styleLoad` line stays up over it, naming the cause.
+   * out.
+   *
+   * This state is **degraded, not failed**. Stops, the route line and the bus
+   * all still render over the offline base — the map does its job, it just
+   * has no streamed tiles. Reporting `styleLoad` (red, "Map failed to load —
+   * check your network connection and map tiles") for a map the user can see
+   * and use was simply untrue, so it reports `offlineFallback` instead: a
+   * neutral chip with a retry affordance.
    */
   function showOfflineFallback(): void {
     clearRetryTimer();
     showingFallback = true;
     baseStyle = null;
+    reportMapIssue('offlineFallback');
     deps.setMapStyle(OFFLINE_FALLBACK_MAP_STYLE as unknown as StyleSpecification);
   }
 
@@ -211,6 +234,10 @@ function createStyleController(deps: StyleControllerDeps) {
       showingFallback = false;
       consecutiveNativeFailures = 0;
       retryGeneration = 0;
+      // The real style is back. Both the degraded chip and any terminal line
+      // are stale the moment a fetched style is handed to the engine.
+      clearMapIssue('offlineFallback');
+      clearMapIssue('styleLoad');
       // Passing the inspected object means a successful *retried* JS fetch is
       // the style MapLibre uses; leaving the URL here would ask the engine to
       // make a separate, un-retried style request of its own.
@@ -224,27 +251,42 @@ function createStyleController(deps: StyleControllerDeps) {
       );
     } catch {
       if (disposed) return;
-      reportMapIssue('styleLoad');
+      // The bounded budget is spent. `showOfflineFallback` reports the
+      // degraded chip — the map still works, so this is not `styleLoad`.
       showOfflineFallback();
     } finally {
       fetching = false;
     }
   }
 
-  /** The engine said the style failed. Bounded re-sets, then the fallback. */
+  /**
+   * The engine said the style failed. Bounded re-sets, then the fallback.
+   *
+   * Reporting happens **after** the plan, not before it. Reporting first
+   * contradicted the bounded-backoff design in `map-style-recovery.ts`: the
+   * first of up to four attempts raised a red permanent line before the
+   * second attempt had even been scheduled, so a single flaky request on
+   * mobile data read as a dead map. The pipeline now stays silent while it
+   * still has retries left, and speaks only once the budget is spent (or the
+   * fallback itself could not load).
+   */
   function onStyleLoadFailed(): void {
     if (disposed) return;
-    reportMapIssue('styleLoad');
     const action = planStyleLoadFailure({
       showingFallback,
       recoveryInFlight: fetching || retryTimer !== null,
       consecutiveFailures: consecutiveNativeFailures,
     });
+    // What the user is told follows the plan and never precedes it.
+    applyIssuePlan(planStyleFailureReporting({ action, showingFallback }));
+
     if (action.kind === 'fallback') {
+      // Budget spent: drop to the bundled offline base style.
       showOfflineFallback();
       return;
     }
     if (action.kind !== 'retry') return;
+
     consecutiveNativeFailures += 1;
     retryTimer = setTimeout(() => {
       retryTimer = null;
@@ -274,7 +316,31 @@ function createStyleController(deps: StyleControllerDeps) {
   function notifyStyleLoaded(): void {
     clearRetryTimer();
     consecutiveNativeFailures = 0;
-    if (!showingFallback) clearMapIssue('styleLoad');
+    // Something rendered, so the terminal "nothing renders" line is false
+    // whatever it was that rendered — including the offline fallback.
+    clearMapIssue('styleLoad');
+    // The degraded chip only clears when what loaded is a real, online style;
+    // the fallback loading is not the tiles coming back.
+    if (!showingFallback) clearMapIssue('offlineFallback');
+    // Belt and braces: the same decision, from the pure policy, so the two
+    // can never drift. `clearMapIssue` is idempotent and does not notify when
+    // there is nothing to clear.
+    applyIssuePlan(planStyleLoadedReporting(showingFallback));
+  }
+
+  /**
+   * Re-run the whole pipeline from scratch: the manual "tap to retry" on the
+   * degraded chip, and the automatic re-run when the network comes back.
+   *
+   * Resets the bounded budget, because the circumstances genuinely changed —
+   * that is the difference between this and one more attempt in the sequence.
+   */
+  function retryStyleLoad(): void {
+    if (disposed) return;
+    clearRetryTimer();
+    consecutiveNativeFailures = 0;
+    retryGeneration = 0;
+    void runPipeline();
   }
 
   return {
@@ -287,6 +353,7 @@ function createStyleController(deps: StyleControllerDeps) {
     runPipeline,
     onStyleLoadFailed,
     notifyStyleLoaded,
+    retryStyleLoad,
     /** Effect start/restart: allow work again. */
     resume(): void {
       disposed = false;
@@ -309,6 +376,7 @@ export function useMapStyle(
   const styleUrl = resolveMapStyleUrl(env);
   const [mapStyle, setMapStyle] = useState<MapProps['mapStyle']>(styleUrl);
   const issues = useSyncExternalStore(subscribeMapIssues, getMapIssues);
+  const network = useNetworkStatus();
 
   const controllerRef = useRef<StyleController | null>(null);
   if (controllerRef.current === null) {
@@ -330,22 +398,48 @@ export function useMapStyle(
     // swallowed.
     const subscription = LogManager.onLog((event) => {
       const code = classifyMapLog(event.level, event.tag ?? null, event.message ?? null);
-      if (code !== null) reportMapIssue(code);
+      if (code !== null) {
+        // Recorded, never reported. A native log line may corroborate an
+        // issue the style pipeline has already concluded — it may never raise
+        // one by itself, because the engine logs at warn/error while working
+        // perfectly and this subscription used to turn every one of those
+        // into a red "Map failed to load". The raw text is kept so Help →
+        // Diagnostics can still name what failed from a field screenshot.
+        recordMapLog(code, `${event.tag ?? ''} ${event.message ?? ''}`);
+      }
       return false;
     });
 
+    // The retry affordance on the degraded chip lives inside `MapIssueLines`,
+    // which reads the diagnostics store rather than taking props through two
+    // component trees — so the pipeline registers its retry there too.
+    setMapRetryHandler(controller.retryStyleLoad);
+
     return () => {
       controller.dispose();
+      setMapRetryHandler(null);
       // `onLog` returns a handle in current builds and void in older ones.
       const handle = subscription as { remove?: () => void } | undefined;
       handle?.remove?.();
     };
   }, [styleUrl, controller]);
 
+  // Auto-recovery on reconnect. Airplane mode off must clear the notice with
+  // no app restart and no manual tap, so the transition into `online` re-runs
+  // the whole pipeline (which clears the issues on success).
+  const previousNetworkRef = useRef(network);
+  useEffect(() => {
+    const previous = previousNetworkRef.current;
+    previousNetworkRef.current = network;
+    if (!shouldRetryOnNetworkChange(previous, network)) return;
+    controller.retryStyleLoad();
+  }, [network, controller]);
+
   return {
     mapStyle,
     issues,
     onStyleLoadFailed: controller.onStyleLoadFailed,
     notifyStyleLoaded: controller.notifyStyleLoaded,
+    retryStyleLoad: controller.retryStyleLoad,
   };
 }

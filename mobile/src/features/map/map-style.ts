@@ -140,7 +140,22 @@ export const OPENFREEMAP_GLYPHS_TEMPLATE =
   'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
 /** What a map issue means for the panels (`map.issue.*` copy keys). */
-export type MapStyleIssueCode = 'styleLoad' | 'glyphs';
+export type MapStyleIssueCode =
+  /**
+   * Terminal: nothing renders. Reached only when even the bundled offline
+   * fallback style — which needs zero network — failed to load. This is the
+   * one code that keeps the red treatment.
+   */
+  | 'styleLoad'
+  /**
+   * Degraded but working: the online style could not be fetched, so the
+   * bundled offline base style is what the map is drawing. Stops, the route
+   * and the bus are all still on screen, so calling this "failed" was a lie.
+   * Rendered as a neutral chip with a retry affordance.
+   */
+  | 'offlineFallback'
+  /** Labels cannot draw (the glyph endpoint was probed and did not answer). */
+  | 'glyphs';
 
 // ── The offline fallback style (deep-fix R3) ───────────────────────────────
 //
