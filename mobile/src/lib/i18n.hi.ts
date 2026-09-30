@@ -342,6 +342,7 @@ export const hi: Dictionary = {
   'help.diagnostics.delivery': 'शेयरिंग के counters',
   'help.diagnostics.map': 'नक्शे के लेबल',
   'help.diagnostics.mapOk': 'ठीक',
+  'help.diagnostics.mapLog': 'नक्शा इंजन लॉग',
   'help.diagnostics.valueExpoGo': 'Expo Go',
   'help.diagnostics.valueDevBuild': 'Development build',
   'help.diagnostics.valueUnknown': 'अज्ञात',

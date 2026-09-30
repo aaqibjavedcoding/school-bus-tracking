@@ -377,6 +377,7 @@ export const en = {
   'help.diagnostics.delivery': 'Delivery counters',
   'help.diagnostics.map': 'Map labels',
   'help.diagnostics.mapOk': 'OK',
+  'help.diagnostics.mapLog': 'Map engine log',
   'help.diagnostics.valueExpoGo': 'Expo Go',
   'help.diagnostics.valueDevBuild': 'Development build',
   'help.diagnostics.valueUnknown': 'Unknown',
