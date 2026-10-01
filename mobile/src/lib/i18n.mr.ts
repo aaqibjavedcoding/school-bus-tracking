@@ -528,7 +528,6 @@ export const mr: Dictionary = {
   'stops.kidsBadge.one': '{count} मूल',
   'stops.kidsBadge.other': '{count} मुले',
 
-
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   'map.followBus': 'बस फॉलो करा',
   'map.followingA11y': 'बस फॉलो केली जात आहे',
@@ -556,6 +555,19 @@ export const mr: Dictionary = {
   'map.noFixA11y': 'GPS फिक्सची वाट — फॉलो उपलब्ध नाही',
   'map.zoomIn': 'झूम इन',
   'map.zoomOut': 'झूम आउट',
+  'map.dimension.twoD': '2D नकाशा',
+  'map.dimension.threeD': '3D नकाशा',
+  'map.performance.reducedMotion': 'Reduce Motion सुरू असल्यामुळे 3D दृश्य बंद आहे.',
+  'map.performance.droppedFrames': 'नकाशा सुरळीत ठेवण्यासाठी 3D दृश्य बंद केले.',
+  'map.legend.open': 'नकाशाची संकेत सूची दाखवा',
+  'map.legend.close': 'नकाशाची संकेत सूची बंद करा',
+  'map.legend.title': 'नकाशाची संकेत सूची',
+  'map.legend.bus': 'बस',
+  'map.legend.nextStop': 'पुढील थांबा',
+  'map.legend.stop': 'थांबा',
+  'map.legend.drivenPath': 'प्रवास केलेला मार्ग',
+  'map.legend.plannedOrder': 'नियोजित क्रम',
+  'map.legend.arrivalZone': 'येण्याचा झोन',
   'map.needsDevBuildTitle': 'मॅप प्रीव्ह्यूसाठी development build आवश्यक आहे',
   'map.needsDevBuildBody':
     'Expo Go मध्ये map engine असतेच नाही, म्हणून map इथे दिसणार नाही — map पाहण्यासाठी development build आवश्यक आहे. ट्रिप, थांबे आणि GPS sharing सुरूच राहतात।',

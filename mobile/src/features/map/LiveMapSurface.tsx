@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
 import {
   Camera,
@@ -14,6 +14,12 @@ import {
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
+import {
+  MAP_3D_PITCH,
+  MAP_MAX_PITCH,
+  type MapDimension,
+  type MapFallbackReason,
+} from '@school-bus-tracking/map-assets';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
 import '../../lib/runtime-env.ts';
@@ -32,6 +38,8 @@ import { useFollowCamera } from './useFollowCamera';
 import { GestureIsland } from '../../components/gesture-island';
 import { stopsLayerCollection, type StopLayerStop } from './stop-layer.ts';
 import { buildArrivalZoneCenter, buildArrivalZonePolygon } from '../crew/trip-map-geometry.ts';
+import { MapLegend } from './MapLegend';
+import { useMapCameraMode } from './useMapCameraMode';
 
 /**
  * MapLibre renders its children (Camera, sources, layers, annotations) by
@@ -182,6 +190,12 @@ const PLANNED_PAINT = {
   'line-width': 4,
 };
 
+function fallbackNoticeMessage(reason: MapFallbackReason): string {
+  return reason === 'reduced-motion'
+    ? t('map.performance.reducedMotion')
+    : t('map.performance.droppedFrames');
+}
+
 /** The style-spec paint object of a line layer, for the shared constants. */
 type LinePaint = Extract<LayerSpecification, { type: 'line' }>['paint'];
 
@@ -224,6 +238,7 @@ interface SurfaceProps {
   fix: BusMotionFix | null;
   tripId: string | null;
   reducedMotion: boolean;
+  dimension: MapDimension;
   animate: boolean;
   busTitle: string;
   busDescription: string;
@@ -231,6 +246,7 @@ interface SurfaceProps {
   onRegionChange: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onRegionChangeComplete: (event: NativeSyntheticEvent<ViewStateChangeEvent>) => void;
   onMapReady: () => void;
+  onRenderFrame: () => void;
   /** From `useMapStyle`: the engine's failure/recovery hooks (R3). */
   onStyleLoadFailed: () => void;
   onStyleLoaded: () => void;
@@ -262,6 +278,7 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
     fix,
     tripId,
     reducedMotion,
+    dimension,
     animate,
     busTitle,
     busDescription,
@@ -269,6 +286,7 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
     onRegionChange,
     onRegionChangeComplete,
     onMapReady,
+    onRenderFrame,
     onStyleLoadFailed,
     onStyleLoaded,
     cameraRef,
@@ -294,13 +312,14 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
       dragPan
       touchZoom
       doubleTapZoom
-      // Rotate and pitch are off by choice, not by accident: anyone glancing
-      // at a rotated or tilted map has to re-orient before reading it, and a
-      // stray two-finger twist during a pinch is how that happens.
+      // Rotation stays off for every role. Pitch gestures are available only
+      // in an observer's explicit 3D mode; the driver remains locked exactly as
+      // before, even if they deliberately choose the pitched camera.
       touchRotate={false}
-      touchPitch={false}
+      touchPitch={variant === 'driver' ? false : dimension === '3d'}
       onRegionIsChanging={onRegionChange}
       onRegionDidChange={onRegionChangeComplete}
+      onDidFinishRenderingFrame={onRenderFrame}
       // The style pipeline sees the load result first: a successful load is
       // what clears the styleLoad line (R3), then the camera re-fits.
       onDidFinishLoadingMap={() => {
@@ -310,7 +329,13 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
       onDidFailLoadingMap={onStyleLoadFailed}
     >
       {/* Uncontrolled after the initial state; imperative via cameraRef. */}
-      <Camera ref={cameraRef} initialViewState={initialCamera ?? undefined} />
+      <Camera
+        ref={cameraRef}
+        initialViewState={{
+          ...(initialCamera ?? {}),
+          pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+        }}
+      />
 
       {routeLineFeature ? (
         <GeoJSONSource id="sbt-route" data={routeLineFeature}>
@@ -477,7 +502,10 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
   onExpandStart,
 }) => {
   const reducedMotion = useReducedMotion();
+  const { dimension, threeDUnavailable, fallbackNotice, setPreferredDimension, recordRenderFrame } =
+    useMapCameraMode(reducedMotion);
   const locale = useLocale();
+  const [legendOpen, setLegendOpen] = useState(false);
   // `t()` reads module state, so subscribing is what makes a language switch
   // re-render this component.
   useTranslation();
@@ -569,6 +597,46 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
     singlePointZoom: SINGLE_POINT_ZOOM,
     edgePadding: FIT_EDGE_PADDING,
   });
+
+  const applyDimensionPitch = useCallback(
+    (duration = reducedMotion ? 0 : 280) => {
+      void cameraRef.current?.setStop({
+        pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+        duration,
+      });
+    },
+    [cameraRef, dimension, reducedMotion],
+  );
+  useEffect(() => {
+    applyDimensionPitch();
+  }, [applyDimensionPitch]);
+
+  // The native binding has no maxPitch prop. Its engine defaults to 60; this
+  // guard makes the product limit explicit and also pins 2D to a flat camera.
+  const onDimensionRegionChange = useCallback(
+    (event: NativeSyntheticEvent<ViewStateChangeEvent>) => {
+      const pitch = event.nativeEvent.pitch;
+      if (dimension === '2d' && Math.abs(pitch) > 0.1) {
+        void cameraRef.current?.setStop({ pitch: 0, duration: 0 });
+      } else if (pitch > MAP_MAX_PITCH) {
+        void cameraRef.current?.setStop({ pitch: MAP_MAX_PITCH, duration: 0 });
+      }
+      onRegionChange(event);
+    },
+    [cameraRef, dimension, onRegionChange],
+  );
+  const onDimensionMapReady = useCallback(() => {
+    onMapReady();
+    applyDimensionPitch(0);
+  }, [applyDimensionPitch, onMapReady]);
+  const onRenderFrame = useCallback(() => {
+    recordRenderFrame(
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now(),
+    );
+  }, [recordRenderFrame]);
+
   // The gate lives in the frame callback (a ref read), so turning follow off
   // re-renders nothing native and re-enabling pans back via `recenter()`.
   const onFollowFrame = useCallback(
@@ -626,7 +694,7 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
   }, [onExpandStart]);
   const closeFullscreen = useCallback(() => setExpanded(false), []);
 
-  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle();
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle(undefined, dimension);
 
   const mapSurfaceEl = (
     <LiveMapSurfaceMap
@@ -643,13 +711,15 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
       fix={fix}
       tripId={tripId}
       reducedMotion={reducedMotion}
+      dimension={dimension}
       animate={animate}
       busTitle={busTitle ?? t('map.busA11y')}
       busDescription={busDescription}
       onFrame={onFollowFrame}
-      onRegionChange={onRegionChange}
+      onRegionChange={onDimensionRegionChange}
       onRegionChangeComplete={onRegionChangeComplete}
-      onMapReady={onMapReady}
+      onMapReady={onDimensionMapReady}
+      onRenderFrame={onRenderFrame}
       onStyleLoadFailed={onStyleLoadFailed}
       onStyleLoaded={notifyStyleLoaded}
       cameraRef={cameraRef}
@@ -658,23 +728,11 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
     />
   );
 
-  // The honest captions: what each drawn line is, and is not. Each caption
-  // appears only while its line is on the map, so the legend can never
-  // describe a line that is not drawn.
-  const plannedNotice = plannedFeature ? t('map.plannedNotice') : null;
-  const trailNotice = trailFeature ? t('map.trailNotice') : null;
-  const routeNotice = !plannedNotice && routeCoordinates.length > 1 ? t('map.routeNotice') : null;
-  // The zone ring's meaning is not guessable from its shape — say it once,
-  // under the map, only while the ring is drawn.
-  const zoneNotice = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
-  const notices = (
-    <>
-      {zoneNotice ? <Text style={styles.routeNotice}>{zoneNotice}</Text> : null}
-      {plannedNotice ? <Text style={styles.routeNotice}>{plannedNotice}</Text> : null}
-      {trailNotice ? <Text style={styles.routeNotice}>{trailNotice}</Text> : null}
-      {routeNotice ? <Text style={styles.routeNotice}>{routeNotice}</Text> : null}
-    </>
-  );
+  // Honest line explanations now live behind the info affordance rather than
+  // as permanent duplicate copy below the map.
+  const plannedOrderDetail = plannedFeature ? t('map.plannedNotice') : t('map.routeNotice');
+  const zoneDetail = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
+  const fallbackMessage = fallbackNotice ? fallbackNoticeMessage(fallbackNotice) : null;
 
   const headerLine = headerTitle ?? busTitle ?? t('map.busA11y');
 
@@ -686,6 +744,55 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
       {panel}
 
       <View style={[styles.controls, fullHeight ? styles.controlsFull : null]}>
+        <View style={styles.utilityRow}>
+          <View style={styles.dimensionToggle} accessibilityRole="radiogroup">
+            {(['2d', '3d'] as const).map((option) => {
+              const active = dimension === option;
+              const disabled = option === '3d' && threeDUnavailable;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => setPreferredDimension(option)}
+                  disabled={disabled}
+                  accessibilityRole="radio"
+                  accessibilityLabel={t(
+                    option === '2d' ? 'map.dimension.twoD' : 'map.dimension.threeD',
+                  )}
+                  accessibilityState={{ checked: active, disabled }}
+                  style={[
+                    styles.dimensionButton,
+                    active ? styles.dimensionButtonActive : null,
+                    disabled ? styles.controlDisabled : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dimensionButtonText,
+                      active ? styles.dimensionButtonTextActive : null,
+                    ]}
+                  >
+                    {option === '2d' ? '2D' : '3D'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            onPress={() => setLegendOpen((open) => !open)}
+            accessibilityRole="button"
+            accessibilityLabel={t(legendOpen ? 'map.legend.close' : 'map.legend.open')}
+            accessibilityState={{ expanded: legendOpen }}
+            style={styles.infoButton}
+          >
+            <Text style={styles.infoButtonText}>i</Text>
+          </Pressable>
+        </View>
+        {fallbackMessage ? (
+          <View style={styles.performanceNotice} accessibilityLiveRegion="polite">
+            <Text style={styles.performanceNoticeText}>{fallbackMessage}</Text>
+          </View>
+        ) : null}
+
         {/* One primary, one meaning: re-centre on the bus and follow it.
             Never a toggle — a primary that turned follow OFF while following
             is what made the old block read as broken (P1-6). */}
@@ -777,6 +884,14 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
           </Pressable>
         </View>
       </View>
+
+      {legendOpen ? (
+        <MapLegend
+          onClose={() => setLegendOpen(false)}
+          plannedOrderDetail={plannedOrderDetail}
+          arrivalZoneDetail={zoneDetail}
+        />
+      ) : null}
 
       {/* The follow state is invisible to a screen reader unless spoken. */}
       <Text accessibilityLiveRegion="polite" style={styles.screenReaderOnly}>
@@ -871,17 +986,14 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
               </Pressable>
             </View>
             {mapBody(true)}
-            <View style={styles.fullscreenNotices}>{notices}</View>
           </View>
         </Modal>
       ) : (
         mapBody(false)
       )}
 
-      {/* Below the map, never over it: the bottom corners belong to the
-          provider's attribution and logo. Each caption appears only while its
-          line is on the map. */}
-      {surfaceMode === 'map' && !expanded ? <View>{notices}</View> : null}
+      {/* No permanent legend below the map: the compact info affordance owns
+          those explanations, leaving the bottom corners to provider chrome. */}
     </View>
   );
 };
@@ -938,10 +1050,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary[700],
   },
-  fullscreenNotices: {
-    paddingHorizontal: spacing.sm,
-    paddingTop: spacing.xs,
-  },
   wrap: {
     borderRadius: borderRadius.lg,
     overflow: 'hidden',
@@ -975,6 +1083,68 @@ const styles = StyleSheet.create({
     // In fullscreen the header row above the map holds the exit button; the
     // follow controls drop below it so they never overlap it.
     top: spacing.xl,
+  },
+  utilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  dimensionToggle: {
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    backgroundColor: '#ffffff',
+  },
+  dimensionButton: {
+    minWidth: 42,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  dimensionButtonActive: {
+    backgroundColor: colors.primary[600],
+  },
+  dimensionButtonText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '700',
+    color: colors.neutral[700],
+  },
+  dimensionButtonTextActive: {
+    color: '#ffffff',
+  },
+  infoButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    backgroundColor: '#ffffff',
+  },
+  infoButtonText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    color: colors.neutral[700],
+  },
+  performanceNotice: {
+    maxWidth: 190,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  performanceNoticeText: {
+    fontSize: typography.fontSizes.xs,
+    fontWeight: '600',
+    color: colors.neutral[600],
+    textAlign: 'right',
   },
   /** Disabled controls stay readable — greyed, never invisible. */
   controlDisabled: {
@@ -1029,6 +1199,7 @@ const styles = StyleSheet.create({
   },
   /** +/− stacked as one control, so the pair reads as a zoom widget. */
   zoomGroup: {
+    flexDirection: 'row',
     borderRadius: borderRadius.md,
     overflow: 'hidden',
     borderWidth: 1,
@@ -1042,8 +1213,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   zoomButtonTop: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[200],
+    borderRightWidth: 1,
+    borderRightColor: colors.neutral[200],
   },
   zoomButtonText: {
     fontSize: typography.fontSizes.lg,
@@ -1057,11 +1228,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: 1,
     opacity: 0,
-  },
-  routeNotice: {
-    marginTop: spacing.xs,
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
   },
   placeholder: {
     borderRadius: borderRadius.lg,

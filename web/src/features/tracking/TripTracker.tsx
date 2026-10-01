@@ -31,8 +31,6 @@ export const TripTracker: React.FC<{
   nextStopId?: string | null;
   trail?: readonly MapTrailPoint[];
   mapControls?: MapCameraControls;
-  plannedLineNote?: string;
-  trailNote?: string;
   emptyTitle?: string;
   emptyDescription?: string;
 }> = ({
@@ -42,8 +40,6 @@ export const TripTracker: React.FC<{
   nextStopId,
   trail,
   mapControls,
-  plannedLineNote,
-  trailNote,
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
@@ -56,8 +52,6 @@ export const TripTracker: React.FC<{
       nextStopId={nextStopId}
       trail={trail}
       mapControls={mapControls}
-      plannedLineNote={plannedLineNote}
-      trailNote={trailNote}
       emptyTitle={emptyTitle}
       emptyDescription={emptyDescription}
       {...live}
@@ -174,10 +168,6 @@ export const TripTrackerView: React.FC<{
   nextStopId?: string | null;
   trail?: readonly MapTrailPoint[];
   mapControls?: MapCameraControls;
-  /** Localized caption for the straight planned line (crew console). */
-  plannedLineNote?: string;
-  /** Localized caption for the driven-path line; shown when a trail exists. */
-  trailNote?: string;
   emptyTitle?: string;
   emptyDescription?: string;
 }> = ({
@@ -195,8 +185,6 @@ export const TripTrackerView: React.FC<{
   nextStopId,
   trail,
   mapControls,
-  plannedLineNote,
-  trailNote,
   emptyTitle = 'Select a trip to track',
   emptyDescription = 'Live GPS from the crew device appears here over OpenStreetMap.',
 }) => {
@@ -208,6 +196,7 @@ export const TripTrackerView: React.FC<{
   // the map's current notice — including its automatic clearing, which is why
   // a blip no longer pins a red badge here until someone taps "Retry map".
   const [mapError, setMapError] = useState<string | null>(null);
+  const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
 
   if (!tripId) {
@@ -256,12 +245,13 @@ export const TripTrackerView: React.FC<{
           controls={mapControls}
           connection={connection}
           onMapError={setMapError}
+          onMapNotice={setMapNotice}
         />
       </ErrorBoundary>
       <div className="map-overlay">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <ConnectionIndicator state={connection} mapError={mapError} />
+            <ConnectionIndicator state={connection} mapError={mapError} mapNotice={mapNotice} />
             {tripStatus ? <span className="muted">{tripStatusLabel(tripStatus)}</span> : null}
           </div>
           <p className="muted" style={{ marginTop: '0.45rem' }}>
@@ -278,16 +268,6 @@ export const TripTrackerView: React.FC<{
             <p className="muted">No GPS yet. Waiting for the crew device to share a location.</p>
           ) : null}
           {fix ? <GpsStatusLine fix={fix} socketOffline={connection === 'offline'} /> : null}
-          {stops && stops.length > 1 ? (
-            <p className="muted" style={{ marginTop: '0.35rem' }}>
-              {plannedLineNote ?? 'Straight lines between stops — not the driven route.'}
-            </p>
-          ) : null}
-          {trailNote && trail && trail.length > 1 ? (
-            <p className="muted" style={{ marginTop: '0.35rem' }}>
-              {trailNote}
-            </p>
-          ) : null}
         </div>
         {eta?.warnings && eta.warnings.length > 0 ? (
           <div className="card" style={{ marginTop: '0.5rem' }} role="status">

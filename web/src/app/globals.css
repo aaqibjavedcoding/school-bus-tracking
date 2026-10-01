@@ -864,7 +864,7 @@ table.data tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-width: min(360px, calc(100% - 24px));
+  max-width: min(360px, 58%);
 }
 
 .map-overlay .card {
@@ -991,20 +991,154 @@ table.data tbody tr:hover {
 }
 
 /*
- * Camera buttons over the map ("Fit route" and "Follow bus", default-on for
- * every role). Bottom-right so they never cover the status overlay pinned
- * top-left or MapLibre's NavigationControl/FullscreenControl at top-right;
- * they sit above the attribution bar MapLibre pins to the bottom edge.
+ * All app controls remain top/right. Bottom corners are reserved for the
+ * provider logo and attribution; the 58px offset clears MapLibre's own
+ * Navigation/Fullscreen stack at the far right.
  */
 .map-camera-controls {
   position: absolute;
   z-index: 6;
-  right: 12px;
-  bottom: 24px;
+  top: 12px;
+  right: 58px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.5rem;
+  max-width: 40%;
+}
+
+.map-utility-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.map-dimension-toggle {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-dimension-toggle button,
+.map-info-control {
+  min-width: 38px;
+  min-height: 36px;
+  border: 0;
+  background: #fff;
+  color: var(--color-slate-700, #334155);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.map-dimension-toggle button + button {
+  border-left: 1px solid var(--color-slate-200);
+}
+
+.map-dimension-toggle button.is-active {
+  background: var(--color-primary-600);
+  color: #fff;
+}
+
+.map-dimension-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.map-info-control {
+  min-width: 36px;
+  width: 36px;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 999px;
+  font-family: Georgia, serif;
+  font-style: italic;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-legend {
+  position: absolute;
+  z-index: 8;
+  top: 58px;
+  right: 58px;
+  width: min(230px, calc(100% - 24px));
+  display: grid;
+  gap: 0.38rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.97);
+  color: var(--color-slate-800, #1e293b);
+  box-shadow: var(--shadow-md);
+  font-size: 0.82rem;
+}
+
+.map-legend-header,
+.map-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.map-legend-header {
+  justify-content: space-between;
+  margin-bottom: 0.1rem;
+}
+
+.map-legend-header button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-slate-600, #475569);
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.map-legend-row > :first-child {
+  flex: 0 0 28px;
+}
+
+.map-legend-bus {
+  display: grid;
+  place-items: center;
+  height: 25px;
+}
+
+.map-legend-bus svg {
+  width: 14px;
+  height: 23px;
+}
+
+.map-legend-dot {
+  width: 12px;
+  height: 12px;
+  margin-inline: 8px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #1d4ed8;
+  box-shadow: 0 0 0 1px rgb(15 23 42 / 0.14);
+}
+
+.map-legend-dot.is-next {
+  width: 17px;
+  height: 17px;
+  margin-inline: 5px;
+  background: #d97706;
+}
+
+.map-legend-line {
+  width: 27px;
+  border-top: 4px solid #2563eb;
+}
+
+.map-legend-line.is-driven {
+  border-top: 3px solid #16a34a;
 }
 
 .map-follow-control {
@@ -1024,7 +1158,10 @@ table.data tbody tr:hover {
   background: var(--color-slate-100);
 }
 
-.map-follow-control:focus-visible {
+.map-follow-control:focus-visible,
+.map-dimension-toggle button:focus-visible,
+.map-info-control:focus-visible,
+.map-legend button:focus-visible {
   outline: 2px solid var(--color-primary-600);
   outline-offset: 2px;
 }

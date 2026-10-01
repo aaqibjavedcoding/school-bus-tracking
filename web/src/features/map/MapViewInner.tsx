@@ -12,6 +12,13 @@ import {
   BUS_MARKER_BOX,
   BUS_MARKER_DEFS_SVG,
   BUS_MARKER_SHADOW_ID,
+  MAP_3D_PITCH,
+  MAP_3D_SKY,
+  MAP_BUILDING_LAYER_ID,
+  MAP_MAX_PITCH,
+  buildingExtrusionLayerForStyle,
+  type MapDimension,
+  type MapFallbackReason,
 } from '@school-bus-tracking/map-assets';
 import {
   setBusIconHeading,
@@ -35,6 +42,8 @@ import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
 import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
 import { stopsLayerCollection } from './stop-layer';
+import { useAuth } from '../auth/AuthProvider';
+import { useMapCameraMode } from './useMapCameraMode';
 import {
   INITIAL_MAP_ERROR_STATE,
   classifyMapErrorEvent,
@@ -84,6 +93,35 @@ function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+function fallbackNoticeMessage(reason: MapFallbackReason): string {
+  return reason === 'reduced-motion'
+    ? '3D view is off because Reduce Motion is enabled.'
+    : '3D view was turned off to keep the map smooth.';
+}
+
+/** Add/remove presentation only; never add or replace an OpenFreeMap source. */
+function applyMapDimension(
+  map: maplibregl.Map,
+  dimension: MapDimension,
+  originalSky: unknown,
+): void {
+  map.setMaxPitch(MAP_MAX_PITCH);
+  const setSky = map.setSky.bind(map) as (sky?: unknown) => unknown;
+  if (dimension === '3d') {
+    setSky(MAP_3D_SKY);
+    if (!map.getLayer(MAP_BUILDING_LAYER_ID)) {
+      const layer = buildingExtrusionLayerForStyle(map.getStyle());
+      if (layer) {
+        const before = map.getStyle().layers.find((candidate) => candidate.type === 'symbol')?.id;
+        map.addLayer(layer as unknown as maplibregl.LayerSpecification, before);
+      }
+    }
+    return;
+  }
+  if (map.getLayer(MAP_BUILDING_LAYER_ID)) map.removeLayer(MAP_BUILDING_LAYER_ID);
+  setSky(originalSky);
 }
 
 type LatLngTuple = [number, number];
@@ -145,9 +183,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   controls,
   connection = 'offline',
   onMapError,
+  onMapNotice,
 }) => {
   const reducedMotion = usePrefersReducedMotion();
+  const { user } = useAuth();
+  const { dimension, threeDUnavailable, fallbackNotice, setPreferredDimension, recordRenderFrame } =
+    useMapCameraMode({
+      userId: user?.id ?? null,
+      role: user?.role ?? null,
+      reducedMotion,
+    });
   const [exploring, setExploring] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
   // Explicit map-readiness signal. The map is created by an effect gated on
@@ -167,6 +214,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const originalSkyRef = useRef<unknown>(undefined);
+  const dimensionRef = useRef(dimension);
+  dimensionRef.current = dimension;
+  const recordRenderFrameRef = useRef(recordRenderFrame);
+  recordRenderFrameRef.current = recordRenderFrame;
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const busElementRef = useRef<HTMLDivElement | null>(null);
   const busPopupRef = useRef<maplibregl.Popup | null>(null);
@@ -194,6 +246,8 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
   const onMapErrorRef = useRef(onMapError);
   onMapErrorRef.current = onMapError;
+  const onMapNoticeRef = useRef(onMapNotice);
+  onMapNoticeRef.current = onMapNotice;
   // Mirror of `mapReady` for the imperative helpers (they run inside MapLibre
   // callbacks where the state value captured at render time may be stale).
   const mapReadyRef = useRef(false);
@@ -307,6 +361,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   useEffect(() => {
     motionRef.current.setReducedMotion(reducedMotion);
   }, [reducedMotion]);
+
+  useEffect(() => {
+    onMapNoticeRef.current?.(fallbackNotice ? fallbackNoticeMessage(fallbackNotice) : null);
+  }, [fallbackNotice]);
 
   // WebGL2 support check (MapLibre GL JS v5+ requires WebGL2; supported() was removed)
   useEffect(() => {
@@ -506,8 +564,13 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         style: styleUrl,
         center: initialCenter,
         zoom: SINGLE_POINT_ZOOM - 1,
+        pitch: dimensionRef.current === '3d' ? MAP_3D_PITCH : 0,
+        maxPitch: MAP_MAX_PITCH,
+        dragRotate: user?.role !== 'DRIVER',
+        touchPitch: user?.role !== 'DRIVER' && dimensionRef.current === '3d',
         attributionControl: { compact: false },
       });
+      if (user?.role === 'DRIVER') map.touchZoomRotate.disableRotation();
     } catch (error) {
       // A constructor throw is terminal — there is no map object to retry
       // with — so it skips the threshold and says so outright.
@@ -518,18 +581,14 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     mapRef.current = map;
 
-    // Engine chrome, same for every role: zoom + compass, a scale bar, and
-    // fullscreen. Placement is deliberate — MapLibre pins the attribution to
-    // the bottom-right corner and the logo to the bottom-left, so the buttons
-    // live top-right (stacked) and the scale joins the logo's corner as its
-    // own float (never on top of it). The React camera buttons stay
-    // bottom-right, above the attribution bar.
+    // Engine chrome, same for every role: zoom + compass and fullscreen.
+    // Placement is deliberate — the bottom corners stay reserved for provider
+    // attribution/logo, while every app and engine control stays top/right.
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
     map.addControl(
       new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }),
       'top-right',
     );
-    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
     // Style/tile/glyph failures and WebGL context loss arrive here. MapLibre
     // fires this for every 404 tile and every request cancelled by a pan, so
@@ -582,8 +641,12 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         dispatch({ type: 'user-gesture' });
       }
     });
+    map.on('render', () => recordRenderFrameRef.current(nowMs()));
 
     map.on('load', () => {
+      originalSkyRef.current = map.getStyle().sky;
+      applyMapDimension(map, dimensionRef.current, originalSkyRef.current);
+
       // Route line source + layer
       if (!map.getSource('sbt-route')) {
         map.addSource('sbt-route', {
@@ -850,6 +913,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     //    show — because React would otherwise unmount the canvas out from
     //    under the surviving map.)
   }, [webglSupported, mapWanted, applyMapErrorState]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map || !map.isStyleLoaded()) return;
+    applyMapDimension(map, dimension, originalSkyRef.current);
+    if (user?.role === 'DRIVER' || dimension === '2d') map.touchPitch.disable();
+    else map.touchPitch.enable();
+    map.easeTo({
+      pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+      duration: reducedMotion ? 0 : 280,
+    });
+  }, [dimension, mapReady, reducedMotion, user?.role]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {
@@ -1187,6 +1262,37 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         </div>
       ) : null}
       <div className="map-camera-controls">
+        <div className="map-utility-controls">
+          <div className="map-dimension-toggle" role="radiogroup" aria-label="Map view">
+            {(['2d', '3d'] as const).map((option) => {
+              const active = dimension === option;
+              const disabled = option === '3d' && threeDUnavailable;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={`${option.toUpperCase()} map`}
+                  disabled={disabled}
+                  className={active ? 'is-active' : undefined}
+                  onClick={() => setPreferredDimension(option)}
+                >
+                  {option.toUpperCase()}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="map-info-control"
+            aria-label={legendOpen ? 'Close map legend' : 'Show map legend'}
+            aria-expanded={legendOpen}
+            onClick={() => setLegendOpen((open) => !open)}
+          >
+            i
+          </button>
+        </div>
         <button
           type="button"
           className="map-follow-control"
@@ -1205,6 +1311,44 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           {followBusLabel}
         </button>
       </div>
+      {legendOpen ? (
+        <div className="map-legend" role="region" aria-label="Map legend">
+          <div className="map-legend-header">
+            <strong>Map legend</strong>
+            <button
+              type="button"
+              aria-label="Close map legend"
+              onClick={() => setLegendOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-bus" aria-hidden="true">
+              <svg viewBox={`0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}`}>
+                <use href={`#${BUS_MARKER_ART_ID}`} />
+              </svg>
+            </span>
+            <span>Bus</span>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-dot is-next" aria-hidden="true" />
+            <span>Next stop</span>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-dot" aria-hidden="true" />
+            <span>Stop</span>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-line is-driven" aria-hidden="true" />
+            <span>Driven path</span>
+          </div>
+          <div className="map-legend-row">
+            <span className="map-legend-line is-planned" aria-hidden="true" />
+            <span>Planned order</span>
+          </div>
+        </div>
+      ) : null}
       <span className="sr-only" aria-live="polite">
         {exploring ? 'Map exploration — follow paused' : 'Following the bus'}
       </span>

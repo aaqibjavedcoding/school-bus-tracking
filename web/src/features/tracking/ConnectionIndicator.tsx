@@ -19,7 +19,9 @@ export const ConnectionIndicator: React.FC<{
    * the terminal message keeps the red treatment.
    */
   mapError?: string | null;
-}> = React.memo(({ state, mapError = null }) => (
+  /** One-time neutral notice when 3D falls back to the safer 2D camera. */
+  mapNotice?: string | null;
+}> = React.memo(({ state, mapError = null, mapNotice = null }) => (
   <span className="connection-group">
     <span className={`connection ${state}`}>
       <span className="pulse" aria-hidden="true" />
@@ -31,6 +33,11 @@ export const ConnectionIndicator: React.FC<{
         role="status"
       >
         {mapError}
+      </span>
+    ) : null}
+    {mapNotice ? (
+      <span className="connection map-degraded" role="status">
+        {mapNotice}
       </span>
     ) : null}
   </span>

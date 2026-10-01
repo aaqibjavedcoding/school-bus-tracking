@@ -60,4 +60,6 @@ export interface MapViewProps {
    * until someone taps "Retry map".
    */
   onMapError?: (message: string | null) => void;
+  /** One-time accessibility/performance camera fallback notice. */
+  onMapNotice?: (message: string | null) => void;
 }

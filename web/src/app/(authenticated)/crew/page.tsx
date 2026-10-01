@@ -289,13 +289,8 @@ export default function CrewPage() {
             fitRouteLabel: t('map.fitRoute'),
             followBusLabel: t('map.followBus'),
           }}
-          plannedLineNote={t('map.legend.planned')}
-          trailNote={t('map.legend.trail')}
           {...live}
         />
-        <p className="muted" style={{ margin: '0.6rem 0 0' }}>
-          {t('map.legend.planned')} {t('map.legend.trail')} {t('map.legend.next')}
-        </p>
       </Card>
       <Card title="Passenger manifest">
         <ManifestList
