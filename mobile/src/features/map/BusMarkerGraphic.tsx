@@ -1,12 +1,16 @@
 /**
  * BusMarkerGraphic.tsx — the shared-school-bus sprite host.
  *
- * `@school-bus-tracking/map-assets` owns the only bus drawing. Its build-time
- * SVG is rasterised by `mobile/scripts/generate-assets.mjs` into the exact
- * Metro density files this component requires (26×42 / 52×84 / 78×126 RGBA).
- * The graphic here deliberately contains only the rotating coachwork: the
- * static ground shadow, moving halo and heading cone live in `BusMarker.tsx`
- * so the shadow does not spin with the vehicle.
+ * `@school-bus-tracking/map-assets` owns the only bus drawing: one top-down
+ * (roof-view) school bus whose nose points up, so a heading of 0 is north and
+ * the annotation's rotation is the vehicle's real bearing. Its build-time SVG
+ * is rasterised by `mobile/scripts/generate-assets.mjs` into the exact Metro
+ * density files this component requires (26×42 / 52×84 / 78×126 RGBA).
+ *
+ * The graphic here contains the rotating vehicle only — coachwork plus the
+ * baked contact shadow that must turn with it. The *ambient* ground disc, the
+ * moving halo and the heading cone live in `BusMarker.tsx`, outside the
+ * rotor, so nothing unrotatable spins with the bus.
  */
 
 import React from 'react';

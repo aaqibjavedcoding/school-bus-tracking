@@ -127,7 +127,13 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
       snippet={description}
     >
       <View style={styles.rotationBox}>
-        {/* The shadow is intentionally outside the rotated bus group. */}
+        {/*
+          The shadow is intentionally outside the rotated bus group: this is
+          the *ambient* lift, and a round, unrotated disc is the only shape
+          that cannot disagree with the heading. The vehicle-shaped contact
+          shadow is baked into the top-down sprite, where it turns with the
+          bus the way a plan-view shadow has to.
+        */}
         <View style={[styles.groundShadow, animate ? null : styles.groundShadowStale]} />
         {showPulse ? (
           <Animated.View pointerEvents="none" style={[styles.pulseHalo, pulseStyle]} />
@@ -156,12 +162,10 @@ const styles = StyleSheet.create({
   },
   groundShadow: {
     position: 'absolute',
-    width: 28,
-    height: 7,
-    borderRadius: 99,
-    top: 38,
-    backgroundColor: 'rgba(15, 23, 42, 0.25)',
-    transform: [{ scaleX: 1.18 }],
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(15, 23, 42, 0.13)',
   },
   groundShadowStale: {
     opacity: 0.55,
