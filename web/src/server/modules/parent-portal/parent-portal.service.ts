@@ -695,6 +695,12 @@ export class ParentPortalService {
       first_name: parentUser?.first_name ?? '',
       last_name: parentUser?.last_name ?? '',
       email: parentUser?.email ?? null,
+      // Same two fields `AuthService.toAuthenticatedUser` projects, so a
+      // parent's session payload has the identical shape as everyone else's.
+      // Parents cannot set a photo (see `PROFILE_PHOTO_ROLES`), so in
+      // practice these are null — stated rather than omitted.
+      profile_photo_key: parentUser?.profile_photo_key ?? null,
+      profile_photo_updated_at: parentUser?.profile_photo_updated_at?.toISOString() ?? null,
     };
   }
 }

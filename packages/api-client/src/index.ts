@@ -1342,7 +1342,9 @@ export class ApiClient {
     );
   }
 
-  public async getMarketingDeliverySettings(): Promise<ApiResponse<MarketingDeliverySettingsResponse>> {
+  public async getMarketingDeliverySettings(): Promise<
+    ApiResponse<MarketingDeliverySettingsResponse>
+  > {
     return this.get<MarketingDeliverySettingsResponse>('/marketing/settings');
   }
 
@@ -1777,11 +1779,79 @@ export class ApiClient {
     return this.delete<AccountProfilePhotoResponse>('/account/me/photo');
   }
 
-  /** Resolves the authenticated photo URL; the server still enforces access. */
-  public accountPhotoUrl(key: string | null, updatedAt?: string | null): string | null {
-    if (!key) return null;
+  /**
+   * The URL a stored profile photo is served from, or `null` when there is
+   * no photo to fetch.
+   *
+   * `GET /crew-photos/{key…}` is **authenticated and tenant-scoped** — the
+   * server resolves the tenant from the bearer token and 404s anything the
+   * caller may not see — so this URL is not a capability: handing it around
+   * grants nothing. Each key segment is encoded so keys stay opaque, and
+   * `?v=<profile_photo_updated_at>` busts every cache the moment the photo
+   * is replaced (the same column the ETag is derived from server-side).
+   *
+   * A browser `<img src>` cannot carry an `Authorization` header, so web
+   * callers want {@link fetchProfilePhoto} instead; this URL is for clients
+   * that attach the header themselves.
+   */
+  public accountPhotoUrl(key: string | null | undefined, updatedAt?: string | null): string | null {
+    const path = this.accountPhotoPath(key, updatedAt);
+    return path ? `${this.baseUrl}${path}` : null;
+  }
+
+  /** The same address relative to the API base (what {@link request} takes). */
+  public accountPhotoPath(
+    key: string | null | undefined,
+    updatedAt?: string | null,
+  ): string | null {
+    if (!key || !key.trim()) return null;
     const version = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : '';
-    return `${this.baseUrl}/crew-photos/${key.split('/').map(encodeURIComponent).join('/')}${version}`;
+    return `/crew-photos/${key.split('/').map(encodeURIComponent).join('/')}${version}`;
+  }
+
+  /**
+   * Fetches the **bytes** of a stored profile photo through the authenticated
+   * route, with the bearer token attached and the usual single-flight refresh
+   * on a 401 (it rides on {@link downloadFile}).
+   *
+   * Returns `null` for "there is nothing to show": no key, or a 404 — which
+   * is the server's answer to *every* refusal, by design. Callers render the
+   * initials/placeholder fallback for `null` and never branch on a reason,
+   * because there isn't one to read.
+   *
+   * Works in both runtimes: the browser turns the blob into an object URL,
+   * React Native reads it with `FileReader` into a data URI.
+   */
+  public async fetchProfilePhoto(
+    key: string | null | undefined,
+    updatedAt?: string | null,
+  ): Promise<Blob | null> {
+    const path = this.accountPhotoPath(key, updatedAt);
+    if (!path) return null;
+    return this.fetchPhotoBlob(path);
+  }
+
+  /**
+   * The signed-in account's own photo — no key needed, nothing in the URL.
+   * `GET /account/me/photo`, the read-back counterpart of
+   * {@link setAccountPhoto}.
+   */
+  public async fetchMyProfilePhoto(updatedAt?: string | null): Promise<Blob | null> {
+    const version = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : '';
+    return this.fetchPhotoBlob(`/account/me/photo${version}`);
+  }
+
+  /** Shared body of the two readers: bytes, or `null` for a generic 404. */
+  private async fetchPhotoBlob(path: string): Promise<Blob | null> {
+    try {
+      const downloaded = await this.downloadFile(path);
+      return downloaded.blob;
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

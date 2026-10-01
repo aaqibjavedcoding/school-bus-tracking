@@ -209,6 +209,11 @@ describe('AuthService.login', () => {
       first_name: 'Dana',
       last_name: 'Driver',
       email: 'driver@school.org',
+      // The two read-back fields the photo feature added to the projection.
+      // Asserted with `deepEqual` on purpose: this is the test that fails if
+      // anyone ever widens the projection by accident.
+      profile_photo_key: null,
+      profile_photo_updated_at: null,
     });
   });
 
@@ -475,6 +480,11 @@ describe('AuthService.refresh & token rotation', () => {
       first_name: 'Dana',
       last_name: 'Driver',
       email: 'driver@school.org',
+      // The two read-back fields the photo feature added to the projection.
+      // Asserted with `deepEqual` on purpose: this is the test that fails if
+      // anyone ever widens the projection by accident.
+      profile_photo_key: null,
+      profile_photo_updated_at: null,
     });
 
     const claims = await jwtService.verifyAsync<JwtAccessTokenPayload>(

@@ -276,6 +276,8 @@ function makeAuthStub(
             first_name: user.first_name,
             last_name: user.last_name,
             email: user.email,
+            profile_photo_key: null,
+            profile_photo_updated_at: null,
           },
         },
         refreshToken: 'mock-refresh-token',

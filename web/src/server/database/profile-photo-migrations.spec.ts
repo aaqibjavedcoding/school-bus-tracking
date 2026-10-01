@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { describe, it } from 'node:test';
-import { DataTypes } from 'sequelize';
+import { DataTypes, Op } from 'sequelize';
 import type { QueryInterface } from 'sequelize';
 
 import * as addProfilePhoto from './migrations/20260927120000-add-profile-photo-to-users';
+import * as indexProfilePhotoKey from './migrations/20261001090000-index-users-profile-photo-key';
 
 /**
  * The profile-photo columns migration, checked **without a database** —
@@ -35,6 +36,17 @@ class RecordingQueryInterface {
   public transactions = 0;
   public readonly added: RecordedColumn[] = [];
   public readonly removed: Array<{ table: string; key: string; transactional: boolean }> = [];
+  public readonly indexes: Array<{
+    table: string;
+    fields: string[];
+    options: Record<string, unknown>;
+    transactional: boolean;
+  }> = [];
+  public readonly removedIndexes: Array<{
+    table: string;
+    name: string;
+    transactional: boolean;
+  }> = [];
   public readonly sql: string[] = [];
 
   get sequelize(): unknown {
@@ -65,6 +77,31 @@ class RecordingQueryInterface {
     options?: { transaction?: unknown },
   ): Promise<void> {
     this.removed.push({ table, key, transactional: options?.transaction !== undefined });
+  }
+
+  async addIndex(
+    table: string,
+    fields: string[],
+    options: Record<string, unknown> = {},
+  ): Promise<void> {
+    this.indexes.push({
+      table,
+      fields,
+      options,
+      transactional: options.transaction !== undefined,
+    });
+  }
+
+  async removeIndex(
+    table: string,
+    name: string,
+    options?: { transaction?: unknown },
+  ): Promise<void> {
+    this.removedIndexes.push({
+      table,
+      name,
+      transactional: options?.transaction !== undefined,
+    });
   }
 }
 
@@ -177,6 +214,67 @@ describe('migration 20260927120000-add-profile-photo-to-users', () => {
       names[index - 1],
       '20260926150000-create-password-reset-tokens.ts',
       'this migration must sort after the last one that shipped before it',
+    );
+  });
+});
+
+/**
+ * The index behind the **read** route (added with the read-back work).
+ *
+ * The photo-serving route proves "a user row in this tenant references this
+ * exact key" before it returns a single byte, and it does that on every
+ * avatar the parent and admin screens paint. This migration is what keeps
+ * that check from being a sequential scan — so the spec pins the columns, the
+ * partial predicate and the reversal, exactly as above.
+ */
+describe('migration 20261001090000-index-users-profile-photo-key', () => {
+  async function runIndex() {
+    const up = new RecordingQueryInterface();
+    const down = new RecordingQueryInterface();
+    await indexProfilePhotoKey.up(up as unknown as QueryInterface);
+    await indexProfilePhotoKey.down(down as unknown as QueryInterface);
+    return { up, down };
+  }
+
+  it('indexes exactly the lookup the photo route runs, tenant column first', async () => {
+    const { up } = await runIndex();
+    assert.equal(up.indexes.length, 1, 'one index, nothing else');
+    const [index] = up.indexes;
+    assert.equal(index!.table, 'users');
+    assert.deepEqual(index!.fields, ['school_id', 'profile_photo_key']);
+    assert.equal(index!.options.name, indexProfilePhotoKey.PROFILE_PHOTO_KEY_INDEX);
+    assert.notEqual(index!.options.unique, true, 'two rows may legitimately share no photo');
+    assert.ok(index!.transactional, 'DDL joins the transaction like every migration here');
+  });
+
+  it('is partial: only rows that actually have a photo are indexed', async () => {
+    const { up } = await runIndex();
+    const where = up.indexes[0]!.options.where as Record<string, unknown> | undefined;
+    assert.ok(where, 'a partial predicate keeps the index small');
+    const predicate = where!['profile_photo_key'] as Record<symbol, unknown>;
+    assert.ok(predicate, 'the predicate is on the key column');
+    assert.deepEqual(Object.getOwnPropertySymbols(predicate), [Op.ne]);
+    assert.equal(predicate[Op.ne], null, 'Sequelize renders this as IS NOT NULL');
+  });
+
+  it('is fully reversible and drops nothing else', async () => {
+    const { down } = await runIndex();
+    assert.equal(down.transactions, 1);
+    assert.deepEqual(down.removedIndexes, [
+      { table: 'users', name: indexProfilePhotoKey.PROFILE_PHOTO_KEY_INDEX, transactional: true },
+    ]);
+    assert.deepEqual(down.removed, [], 'no column is dropped by an index migration');
+  });
+
+  it('sorts after the migration that added the columns it indexes', async () => {
+    const dir = path.join(__dirname, 'migrations');
+    const names = readdirSync(dir)
+      .filter((name) => /^\d{14}-.+\.[cm]?[jt]s$/.test(name))
+      .sort();
+    assert.ok(
+      names.indexOf('20261001090000-index-users-profile-photo-key.ts') >
+        names.indexOf('20260927120000-add-profile-photo-to-users.ts'),
+      'an index cannot precede its columns',
     );
   });
 });

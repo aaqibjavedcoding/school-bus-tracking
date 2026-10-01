@@ -37,3 +37,11 @@ export const PROFILE_PHOTO_TYPE_MESSAGE = 'Profile photos must be a JPEG or PNG 
  * follow — so probing settles nothing.
  */
 export const ACCOUNT_USER_NOT_FOUND_MESSAGE = 'User not found';
+
+/**
+ * The single answer the photo-serving route gives to **every** failure:
+ * unknown key, another tenant's key, a key that belongs to a licence rather
+ * than a photo, a blob that is gone, a traversal attempt. Identical status,
+ * identical body — probing a key settles nothing.
+ */
+export const PROFILE_PHOTO_NOT_FOUND_MESSAGE = 'Photo not found';
