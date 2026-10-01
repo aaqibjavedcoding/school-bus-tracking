@@ -53,7 +53,7 @@ export interface ArrivalDetectionConfig {
   /** Whether fixes without an accuracy reading stay eligible. */
   allowMissingAccuracy: boolean;
   /**
-   * Runtime floor on every stop's EFFECTIVE geofence radius (default 50 —
+   * Runtime floor on every stop's EFFECTIVE geofence radius (default 25 —
    * `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS`). Evaluation uses
    * `effectiveStopRadiusMeters(stop, config) =
    * max(stop.geofence_radius_meters, this floor)` everywhere a stop's radius
@@ -67,7 +67,7 @@ export interface ArrivalDetectionConfig {
    * smaller than the phone's reported accuracy. The floor keeps the stored
    * radius as the admin's intent while guaranteeing every arrival zone is a
    * real circle a parked bus can stand inside. New/edited stops are
-   * additionally required to be ≥ 30 m by validation; the floor catches
+   * additionally required to be ≥ 20 m by validation; the floor catches
    * everything created before that.
    */
   minEffectiveRadiusMeters: number;

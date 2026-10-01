@@ -6,7 +6,7 @@ import type { Feature, Polygon } from 'geojson';
  * MapLibre has no declarative "circle" element, so the uncertainty ring the
  * map used to draw is built here as a
  * small polygon: `steps` destination points around the reported fix, joined
- * and closed. 64 vertices over a 500 m radius keeps the max chord error at
+ * and closed. 64 vertices over a 120 m radius keeps the max chord error at
  * ~0.03 % of the radius — sub-pixel at every zoom the map can show — while
  * the feature stays one tiny JSON object the style engine can diff cheaply.
  *
@@ -39,7 +39,7 @@ function wrapLongitude(degrees: number): number {
  * `bearingDeg` (0 = north, clockwise) — the standard spherical
  * destination-point formula.
  *
- * An approximation (spherical earth), which is all a 500 m accuracy ring can
+ * An approximation (spherical earth), which is all a 120 m accuracy ring can
  * usefully be: the error is a fraction of a millimetre at these distances,
  * far below what any map zoom resolves.
  */

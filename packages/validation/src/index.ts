@@ -718,6 +718,15 @@ const stopNameSchema = z
   .min(1, 'name is required')
   .max(150, 'name must be at most 150 characters');
 
+/** Minimum stored stop geofence radius accepted by forms and imports. */
+export const STOP_MIN_GEOFENCE_RADIUS_METERS = 20;
+
+/** Default stored stop geofence radius used by client forms and templates. */
+export const STOP_DEFAULT_GEOFENCE_RADIUS_METERS = 20;
+
+/** Maximum stored stop geofence radius accepted by forms and imports. */
+export const STOP_MAX_GEOFENCE_RADIUS_METERS = 2000;
+
 /** Local wall-clock arrival time: `HH:MM` or `HH:MM:SS`. */
 const arrivalTimeSchema = z
   .string()
@@ -737,15 +746,17 @@ export const stopCreateSchema = z
     geofence_radius_meters: z
       .number()
       .int('geofence_radius_meters must be an integer')
-      // A radius below ~15 m makes the *stored* zone smaller than the noise
-      // in a phone fix (urban/indoor accuracy is 10–30 m), so admins may now
-      // survey tight stops down to 15 m. It stays safe because DETECTION
-      // never uses the stored number directly: the server floors every stop's
-      // EFFECTIVE radius at `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` (25 m, see
-      // the web eta config for why that floor is not 5 m), and the apps draw
-      // the effective radius the API returns.
-      .min(15, 'geofence_radius_meters must be between 15 and 2000')
-      .max(2000)
+      // A 20 m stored radius keeps newly saved stops tight enough not to
+      // swallow neighbouring pins. It stays safe because DETECTION never uses
+      // the stored number directly: the server floors every stop's EFFECTIVE
+      // radius at `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` (25 m, see the web eta
+      // config for why that floor is not 5 m), and the apps draw the effective
+      // radius the API returns.
+      .min(
+        STOP_MIN_GEOFENCE_RADIUS_METERS,
+        `geofence_radius_meters must be between ${STOP_MIN_GEOFENCE_RADIUS_METERS} and ${STOP_MAX_GEOFENCE_RADIUS_METERS}`,
+      )
+      .max(STOP_MAX_GEOFENCE_RADIUS_METERS)
       .nullish(),
     sequence_number: z
       .number()
@@ -2884,9 +2895,12 @@ export const stopImportRowSchema = z
     address: optionalTextCell(500, 'Address'),
     latitude: decimalCell('Latitude', { min: -90, max: 90 }),
     longitude: decimalCell('Longitude', { min: -180, max: 180 }),
-    // Deep-fix R1: min 30 for the same reason as `stopCreateSchema` above —
-    // smaller circles behave like points against real phone accuracy.
-    geofence_radius_meters: integerCell('Geofence radius (m)', { min: 15, max: 2000 }),
+    // Same minimum as `stopCreateSchema`: a 20 m stored radius saves, while
+    // the server still detects/draws the effective radius it returns.
+    geofence_radius_meters: integerCell('Geofence radius (m)', {
+      min: STOP_MIN_GEOFENCE_RADIUS_METERS,
+      max: STOP_MAX_GEOFENCE_RADIUS_METERS,
+    }),
     estimated_arrival_time: timeCell('Estimated arrival time'),
     is_active: booleanCell('Active'),
   })

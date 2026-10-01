@@ -4,6 +4,7 @@ import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.m
 import { School } from './school.model';
 import { Route } from './route.model';
 import { Student } from './student.model';
+import { STOP_DEFAULT_GEOFENCE_RADIUS_METERS } from '../../config/eta.config';
 
 export interface StopAttributes extends BaseModelAttributes {
   school_id: string;
@@ -93,7 +94,11 @@ export class Stop extends BaseModel<StopAttributes, StopCreationAttributes> {
   @Column({ type: DataType.DOUBLE, allowNull: true })
   declare longitude: number | null;
 
-  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 100 })
+  @Column({
+    type: DataType.INTEGER,
+    allowNull: false,
+    defaultValue: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+  })
   declare geofence_radius_meters: number;
 
   @Column({ type: DataType.INTEGER, allowNull: false })

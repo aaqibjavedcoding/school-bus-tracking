@@ -436,7 +436,7 @@ Freshness (`tracking-presentation.ts`):
 | `LIVE_WINDOW_MS`              | 30 000  | `GPS_LIVE_WINDOW_MS` from `shared-types`; the crew controller's `SERVER_ACK_LIVE_WINDOW_MS` is an alias of the same constant, so the two cannot drift. |
 | `STALE_WINDOW_MS`             | 120 000 | `GPS_STALE_WINDOW_MS`; `SERVER_ACK_STALE_WINDOW_MS` aliases it.                                                                                        |
 | `ACCURACY_APPROXIMATE_METERS` | 50      | The same line `gpsSignalTier` in `mobile/src/lib/geo.ts` already calls "weak".                                                                         |
-| `ACCURACY_CIRCLE_MAX_METERS`  | 500     | A 5 km circle on a 280 dp map is a solid orange screen, not information; past this the uncertainty is stated in words instead.                         |
+| `ACCURACY_CIRCLE_MAX_METERS`  | 120     | A 300 m circle swallows dense stop clusters; past 120 m the uncertainty is stated in words instead of drawn.                                           |
 
 ## Follow camera
 
@@ -607,16 +607,16 @@ two spellings on one screen.
   mirroring `BusMap.web.tsx`.
 - **The next stop's arrival zone** (deep-fix R1) — the map draws one more
   shape, and only one: a **dashed amber ring** around the *next* stop, sized
-  by the stop's **effective** radius (`max(stored radius, 50 m)` —
-  `crew/arrival-zone.ts` mirrors the server's
-  `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` floor). It is the same circle the
-  arrival engine evaluates, so a driver standing inside the ring is standing
-  inside the zone that records the stop — the field defect this fixes was a
-  zone nobody could see and no phone could hit. Styled apart from the GPS
-  accuracy circle on purpose: the zone is a dashed darker-amber ring centred
-  on the **stop**; the accuracy circle is a solid light-amber ring centred on
-  the **bus**. Next stop only, so a ten-stop route stays readable; the
-  caption under the map (`map.arrivalZoneNotice`) names what the ring means.
+  by the stop's **effective** radius (`effective_radius_meters`, 25 m by
+  default — `crew/arrival-zone.ts` reads the server's returned radius). It is
+  the same circle the arrival engine evaluates, so a driver standing inside
+  the ring is standing inside the zone that records the stop — the field defect
+  this fixes was a zone nobody could see and no phone could hit. Styled apart
+  from the GPS accuracy circle on purpose: the zone is a dashed darker-amber
+  ring centred on the **stop**; the accuracy circle is a solid light-amber
+  ring centred on the **bus**. Next stop only, so a ten-stop route stays
+  readable; the caption under the map (`map.arrivalZoneNotice`) names what the
+  ring means.
   The next-stop card adds the textual twin: an "inside arrival zone"
   indicator (pure client math over the server's own `eta.latest` fix) plus,
   when the bus is inside and the stop is held, the reason from
@@ -852,8 +852,8 @@ if a step cannot be reproduced, say so rather than ticking it.
 
 - [ ] "Approximate" appears and an accuracy circle is drawn for coarse fixes.
 - [ ] An implausible jump snaps rather than racing across the map.
-- [ ] No accuracy circle when the radius exceeds 500 m; the uncertainty is
-      stated in words.
+- [ ] No accuracy circle when the radius exceeds 120 m (for example a
+      300 m coarse fix); the uncertainty is stated in words.
 
 **Internet off / on**
 

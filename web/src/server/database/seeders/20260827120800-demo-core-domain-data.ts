@@ -1,6 +1,7 @@
 'use strict';
 
 import type { QueryInterface, QueryOptions } from 'sequelize';
+import { STOP_DEFAULT_GEOFENCE_RADIUS_METERS } from '../../config/eta.config';
 
 /**
  * DEMO DATA ONLY — development / local smoke testing.
@@ -292,7 +293,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         address: '500 Maple St, Springfield',
         latitude: 39.79,
         longitude: -89.66,
-        geofence_radius_meters: 120,
+        geofence_radius_meters: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
         sequence_number: 1,
         estimated_arrival_time: '07:15:00',
         is_active: true,
@@ -306,7 +307,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         address: '12 Oak Rd, Springfield',
         latitude: 39.785,
         longitude: -89.655,
-        geofence_radius_meters: 100,
+        geofence_radius_meters: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
         sequence_number: 2,
         estimated_arrival_time: '07:25:00',
         is_active: true,
@@ -320,7 +321,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         address: '88 Pine Cres, Springfield',
         latitude: 39.778,
         longitude: -89.648,
-        geofence_radius_meters: 100,
+        geofence_radius_meters: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
         sequence_number: 1,
         estimated_arrival_time: '15:10:00',
         is_active: true,
@@ -334,7 +335,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         address: '1 Demo Way, Springfield',
         latitude: 39.7817,
         longitude: -89.6501,
-        geofence_radius_meters: 150,
+        geofence_radius_meters: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
         sequence_number: 3,
         estimated_arrival_time: '07:45:00',
         is_active: true,

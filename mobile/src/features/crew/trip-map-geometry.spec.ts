@@ -198,7 +198,7 @@ describe('historyFixesForTrip — the trail belongs to the trip on screen', () =
 
 describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () => {
   it('draws the NEXT stop only, with its effective (floored) radius', () => {
-    // A 10 m legacy stop: the drawn zone must be the 50 m effective circle
+    // A 10 m legacy stop: the drawn zone must be the 25 m effective circle
     // the server evaluates, never the invisible 10 m point match the field
     // run suffered.
     const stops = [
@@ -225,6 +225,32 @@ describe('buildArrivalZonePolygon — the next stop\'s arrival zone (R1)', () =>
     assert.ok(
       maxLatitudeDelta > 0.00017 && maxLatitudeDelta < 0.00028,
       `effective radius ~${OFFLINE_FALLBACK_MIN_RADIUS_METERS} m, got ${maxLatitudeDelta.toFixed(6)}°`,
+    );
+  });
+
+  it('keeps five close stops as dots outside the next-stop ring', () => {
+    const baseLat = 19.076;
+    const stepLat = 0.00045; // roughly 50 m, matching dense urban stop spacing.
+    const closeStops = Array.from({ length: 5 }, (_, index) =>
+      stop(`s${index + 1}`, index + 1, baseLat + index * stepLat, 72.8777),
+    ).map((entry) => ({
+      ...entry,
+      geofence_radius_meters: 20,
+      effective_radius_meters: 25,
+    }));
+
+    const zone = buildArrivalZonePolygon(closeStops, 's3');
+    assert.ok(zone);
+    const ring = zone.geometry.coordinates[0];
+    const nextStopLat = baseLat + 2 * stepLat;
+    const ringRadiusLatDelta = Math.max(...ring.map((point) => Math.abs(point[1] - nextStopLat)));
+
+    // The map draws exactly this one polygon around s3. Adjacent stops s2/s4
+    // are about 50 m away, outside the server's 25 m effective radius, so they
+    // remain plain stop dots instead of being swallowed by a giant ring.
+    assert.ok(
+      ringRadiusLatDelta < stepLat,
+      `next-stop ring (${ringRadiusLatDelta.toFixed(6)}°) must not reach neighbouring stops (${stepLat}° away)`,
     );
   });
 

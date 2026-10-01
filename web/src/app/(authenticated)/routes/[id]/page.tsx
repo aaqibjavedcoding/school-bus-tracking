@@ -11,7 +11,11 @@ import {
   type StopUpdateRequest,
 } from '@school-bus-tracking/shared-types';
 import { RunsPanel } from '../../../../features/runs/RunsPanel';
-import { stopCreateSchema, stopUpdateSchema } from '@school-bus-tracking/validation';
+import {
+  STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+  stopCreateSchema,
+  stopUpdateSchema,
+} from '@school-bus-tracking/validation';
 import {
   Badge,
   Button,
@@ -54,7 +58,7 @@ const emptyStop = {
   address: '',
   latitude: '',
   longitude: '',
-  geofence_radius_meters: '100',
+  geofence_radius_meters: String(STOP_DEFAULT_GEOFENCE_RADIUS_METERS),
   estimated_arrival_time: '',
   is_active: true,
 };

@@ -15,6 +15,10 @@ import {
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
+import {
+  effectiveArrivalRadiusMeters,
+  stopDefaultGeofenceRadiusMeters,
+} from '../../config/eta.config';
 
 const SCHOOL_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -245,13 +249,15 @@ describe('StopsService.create', () => {
       allowAllPlanLimits(),
     );
 
+    const defaultRadiusMeters = stopDefaultGeofenceRadiusMeters();
     const response = await service.create(SCHOOL_A, makeCreateDto());
 
     assert.equal(capture.createPayload?.school_id, SCHOOL_A);
     assert.equal(capture.createPayload?.route_id, ROUTE_A);
     assert.equal(capture.createPayload?.name, 'Maple St & 5th Ave');
     assert.equal(capture.createPayload?.sequence_number, 3);
-    assert.equal(capture.createPayload?.geofence_radius_meters, 100);
+    assert.equal(capture.createPayload?.geofence_radius_meters, defaultRadiusMeters);
+    assert.equal(response.effective_radius_meters, effectiveArrivalRadiusMeters(defaultRadiusMeters));
     assert.equal(capture.createPayload?.is_active, true);
     assert.equal(response.school_id, SCHOOL_A);
     assert.equal(response.route_id, ROUTE_A);

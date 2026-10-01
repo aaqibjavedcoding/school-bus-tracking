@@ -2,6 +2,7 @@
 
 import type { QueryInterface } from 'sequelize';
 import { DataTypes, Op } from 'sequelize';
+import { STOP_DEFAULT_GEOFENCE_RADIUS_METERS } from '../../config/eta.config';
 
 /**
  * Creates the `stops` table (ordered boarding points of a route).
@@ -55,7 +56,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
         geofence_radius_meters: {
           type: DataTypes.INTEGER,
           allowNull: false,
-          defaultValue: 100,
+          defaultValue: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
         },
         sequence_number: {
           type: DataTypes.INTEGER,

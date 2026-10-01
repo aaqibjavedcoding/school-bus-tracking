@@ -18,6 +18,10 @@ import { registerAs } from '../framework';
  *                            latest fix is last-known, not live: distances
  *                            and ETAs are withheld (default 180000 — 3 min,
  *                            matching the arrival freshness gate).
+ *   STOP_DEFAULT_GEOFENCE_RADIUS_METERS
+ *                            stored radius for newly created/imported stops
+ *                            when none is supplied (default/recommended 20 m;
+ *                            clamped to the 20–2000 m validation bounds).
  *
  * Phase 1 stop-arrival / proximity detection (evaluated per accepted latest
  * fix by `StopArrivalsService`; every value is justified in
@@ -34,11 +38,10 @@ import { registerAs } from '../framework';
  *                                     60000 — tighter than the 5 min ingest
  *                                     skew window, which stays permissive);
  *   ARRIVAL_MAX_ACCURACY_METERS       fixes with a worse horizontal accuracy
- *                                     are ineligible (default 100 — a fix
- *                                     less precise than the 100 m default
- *                                     geofence cannot localise inside it).
- *                                     A fix must additionally be at least as
- *                                     precise as the stop's EFFECTIVE radius
+ *                                     are ineligible (default 100 — a hard
+ *                                     coarse-fix cap). A fix must additionally
+ *                                     be at least as precise as the stop's
+ *                                     EFFECTIVE radius
  *                                     (see ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)
  *                                     before it counts toward that stop —
  *                                     accuracy ≤ min(ARRIVAL_MAX_ACCURACY_METERS,
@@ -64,7 +67,7 @@ import { registerAs } from '../framework';
  *                                     per-stop accuracy gate, the departure
  *                                     margin and candidate selection. The
  *                                     stored radius stays the admin's intent
- *                                     (and new/edited stops must be ≥ 15 m);
+ *                                     (and new/edited stops must be ≥ 20 m);
  *                                     the floor is the runtime safety net for
  *                                     legacy/small stops so every arrival
  *                                     zone is a real circle, not a point;
@@ -162,6 +165,47 @@ import { registerAs } from '../framework';
  * the detection.
  */
 /**
+ * The smallest stored stop geofence radius accepted for newly written data.
+ *
+ * The database still tolerates smaller legacy rows so old installs can be
+ * read and then drawn/detected through the effective-radius floor below, but
+ * form/API/import validation uses this floor. Keeping it at the same value as
+ * the default means an omitted radius can never create a row the next edit
+ * would reject.
+ */
+export const STOP_MIN_GEOFENCE_RADIUS_METERS = 20;
+
+/** Largest stored stop geofence radius accepted for newly written data. */
+export const STOP_MAX_GEOFENCE_RADIUS_METERS = 2000;
+
+/**
+ * Default STORED geofence radius for new stops (metres).
+ *
+ * Deployments may override it with `STOP_DEFAULT_GEOFENCE_RADIUS_METERS`, but
+ * 20 m is the recommended default.
+ *
+ * This deliberately answers the product request to stop drawing 100–120 m
+ * stop-swallowing discs without lowering detection to an unreliable 5 m. The
+ * server still computes the DETECTION/DISPLAY radius as
+ * `max(geofence_radius_meters, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)` and
+ * returns that as `effective_radius_meters`; with the defaults, a newly
+ * created 20 m stop is detected and drawn at the 25 m effective floor.
+ */
+export const STOP_DEFAULT_GEOFENCE_RADIUS_METERS = 20;
+
+/** The stop geofence default in effect for this process (env override applied). */
+export function stopDefaultGeofenceRadiusMeters(): number {
+  return Math.min(
+    intFromEnv(
+      'STOP_DEFAULT_GEOFENCE_RADIUS_METERS',
+      STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+      STOP_MIN_GEOFENCE_RADIUS_METERS,
+    ),
+    STOP_MAX_GEOFENCE_RADIUS_METERS,
+  );
+}
+
+/**
  * The single source of truth for the arrival-zone floor (metres).
  *
  * Everything that needs the floor — the Nest config above, the detection
@@ -202,6 +246,7 @@ export default registerAs('eta', () => {
     minSpeedKmh: numberFromEnv('ETA_MIN_SPEED_KMH', 5, 1),
     maxSpeedKmh: numberFromEnv('ETA_MAX_SPEED_KMH', 90, 20),
     staleAfterMs: intFromEnv('ETA_STALE_AFTER_MS', 180_000, 1000),
+    stopDefaultGeofenceRadiusMeters: stopDefaultGeofenceRadiusMeters(),
     arrival: {
       maxFixAgeMs: intFromEnv('ARRIVAL_MAX_FIX_AGE_MS', 180_000, 1000),
       futureToleranceMs: intFromEnv('ARRIVAL_FUTURE_TOLERANCE_MS', 60_000, 0),

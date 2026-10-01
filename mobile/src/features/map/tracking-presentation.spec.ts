@@ -165,15 +165,15 @@ describe('weak accuracy', () => {
     assert.equal(result.state, 'live', 'a coarse fix can still be fresh');
   });
 
-  it('does not draw an accuracy circle that would fill the whole map', () => {
+  it('states a 300 m accuracy fix in words instead of drawing a stop-swallowing circle', () => {
     const result = deriveTrackingPresentation({
       fixAgeMs: 4_000,
-      accuracyMeters: 5_000,
+      accuracyMeters: 300,
       socketOffline: false,
     });
     assert.equal(result.approximate, true, 'the uncertainty is still stated in words');
     assert.equal(result.accuracyCircleMeters, null);
-    assert.ok(ACCURACY_CIRCLE_MAX_METERS === 500);
+    assert.ok(ACCURACY_CIRCLE_MAX_METERS === 120);
   });
 
   it('ignores a missing or nonsensical accuracy rather than guessing one', () => {

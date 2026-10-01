@@ -13,6 +13,10 @@ import {
   Min,
 } from 'class-validator';
 import { StopCreateRequest } from '@school-bus-tracking/shared-types';
+import {
+  STOP_MAX_GEOFENCE_RADIUS_METERS,
+  STOP_MIN_GEOFENCE_RADIUS_METERS,
+} from '@school-bus-tracking/validation';
 
 const trimValue = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -59,14 +63,16 @@ export class CreateStopDto implements StopCreateRequest {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'Please enter a whole number for the geofence radius in metres.' })
-  // Admins may survey tight stops down to 15 m: DETECTION never uses the
-  // stored radius directly, it uses max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)
-  // (25 m — see web/src/server/config/eta.config.ts for why it is not 5 m).
-  @Min(15, {
-    message: 'Please enter a value between 15 and 2000 for the geofence radius in metres.',
+  // A 20 m stored radius saves without reintroducing huge stop-swallowing
+  // rings. DETECTION never uses the stored radius directly: it uses
+  // max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS) (25 m — see eta.config.ts
+  // for why that floor is not 5 m), and clients draw the server's effective
+  // radius.
+  @Min(STOP_MIN_GEOFENCE_RADIUS_METERS, {
+    message: `Please enter a value between ${STOP_MIN_GEOFENCE_RADIUS_METERS} and ${STOP_MAX_GEOFENCE_RADIUS_METERS} for the geofence radius in metres.`,
   })
-  @Max(2000, {
-    message: 'Please enter a value between 15 and 2000 for the geofence radius in metres.',
+  @Max(STOP_MAX_GEOFENCE_RADIUS_METERS, {
+    message: `Please enter a value between ${STOP_MIN_GEOFENCE_RADIUS_METERS} and ${STOP_MAX_GEOFENCE_RADIUS_METERS} for the geofence radius in metres.`,
   })
   declare geofence_radius_meters?: number;
 
