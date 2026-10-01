@@ -43,14 +43,43 @@ describe('shared bus marker geometry', () => {
 });
 
 describe('shared bus marker artwork', () => {
-  it('is a fixed-size 3/4 nose-up coach with gradient, glass and chassis detail', () => {
+  it('is a fixed-size TOP-DOWN nose-up coach with roof, glass and wheel detail', () => {
     assert.match(BUS_MARKER_SVG, new RegExp(`width="${BUS_MARKER_WIDTH}"`));
     assert.match(BUS_MARKER_SVG, new RegExp(`height="${BUS_MARKER_HEIGHT}"`));
     assert.match(BUS_MARKER_SVG, /linearGradient id="sbt-bus-marker-body"/);
+    assert.match(BUS_MARKER_SVG, /sbt-bus-marker-roof/);
     assert.match(BUS_MARKER_SVG, /sbt-bus-marker-glass/);
     assert.match(BUS_MARKER_SVG, /specular/);
-    assert.match(BUS_MARKER_SVG, /Dark wheel wells and chassis/);
+    // The artwork is a roof view, not a lifted 3/4 block: the navigation-app
+    // reading only works if the drawing has no perspective at all.
+    assert.match(BUS_MARKER_SVG, /TOP-DOWN \(roof view\) school bus/);
+    assert.doesNotMatch(BUS_MARKER_SVG, /3\/4/, 'no perspective drawing survives');
+    assert.match(BUS_MARKER_SVG, /Wheels first: dark rounded stubs/);
     assert.match(BUS_MARKER_SVG, /Roof cap \/ roof line/);
+    assert.match(BUS_MARKER_SVG, /Front windscreen/);
+    assert.match(BUS_MARKER_SVG, /Rear window band/);
+  });
+
+  it('keeps the artwork symmetric about the marker centre line, so rotation reads true', () => {
+    // Heading rotation happens about the exact centre of the 26 x 42 box
+    // (viewBox x = 31). A top-down vehicle that is not mirror-symmetric about
+    // that line would appear to crab sideways as it turns.
+    const centre = 31;
+    const pairs: [number, number][] = [
+      [6.4, 48.4], // wheel rows
+      [5.6, 50], // wing mirrors
+      [17.5, 39.9], // side glazing rails
+    ];
+    for (const [left, right] of pairs) {
+      assert.match(BUS_MARKER_SVG, new RegExp(`x="${left}"`));
+      assert.match(BUS_MARKER_SVG, new RegExp(`x="${right}"`));
+      // Mirrored boxes: left edge and right edge are equidistant from centre.
+      const width = left === 17.5 ? 4.6 : left === 5.6 ? 6.4 : 7.2;
+      assert.ok(Math.abs(centre - left - (right + width - centre)) < 0.001);
+    }
+    // The lamp pairs straddle the centre line too.
+    assert.match(BUS_MARKER_SVG, /cx="22.4" cy="12.6"/);
+    assert.match(BUS_MARKER_SVG, /cx="39.6" cy="12.6"/);
   });
 
   it('keeps its soft ground shadow outside the rotating group', () => {

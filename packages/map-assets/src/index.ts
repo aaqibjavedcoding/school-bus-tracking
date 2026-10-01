@@ -5,14 +5,15 @@ export * from './map-camera';
  *
  * There is intentionally one school-bus drawing in this workspace. Web keeps
  * its symbols in a document-level SVG `<defs>` and every marker references it
- * with `<use>`; the native build script rasterises the same source into the
+ * with `<use>`. The drawing is a TOP-DOWN (roof view) school bus whose nose
+ * points up, so rotating it by the heading reads like a navigation app; the native build script rasterises the same source into the
  * small density-specific PNGs Metro bundles. Neither consumer redraws a bus.
  */
 
 /**
  * The visible marker footprint is intentionally unchanged from the legacy
- * sprite. The coordinate is the exact centre of this rectangle at every
- * heading; `rotationBox` is the surrounding square that prevents diagonal
+ * sprite; only the artwork inside it became a top-down vehicle. The
+ * coordinate is the exact centre of this rectangle at every heading; `rotationBox` is the surrounding square that prevents diagonal
  * clipping on React Native / MapLibre annotation snapshots.
  */
 export const BUS_MARKER_BOX = {
@@ -28,62 +29,78 @@ export const BUS_MARKER_SHADOW_ID = 'sbt-bus-marker-shadow';
 
 /** Shared `<defs>` payload. This is mounted exactly once on the web map. */
 export const BUS_MARKER_DEFS_SVG = `
-  <linearGradient id="sbt-bus-marker-body" x1="0" y1="0" x2="0.82" y2="1">
-    <stop offset="0" stop-color="#ffd56a"/>
-    <stop offset="0.38" stop-color="#f7ad20"/>
-    <stop offset="1" stop-color="#c96b09"/>
+  <linearGradient id="sbt-bus-marker-body" x1="0" y1="0" x2="1" y2="0.15">
+    <stop offset="0" stop-color="#c96b09"/>
+    <stop offset="0.18" stop-color="#f7ad20"/>
+    <stop offset="0.5" stop-color="#ffd56a"/>
+    <stop offset="0.82" stop-color="#f7ad20"/>
+    <stop offset="1" stop-color="#b85f07"/>
   </linearGradient>
-  <linearGradient id="sbt-bus-marker-side" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#e8890d"/>
-    <stop offset="1" stop-color="#94430a"/>
+  <linearGradient id="sbt-bus-marker-roof" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#ffc247"/>
+    <stop offset="0.45" stop-color="#ffe9a8"/>
+    <stop offset="1" stop-color="#f0a21a"/>
   </linearGradient>
-  <linearGradient id="sbt-bus-marker-glass" x1="0" y1="0" x2="0.85" y2="1">
+  <linearGradient id="sbt-bus-marker-glass" x1="0" y1="0" x2="0.4" y2="1">
     <stop offset="0" stop-color="#eaf8ff"/>
-    <stop offset="0.45" stop-color="#77b9da"/>
-    <stop offset="1" stop-color="#26506f"/>
+    <stop offset="0.42" stop-color="#77b9da"/>
+    <stop offset="1" stop-color="#1d4761"/>
   </linearGradient>
-  <filter id="sbt-bus-marker-shadow-blur" x="-40%" y="-120%" width="180%" height="340%">
-    <feGaussianBlur stdDeviation="2.2"/>
+  <filter id="sbt-bus-marker-shadow-blur" x="-45%" y="-25%" width="190%" height="150%">
+    <feGaussianBlur stdDeviation="2.6"/>
   </filter>
   <symbol id="${BUS_MARKER_SHADOW_ID}" viewBox="0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}">
-    <ellipse cx="31" cy="84.5" rx="19" ry="4.8" fill="#0f172a" opacity="0.34" filter="url(#sbt-bus-marker-shadow-blur)"/>
-    <ellipse cx="31" cy="84" rx="16" ry="3.2" fill="#0f172a" opacity="0.2"/>
+    <!-- Top-down view: the vehicle casts its shadow straight under itself, so
+         the blob is concentric with the coach instead of sitting below it. -->
+    <rect x="11" y="11" width="40" height="80" rx="15" fill="#0f172a" opacity="0.34" filter="url(#sbt-bus-marker-shadow-blur)"/>
   </symbol>
   <symbol id="${BUS_MARKER_ART_ID}" viewBox="0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}">
-    <!-- Nose is at the top: heading 0 is north. The offset side is the 3/4 view. -->
-    <path d="M15 32 36 15 49 24 52 67 34 88 12 77Z" fill="#172638" opacity="0.98"/>
-    <!-- Dark wheel wells and chassis sit behind the amber coachwork. -->
-    <path d="M12.8 48.5 18.2 45.5 19.1 63.5 13.3 66.8Z" fill="#07111e"/>
-    <path d="M43.5 37.5 50.3 34.2 51.4 54.4 44.8 58Z" fill="#07111e"/>
-    <path d="M13.5 70.5 20.5 67.1 21 78.8 15 81.3Z" fill="#07111e"/>
-    <path d="M40.8 61.5 51.6 56.6 52 68.8 43.2 76.3Z" fill="#07111e"/>
-    <ellipse cx="16.7" cy="56.4" rx="3.5" ry="5.4" fill="#334155" transform="rotate(-7 16.7 56.4)"/>
-    <ellipse cx="47.6" cy="46.2" rx="3.8" ry="5.6" fill="#334155" transform="rotate(-7 47.6 46.2)"/>
-    <ellipse cx="17.5" cy="74.5" rx="3.6" ry="5.2" fill="#334155" transform="rotate(-7 17.5 74.5)"/>
-    <ellipse cx="46.7" cy="67" rx="3.7" ry="5.3" fill="#334155" transform="rotate(-7 46.7 67)"/>
-    <path d="M15.7 30.5 35.7 15.7 47.6 24.3 47.3 67.3 32.4 82.2 15.2 74.1Z" fill="url(#sbt-bus-marker-body)" stroke="#0f172a" stroke-width="2.1" stroke-linejoin="round"/>
-    <!-- The darker passenger-side face makes the coach read as a lifted 3/4 object. -->
-    <path d="M39.8 20.2 47.6 24.3 47.3 67.3 32.4 82.2 32.3 36.1Z" fill="url(#sbt-bus-marker-side)" stroke="#0f172a" stroke-width="1.35" stroke-linejoin="round"/>
-    <!-- Roof cap / roof line. -->
-    <path d="M18.2 29.2 35.9 16.3 43.2 21.5 26.1 34.7Z" fill="#ffe49a" stroke="#71400b" stroke-width="1.2" stroke-linejoin="round"/>
-    <path d="M19.6 27.6 35.8 16.1 42.4 20.8" fill="none" stroke="#fff5ca" stroke-width="1.35" stroke-linecap="round" opacity="0.94"/>
-    <!-- Front windscreen: glass + white specular sweep. -->
-    <path d="M26.6 28.3 35.8 21.4 40.3 24.6 31 32.1Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1.1" stroke-linejoin="round"/>
-    <path d="M29.1 27.1 35.9 22.2 38 23.8" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" opacity="0.82"/>
-    <path d="M18.8 36.1 30.3 28.1 30.6 36.7 19.1 44.5Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1" stroke-linejoin="round"/>
-    <path d="M33.2 37.2 44.1 29.3 44.2 38.1 33.4 46.2Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1" stroke-linejoin="round"/>
-    <!-- Passenger windows and amber mullions. -->
-    <path d="M18.9 48.4 30.8 40.1 31.1 48.7 19.2 56.8Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M19.3 60.7 31.2 52.6 31.6 61.3 19.6 69.3Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M33.6 49.1 44.3 41.1 44.4 50.1 33.8 58.1Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M34 62.1 44.5 54.1 44.6 63.1 34.2 71.2Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <!-- Bumpers, lamps and a small school-bus stripe retain legibility at 26px. -->
-    <path d="M15.3 74.2 32.4 82.2 47.3 67.3 47.2 72.2 33.7 86.1 15 78.8Z" fill="#202f41" stroke="#0f172a" stroke-width="1.15" stroke-linejoin="round"/>
-    <path d="M18.8 45.6 44.2 28.4" stroke="#78350f" stroke-width="1.45" opacity="0.8"/>
-    <circle cx="22" cy="34.7" r="1.35" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.65"/>
-    <circle cx="42.4" cy="27.2" r="1.25" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.65"/>
-    <circle cx="20.2" cy="75.4" r="1.25" fill="#fb7185" stroke="#63142a" stroke-width="0.65"/>
-    <circle cx="41.3" cy="72.5" r="1.25" fill="#fb7185" stroke="#63142a" stroke-width="0.65"/>
+    <!-- TOP-DOWN (roof view) school bus. The nose points up: heading 0 is
+         north, and the whole symbol is rotated about its exact centre
+         (31, 50), which is also the GPS coordinate. Nothing here is drawn in
+         perspective, so the silhouette stays a readable vehicle at 26x42 dp
+         and at every heading. -->
+    <!-- Wheels first: dark rounded stubs peeking out from under the body. -->
+    <g fill="#0b1220">
+      <rect x="6.4" y="26" width="7.2" height="15" rx="3.2"/>
+      <rect x="48.4" y="26" width="7.2" height="15" rx="3.2"/>
+      <rect x="6.4" y="62" width="7.2" height="15" rx="3.2"/>
+      <rect x="48.4" y="62" width="7.2" height="15" rx="3.2"/>
+    </g>
+    <!-- Wing mirrors: the small ears that read "front" even at 26 dp. -->
+    <g fill="#1f2937">
+      <rect x="5.6" y="19.5" width="6.4" height="4.2" rx="2.1"/>
+      <rect x="50" y="19.5" width="6.4" height="4.2" rx="2.1"/>
+    </g>
+    <!-- Coachwork: one rounded body, rounder at the nose than at the tail. -->
+    <path d="M31 7.5c-7.1 0-11.8 2.6-13.4 6.1-1.2 2.7-1.7 7-1.7 12.6v48c0 7.8 0.5 12.8 1.8 15.2 1.6 3 5.9 4.1 13.3 4.1s11.7-1.1 13.3-4.1c1.3-2.4 1.8-7.4 1.8-15.2v-48c0-5.6-0.5-9.9-1.7-12.6C42.8 10.1 38.1 7.5 31 7.5Z"
+      fill="url(#sbt-bus-marker-body)" stroke="#12202f" stroke-width="2.4" stroke-linejoin="round"/>
+    <!-- Roof cap / roof line: the lit panel down the middle of the roof. -->
+    <path d="M31 12.6c-5.3 0-8.8 1.9-10 4.5-0.9 2-1.3 5.2-1.3 9.3v47.4c0 5.8 0.4 9.5 1.3 11.3 1.2 2.2 4.4 3 10 3s8.8-0.8 10-3c0.9-1.8 1.3-5.5 1.3-11.3V26.4c0-4.1-0.4-7.3-1.3-9.3-1.2-2.6-4.7-4.5-10-4.5Z"
+      fill="url(#sbt-bus-marker-roof)" opacity="0.95"/>
+    <!-- Front windscreen: glass plus a white specular sweep across it. -->
+    <path d="M20.6 20.3c1.6-4 5.3-6 10.4-6s8.8 2 10.4 6l-1.1 5.4c-2.9-1.9-6-2.8-9.3-2.8s-6.4 0.9-9.3 2.8Z"
+      fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1.3" stroke-linejoin="round"/>
+    <path d="M23.6 19.4c1.8-1.8 4.3-2.7 7.4-2.7" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>
+    <!-- Side glazing: the passenger windows, read as two dark rails. -->
+    <g fill="#2c5774" stroke="#16344a" stroke-width="0.9">
+      <rect x="17.5" y="32" width="4.6" height="12" rx="1.6"/>
+      <rect x="17.5" y="46.5" width="4.6" height="12" rx="1.6"/>
+      <rect x="17.5" y="61" width="4.6" height="12" rx="1.6"/>
+      <rect x="39.9" y="32" width="4.6" height="12" rx="1.6"/>
+      <rect x="39.9" y="46.5" width="4.6" height="12" rx="1.6"/>
+      <rect x="39.9" y="61" width="4.6" height="12" rx="1.6"/>
+    </g>
+    <!-- Roof hatch and the two black roof ribs of a school coach. -->
+    <rect x="26.6" y="40" width="8.8" height="9" rx="2" fill="#f8fafc" stroke="#9a6a12" stroke-width="1"/>
+    <path d="M25 56.5h12M25 64h12" stroke="#8a4d0a" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+    <!-- Rear window band, so the tail is never mistaken for the nose. -->
+    <path d="M22.2 79.5h17.6v5.2c-2.6 1-5.6 1.5-8.8 1.5s-6.2-0.5-8.8-1.5Z" fill="#2c5774" stroke="#16344a" stroke-width="1.1" stroke-linejoin="round"/>
+    <!-- Lamps: warm pair at the nose, red pair at the tail. -->
+    <circle cx="22.4" cy="12.6" r="1.9" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.8"/>
+    <circle cx="39.6" cy="12.6" r="1.9" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.8"/>
+    <circle cx="23" cy="88.2" r="1.8" fill="#fb7185" stroke="#63142a" stroke-width="0.8"/>
+    <circle cx="39" cy="88.2" r="1.8" fill="#fb7185" stroke="#63142a" stroke-width="0.8"/>
   </symbol>`;
 
 /**

@@ -96,10 +96,11 @@ describe('projectOntoRoute: onto a straight line', () => {
 
 describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
   it('clamps past-the-end fixes to the endpoint — never extrapolates the route', () => {
-    const projection = projectOntoRoute(offLine(1_050, 3), STRAIGHT_ROUTE)!;
+    // Inside the (tighter) offset bound, measured from the endpoint itself.
+    const projection = projectOntoRoute(offLine(1_030, 3), STRAIGHT_ROUTE)!;
     assert.deepEqual(projection.point, onLine(1_000));
     assert.equal(projection.segmentFraction, 1);
-    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(50, 3)) < 0.5);
+    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(30, 3)) < 0.5);
   });
 
   it('clamps before-the-start fixes to the route start', () => {
@@ -135,10 +136,39 @@ describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
 });
 
 describe('projectOntoRoute: the honesty bounds', () => {
+  it('keeps the bound tight enough that a diverted bus is never glued to the plan', () => {
+    // ~40-50 m: a wide carriageway plus a coarse urban fix, and no more.
+    assert.ok(SNAP_TO_ROUTE_MAX_OFFSET_M >= 40 && SNAP_TO_ROUTE_MAX_OFFSET_M <= 50);
+  });
+
+  it('renders a far-from-route fix at its RAW position (traffic reroute)', () => {
+    // The driver leaves the planned legs for a diversion one street over.
+    // The marker must keep tracking the vehicle where it really is, so the
+    // snapper declines (null = "leave the raw fix alone") for every fix on
+    // that parallel street — it must never jump back onto the planned line,
+    // and it must never stop producing a position.
+    const snap = createRouteSnapper(STRAIGHT_ROUTE);
+    for (let metresNorth = 0; metresNorth <= 1_000; metresNorth += 100) {
+      const diverted = offLine(metresNorth, 120);
+      assert.equal(
+        snap(diverted),
+        null,
+        'an off-route fix is drawn raw, not clamped onto the planned leg',
+      );
+      const projection = projectOntoRoute(diverted, STRAIGHT_ROUTE);
+      assert.equal(projection, null);
+    }
+    // And the moment the bus rejoins the route, snapping resumes.
+    const rejoined = snap(offLine(600, 6));
+    assert.ok(rejoined !== null);
+    assert.ok(Math.abs(rejoined.longitude - LINE_LNG) < ONE_METER_LNG * 0.001);
+  });
+
   it('refuses to snap a fix that is genuinely off the route', () => {
     // 100 m east of a 1 km route: the bus is on another road. Drawing it on
     // the line would be a bigger lie than the jitter was.
     assert.equal(projectOntoRoute(offLine(500, 100), STRAIGHT_ROUTE), null);
+    assert.equal(projectOntoRoute(offLine(500, 55), STRAIGHT_ROUTE), null, '55 m is past the bound');
     assert.equal(projectOntoRoute(offLine(500, SNAP_TO_ROUTE_MAX_OFFSET_M + 1), STRAIGHT_ROUTE), null);
     const inside = projectOntoRoute(
       offLine(500, SNAP_TO_ROUTE_MAX_OFFSET_M - 5),
