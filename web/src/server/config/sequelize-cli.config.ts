@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Options } from 'sequelize';
 
 /**
@@ -21,8 +22,17 @@ import type { Options } from 'sequelize';
 // Match the custom server/database bootstrap exactly. `.env.local` wins over
 // `.env`, and paths are anchored to this web workspace instead of depending on
 // the directory from which `npm --prefix web ...` was invoked.
-dotenv.config({ path: resolve(__dirname, '../../../.env.local'), override: false });
-dotenv.config({ path: resolve(__dirname, '../../../.env'), override: false });
+const configDirectory = dirname(fileURLToPath(import.meta.url));
+
+dotenv.config({
+  path: resolve(configDirectory, '../../../.env.local'),
+  override: false,
+});
+
+dotenv.config({
+  path: resolve(configDirectory, '../../../.env'),
+  override: false,
+});
 
 /**
  * Mirrors `assertSafeProductionDatabaseConfig` from `database.config.ts`
