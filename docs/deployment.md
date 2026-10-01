@@ -507,3 +507,7 @@ Production logs are JSON structured:
 - Active WebSocket connections
 - GPS location updates/second
 - Notification delivery rate
+
+### Persistent document storage
+
+Set `DOCUMENT_STORAGE_PATH` to the mounted persistent volume path in production (for Render, mount a Disk at the same path). This path stores both compliance documents and crew profile photos; it must be writable and retained across deploys/restarts. Existing database keys whose files were lost before the disk was attached cannot be recovered and will continue to return the generic missing-object response; users must upload replacement photos/documents. Do not run multiple instances against separate local filesystems; use a shared/object-storage provider before scaling horizontally.

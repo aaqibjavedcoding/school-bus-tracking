@@ -543,3 +543,7 @@ All security-relevant operations are logged:
 - Location snapshots
 - Status transition enforcement
 - Audit log integration
+
+### Stored profile photos
+
+Photo keys remain opaque tenant-scoped storage keys and are resolved only from the authenticated JWT account. Missing bytes retain the generic 404 for non-owner surfaces; the owner's account may report that its recorded photo could not be loaded. Storage persistence must not weaken tenant isolation.
