@@ -1,15 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View, type NativeSyntheticEvent } from 'react-native';
-import {
-  Camera,
-  GeoJSONSource,
-  Layer,
-  Map,
-  type CameraRef,
-  type InitialViewState,
-  type LayerSpecification,
-  type MapProps,
-  type ViewStateChangeEvent,
+import type {
+  CameraRef,
+  InitialViewState,
+  LayerSpecification,
+  MapProps,
+  ViewStateChangeEvent,
 } from '@maplibre/maplibre-react-native';
 import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson';
 import type { StopResponse } from '@school-bus-tracking/shared-types';
@@ -42,14 +38,18 @@ import { MapLegend } from './MapLegend';
 import { useMapCameraMode } from './useMapCameraMode';
 
 /**
- * MapLibre renders its children (Camera, sources, layers, annotations) by
- * spreading its props onto the native view, so children work at runtime. In
- * this monorepo the package hoists above `react-native`, so tsc cannot
- * resolve the RN `ViewProps` the component's prop type extends and silently
- * drops `children` from it — restore that one prop here rather than fight
- * the hoisted layout.
+ * The MapLibre package is a custom native module and is not included in Expo
+ * Go. Keep its CommonJS require behind the map-mode render boundary: importing
+ * this file is safe in Expo Go, and the fallback can render before MapLibre is
+ * ever evaluated. This mirrors the lazy native-module pattern used by push
+ * notifications elsewhere in the app.
  */
-const MapView = Map as unknown as React.ComponentType<MapProps & { children?: React.ReactNode }>;
+type MapLibreModule = typeof import('@maplibre/maplibre-react-native');
+
+function requireMapLibre(): MapLibreModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('@maplibre/maplibre-react-native') as MapLibreModule;
+}
 
 /**
  * The ONE live-map surface — everything the driver map and the observer map
@@ -291,196 +291,205 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
     onStyleLoaded,
     cameraRef,
     mapStyle,
-  }) => (
-    <MapView
-      style={styles.map}
-      mapStyle={mapStyle}
-      // OSM-derived tiles legally require the attribution and the logo;
-      // MapLibre renders both in the BOTTOM corners, so the panel lives
-      // top-left.
-      attribution
-      logo
-      // Gesture ownership, half one (half two is `<GestureIsland>` around the
-      // card). These four are documented as defaulting to `true`, but on
-      // Android the native view keeps `scrollEnabled` as a *tri-state* field
-      // that stays `null` until the prop is actually sent — and it only calls
-      // `requestDisallowInterceptTouchEvent(true)` (the call that stops the
-      // screen's ScrollView stealing the drag) while that field is `true`.
-      // Sending them explicitly is what turns the engine's own ownership path
-      // on; `features/map/maplibre-runtime.spec.ts` pins that behaviour
-      // against the installed version.
-      dragPan
-      touchZoom
-      doubleTapZoom
-      // Rotation stays off for every role. Pitch gestures are available only
-      // in an observer's explicit 3D mode; the driver remains locked exactly as
-      // before, even if they deliberately choose the pitched camera.
-      touchRotate={false}
-      touchPitch={variant === 'driver' ? false : dimension === '3d'}
-      onRegionIsChanging={onRegionChange}
-      onRegionDidChange={onRegionChangeComplete}
-      onDidFinishRenderingFrame={onRenderFrame}
-      // The style pipeline sees the load result first: a successful load is
-      // what clears the styleLoad line (R3), then the camera re-fits.
-      onDidFinishLoadingMap={() => {
-        onStyleLoaded();
-        onMapReady();
-      }}
-      onDidFailLoadingMap={onStyleLoadFailed}
-    >
-      {/* Uncontrolled after the initial state; imperative via cameraRef. */}
-      <Camera
-        ref={cameraRef}
-        initialViewState={{
-          ...(initialCamera ?? {}),
-          pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+  }) => {
+    // React never calls this component for the Expo Go fallback, so this is
+    // the first point at which the custom native module is evaluated.
+    const { Camera, GeoJSONSource, Layer, Map } = requireMapLibre();
+    const MapView = Map as unknown as React.ComponentType<
+      MapProps & { children?: React.ReactNode }
+    >;
+
+    return (
+      <MapView
+        style={styles.map}
+        mapStyle={mapStyle}
+        // OSM-derived tiles legally require the attribution and the logo;
+        // MapLibre renders both in the BOTTOM corners, so the panel lives
+        // top-left.
+        attribution
+        logo
+        // Gesture ownership, half one (half two is `<GestureIsland>` around the
+        // card). These four are documented as defaulting to `true`, but on
+        // Android the native view keeps `scrollEnabled` as a *tri-state* field
+        // that stays `null` until the prop is actually sent — and it only calls
+        // `requestDisallowInterceptTouchEvent(true)` (the call that stops the
+        // screen's ScrollView stealing the drag) while that field is `true`.
+        // Sending them explicitly is what turns the engine's own ownership path
+        // on; `features/map/maplibre-runtime.spec.ts` pins that behaviour
+        // against the installed version.
+        dragPan
+        touchZoom
+        doubleTapZoom
+        // Rotation stays off for every role. Pitch gestures are available only
+        // in an observer's explicit 3D mode; the driver remains locked exactly as
+        // before, even if they deliberately choose the pitched camera.
+        touchRotate={false}
+        touchPitch={variant === 'driver' ? false : dimension === '3d'}
+        onRegionIsChanging={onRegionChange}
+        onRegionDidChange={onRegionChangeComplete}
+        onDidFinishRenderingFrame={onRenderFrame}
+        // The style pipeline sees the load result first: a successful load is
+        // what clears the styleLoad line (R3), then the camera re-fits.
+        onDidFinishLoadingMap={() => {
+          onStyleLoaded();
+          onMapReady();
         }}
-      />
-
-      {routeLineFeature ? (
-        <GeoJSONSource id="sbt-route" data={routeLineFeature}>
-          <Layer type="line" id="sbt-route-line" source="sbt-route" paint={ROUTE_PAINT[variant]} />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* The driven path — recorded fixes only, never inferred. */}
-      {trailFeature ? (
-        <GeoJSONSource id="sbt-trail" data={trailFeature}>
-          <Layer type="line" id="sbt-trail-line" source="sbt-trail" paint={TRAIL_PAINT} />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* The planned stop order ahead — the caption under the map says it is
-          not the road route. */}
-      {plannedFeature ? (
-        <GeoJSONSource id="sbt-planned" data={plannedFeature}>
-          <Layer type="line" id="sbt-planned-line" source="sbt-planned" paint={PLANNED_PAINT} />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* Uncertainty drawn rather than asserted. Centred on the reported fix,
-          not on the interpolated marker, because the radius belongs to the
-          measurement. */}
-      {accuracyCircleFeature ? (
-        <GeoJSONSource id="sbt-accuracy" data={accuracyCircleFeature}>
-          <Layer
-            type="fill"
-            id="sbt-accuracy-fill"
-            source="sbt-accuracy"
-            paint={{ 'fill-color': ACCURACY_FILL }}
-          />
-          <Layer
-            type="line"
-            id="sbt-accuracy-stroke"
-            source="sbt-accuracy"
-            paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* The next stop's arrival zone: the SAME effective-radius circle the
-          server's arrival engine evaluates, so "inside" on the map is
-          "inside" to the engine. Drawn for the next stop only; the accuracy
-          circle above belongs to the bus, this one belongs to the stop. */}
-      {arrivalZoneFeature ? (
-        <GeoJSONSource id="sbt-arrival-zone" data={arrivalZoneFeature}>
-          {/* A THIN DASHED RING, no fill. The old heavy filled disc read as
-              "the stop is this whole blob"; the precise stop is the dot
-              below, and the ring is only the edge of the recording zone. */}
-          <Layer
-            type="line"
-            id="sbt-arrival-zone-stroke"
-            source="sbt-arrival-zone"
-            paint={{
-              'line-color': ZONE_STROKE,
-              'line-width': 1.5,
-              'line-opacity': 0.55,
-              'line-dasharray': [3, 3],
-            }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {arrivalZoneCenterFeature ? (
-        <GeoJSONSource id="sbt-arrival-zone-center" data={arrivalZoneCenterFeature}>
-          <Layer
-            type="circle"
-            id="sbt-arrival-zone-center-dot"
-            source="sbt-arrival-zone-center"
-            paint={{
-              'circle-radius': 4,
-              'circle-color': ZONE_CENTER_DOT,
-              'circle-stroke-width': 1,
-              'circle-stroke-color': '#ffffff',
-            }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* The stops: ONE source, one circle layer (the dot) and one symbol
-          layer (the always-visible label) — see `stop-layer.ts`. The kinds
-          are data-driven paint, so highlighting the next stop re-styles one
-          layer instead of re-rendering N annotations. */}
-      {stopsCollection ? (
-        <GeoJSONSource id="sbt-stops" data={stopsCollection}>
-          <Layer
-            type="circle"
-            id="sbt-stops-dot"
-            source="sbt-stops"
-            paint={{
-              'circle-radius': ['case', ['==', ['get', 'kind'], 'next'], 9, 5.5],
-              'circle-color': [
-                'case',
-                ['==', ['get', 'kind'], 'next'],
-                colors.primary[600],
-                colors.neutral[700],
-              ],
-              'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'next'], 2.5, 2],
-              'circle-stroke-color': '#ffffff',
-            }}
-          />
-          <Layer
-            type="symbol"
-            id="sbt-stops-label"
-            source="sbt-stops"
-            layout={{
-              // Explicit, because a symbol layer without a `text-font` falls
-              // back to MapLibre's default stack, whose OpenFreeMap font URL
-              // 404s and leaves every label glyph-less (map-style.ts →
-              // "Glyph / label health").
-              'text-font': ['Noto Sans Regular'],
-              'text-field': ['get', 'label'],
-              'text-size': 13,
-              'text-anchor': 'left',
-              'text-offset': [1, 0],
-              'text-max-width': 7,
-              'text-optional': true,
-            }}
-            paint={{
-              'text-color': colors.neutral[900],
-              'text-halo-color': 'rgba(255, 255, 255, 0.92)',
-              'text-halo-width': 1.5,
-            }}
-          />
-        </GeoJSONSource>
-      ) : null}
-
-      {/* Rendered after the stops so the bus draws above them (tree order is
-          the annotation z-order). */}
-      {fix ? (
-        <BusMarker
-          fix={fix}
-          tripId={tripId}
-          reducedMotion={reducedMotion}
-          animate={animate}
-          route={route}
-          title={busTitle}
-          description={busDescription}
-          onFrame={onFrame}
+        onDidFailLoadingMap={onStyleLoadFailed}
+      >
+        {/* Uncontrolled after the initial state; imperative via cameraRef. */}
+        <Camera
+          ref={cameraRef}
+          initialViewState={{
+            ...(initialCamera ?? {}),
+            pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+          }}
         />
-      ) : null}
-    </MapView>
-  ),
+
+        {routeLineFeature ? (
+          <GeoJSONSource id="sbt-route" data={routeLineFeature}>
+            <Layer type="line" id="sbt-route-line" source="sbt-route" paint={ROUTE_PAINT[variant]} />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* The driven path — recorded fixes only, never inferred. */}
+        {trailFeature ? (
+          <GeoJSONSource id="sbt-trail" data={trailFeature}>
+            <Layer type="line" id="sbt-trail-line" source="sbt-trail" paint={TRAIL_PAINT} />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* The planned stop order ahead — the caption under the map says it is
+            not the road route. */}
+        {plannedFeature ? (
+          <GeoJSONSource id="sbt-planned" data={plannedFeature}>
+            <Layer type="line" id="sbt-planned-line" source="sbt-planned" paint={PLANNED_PAINT} />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* Uncertainty drawn rather than asserted. Centred on the reported fix,
+            not on the interpolated marker, because the radius belongs to the
+            measurement. */}
+        {accuracyCircleFeature ? (
+          <GeoJSONSource id="sbt-accuracy" data={accuracyCircleFeature}>
+            <Layer
+              type="fill"
+              id="sbt-accuracy-fill"
+              source="sbt-accuracy"
+              paint={{ 'fill-color': ACCURACY_FILL }}
+            />
+            <Layer
+              type="line"
+              id="sbt-accuracy-stroke"
+              source="sbt-accuracy"
+              paint={{ 'line-color': ACCURACY_STROKE, 'line-width': 1 }}
+            />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* The next stop's arrival zone: the SAME effective-radius circle the
+            server's arrival engine evaluates, so "inside" on the map is
+            "inside" to the engine. Drawn for the next stop only; the accuracy
+            circle above belongs to the bus, this one belongs to the stop. */}
+        {arrivalZoneFeature ? (
+          <GeoJSONSource id="sbt-arrival-zone" data={arrivalZoneFeature}>
+            {/* A THIN DASHED RING, no fill. The old heavy filled disc read as
+                "the stop is this whole blob"; the precise stop is the dot
+                below, and the ring is only the edge of the recording zone. */}
+            <Layer
+              type="line"
+              id="sbt-arrival-zone-stroke"
+              source="sbt-arrival-zone"
+              paint={{
+                'line-color': ZONE_STROKE,
+                'line-width': 1.5,
+                'line-opacity': 0.55,
+                'line-dasharray': [3, 3],
+              }}
+            />
+          </GeoJSONSource>
+        ) : null}
+
+        {arrivalZoneCenterFeature ? (
+          <GeoJSONSource id="sbt-arrival-zone-center" data={arrivalZoneCenterFeature}>
+            <Layer
+              type="circle"
+              id="sbt-arrival-zone-center-dot"
+              source="sbt-arrival-zone-center"
+              paint={{
+                'circle-radius': 4,
+                'circle-color': ZONE_CENTER_DOT,
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#ffffff',
+              }}
+            />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* The stops: ONE source, one circle layer (the dot) and one symbol
+            layer (the always-visible label) — see `stop-layer.ts`. The kinds
+            are data-driven paint, so highlighting the next stop re-styles one
+            layer instead of re-rendering N annotations. */}
+        {stopsCollection ? (
+          <GeoJSONSource id="sbt-stops" data={stopsCollection}>
+            <Layer
+              type="circle"
+              id="sbt-stops-dot"
+              source="sbt-stops"
+              paint={{
+                'circle-radius': ['case', ['==', ['get', 'kind'], 'next'], 9, 5.5],
+                'circle-color': [
+                  'case',
+                  ['==', ['get', 'kind'], 'next'],
+                  colors.primary[600],
+                  colors.neutral[700],
+                ],
+                'circle-stroke-width': ['case', ['==', ['get', 'kind'], 'next'], 2.5, 2],
+                'circle-stroke-color': '#ffffff',
+              }}
+            />
+            <Layer
+              type="symbol"
+              id="sbt-stops-label"
+              source="sbt-stops"
+              layout={{
+                // Explicit, because a symbol layer without a `text-font` falls
+                // back to MapLibre's default stack, whose OpenFreeMap font URL
+                // 404s and leaves every label glyph-less (map-style.ts →
+                // "Glyph / label health").
+                'text-font': ['Noto Sans Regular'],
+                'text-field': ['get', 'label'],
+                'text-size': 13,
+                'text-anchor': 'left',
+                'text-offset': [1, 0],
+                'text-max-width': 7,
+                'text-optional': true,
+              }}
+              paint={{
+                'text-color': colors.neutral[900],
+                'text-halo-color': 'rgba(255, 255, 255, 0.92)',
+                'text-halo-width': 1.5,
+              }}
+            />
+          </GeoJSONSource>
+        ) : null}
+
+        {/* Rendered after the stops so the bus draws above them (tree order is
+            the annotation z-order). */}
+        {fix ? (
+          <BusMarker
+            fix={fix}
+            tripId={tripId}
+            reducedMotion={reducedMotion}
+            animate={animate}
+            route={route}
+            title={busTitle}
+            description={busDescription}
+            onFrame={onFrame}
+          />
+        ) : null}
+      </MapView>
+    );
+  },
 );
 LiveMapSurfaceMap.displayName = 'LiveMapSurfaceMap';
 
@@ -680,11 +689,6 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
     // reason the old `initialRegion` was keyed on stops alone.)
   }, [routeCoordinates]);
 
-  // Which surface fills the map's box: tiles, the labelled development-build
-  // panel, or the empty-route state (Expo Go carries no map engine on any
-  // platform — see `map-surface-mode.ts`).
-  const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
-
   // Fullscreen is a remount (the engine reads its initial camera once), so it
   // is also the moment the driver's trail is re-read — see `onExpandStart`.
   const [expanded, setExpanded] = useState(false);
@@ -694,39 +698,50 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
   }, [onExpandStart]);
   const closeFullscreen = useCallback(() => setExpanded(false), []);
 
-  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle(undefined, dimension);
+  // Decide before starting the style pipeline. In Expo Go this is
+  // `needs-dev-build`, so the hook stays inert and never asks Metro to
+  // evaluate MapLibre's native module.
+  const surfaceMode = mapSurfaceMode(getRuntime(), routeCoordinates.length > 0, !!fix);
 
-  const mapSurfaceEl = (
-    <LiveMapSurfaceMap
-      variant={variant}
-      stopsCollection={stopsCollection}
-      routeLineFeature={routeLineFeature}
-      route={routeCoordinates}
-      trailFeature={trailFeature}
-      plannedFeature={plannedFeature}
-      accuracyCircleFeature={accuracyCircleFeature}
-      arrivalZoneFeature={arrivalZoneFeature}
-      arrivalZoneCenterFeature={arrivalZoneCenterFeature}
-      initialCamera={initialCamera}
-      fix={fix}
-      tripId={tripId}
-      reducedMotion={reducedMotion}
-      dimension={dimension}
-      animate={animate}
-      busTitle={busTitle ?? t('map.busA11y')}
-      busDescription={busDescription}
-      onFrame={onFollowFrame}
-      onRegionChange={onDimensionRegionChange}
-      onRegionChangeComplete={onRegionChangeComplete}
-      onMapReady={onDimensionMapReady}
-      onRenderFrame={onRenderFrame}
-      onStyleLoadFailed={onStyleLoadFailed}
-      onStyleLoaded={notifyStyleLoaded}
-      cameraRef={cameraRef}
-      mapStyle={mapStyle}
-      locale={locale}
-    />
+  const { mapStyle, onStyleLoadFailed, notifyStyleLoaded } = useMapStyle(
+    undefined,
+    dimension,
+    surfaceMode === 'map',
   );
+
+  // Do not even create the native map element for the Expo Go fallback.
+  const mapSurfaceEl =
+    surfaceMode === 'map' ? (
+      <LiveMapSurfaceMap
+        variant={variant}
+        stopsCollection={stopsCollection}
+        routeLineFeature={routeLineFeature}
+        route={routeCoordinates}
+        trailFeature={trailFeature}
+        plannedFeature={plannedFeature}
+        accuracyCircleFeature={accuracyCircleFeature}
+        arrivalZoneFeature={arrivalZoneFeature}
+        arrivalZoneCenterFeature={arrivalZoneCenterFeature}
+        initialCamera={initialCamera}
+        fix={fix}
+        tripId={tripId}
+        reducedMotion={reducedMotion}
+        dimension={dimension}
+        animate={animate}
+        busTitle={busTitle ?? t('map.busA11y')}
+        busDescription={busDescription}
+        onFrame={onFollowFrame}
+        onRegionChange={onDimensionRegionChange}
+        onRegionChangeComplete={onRegionChangeComplete}
+        onMapReady={onDimensionMapReady}
+        onRenderFrame={onRenderFrame}
+        onStyleLoadFailed={onStyleLoadFailed}
+        onStyleLoaded={notifyStyleLoaded}
+        cameraRef={cameraRef}
+        mapStyle={mapStyle}
+        locale={locale}
+      />
+    ) : null;
 
   // Honest line explanations now live behind the info affordance rather than
   // as permanent duplicate copy below the map.
