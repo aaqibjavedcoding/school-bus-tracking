@@ -1,3 +1,5 @@
+export * from './map-camera';
+
 /**
  * Shared map artwork.
  *

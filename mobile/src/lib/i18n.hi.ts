@@ -519,7 +519,6 @@ export const hi: Dictionary = {
   'stops.kidsBadge.one': '{count} बच्चा',
   'stops.kidsBadge.other': '{count} बच्चे',
 
-
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   'map.followBus': 'बस फ़ॉलो करें',
   'map.followingA11y': 'बस फ़ॉलो हो रही है',
@@ -547,6 +546,19 @@ export const hi: Dictionary = {
   'map.noFixA11y': 'GPS फ़िक्स का इंतज़ार — फ़ॉलो उपलब्ध नहीं',
   'map.zoomIn': 'ज़ूम इन',
   'map.zoomOut': 'ज़ूम आउट',
+  'map.dimension.twoD': '2D नक्शा',
+  'map.dimension.threeD': '3D नक्शा',
+  'map.performance.reducedMotion': 'Reduce Motion चालू है, इसलिए 3D दृश्य बंद है।',
+  'map.performance.droppedFrames': 'नक्शा सुचारू रखने के लिए 3D दृश्य बंद कर दिया गया।',
+  'map.legend.open': 'नक्शे की संकेत सूची दिखाएँ',
+  'map.legend.close': 'नक्शे की संकेत सूची बंद करें',
+  'map.legend.title': 'नक्शे की संकेत सूची',
+  'map.legend.bus': 'बस',
+  'map.legend.nextStop': 'अगला स्टॉप',
+  'map.legend.stop': 'स्टॉप',
+  'map.legend.drivenPath': 'तय किया हुआ रास्ता',
+  'map.legend.plannedOrder': 'तय स्टॉप क्रम',
+  'map.legend.arrivalZone': 'अराइवल ज़ोन',
   'map.needsDevBuildTitle': 'मैप प्रीव्यू के लिए development build ज़रूरी है',
   'map.needsDevBuildBody':
     'Expo Go में map engine होता ही नहीं, इसलिए map यहाँ नहीं दिखेगा — map देखने के लिए development build ज़रूरी है। ट्रिप, स्टॉप्स और GPS sharing चलते रहते हैं।',

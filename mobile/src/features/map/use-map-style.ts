@@ -44,7 +44,8 @@
  * One recovery runs at a time (`planStyleLoadFailure` → `wait` while one is
  * in flight); every timer is cleared on unmount.
  */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { mapStyleForDimension, type MapDimension } from '@school-bus-tracking/map-assets';
 import {
   LogManager,
   TransformRequestManager,
@@ -61,10 +62,7 @@ import {
   type MapStyleIssueCode,
   type StyleInspection,
 } from './map-style.ts';
-import {
-  planStyleLoadFailure,
-  runWithBackoff,
-} from './map-style-recovery.ts';
+import { planStyleLoadFailure, runWithBackoff } from './map-style-recovery.ts';
 import {
   classifyMapLog,
   planStyleFailureReporting,
@@ -143,7 +141,10 @@ function createStyleController(deps: StyleControllerDeps) {
   let showingFallback = false;
 
   /** Applies a `MapIssuePlan` from the pure policy to the diagnostics store. */
-  function applyIssuePlan(plan: { report: readonly MapStyleIssueCode[]; clear: readonly MapStyleIssueCode[] }): void {
+  function applyIssuePlan(plan: {
+    report: readonly MapStyleIssueCode[];
+    clear: readonly MapStyleIssueCode[];
+  }): void {
     for (const code of plan.clear) clearMapIssue(code);
     for (const code of plan.report) reportMapIssue(code);
   }
@@ -372,9 +373,17 @@ export function useMapStyle(
   env: Record<string, string | undefined> = {
     EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
   },
+  dimension: MapDimension = '2d',
 ): MapStyleState {
   const styleUrl = resolveMapStyleUrl(env);
   const [mapStyle, setMapStyle] = useState<MapProps['mapStyle']>(styleUrl);
+  // URLs cannot be decorated, so the initial request remains the existing
+  // OpenFreeMap URL. Once the inspected style object arrives, 3D adds only a
+  // sky and a layer that references its already-present vector source.
+  const presentedMapStyle = useMemo(
+    () => mapStyleForDimension(mapStyle, dimension) as MapProps['mapStyle'],
+    [mapStyle, dimension],
+  );
   const issues = useSyncExternalStore(subscribeMapIssues, getMapIssues);
   const network = useNetworkStatus();
 
@@ -436,7 +445,7 @@ export function useMapStyle(
   }, [network, controller]);
 
   return {
-    mapStyle,
+    mapStyle: presentedMapStyle,
     issues,
     onStyleLoadFailed: controller.onStyleLoadFailed,
     notifyStyleLoaded: controller.notifyStyleLoaded,

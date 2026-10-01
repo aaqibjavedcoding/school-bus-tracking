@@ -579,7 +579,6 @@ export const en = {
   'stops.kidsBadge.one': '{count} kid',
   'stops.kidsBadge.other': '{count} kids',
 
-
   // ── Live tracking map (parent + admin) ─────────────────────────────────
   /**
    * Map chrome for the shared tracking map (`src/features/map/BusMap.tsx`).
@@ -630,6 +629,19 @@ export const en = {
   /** The on-map zoom buttons; the faces are "+" and "−", so these are spoken. */
   'map.zoomIn': 'Zoom in',
   'map.zoomOut': 'Zoom out',
+  'map.dimension.twoD': '2D map',
+  'map.dimension.threeD': '3D map',
+  'map.performance.reducedMotion': '3D view is off because Reduce Motion is enabled.',
+  'map.performance.droppedFrames': '3D view was turned off to keep the map smooth.',
+  'map.legend.open': 'Show map legend',
+  'map.legend.close': 'Close map legend',
+  'map.legend.title': 'Map legend',
+  'map.legend.bus': 'Bus',
+  'map.legend.nextStop': 'Next stop',
+  'map.legend.stop': 'Stop',
+  'map.legend.drivenPath': 'Driven path',
+  'map.legend.plannedOrder': 'Planned order',
+  'map.legend.arrivalZone': 'Arrival zone',
   // The map provider is missing from this runtime itself (Expo Go on Android
   // since Expo SDK 53) — a labelled panel says so instead of a blank box.
   'map.needsDevBuildTitle': 'Map preview needs a development build',

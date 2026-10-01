@@ -16,6 +16,13 @@ import {
   BUS_MARKER_BOX,
   BUS_MARKER_DEFS_SVG,
   BUS_MARKER_SHADOW_ID,
+  MAP_3D_PITCH,
+  MAP_3D_SKY,
+  MAP_BUILDING_LAYER_ID,
+  MAP_MAX_PITCH,
+  buildingExtrusionLayerForStyle,
+  type MapDimension,
+  type MapFallbackReason,
 } from '@school-bus-tracking/map-assets';
 import { t } from '../../lib/i18n.ts';
 import { useLocale, useTranslation } from '../../lib/i18n-provider';
@@ -27,6 +34,8 @@ import { useFollowCamera } from './useFollowCamera';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { stopsLayerCollection, type StopLayerStop } from './stop-layer.ts';
 import { buildArrivalZoneCenter, buildArrivalZonePolygon } from '../crew/trip-map-geometry.ts';
+import { MapLegend } from './MapLegend';
+import { useMapCameraMode } from './useMapCameraMode';
 
 /**
  * The mobile WEB live map — a real MapLibre GL JS map, not the text list the
@@ -91,6 +100,35 @@ const ZONE_STROKE = 'rgba(180, 83, 9, 0.9)';
 const ZONE_CENTER_DOT = 'rgb(180, 83, 9)';
 const TRAIL_COLOR = colors.status.success;
 const PLANNED_COLOR = colors.primary[600];
+
+function fallbackNoticeMessage(reason: MapFallbackReason): string {
+  return reason === 'reduced-motion'
+    ? t('map.performance.reducedMotion')
+    : t('map.performance.droppedFrames');
+}
+
+/** Apply/remove only presentation layers; the loaded OpenFreeMap sources stay untouched. */
+function applyWebDimension(
+  map: maplibregl.Map,
+  dimension: MapDimension,
+  originalSky: unknown,
+): void {
+  map.setMaxPitch(MAP_MAX_PITCH);
+  const setSky = map.setSky.bind(map) as (sky?: unknown) => unknown;
+  if (dimension === '3d') {
+    setSky(MAP_3D_SKY);
+    if (!map.getLayer(MAP_BUILDING_LAYER_ID)) {
+      const layer = buildingExtrusionLayerForStyle(map.getStyle());
+      if (layer) {
+        const before = map.getStyle().layers.find((candidate) => candidate.type === 'symbol')?.id;
+        map.addLayer(layer as unknown as maplibregl.LayerSpecification, before);
+      }
+    }
+    return;
+  }
+  if (map.getLayer(MAP_BUILDING_LAYER_ID)) map.removeLayer(MAP_BUILDING_LAYER_ID);
+  setSky(originalSky);
+}
 
 /** One zoom level per button press, bounded — see `map-controls.ts`. */
 const ROUTE_PAINT: Record<WebViewMapVariant, object> = {
@@ -281,6 +319,9 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
 }) => {
   const locale = useLocale();
   const reducedMotion = useReducedMotion();
+  const { dimension, threeDUnavailable, fallbackNotice, setPreferredDimension, recordRenderFrame } =
+    useMapCameraMode(reducedMotion);
+  const [legendOpen, setLegendOpen] = useState(false);
   useTranslation();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -288,6 +329,11 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
   const cameraRefHolder = useRef<CameraRef | null>(null);
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const busRotorRef = useRef<HTMLDivElement | null>(null);
+  const originalSkyRef = useRef<unknown>(undefined);
+  const dimensionRef = useRef(dimension);
+  dimensionRef.current = dimension;
+  const recordRenderFrameRef = useRef(recordRenderFrame);
+  recordRenderFrameRef.current = recordRenderFrame;
   const [mapReady, setMapReady] = useState(false);
 
   const locatedStops = useMemo(
@@ -393,8 +439,13 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
       style: styleUrl,
       center: (frame?.center ?? [0, 0]) as [number, number],
       zoom: frame?.zoom ?? SINGLE_POINT_ZOOM - 1,
+      pitch: dimensionRef.current === '3d' ? MAP_3D_PITCH : 0,
+      maxPitch: MAP_MAX_PITCH,
+      dragRotate: variant !== 'driver',
+      touchPitch: variant !== 'driver' && dimensionRef.current === '3d',
       attributionControl: { compact: false },
     });
+    if (variant === 'driver') map.touchZoomRotate.disableRotation();
     mapRef.current = map;
     cameraRefHolder.current = cameraRefFor(map);
     cameraRef.current = cameraRefHolder.current;
@@ -411,8 +462,18 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
         regionEvent(map, Boolean((event as { originalEvent?: unknown }).originalEvent)),
       );
     });
+    map.on('render', () => {
+      recordRenderFrameRef.current(
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now(),
+      );
+    });
 
     map.on('load', () => {
+      originalSkyRef.current = map.getStyle().sky;
+      applyWebDimension(map, dimensionRef.current, originalSkyRef.current);
+
       // Route, trail, planned — one GeoJSON source each.
       map.addSource('sbt-route', { type: 'geojson', data: emptyLine() });
       map.addLayer({
@@ -541,6 +602,18 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
     // once.
   }, []);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map || !map.isStyleLoaded()) return;
+    applyWebDimension(map, dimension, originalSkyRef.current);
+    if (variant === 'driver' || dimension === '2d') map.touchPitch.disable();
+    else map.touchPitch.enable();
+    map.easeTo({
+      pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
+      duration: reducedMotion ? 0 : 280,
+    });
+  }, [dimension, mapReady, reducedMotion, variant]);
+
   // ── Overlay sync (the same shapes the native surface renders) ───────────
   const setLineData = useCallback((id: string, feature: Feature<LineString> | null) => {
     const map = mapRef.current;
@@ -625,11 +698,9 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
     });
   }, [mapReady, fix, animate, reducedMotion, onFrame]);
 
-  // The honest captions, the same set the native surface renders.
-  const plannedNotice = plannedFeature ? t('map.plannedNotice') : null;
-  const trailNotice = trailFeature ? t('map.trailNotice') : null;
-  const routeNotice = !plannedNotice && routeCoordinates.length > 1 ? t('map.routeNotice') : null;
-  const zoneNotice = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
+  const plannedOrderDetail = plannedFeature ? t('map.plannedNotice') : t('map.routeNotice');
+  const zoneDetail = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
+  const fallbackMessage = fallbackNotice ? fallbackNoticeMessage(fallbackNotice) : null;
 
   return (
     <View style={styles.card}>
@@ -652,6 +723,54 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
         />
         {panel}
         <View style={styles.controls}>
+          <View style={styles.utilityRow}>
+            <View style={styles.dimensionToggle} accessibilityRole="radiogroup">
+              {(['2d', '3d'] as const).map((option) => {
+                const active = dimension === option;
+                const disabled = option === '3d' && threeDUnavailable;
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => setPreferredDimension(option)}
+                    disabled={disabled}
+                    accessibilityRole="radio"
+                    accessibilityLabel={t(
+                      option === '2d' ? 'map.dimension.twoD' : 'map.dimension.threeD',
+                    )}
+                    accessibilityState={{ checked: active, disabled }}
+                    style={[
+                      styles.dimensionButton,
+                      active ? styles.dimensionButtonActive : null,
+                      disabled ? styles.controlDisabled : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dimensionButtonText,
+                        active ? styles.dimensionButtonTextActive : null,
+                      ]}
+                    >
+                      {option === '2d' ? '2D' : '3D'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setLegendOpen((open) => !open)}
+              accessibilityRole="button"
+              accessibilityLabel={t(legendOpen ? 'map.legend.close' : 'map.legend.open')}
+              accessibilityState={{ expanded: legendOpen }}
+              style={styles.infoButton}
+            >
+              <Text style={styles.infoButtonText}>i</Text>
+            </Pressable>
+          </View>
+          {fallbackMessage ? (
+            <View style={styles.performanceNotice} accessibilityLiveRegion="polite">
+              <Text style={styles.performanceNoticeText}>{fallbackMessage}</Text>
+            </View>
+          ) : null}
           <Pressable
             onPress={turnFollowOn}
             disabled={controls.primary.disabled}
@@ -733,15 +852,16 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
             </Pressable>
           </View>
         </View>
+        {legendOpen ? (
+          <MapLegend
+            onClose={() => setLegendOpen(false)}
+            plannedOrderDetail={plannedOrderDetail}
+            arrivalZoneDetail={zoneDetail}
+          />
+        ) : null}
         <Text accessibilityLiveRegion="polite" style={styles.screenReaderOnly}>
           {t(controls.stateKey)}
         </Text>
-      </View>
-      <View>
-        {zoneNotice ? <Text style={styles.routeNotice}>{zoneNotice}</Text> : null}
-        {plannedNotice ? <Text style={styles.routeNotice}>{plannedNotice}</Text> : null}
-        {trailNotice ? <Text style={styles.routeNotice}>{trailNotice}</Text> : null}
-        {routeNotice ? <Text style={styles.routeNotice}>{routeNotice}</Text> : null}
       </View>
     </View>
   );
@@ -791,6 +911,68 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     maxWidth: '40%',
   },
+  utilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  dimensionToggle: {
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    backgroundColor: '#ffffff',
+  },
+  dimensionButton: {
+    minWidth: 42,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  dimensionButtonActive: {
+    backgroundColor: colors.primary[600],
+  },
+  dimensionButtonText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '700',
+    color: colors.neutral[700],
+  },
+  dimensionButtonTextActive: {
+    color: '#ffffff',
+  },
+  infoButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.neutral[300],
+    backgroundColor: '#ffffff',
+  },
+  infoButtonText: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    color: colors.neutral[700],
+  },
+  performanceNotice: {
+    maxWidth: 190,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  performanceNoticeText: {
+    fontSize: typography.fontSizes.sm,
+    fontWeight: '600',
+    color: colors.neutral[600],
+    textAlign: 'right',
+  },
   controlDisabled: {
     opacity: 0.55,
   },
@@ -836,6 +1018,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[700],
   },
   zoomGroup: {
+    flexDirection: 'row',
     borderRadius: borderRadius.md,
     overflow: 'hidden',
     borderWidth: 1,
@@ -849,8 +1032,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   zoomButtonTop: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.neutral[200],
+    borderRightWidth: 1,
+    borderRightColor: colors.neutral[200],
   },
   zoomButtonText: {
     fontSize: typography.fontSizes.lg,
@@ -863,10 +1046,5 @@ const styles = StyleSheet.create({
     width: 1,
     height: 1,
     opacity: 0,
-  },
-  routeNotice: {
-    marginTop: spacing.xs,
-    color: colors.neutral[500],
-    fontSize: typography.fontSizes.sm,
   },
 });

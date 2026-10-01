@@ -93,15 +93,30 @@ describe('native bus map invariants', () => {
   const observer = read('src/features/map/BusMap.tsx');
   const driver = read('src/features/crew/DriverTripMap.tsx');
 
-  test('never drives the camera from props (the controlled-region bug stays dead)', () => {
+  test('never controls the moving centre/zoom from props (the controlled-region bug stays dead)', () => {
     // MapLibre's `Map` takes no region prop; the camera is a `<Camera>` child
-    // read once for its initial state, then moved only imperatively.
-    assert.match(surface, /initialViewState=\{initialCamera \?\? undefined\}/);
-    assert.doesNotMatch(
-      surface,
-      /flyTo\(|jumpTo\(|easeTo\(|setStop\(/,
-      'no imperative camera call in the map component',
-    );
+    // read once for its initial state. Phase 2 may imperatively constrain only
+    // pitch when dimension/maxPitch changes — live centre/zoom still belongs
+    // exclusively to the shared follow-camera controller.
+    assert.match(surface, /\.\.\.\(initialCamera \?\? \{\}\)/);
+    assert.doesNotMatch(surface, /flyTo\(|jumpTo\(|easeTo\(/);
+    const directCameraCalls = surface.match(/setStop\(\{[^}]+\}\)/gs) ?? [];
+    assert.ok(directCameraCalls.length > 0, 'dimension changes must flatten/pitch the camera');
+    for (const call of directCameraCalls) {
+      assert.match(call, /pitch:/, 'surface-level camera calls are pitch-only');
+      assert.doesNotMatch(
+        call,
+        /centerCoordinate|zoom:/,
+        'follow centre/zoom must stay uncontrolled',
+      );
+    }
+  });
+
+  test('keeps driver rotation and pitch gestures disabled while observers pitch only in 3D', () => {
+    assert.match(surface, /touchRotate=\{false\}/);
+    assert.match(surface, /touchPitch=\{variant === 'driver' \? false : dimension === '3d'\}/);
+    assert.match(surface, /MAP_3D_PITCH/);
+    assert.match(surface, /MAP_MAX_PITCH/);
   });
 
   test('keeps a single style URL, resolved by the policy module', () => {
