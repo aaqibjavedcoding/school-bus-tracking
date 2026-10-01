@@ -24,13 +24,22 @@ import { models } from './models';
  * respected; we only fill gaps from the conventional env files.
  */
 export function loadEnvFilesEarly(): void {
+  // Load the same files and in the same order as `server.js` and the
+  // Sequelize CLI. `.env.local` is intentionally first: dotenv does not
+  // overwrite existing values, so it remains the machine-specific override
+  // over the shared `.env`. Resolve paths from this web workspace rather than
+  // the shell's current directory; otherwise `npm --prefix web ...` and
+  // `node web/server.js` can silently use different databases.
   const candidates = [
-    resolve(process.cwd(), '.env'),
-    resolve(process.cwd(), '.env.local'),
-    resolve(__dirname, '../../../.env'),
+    // Compiled runtime: web/dist/database -> web.
+    resolve(__dirname, '../../.env.local'),
+    resolve(__dirname, '../../.env'),
+    // ts-node/tests: web/src/server/database -> web.
     resolve(__dirname, '../../../.env.local'),
-    resolve(__dirname, '../../../../.env'),
-    resolve(__dirname, '../../../../.env.local'),
+    resolve(__dirname, '../../../.env'),
+    // Last-resort workspace files for callers launched outside web/.
+    resolve(process.cwd(), '.env.local'),
+    resolve(process.cwd(), '.env'),
   ];
 
   for (const path of candidates) {
