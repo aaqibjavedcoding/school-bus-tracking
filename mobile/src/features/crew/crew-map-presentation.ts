@@ -42,7 +42,7 @@ import {
  * different question, and not this screen's to answer.
  *
  * The one thing borrowed from the observer module is the **accuracy** rule
- * (≥50 m is "approximate", above 500 m it is stated in words instead of drawn):
+ * (≥50 m is "approximate", above 120 m it is stated in words instead of drawn):
  * that is a drawing decision, identical for every map in the app, and
  * duplicating the numbers would let the two maps disagree about what "roughly
  * here" looks like.

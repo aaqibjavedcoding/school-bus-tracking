@@ -16,7 +16,7 @@ const VALID_BODY = {
   address: 'Maple St & 5th Ave, Springfield',
   latitude: 40.7128,
   longitude: -74.006,
-  geofence_radius_meters: 150,
+  geofence_radius_meters: 200,
   sequence_number: 3,
   estimated_arrival_time: '08:15',
 };
@@ -69,17 +69,17 @@ describe('CreateStopDto validation', () => {
     );
   });
 
-  it('rejects a radius below the 15 m survey minimum', async () => {
-    // Admins may survey tight stops down to 15 m. It is safe because
+  it('rejects a radius below the 20 m survey minimum', async () => {
+    // Admins may survey tight stops down to the 20 m default. It is safe because
     // DETECTION never uses the stored number: the engine floors every stop at
     // ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS (25 m), so a 15 m stop still gets a
     // circle a typical phone fix can be inside.
-    const tooSmall = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 14 });
+    const tooSmall = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 19 });
     assert.deepEqual(
       tooSmall.map((error) => error.property),
       ['geofence_radius_meters'],
     );
-    const boundary = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 15 });
+    const boundary = await validateCreate({ ...VALID_BODY, geofence_radius_meters: 20 });
     assert.deepEqual(boundary, []);
   });
 

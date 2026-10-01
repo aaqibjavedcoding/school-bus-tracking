@@ -1,3 +1,4 @@
+import { stopDefaultGeofenceRadiusMeters } from '../../config/eta.config';
 import { BelongsTo, Column, DataType, ForeignKey, HasMany, Table } from 'sequelize-typescript';
 import { Optional } from 'sequelize';
 import { BaseModel, BaseModelAttributes, BaseModelManagedFields } from './base.model';
@@ -93,7 +94,7 @@ export class Stop extends BaseModel<StopAttributes, StopCreationAttributes> {
   @Column({ type: DataType.DOUBLE, allowNull: true })
   declare longitude: number | null;
 
-  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: 100 })
+  @Column({ type: DataType.INTEGER, allowNull: false, defaultValue: stopDefaultGeofenceRadiusMeters() })
   declare geofence_radius_meters: number;
 
   @Column({ type: DataType.INTEGER, allowNull: false })

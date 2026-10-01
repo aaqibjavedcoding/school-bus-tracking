@@ -51,7 +51,7 @@ export const ACCURACY_APPROXIMATE_METERS = 50;
  * A 5 km circle on a 280 dp map is a solid orange screen, not information. Past
  * this the uncertainty is communicated in words instead.
  */
-export const ACCURACY_CIRCLE_MAX_METERS = 500;
+export const ACCURACY_CIRCLE_MAX_METERS = 120;
 
 export type GpsFreshness = 'live' | 'stale' | 'outdated';
 

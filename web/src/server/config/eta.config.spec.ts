@@ -4,6 +4,8 @@ import {
   ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS,
   arrivalMinEffectiveRadiusMeters,
   effectiveArrivalRadiusMeters,
+  STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+  stopDefaultGeofenceRadiusMeters,
 } from './eta.config';
 
 /**
@@ -16,10 +18,13 @@ import {
  */
 describe('arrival effective radius (single source of truth)', () => {
   const original = process.env['ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS'];
+  const originalStopDefault = process.env['STOP_DEFAULT_GEOFENCE_RADIUS_METERS'];
 
   afterEach(() => {
     if (original === undefined) delete process.env['ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS'];
     else process.env['ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS'] = original;
+    if (originalStopDefault === undefined) delete process.env['STOP_DEFAULT_GEOFENCE_RADIUS_METERS'];
+    else process.env['STOP_DEFAULT_GEOFENCE_RADIUS_METERS'] = originalStopDefault;
   });
 
   it('defaults to 25 m — small enough to draw honestly, large enough to detect', () => {
@@ -29,6 +34,15 @@ describe('arrival effective radius (single source of truth)', () => {
     // A typical 15 m phone fix must still satisfy accuracy <= effectiveRadius,
     // which is the whole reason the floor is not 5 m.
     assert.ok(15 <= arrivalMinEffectiveRadiusMeters());
+  });
+
+  it('defaults new stored stop radii to an env-configurable 20 m', () => {
+    delete process.env['STOP_DEFAULT_GEOFENCE_RADIUS_METERS'];
+    assert.equal(STOP_DEFAULT_GEOFENCE_RADIUS_METERS, 20);
+    assert.equal(stopDefaultGeofenceRadiusMeters(), 20);
+
+    process.env['STOP_DEFAULT_GEOFENCE_RADIUS_METERS'] = '35';
+    assert.equal(stopDefaultGeofenceRadiusMeters(), 35);
   });
 
   it('floors a small stored radius and passes a larger one through', () => {

@@ -22,7 +22,7 @@ import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
 import { PlanLimitsService } from '../../common/plan-limits';
-import { effectiveArrivalRadiusMeters } from '../../config/eta.config';
+import { effectiveArrivalRadiusMeters, stopDefaultGeofenceRadiusMeters } from '../../config/eta.config';
 
 /**
  * Tenant-safe stop management.
@@ -65,7 +65,7 @@ export class StopsService {
           stopName: dto.name.trim(),
           latitude: dto.latitude,
           longitude: dto.longitude,
-          radiusMeters: dto.geofence_radius_meters ?? 100,
+          radiusMeters: dto.geofence_radius_meters ?? stopDefaultGeofenceRadiusMeters(),
           isActive: dto.is_active ?? true,
           transaction,
         });
@@ -81,7 +81,7 @@ export class StopsService {
               address: nullableTrim(dto.address),
               latitude: dto.latitude ?? null,
               longitude: dto.longitude ?? null,
-              geofence_radius_meters: dto.geofence_radius_meters ?? 100,
+              geofence_radius_meters: dto.geofence_radius_meters ?? stopDefaultGeofenceRadiusMeters(),
               sequence_number: sequenceNumber,
               estimated_arrival_time: dto.estimated_arrival_time ?? null,
               is_active: dto.is_active ?? true,

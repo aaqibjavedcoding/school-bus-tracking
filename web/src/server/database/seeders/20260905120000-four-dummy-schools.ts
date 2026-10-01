@@ -1,5 +1,7 @@
 'use strict';
 
+import { stopDefaultGeofenceRadiusMeters } from '../../config/eta.config';
+
 import type { QueryInterface, QueryOptions } from 'sequelize';
 import * as bcrypt from 'bcryptjs';
 
@@ -843,7 +845,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
           address: `${100 + st * 15} ${rTpl.stopNames[st]}, ${cfg.city}`,
           latitude: +(cfg.latitude + latOffset).toFixed(6),
           longitude: +(cfg.longitude + lngOffset).toFixed(6),
-          geofence_radius_meters: 120,
+          geofence_radius_meters: stopDefaultGeofenceRadiusMeters(),
           sequence_number: st + 1,
           estimated_arrival_time: rTpl.times[st],
           is_active: true,
