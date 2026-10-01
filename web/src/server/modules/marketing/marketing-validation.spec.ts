@@ -359,11 +359,11 @@ describe('marketingCampaignCreateSchema', () => {
 
 describe('marketingCampaignScheduleSchema', () => {
   it('accepts an absent, null or ISO timestamp body', () => {
+    const futureIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     assert.equal(marketingCampaignScheduleSchema.safeParse({}).success, true);
     assert.equal(marketingCampaignScheduleSchema.safeParse({ scheduled_at: null }).success, true);
     assert.equal(
-      marketingCampaignScheduleSchema.safeParse({ scheduled_at: '2026-10-01T09:30:00.000Z' })
-        .success,
+      marketingCampaignScheduleSchema.safeParse({ scheduled_at: futureIso }).success,
       true,
     );
   });
