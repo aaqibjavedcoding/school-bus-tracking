@@ -968,7 +968,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   performanceNoticeText: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     fontWeight: '600',
     color: colors.neutral[600],
     textAlign: 'right',

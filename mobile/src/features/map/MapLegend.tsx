@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     color: colors.neutral[800],
   },
   detail: {
-    fontSize: typography.fontSizes.xs,
+    fontSize: typography.fontSizes.sm,
     color: colors.neutral[600],
   },
   nextStop: {
