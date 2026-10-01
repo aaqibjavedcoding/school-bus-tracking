@@ -143,7 +143,7 @@ One **pure state machine** decides what to draw; each platform only renders it.
 | Module                                                                                                | Responsibility                                                                                                                                                                                                  |
 | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate (floor 8 m, R4), heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. The mobile copy additionally takes the display-only `snapToRoute` port (below). **Pure, clock-injected, no React.** |
-| `mobile/src/features/map/route-snap.ts`                                                             | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
+| `mobile/src/features/map/route-snap.ts`                                                             | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (45 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
 | `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                         |
 | `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                             |
 | `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                         |
@@ -362,7 +362,7 @@ The honesty rules are the same as interpolation's, stated once:
 - **projected coordinates are presentation only** — never written into
   history, ETA, arrivals, attendance or notifications (the tween and the
   projection both live inside the marker; `source` keeps the raw fix);
-- **bounded** — a fix farther than `SNAP_TO_ROUTE_MAX_OFFSET_M` (60 m) from
+- **bounded** — a fix farther than `SNAP_TO_ROUTE_MAX_OFFSET_M` (45 m) from
   the route is drawn **raw**: a bus genuinely off the planned legs (detour,
   depot) must not be glued to the line;
 - **the line is the drawn line, not a road claim** — the polyline connects
@@ -755,7 +755,7 @@ app-wide floor.
    sparse GPS points are joined by a straight line in the tween, so on a
    hairpin the bus can still briefly appear to cut a corner. The R4
    snap-to-route is a *display damp onto the drawn planned line*, not road
-   matching: it bounds itself to 60 m of that line, leaves off-route fixes
+   matching: it bounds itself to 45 m of that line, leaves off-route fixes
    raw, and its coordinates never reach tracking data (see "Lateral damp and
    snap-to-route").
 2. **The dashed line between stops is not a route.** It connects stop

@@ -31,10 +31,12 @@ import { isValidCoordinate } from './bus-motion.ts';
  *    history, ETA, arrivals, attendance or notifications — those keep
  *    consuming the raw fix (`RenderedBusPosition.source`), exactly as with
  *    interpolation (see `bus-motion.ts` and `docs/live-tracking-map.md`).
- * 2. **Bounded by `SNAP_TO_ROUTE_MAX_OFFSET_M`.** A fix farther than that
- *    from the route is not snapped at all — the bus may genuinely be off the
- *    planned legs (depot, detour, wrong-route data), and gluing it to the
- *    line would be a bigger lie than the jitter was.
+ * 2. **Bounded by `SNAP_TO_ROUTE_MAX_OFFSET_M` (~45 m).** A fix farther than
+ *    that from the route is not snapped at all — the bus may genuinely be off
+ *    the planned legs (depot, detour, traffic reroute, wrong-route data), and
+ *    gluing it to the line would be a bigger lie than the jitter was. The
+ *    marker then renders the raw GPS position and keeps tracking the vehicle;
+ *    it is never hidden and never parked on the planned line.
  * 3. **The target is the drawn line, not a claim about roads.** The polyline
  *    connects the stops in planned order; the map already labels it "planned
  *    stop order — not the road route" (`map.routeNotice` /
@@ -53,11 +55,17 @@ export interface RouteSnapPoint {
 
 /**
  * The maximum lateral distance a fix may sit from the route and still be
- * projected onto it (honesty rule 2 in the module header). 60 m covers a
- * wide multi-lane road plus a coarse-fix radius; past it the bus is simply
- * somewhere else, and the map must say so rather than invent a position.
+ * projected onto it (honesty rule 2 in the module header).
+ *
+ * 45 m is a deliberately tight band: a wide multi-lane carriageway plus a
+ * typical urban fix radius, and nothing more. The previous 60 m was wide
+ * enough to glue a bus onto the planned straight leg while the driver was
+ * actually a street away on a traffic diversion — the marker then tracked a
+ * line the vehicle was not on. Past this bound the fix is used **raw**: the
+ * bus keeps moving at its real position, off the planned legs, which is the
+ * only honest thing the map can draw during a detour.
  */
-export const SNAP_TO_ROUTE_MAX_OFFSET_M = 60;
+export const SNAP_TO_ROUTE_MAX_OFFSET_M = 45;
 
 /** Where a fix landed on the route: the point, and how far off it sat. */
 export interface RouteProjection {
