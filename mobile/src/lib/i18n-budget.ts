@@ -201,6 +201,13 @@ export const CONSTRAINED_KEYS: Readonly<Record<string, BudgetKind>> = {
   'trip.detail.bus': 'label',
   'trip.detail.role': 'label',
   'trip.detail.connection': 'label',
+
+  // Forgot password (login screen + its own screen). Three buttons, all
+  // full-width inside the login card: the link under "Sign in", the submit
+  // and the way back. `buttonFull` is the 64 dp field button these use.
+  'forgotPassword.link': 'buttonFull',
+  'forgotPassword.submit': 'buttonFull',
+  'forgotPassword.back': 'buttonFull',
 };
 
 /** The budget for one key, or `null` when only the growth rule applies. */

@@ -397,6 +397,24 @@ export default function LoginScreen() {
               onPress={() => setPathMode('crew')}
               disabled={busy}
             />
+            {/*
+             * Self-service password reset — the email path only. The PIN
+             * path below is for drivers and conductors, whose PIN is reset
+             * by their school admin, so the link would be a dead end there.
+             *
+             * It is shown to everyone on this path, including parents:
+             * hiding it per role is impossible before sign-in anyway, and a
+             * visible link with an honest note is better than a dead end
+             * ([DECISION 3]). The note says who it is for; the server
+             * answers every request with the same sentence regardless.
+             */}
+            <Button
+              variant="ghost"
+              label={t('forgotPassword.link')}
+              onPress={() => router.push('/forgot-password')}
+              disabled={busy}
+            />
+            <Text style={styles.forgotNote}>{t('forgotPassword.adminOnly')}</Text>
           </View>
         ) : (
           <View style={styles.card}>
@@ -581,6 +599,15 @@ const styles = StyleSheet.create({
   },
   formError: {
     color: colors.status.danger,
+    fontSize: loginText.secondary,
+    lineHeight: 20,
+  },
+  /**
+   * The "school administrators only" note under the reset link. Secondary
+   * size on the white card: neutral-600 on #ffffff = 5.74:1 (AA).
+   */
+  forgotNote: {
+    color: colors.neutral[600],
     fontSize: loginText.secondary,
     lineHeight: 20,
   },
