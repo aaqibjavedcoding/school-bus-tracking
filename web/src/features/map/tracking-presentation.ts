@@ -47,10 +47,11 @@ export const ACCURACY_APPROXIMATE_METERS = 50;
 /**
  * Largest accuracy radius worth drawing as a circle.
  *
- * A 5 km circle on a 280 dp map is a solid orange screen, not information. Past
- * this the uncertainty is communicated in words instead.
+ * A 300 m fix can be a useful warning in words, but drawing that circle near
+ * closely spaced stops swallows the map. Past 120 m the uncertainty is
+ * communicated in copy only.
  */
-export const ACCURACY_CIRCLE_MAX_METERS = 500;
+export const ACCURACY_CIRCLE_MAX_METERS = 120;
 
 export type GpsFreshness = 'live' | 'stale' | 'outdated';
 

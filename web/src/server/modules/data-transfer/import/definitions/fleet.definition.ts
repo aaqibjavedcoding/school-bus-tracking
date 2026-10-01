@@ -6,6 +6,9 @@ import {
 } from '@school-bus-tracking/shared-types';
 import {
   busImportRowSchema,
+  STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+  STOP_MAX_GEOFENCE_RADIUS_METERS,
+  STOP_MIN_GEOFENCE_RADIUS_METERS,
   routeImportRowSchema,
   stopImportRowSchema,
   type BusImportRow,
@@ -26,6 +29,7 @@ import {
 } from '../import.types';
 import { STOP_TOO_CLOSE_MESSAGE } from '../../../stops/stops.constants';
 import { findStopSpacingConflict, type StopSpacingStop } from '../../../stops/stop-spacing';
+import { stopDefaultGeofenceRadiusMeters } from '../../../../config/eta.config';
 
 /** Buses, routes and stops — the transport network an admin sets up on day one. */
 
@@ -290,8 +294,8 @@ export const stopsImportDefinition: ImportDefinition = {
       field: 'geofence_radius_meters',
       header: 'Geofence Radius (m)',
       required: false,
-      description: 'Arrival radius, 30 to 2000 metres. Defaults to 100.',
-      example: '100',
+      description: `Arrival radius, ${STOP_MIN_GEOFENCE_RADIUS_METERS} to ${STOP_MAX_GEOFENCE_RADIUS_METERS} metres. Defaults to the server stop default.`,
+      example: String(STOP_DEFAULT_GEOFENCE_RADIUS_METERS),
     },
     {
       field: 'estimated_arrival_time',
@@ -405,7 +409,7 @@ export const stopsImportDefinition: ImportDefinition = {
             address: row.address ?? null,
             latitude: row.latitude ?? null,
             longitude: row.longitude ?? null,
-            geofence_radius_meters: row.geofence_radius_meters ?? 100,
+            geofence_radius_meters: row.geofence_radius_meters ?? stopDefaultGeofenceRadiusMeters(),
             estimated_arrival_time: row.estimated_arrival_time ?? null,
             is_active: row.is_active ?? true,
           },

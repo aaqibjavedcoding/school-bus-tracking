@@ -2,6 +2,7 @@
 
 import type { QueryInterface, QueryOptions } from 'sequelize';
 import * as bcrypt from 'bcryptjs';
+import { STOP_DEFAULT_GEOFENCE_RADIUS_METERS } from '../../config/eta.config';
 
 /**
  * SEEDER — 4 Complete Schools with Full Connected Test Data
@@ -843,7 +844,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
           address: `${100 + st * 15} ${rTpl.stopNames[st]}, ${cfg.city}`,
           latitude: +(cfg.latitude + latOffset).toFixed(6),
           longitude: +(cfg.longitude + lngOffset).toFixed(6),
-          geofence_radius_meters: 120,
+          geofence_radius_meters: STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
           sequence_number: st + 1,
           estimated_arrival_time: rTpl.times[st],
           is_active: true,
