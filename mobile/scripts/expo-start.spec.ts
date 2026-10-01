@@ -19,6 +19,15 @@ import { fileURLToPath } from 'node:url';
 const mobileRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LAUNCHER = 'node scripts/expo-start.mjs';
 
+/**
+ * Every launcher run below is a dry run: the script prints its plan and exits
+ * immediately. If a regression ever makes it fall through to the real
+ * `expo start`, Metro would run forever and `execFileSync` would block the
+ * whole test file. The timeout (plus SIGKILL, because Metro ignores SIGTERM
+ * while booting) turns that hang into a fast, readable failure.
+ */
+const DRY_RUN_TIMEOUT_MS = 5000;
+
 const pkg = JSON.parse(readFileSync(join(mobileRoot, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
 };
@@ -32,6 +41,8 @@ function dryRun(...extraArgs: string[]) {
       cwd: mobileRoot,
       encoding: 'utf8',
       env: withoutRedirectOverride({ ...process.env, EXPO_START_DRY_RUN: '1' }),
+      timeout: DRY_RUN_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     },
   );
   return JSON.parse(out) as {
@@ -107,6 +118,8 @@ describe('Expo Go QR target (mobile start scripts)', () => {
       cwd: mobileRoot,
       encoding: 'utf8',
       env: { ...process.env, EXPO_START_DRY_RUN: '1', EXPO_NO_REDIRECT_PAGE: '0' },
+      timeout: DRY_RUN_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     });
     const plan = JSON.parse(out) as { env: { EXPO_NO_REDIRECT_PAGE: string } };
     assert.equal(plan.env.EXPO_NO_REDIRECT_PAGE, '0');
