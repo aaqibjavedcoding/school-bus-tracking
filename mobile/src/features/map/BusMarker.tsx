@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
-import { ViewAnnotation, type ViewAnnotationRef } from '@maplibre/maplibre-react-native';
+import type { ViewAnnotationRef } from '@maplibre/maplibre-react-native';
 import { BUS_MARKER_ROTATION_BOX, BusMarkerGraphic } from './BusMarkerGraphic';
 import { useBusMarkerMotion, type RenderedMarker } from './useBusMarkerMotion';
 import { createRouteSnapper, type RouteSnapPoint } from './route-snap.ts';
 import { MOTION_THRESHOLDS, type BusMotionFix } from './bus-motion.ts';
+
+/** Lazily loads the native annotation module only when a map marker renders. */
+type MapLibreModule = typeof import('@maplibre/maplibre-react-native');
+
+function requireMapLibre(): MapLibreModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('@maplibre/maplibre-react-native') as MapLibreModule;
+}
 
 /**
  * The bus marker — a leaf component, and the only thing that re-renders per
@@ -33,6 +41,10 @@ export const BusMarker: React.FC<BusMarkerProps> = ({
   description,
   onFrame,
 }) => {
+  // BusMarker is only rendered inside the native map branch. Requiring the
+  // annotation component here keeps importing the surrounding route tree safe
+  // in Expo Go, where the MapLibre native module does not exist.
+  const { ViewAnnotation } = requireMapLibre();
   const snapToRoute = useMemo(
     () => (route !== null && route.length >= 2 ? createRouteSnapper(route) : null),
     [route],

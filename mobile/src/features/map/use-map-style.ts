@@ -46,12 +46,7 @@
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { mapStyleForDimension, type MapDimension } from '@school-bus-tracking/map-assets';
-import {
-  LogManager,
-  TransformRequestManager,
-  type MapProps,
-  type StyleSpecification,
-} from '@maplibre/maplibre-react-native';
+import type { MapProps, StyleSpecification } from '@maplibre/maplibre-react-native';
 import {
   OFFLINE_FALLBACK_MAP_STYLE,
   buildGlyphProbeUrl,
@@ -78,6 +73,18 @@ import {
   subscribeMapIssues,
 } from './map-diagnostics.ts';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus.ts';
+
+/**
+ * MapLibre is a custom native module and Expo Go does not carry it. Keep the
+ * module require out of this file's evaluation path; the hook only loads it
+ * once a real native map surface is enabled.
+ */
+type MapLibreModule = typeof import('@maplibre/maplibre-react-native');
+
+function requireMapLibre(): MapLibreModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('@maplibre/maplibre-react-native') as MapLibreModule;
+}
 
 export interface MapStyleState {
   /** Value for the map's `mapStyle` prop: URL while loading, then the inspected style object. */
@@ -228,6 +235,7 @@ function createStyleController(deps: StyleControllerDeps) {
       });
       if (disposed) return;
 
+      const { TransformRequestManager } = requireMapLibre();
       for (const transform of glyphUrlTransforms(inspection.fontStacks)) {
         TransformRequestManager.addUrlTransform(transform);
       }
@@ -374,6 +382,8 @@ export function useMapStyle(
     EXPO_PUBLIC_MAP_STYLE_URL: process.env.EXPO_PUBLIC_MAP_STYLE_URL,
   },
   dimension: MapDimension = '2d',
+  /** False while the Expo Go fallback is being rendered. */
+  enabled = true,
 ): MapStyleState {
   const styleUrl = resolveMapStyleUrl(env);
   const [mapStyle, setMapStyle] = useState<MapProps['mapStyle']>(styleUrl);
@@ -396,6 +406,15 @@ export function useMapStyle(
   controller.styleUrl = styleUrl;
 
   useEffect(() => {
+    if (!enabled) {
+      // Dispose any native work if a route changes from a real map to the
+      // fallback (for example after a runtime-policy refresh). Most
+      // importantly, do not require MapLibre on this path.
+      controller.dispose();
+      setMapRetryHandler(null);
+      return;
+    }
+
     controller.resume();
     void controller.runPipeline();
 
@@ -405,6 +424,7 @@ export function useMapStyle(
     // engine's `onDidFailLoadingMap` event is the bounded retry's trigger.
     // `return false` keeps the default console behaviour so nothing is
     // swallowed.
+    const { LogManager } = requireMapLibre();
     const subscription = LogManager.onLog((event) => {
       const code = classifyMapLog(event.level, event.tag ?? null, event.message ?? null);
       if (code !== null) {
@@ -431,7 +451,7 @@ export function useMapStyle(
       const handle = subscription as { remove?: () => void } | undefined;
       handle?.remove?.();
     };
-  }, [styleUrl, controller]);
+  }, [enabled, styleUrl, controller]);
 
   // Auto-recovery on reconnect. Airplane mode off must clear the notice with
   // no app restart and no manual tap, so the transition into `online` re-runs
@@ -440,9 +460,9 @@ export function useMapStyle(
   useEffect(() => {
     const previous = previousNetworkRef.current;
     previousNetworkRef.current = network;
-    if (!shouldRetryOnNetworkChange(previous, network)) return;
+    if (!enabled || !shouldRetryOnNetworkChange(previous, network)) return;
     controller.retryStyleLoad();
-  }, [network, controller]);
+  }, [enabled, network, controller]);
 
   return {
     mapStyle: presentedMapStyle,
