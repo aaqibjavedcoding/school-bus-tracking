@@ -1,5 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { AuthenticatedUser, CrewLoginRequest, LoginRequest } from '@school-bus-tracking/shared-types';
+import type {
+  AuthenticatedUser,
+  CrewLoginRequest,
+  LoginRequest,
+} from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { clearAccessToken, setAccessToken, setUnauthorizedHandler } from '../../services/session';
 import { disconnectLiveTrackingSocket } from '../../services/live-tracking-socket';
@@ -33,6 +37,15 @@ interface AuthContextValue {
    */
   crewLogin: (body: CrewLoginRequest) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Applies a confirmed profile-photo change to the live session.
+   *
+   * `profile_photo_key` / `profile_photo_updated_at` are part of the session
+   * payload, and every surface that shows a photo reads them from here — so
+   * an upload or a removal has to land in the session, not in a per-screen
+   * copy. Only ever called with what the API returned.
+   */
+  applyProfilePhoto: (key: string | null, updatedAt: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -135,9 +148,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearSession();
   }, [clearSession]);
 
+  const applyProfilePhoto = useCallback((key: string | null, updatedAt: string | null) => {
+    setUser((current) =>
+      current
+        ? { ...current, profile_photo_key: key, profile_photo_updated_at: updatedAt }
+        : current,
+    );
+  }, []);
+
   const value = useMemo(
-    () => ({ status, user, login, crewLogin, logout }),
-    [status, user, login, crewLogin, logout],
+    () => ({ status, user, login, crewLogin, logout, applyProfilePhoto }),
+    [status, user, login, crewLogin, logout, applyProfilePhoto],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -96,28 +96,10 @@ export { FeedbackProvider, useSoundSettings } from './FeedbackProvider';
 export type { VoiceSupport } from './FeedbackProvider';
 export { SoundSettingsCard } from './SoundSettingsCard';
 /**
- * "My Profile" — the crew photo card on the Help screen. The behaviour is
- * pure (`profile-photo.ts`); the card and the AsyncStorage mirror are the
- * only parts that touch React and the device.
+ * "My Profile" moved to `features/profile` (shared with the admin app): the
+ * API lets a school admin own a photo too, so the card is no longer
+ * crew-only. Nothing was deleted — import it from `../profile`.
  */
-export { ProfilePhotoCard } from './ProfilePhotoCard';
-export {
-  initialProfilePhotoState,
-  isProfilePhotoBusy,
-  pickPictureSize,
-  profileAvatarPresentation,
-  profilePhotoMessage,
-  profilePhotoReducer,
-  profilePhotoUploadPart,
-  retryAttempt,
-} from './profile-photo';
-export type {
-  ProfileAvatarPresentation,
-  ProfilePhotoAttempt,
-  ProfilePhotoEvent,
-  ProfilePhotoState,
-  ProfilePhotoStatus,
-} from './profile-photo';
 /**
  * Batch 3C — next-stop announcements. ONE announcer for BOTH crew roles
  * (`next-stop-announcer.ts` is the policy, spec'd; this is the React glue),

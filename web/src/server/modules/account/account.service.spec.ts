@@ -273,3 +273,145 @@ describe('AccountService.clearProfilePhoto', () => {
     assert.deepEqual(storage.deleted, []);
   });
 });
+
+/**
+ * The read side — `AccountService.readProfilePhotoByKey` /
+ * `readOwnProfilePhoto`, the functions behind `GET /crew-photos/{key…}` and
+ * `GET /account/me/photo`.
+ *
+ * These are the checks that keep a key-addressed route from becoming a
+ * reader over the shared blob store. Each one is exercised on its own, and
+ * every refusal is the same `null` — the route turns all of them into one
+ * generic 404, so nothing here may distinguish them.
+ */
+describe('AccountService.readProfilePhotoByKey', () => {
+  const PHOTO_KEY = `${SCHOOL_A}/${PROFILE_PHOTO_ENTITY_TYPE}/${DRIVER_A}/abcd-photo.jpg`;
+  const UPDATED_AT = new Date('2026-10-01T06:00:00.000Z');
+
+  /** A users repo that also answers the `(school_id, profile_photo_key)` query. */
+  function createReadService(
+    rows: Array<ReturnType<typeof makeUserRow>>,
+    blobs: Record<string, { bytes: Buffer; contentType: string }>,
+  ) {
+    const retrieved: string[] = [];
+    const users = {
+      findOne: async (query: { where: Record<string, unknown> }) =>
+        rows.find((row) =>
+          Object.entries(query.where).every(
+            ([field, value]) => (row.snapshot as unknown as Record<string, unknown>)[field] === value,
+          ),
+        ) ?? null,
+    };
+    const storage = {
+      name: 'read-spec',
+      isConfigured: true,
+      store: async () => {
+        throw new Error('not used');
+      },
+      retrieve: async (key: string) => {
+        retrieved.push(key);
+        return blobs[key]?.bytes ?? null;
+      },
+      getMetadata: async (key: string) =>
+        blobs[key]
+          ? {
+              key,
+              size: blobs[key]!.bytes.length,
+              contentType: blobs[key]!.contentType,
+              lastModified: UPDATED_AT,
+              exists: true,
+            }
+          : null,
+      delete: async () => true,
+    } as unknown as DocumentStorageProvider;
+    const service = new AccountService(
+      users as unknown as ConstructorParameters<typeof AccountService>[0],
+      storage,
+    );
+    return { service, retrieved };
+  }
+
+  function photoRow() {
+    return makeUserRow({ profile_photo_key: PHOTO_KEY, profile_photo_updated_at: UPDATED_AT });
+  }
+
+  const PHOTO_BLOB = { bytes: Buffer.from([1, 2, 3]), contentType: 'image/jpeg' };
+
+  it('returns the bytes, the declared type and an ETag from the row', async () => {
+    const { service } = createReadService([photoRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+    const photo = await service.readProfilePhotoByKey(SCHOOL_A, PHOTO_KEY);
+
+    assert.ok(photo);
+    assert.equal(photo.contentType, 'image/jpeg');
+    assert.equal(photo.owner_id, DRIVER_A);
+    assert.equal(photo.etag, `"${UPDATED_AT.getTime()}"`);
+    assert.equal(photo.updated_at, UPDATED_AT.toISOString());
+    assert.deepEqual(photo.bytes, PHOTO_BLOB.bytes);
+  });
+
+  it('refuses a key belonging to another tenant, without touching storage', async () => {
+    const { service, retrieved } = createReadService([photoRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+    assert.equal(await service.readProfilePhotoByKey(SCHOOL_B, PHOTO_KEY), null);
+    assert.deepEqual(retrieved, []);
+  });
+
+  it('refuses a caller with no tenant at all (the platform SUPER_ADMIN)', async () => {
+    const { service } = createReadService([photoRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+    assert.equal(await service.readProfilePhotoByKey(null, PHOTO_KEY), null);
+  });
+
+  it('refuses a key no user row references — the blob store holds documents too', async () => {
+    const licence = `${SCHOOL_A}/driver-licenses/${DRIVER_A}/licence.pdf`;
+    const { service, retrieved } = createReadService([photoRow()], {
+      [PHOTO_KEY]: PHOTO_BLOB,
+      [licence]: { bytes: Buffer.from('%PDF'), contentType: 'application/pdf' },
+    });
+    assert.equal(await service.readProfilePhotoByKey(SCHOOL_A, licence), null);
+    assert.deepEqual(retrieved, [], 'an unreferenced key is refused before any read');
+  });
+
+  it('refuses an owner whose role the caller may not look at', async () => {
+    const { service } = createReadService([photoRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+    assert.equal(
+      await service.readProfilePhotoByKey(SCHOOL_A, PHOTO_KEY, {
+        ownerRoles: [UserRole.SCHOOL_ADMIN],
+      }),
+      null,
+    );
+    assert.ok(
+      await service.readProfilePhotoByKey(SCHOOL_A, PHOTO_KEY, {
+        ownerRoles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+      }),
+    );
+  });
+
+  it('refuses a referenced blob that is not a JPEG or PNG', async () => {
+    const { service } = createReadService([photoRow()], {
+      [PHOTO_KEY]: { bytes: Buffer.from('%PDF'), contentType: 'application/pdf' },
+    });
+    assert.equal(await service.readProfilePhotoByKey(SCHOOL_A, PHOTO_KEY), null);
+  });
+
+  it('refuses a row whose blob has gone missing, instead of failing loudly', async () => {
+    const { service } = createReadService([photoRow()], {});
+    assert.equal(await service.readProfilePhotoByKey(SCHOOL_A, PHOTO_KEY), null);
+  });
+
+  it('readOwnProfilePhoto resolves by (schoolId, userId) and never by key', async () => {
+    const { service } = createReadService([photoRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+
+    const mine = await service.readOwnProfilePhoto(SCHOOL_A, DRIVER_A);
+    assert.equal(mine?.key, PHOTO_KEY);
+
+    assert.equal(await service.readOwnProfilePhoto(SCHOOL_B, DRIVER_A), null, 'tenant-pinned');
+    assert.equal(
+      await service.readOwnProfilePhoto(SCHOOL_A, '09090909-0909-4909-8909-090909090909'),
+      null,
+    );
+  });
+
+  it('readOwnProfilePhoto is null for an account that never set one', async () => {
+    const { service } = createReadService([makeUserRow()], { [PHOTO_KEY]: PHOTO_BLOB });
+    assert.equal(await service.readOwnProfilePhoto(SCHOOL_A, DRIVER_A), null);
+  });
+});

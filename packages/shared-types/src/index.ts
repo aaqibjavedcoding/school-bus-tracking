@@ -1103,6 +1103,13 @@ export interface ParentCrewSummary {
    * key is a reference resolved by the API, never placeholder bytes.
    */
   profile_photo_key: string | null;
+  /**
+   * When that photo was last set, or `null` when there is none. The parent
+   * app appends it to the photo request as `?v=…`, so a replaced photo is
+   * never served from a stale cache (the API derives its ETag from the same
+   * column).
+   */
+  profile_photo_updated_at: string | null;
 }
 
 /**
@@ -2473,9 +2480,7 @@ export type TripArrivalFixRejection =
  *   the previous stop than the minimum inter-stop distance gate.
  */
 export type TripArrivalGateReason =
-  | 'awaiting-departure'
-  | 'inter-stop-cooldown'
-  | 'inter-stop-distance';
+  'awaiting-departure' | 'inter-stop-cooldown' | 'inter-stop-distance';
 
 /** Confirmation evidence accumulated for one not-yet-reached stop. */
 export interface TripArrivalPendingStop {
@@ -4903,10 +4908,7 @@ export const MARKETING_LEAD_STATUS_TRANSITIONS: Readonly<
     MarketingLeadStatus.DEMO_SCHEDULED,
     MarketingLeadStatus.LOST,
   ],
-  [MarketingLeadStatus.QUALIFIED]: [
-    MarketingLeadStatus.DEMO_SCHEDULED,
-    MarketingLeadStatus.LOST,
-  ],
+  [MarketingLeadStatus.QUALIFIED]: [MarketingLeadStatus.DEMO_SCHEDULED, MarketingLeadStatus.LOST],
   [MarketingLeadStatus.DEMO_SCHEDULED]: [
     MarketingLeadStatus.CONVERTED,
     MarketingLeadStatus.QUALIFIED,
@@ -5698,8 +5700,9 @@ export enum MarketingNotificationJobType {
   LEAD_ADMIN_NOTIFICATION = 'LEAD_ADMIN_NOTIFICATION',
 }
 
-export const MARKETING_NOTIFICATION_JOB_TYPE_VALUES: MarketingNotificationJobType[] =
-  Object.values(MarketingNotificationJobType);
+export const MARKETING_NOTIFICATION_JOB_TYPE_VALUES: MarketingNotificationJobType[] = Object.values(
+  MarketingNotificationJobType,
+);
 
 /**
  * Normalized provider feedback event
@@ -5716,8 +5719,9 @@ export enum MarketingProviderEventType {
   COMPLAINT = 'complaint',
 }
 
-export const MARKETING_PROVIDER_EVENT_TYPE_VALUES: MarketingProviderEventType[] =
-  Object.values(MarketingProviderEventType);
+export const MARKETING_PROVIDER_EVENT_TYPE_VALUES: MarketingProviderEventType[] = Object.values(
+  MarketingProviderEventType,
+);
 
 /** Provider event types that suppress the address for future campaigns. */
 export const MARKETING_SUPPRESSING_PROVIDER_EVENT_TYPES: MarketingProviderEventType[] = [

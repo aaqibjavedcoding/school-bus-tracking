@@ -7,7 +7,13 @@ import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
-import { deleteAccountMePhoto, putAccountMePhoto } from '../../api/account';
+import {
+  PROFILE_PHOTO_ROLES,
+  deleteAccountMePhoto,
+  getAccountMePhoto,
+  putAccountMePhoto,
+} from '../../api/account';
+import { PROFILE_PHOTO_NOT_FOUND_MESSAGE } from './account.constants';
 import type { AccountProfilePhotoResponse } from '@school-bus-tracking/shared-types';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit.constants';
 import { AccountService } from './account.service';
@@ -22,6 +28,7 @@ const jwtService = new JwtService({ secret: SECRET });
 const jwtAuthGuard = new JwtAuthGuard(jwtService);
 const rolesGuard = new RolesGuard(new Reflector());
 
+const getHandler = getAccountMePhoto as EndpointDefinition<never, never>;
 const putHandler = putAccountMePhoto as EndpointDefinition<never, never>;
 const deleteHandler = deleteAccountMePhoto as EndpointDefinition<never, never>;
 
@@ -66,28 +73,49 @@ const RESPONSE: AccountProfilePhotoResponse = {
   profile_photo_updated_at: '2026-09-27T12:00:00.000Z',
 };
 
+/**
+ * The role guard on the three own-account photo routes.
+ *
+ * **Rewritten in this change** (it previously pinned `[DRIVER, CONDUCTOR]`,
+ * which was the bug: a school admin uploading their own photo got a 403 and
+ * the console had no account page at all). [DECISION 1] widened the owner
+ * list to DRIVER + CONDUCTOR + SCHOOL_ADMIN, and the assertions below now
+ * describe that: every allowed role passes the guard chain, every other role
+ * — including the platform SUPER_ADMIN, which has no tenant for a storage
+ * key to live under — is still refused.
+ */
 describe('Account photo endpoints authorization', () => {
-  it('declares DRIVER + CONDUCTOR roles on both photo routes', () => {
-    assert.deepEqual(putAccountMePhoto.roles, [UserRole.DRIVER, UserRole.CONDUCTOR]);
-    assert.deepEqual(deleteAccountMePhoto.roles, [UserRole.DRIVER, UserRole.CONDUCTOR]);
+  it('declares exactly the [DECISION 1] owner roles on all three photo routes', () => {
+    for (const definition of [getAccountMePhoto, putAccountMePhoto, deleteAccountMePhoto]) {
+      assert.deepEqual(definition.roles, [
+        UserRole.DRIVER,
+        UserRole.CONDUCTOR,
+        UserRole.SCHOOL_ADMIN,
+      ]);
+    }
+    assert.deepEqual(PROFILE_PHOTO_ROLES, [
+      UserRole.DRIVER,
+      UserRole.CONDUCTOR,
+      UserRole.SCHOOL_ADMIN,
+    ]);
   });
 
-  it('allows crew and rejects every other role on both routes', async () => {
-    for (const definition of [putHandler, deleteHandler]) {
-      for (const role of [UserRole.DRIVER, UserRole.CONDUCTOR]) {
+  it('allows every owner role and rejects every other role on all three routes', async () => {
+    for (const definition of [getHandler, putHandler, deleteHandler]) {
+      for (const role of [UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.SCHOOL_ADMIN]) {
         const request: MockRequest = {
           headers: { authorization: `Bearer ${await signAccessToken(role)}` },
         };
         await activateGuards(request, definition);
-        assert.equal(request.user?.school_id, SCHOOL_A);
+        assert.equal(request.user?.school_id, SCHOOL_A, `${role} keeps its JWT tenant`);
       }
 
-      for (const role of [UserRole.SUPER_ADMIN, UserRole.SCHOOL_ADMIN, UserRole.PARENT]) {
+      for (const role of [UserRole.SUPER_ADMIN, UserRole.PARENT]) {
         const request: MockRequest = {
           headers: { authorization: `Bearer ${await signAccessToken(role)}` },
         };
         await assert.rejects(activateGuards(request, definition), (error: { getStatus?: () => number }) => {
-          assert.equal(error.getStatus?.(), 403);
+          assert.equal(error.getStatus?.(), 403, `${role} must not own a profile photo`);
           return true;
         });
       }
@@ -95,11 +123,68 @@ describe('Account photo endpoints authorization', () => {
   });
 
   it('rejects unauthenticated requests with 401', async () => {
-    for (const definition of [putHandler, deleteHandler]) {
+    for (const definition of [getHandler, putHandler, deleteHandler]) {
       await assert.rejects(activateGuards({ headers: {} }, definition), (error: { getStatus?: () => number }) => {
         assert.equal(error.getStatus?.(), 401);
         return true;
       });
+    }
+  });
+});
+
+describe('GET /account/me/photo — the read-back convenience', () => {
+  it('serves the caller\'s own bytes, resolved from the JWT with no key in the URL', async () => {
+    const seen: { schoolId?: string; userId?: string } = {};
+    const account = {
+      readOwnProfilePhoto: async (schoolId: string, userId: string) => {
+        Object.assign(seen, { schoolId, userId });
+        return {
+          key: `${SCHOOL_B}/profile-photos/${DRIVER_A}/abcd-photo.jpg`,
+          bytes: Buffer.from([1, 2, 3, 4]),
+          contentType: 'image/jpeg' as const,
+          owner_id: DRIVER_A,
+          owner_role: UserRole.SCHOOL_ADMIN,
+          etag: '"1759300000000"',
+          updated_at: '2026-10-01T06:00:00.000Z',
+        };
+      },
+    } as unknown as AccountService;
+
+    const restore = overrideContainer('account', account);
+    try {
+      const response = (await callHandler(getAccountMePhoto, {
+        user: { id: DRIVER_A, school_id: SCHOOL_B, role: UserRole.SCHOOL_ADMIN },
+      })) as Response;
+
+      assert.deepEqual(seen, { schoolId: SCHOOL_B, userId: DRIVER_A });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'image/jpeg');
+      assert.equal(response.headers.get('etag'), '"1759300000000"');
+      assert.match(response.headers.get('cache-control') ?? '', /private/);
+    } finally {
+      restore();
+    }
+  });
+
+  it('answers the same generic 404 when the account has no photo', async () => {
+    const account = {
+      readOwnProfilePhoto: async () => null,
+    } as unknown as AccountService;
+
+    const restore = overrideContainer('account', account);
+    try {
+      await assert.rejects(
+        callHandler(getAccountMePhoto, {
+          user: { id: DRIVER_A, school_id: SCHOOL_A, role: UserRole.DRIVER },
+        }),
+        (error: { getStatus?: () => number; message?: string }) => {
+          assert.equal(error.getStatus?.(), 404);
+          assert.equal(error.message, PROFILE_PHOTO_NOT_FOUND_MESSAGE);
+          return true;
+        },
+      );
+    } finally {
+      restore();
     }
   });
 });

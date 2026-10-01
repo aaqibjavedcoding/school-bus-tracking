@@ -561,7 +561,12 @@ export class AuthService {
       first_name: user.first_name,
       last_name: user.last_name,
       email: user.email,
-      profile_photo_key: user.profile_photo_key,
+      // The read-back half of the profile-photo feature: the key is what a
+      // client turns into `GET /crew-photos/{key}` and the timestamp is the
+      // `?v=` cache-buster (and the server's ETag). Both are nullable and
+      // both are *projected*, exactly like every other field here —
+      // `password_hash` and `pin_hash` are still not named in this function.
+      profile_photo_key: user.profile_photo_key ?? null,
       profile_photo_updated_at: user.profile_photo_updated_at?.toISOString() ?? null,
     };
   }

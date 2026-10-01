@@ -1102,23 +1102,34 @@ costs at most one extra cheap read.
 
 ---
 
-## My Profile — the crew photo, on the Help screen (this branch)
+## My Profile — the account's own photo (crew + school admin)
 
 Parents already see a crew member's face next to the driver's/conductor's
-name on the live-trip screen; the crew side that **sets** that photo is this
-card. It follows the rule the rest of the settings work follows: **Help &
-support is the crew settings home, so there is no new screen** (the language
-switch and the Sound & vibration card made the same call), and the tab bar
-stays at four crew actions.
+name on the live-trip screen; the side that **sets** that photo is this card.
+
+**Updated — it has its own route now.** The card originally lived on Help,
+on the reasoning that Help is the crew settings home. That turned out to be
+the bug rather than the design: Help is reached from a link the trip screen
+renders only _after_ today's dispatch has loaded, so on a day off, before
+the first trip of the morning, or in the first seconds after signing in,
+the photo could not be reached at all. It now has its own screen in both the
+crew and the admin navigator — `app/(crew)/profile.tsx` and
+`app/(admin)/profile.tsx` — opened by the **avatar in the header of every
+screen** of the group. The crew tab bar is unchanged: four driving actions,
+with the profile route registered `href: null` exactly like Help.
+
+The same card serves the school admin, who may own a photo too (the API's
+owner roles are DRIVER, CONDUCTOR and SCHOOL_ADMIN), which is why the
+feature moved from `src/features/crew` to **`src/features/profile`**.
 
 The whole surface is an avatar and two buttons:
 
-| Element              | Behaviour                                                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Avatar (56 dp)       | The photo this phone set, or the neutral `person` placeholder — never a broken image                                    |
-| **Take Photo**       | Asks for the OS camera permission, opens a full-screen `expo-camera` preview (front lens), then `PUT /account/me/photo` |
-| **Remove Photo**     | `DELETE /account/me/photo`, always enabled (see "the read-back gap" below)                                              |
-| One line of feedback | `Profile photo updated` or `Could not update your photo` + a **Retry** that repeats exactly what failed                 |
+| Element              | Behaviour                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Avatar (56 dp)       | The photo **the server holds for this account**, or the neutral `person` placeholder — never a broken image               |
+| **Take Photo**       | Asks for the OS camera permission, opens a full-screen `expo-camera` preview (front lens), then `PUT /account/me/photo`   |
+| **Remove Photo**     | `DELETE /account/me/photo`, always enabled (the server may hold a photo this device never loaded; `DELETE` is idempotent) |
+| One line of feedback | `Profile photo updated` or `Could not update your photo` + a **Retry** that repeats exactly what failed                   |
 
 ### Camera only — no new native dependency
 
@@ -1146,35 +1157,63 @@ and a failure shows one error line with a Retry that repeats the _same_
 attempt (the same captured file, the same delete, the same permission
 request). Nothing is ever reported as saved that the server did not confirm.
 
-### The read-back gap (why the photo is remembered on the device)
+### The read-back gap — closed
 
-Phase 2A's photo API is **write-only**: `PUT`/`DELETE /account/me/photo` exist,
-but nothing reads a photo back — the authenticated-user payload carries no
-`profile_photo_key`, and no route serves the bytes (the parent app's
-`/crew-photos/{key}` URL has no handler yet either). So "the current photo" is
-the one **this phone** set, mirrored in AsyncStorage per user id and only ever
-written from the key the API returned. Consequences, stated rather than hidden:
+**What it was.** The photo API was write-only: `PUT`/`DELETE
+/account/me/photo` existed, but nothing read a photo back. The
+authenticated-user payload carried no `profile_photo_key`, no route served
+the bytes (the parent app's `/crew-photos/{key}` URL had no handler), so
+"the current photo" was whatever **this phone** had set, mirrored in
+AsyncStorage under a per-user key. A reinstall, a second device or a fresh
+login showed the placeholder while the server was holding a photo, and the
+parent-side avatar never resolved at all.
 
-- a fresh install (or a second phone) shows the placeholder even when the
-  server holds a photo — the card does not invent a state it cannot know;
-- **Remove Photo is therefore never hidden**, so a crew member can always take
-  down a photo this device never saw. `DELETE` is idempotent server-side.
+**What closed it.**
 
-Closing the gap is a backend slice (expose the key on the auth payload + an
-authenticated, tenant-scoped route that serves the bytes); it would also make
-the parent-side avatar resolve. Nothing in this card has to change when it
-lands — only where `photoUri` comes from.
+- `GET /api/v1/crew-photos/{key…}` serves the bytes, authenticated and
+  tenant-pinned: the tenant comes from the JWT only, the key's school-id
+  prefix must match it, and the key must be referenced by a
+  `users.profile_photo_key` row in that tenant. Every refusal — wrong
+  tenant, unknown key, a key that points at a driver licence, traversal — is
+  the same generic 404. `GET /account/me/photo` is the same thing for the
+  caller's own photo, with no id in the URL.
+- The session payload now carries `profile_photo_key` and
+  `profile_photo_updated_at`, so the app knows _which_ photo exists before
+  fetching it.
+- The mobile card, the header avatar and the parent screen all go through
+  `features/profile/useProfilePhoto.ts`, which downloads the bytes with the
+  shared API client (bearer token, 401 refresh) and renders them as a data
+  URI.
 
-### Copy: five strings
+**AsyncStorage is now an offline cache, not a memory.** Entries are keyed by
+the **storage key** and hold the bytes, so they cannot dangle, cannot
+out-rank the session, and cannot show a previous face after a replacement
+(a new photo is a new key). The pre-read-back per-user mirror is deleted on
+first run. Remove Photo stays unconditional for the reason it always did.
+
+**The parent avatar was broken differently.** `CrewAvatar` passed the
+authenticated URL to `<Image source={{ uri, headers: { Authorization } }}>`.
+React Native does not reliably forward custom headers from the image
+pipeline — on iOS the native loader and its cache drop them — so the request
+arrived unauthenticated, got the generic 404 and left a permanent grey icon.
+It downloads the bytes and renders them from memory now, appending
+`?v=<profile_photo_updated_at>` so a replaced photo can never be served from
+a cache. (A signed URL would have been the other option; the deployment's
+only storage provider is `LocalStorageProvider`, which has none.)
+
+### Copy: still five strings
 
 `profile.title`, `profile.takePhoto`, `profile.removePhoto`,
 `profile.updated`, `profile.error` — in `en`/`hi`/`mr`, with Retry and Dismiss
 reused from `common.*`. The two button labels carry a `buttonRow` clipping
 budget, so a longer Hindi or Marathi label fails CI instead of the driver's
-screen.
+screen. The new route added no copy: the screen title reuses
+`profile.title`, and the identity lines are the signed-in user's own name
+plus the existing `role.*` strings.
 
-| Spec                           | Pins                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `profile-photo.spec.ts`        | the reducer (capture never announces success, upload/remove do; a failure keeps the exact retry target; a late storage read never resurrects a removed photo or overwrites a new one), the placeholder rule, the JPEG/PNG part the API accepts, `pickPictureSize`, and the per-user mirror codec incl. every corrupt shape               |
-| `profile-photo-wiring.spec.ts` | the card is rendered on Help (and no new crew route), capture is `expo-camera` with no picker dependency, the CAMERA permission and plugin are declared, no offline-queue import and no background retry anywhere, both endpoints go through the shared client, Remove stays unconditional, and all five keys exist in all three locales |
-| `api-client.spec.ts` (account) | the multipart `PUT` (field `file`, JSON `Content-Type` stripped so the boundary survives), the React Native `{ uri, name, type }` descriptor, the `DELETE`, and that neither call ever puts an account id in the URL                                                                                                                     |
+| Spec                           | Pins                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profile-photo.spec.ts`        | the reducer (capture never announces success, upload/remove do; a failure keeps the exact retry target; a late read never resurrects a removed photo or overwrites a new one), the placeholder rule, the JPEG/PNG part the API accepts, `pickPictureSize`, and the offline-cache codec incl. every corrupt shape and a refused `file://` path                                                                                                                                                                                         |
+| `profile-photo-wiring.spec.ts` | the card has its own route in both navigators and is opened from `screenOptions.headerRight` (so it needs no trip), the crew bar still has exactly four labels, the photo is resolved from the session key through the authenticated route, AsyncStorage is touched only by the storage module, capture is `expo-camera` with no picker dependency, the CAMERA permission and plugin are declared, no offline-queue import and no background retry anywhere, Remove stays unconditional, and all five keys exist in all three locales |
+| `crew-photo.spec.ts` (parent)  | the resolution hands over the **key + version**, never a URL for `<Image>` and never a token, and `crewPhotoUri` encodes each segment and appends `?v=<profile_photo_updated_at>`                                                                                                                                                                                                                                                                                                                                                     |
+| `api-client.spec.ts` (account) | the multipart `PUT` (field `file`, JSON `Content-Type` stripped so the boundary survives), the React Native `{ uri, name, type }` descriptor, the `DELETE`, and that neither call ever puts an account id in the URL                                                                                                                                                                                                                                                                                                                  |

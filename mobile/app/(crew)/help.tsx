@@ -12,7 +12,6 @@ import {
 import { GpsPermissionRecovery } from '../../src/features/crew/GpsPermissionRecovery';
 import { SosStatusLine, useCrewSos } from '../../src/features/crew/SosPanel';
 import { SoundSettingsCard } from '../../src/features/crew/SoundSettingsCard';
-import { ProfilePhotoCard } from '../../src/features/crew/ProfilePhotoCard';
 import { buildDiagnosticsRows } from '../../src/features/crew/crew-diagnostics';
 import { getMapIssues } from '../../src/features/map/map-diagnostics';
 import { crewCopy } from '../../src/features/crew/crew-copy';
@@ -84,13 +83,13 @@ export default function CrewHelpScreen() {
       <SoundSettingsCard />
 
       {/**
-       * "My Profile" — the crew member's own photo, set from the camera.
-       * Help is the settings home (same decision as the language switch and
-       * the card above), so the app still has no separate settings screen.
-       * Small on purpose: an avatar, two buttons, one line of feedback.
+       * "My Profile" is no longer embedded here. It moved to its own crew
+       * route (`app/(crew)/profile.tsx`), opened by the avatar in the header
+       * of every crew screen — Help is reached from a trip-screen link that
+       * only appears once today's trip has loaded, which left the photo
+       * unreachable on a day off and right after login. Nothing else on this
+       * screen changed.
        */}
-      <ProfilePhotoCard />
-
       <Card legible title={crewCopy.help.supportHeadline}>
         <Text style={styles.body}>{crewCopy.help.supportAdvice}</Text>
         {sos.active ? (

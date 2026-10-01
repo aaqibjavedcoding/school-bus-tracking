@@ -73,13 +73,24 @@ describe('migration 20260928160000-marketing-hardening-5b', () => {
 
     // 5B must apply after 5A, and the BaseModel timestamp alignment must
     // apply after 5B (it repairs columns on tables 5B creates).
+    //
+    // Updated with the profile-photo index (this change): the assertion used
+    // to pin these two as the *last two files in the directory*, which fails
+    // the moment any later migration ships — it was pinning the tail of the
+    // list, not the ordering rule it describes. It now pins the rule: both
+    // come after every earlier migration, and in this relative order.
+    const fifthB = files.indexOf('20260928160000-marketing-hardening-5b.ts');
+    const alignment = files.indexOf('20260928170000-align-base-model-timestamp-columns.ts');
+    assert.ok(fifthB >= 0 && alignment >= 0, 'both 5B migrations must exist');
+    assert.ok(
+      fifthB > files.indexOf('20260928150000-marketing-hardening-5a.ts'),
+      '5B must apply after 5A',
+    );
+    assert.equal(alignment, fifthB + 1, 'the timestamp alignment applies immediately after 5B');
     assert.deepEqual(
-      files.slice(-2),
-      [
-        '20260928160000-marketing-hardening-5b.ts',
-        '20260928170000-align-base-model-timestamp-columns.ts',
-      ],
-      'the 5B migrations must sort last, in this order',
+      files.filter((file) => file < '20260928160000-marketing-hardening-5b.ts').length,
+      fifthB,
+      'nothing may be inserted between the earlier migrations and 5B',
     );
   });
 });
@@ -172,7 +183,10 @@ describe('marketing_provider_events', () => {
   it('keeps events when a campaign or recipient is removed', async () => {
     const { up } = await run();
     const create = String(find(up.statements, /CREATE TABLE marketing_provider_events/));
-    assert.match(create, /campaign_id UUID NULL REFERENCES email_campaigns\(id\) ON DELETE SET NULL/);
+    assert.match(
+      create,
+      /campaign_id UUID NULL REFERENCES email_campaigns\(id\) ON DELETE SET NULL/,
+    );
     assert.match(
       create,
       /campaign_recipient_id UUID NULL REFERENCES email_campaign_recipients\(id\) ON DELETE SET NULL/,
@@ -202,7 +216,9 @@ describe('marketing_attributions', () => {
 
   it('keeps legacy cookies resolvable through indexed generated digests', async () => {
     const { up } = await run();
-    const campaigns = String(find(up.statements, /ALTER TABLE email_campaigns ADD COLUMN attribution_digest/));
+    const campaigns = String(
+      find(up.statements, /ALTER TABLE email_campaigns ADD COLUMN attribution_digest/),
+    );
     assert.match(campaigns, /GENERATED ALWAYS AS/);
     assert.match(campaigns, /STORED/);
     assert.ok(find(up.statements, /idx_email_campaigns_attribution_digest/));

@@ -522,6 +522,25 @@ export const en = {
   'login.footer':
     'Drivers, conductors, parents and school admins all sign in here — the app adapts to your role.',
 
+  // ── Forgot password (school administrators only) ───────────────────────
+  // Step 1 of the self-service reset the web console already offers. The
+  // emailed link opens the WEB reset page ([DECISION 2]), so the app asks
+  // for the link and stops there.
+  'forgotPassword.link': 'Forgot password?',
+  'forgotPassword.adminOnly':
+    'School administrators only. Drivers, conductors and parents: ask your school office to reset your password.',
+  'forgotPassword.title': 'Reset your password',
+  'forgotPassword.schoolHint': "Your school's code — required here, even for platform admins.",
+  'forgotPassword.submit': 'Send reset link',
+  // Byte-identical to the API's FORGOT_PASSWORD_GENERIC_MESSAGE: the server
+  // says the same sentence whether or not the account exists, and so does
+  // this screen.
+  'forgotPassword.sent':
+    'If an account exists for that school and email, a password reset email has been sent.',
+  'forgotPassword.sentHint':
+    'Open the link on this phone or any browser. It works once and expires soon after it is sent — check your spam folder before asking for another.',
+  'forgotPassword.back': 'Back to sign in',
+
   // ── Crew mobile-login (Phase 4b) — second path on the same login screen ─
   // Mobile crew login uses a school code and PIN only.
   'login.crewPath.cta': 'Sign in as driver / conductor',

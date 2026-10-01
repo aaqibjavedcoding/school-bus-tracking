@@ -55,6 +55,35 @@ describe('canAccessPath', () => {
     assert.equal(canAccessPath(UserRole.SCHOOL_ADMIN, '/admin/subscriptions'), false);
   });
 
+  /**
+   * `/account` (this change). The page is reachable for exactly the roles
+   * that may own a photo ([DECISION 1]: driver, conductor, school admin) —
+   * and the authenticated layout redirects anything `canAccessPath` rejects
+   * straight back to `homePath(role)`, so a nav entry without the guard
+   * would be a link that bounces off itself.
+   */
+  it('opens /account to every role that may own a profile photo', () => {
+    for (const role of [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR]) {
+      assert.ok(
+        navItemsForRole(role).some((item) => item.href === '/account'),
+        `${role} needs the sidebar entry`,
+      );
+      assert.equal(canAccessPath(role, '/account'), true, `${role} must not bounce off /account`);
+    }
+  });
+
+  it('keeps /account out of the roles that cannot own a photo', () => {
+    assert.ok(!navItemsForRole(UserRole.PARENT).some((item) => item.href === '/account'));
+    assert.equal(canAccessPath(UserRole.PARENT, '/account'), false);
+    assert.ok(!navItemsForRole(UserRole.SUPER_ADMIN).some((item) => item.href === '/account'));
+    assert.equal(canAccessPath(UserRole.SUPER_ADMIN, '/account'), false);
+    assert.equal(
+      canAccessPath(UserRole.SUPER_ADMIN, '/account', true),
+      false,
+      "assisted management opens operational sections, not a tenant user's account page",
+    );
+  });
+
   it('never gives a school user the platform admin pages', () => {
     assert.equal(canAccessPath(UserRole.DRIVER, '/admin'), false);
     assert.equal(canAccessPath(UserRole.CONDUCTOR, '/admin/schools'), false);

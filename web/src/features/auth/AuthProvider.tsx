@@ -11,10 +11,7 @@ import {
   setAccessToken,
   setUnauthorizedHandler,
 } from '../../services/session';
-import {
-  clearManagedSchool,
-  getManagedSchool,
-} from '../managed/managed-school-store';
+import { clearManagedSchool, getManagedSchool } from '../managed/managed-school-store';
 import { disconnectAllSessionSockets } from '../../services/socket-registry';
 
 type AuthStatus = 'loading' | 'anonymous' | 'authenticated';
@@ -24,6 +21,16 @@ interface AuthContextValue {
   user: AuthenticatedUser | null;
   login: (body: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Applies a confirmed profile-photo change to the live session.
+   *
+   * The two fields are part of the session payload (`AuthenticatedUser`), so
+   * the sidebar avatar reads them directly. Without this the chip would keep
+   * showing the old photo — or initials — until the next refresh, which is
+   * the single most visible symptom users reported. Only ever called with
+   * what the API returned: nothing optimistic, nothing invented.
+   */
+  applyProfilePhoto: (key: string | null, updatedAt: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -134,7 +141,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearSession();
   }, [clearSession]);
 
-  const value = useMemo(() => ({ status, user, login, logout }), [status, user, login, logout]);
+  const applyProfilePhoto = useCallback((key: string | null, updatedAt: string | null) => {
+    setUser((current) =>
+      current
+        ? { ...current, profile_photo_key: key, profile_photo_updated_at: updatedAt }
+        : current,
+    );
+  }, []);
+
+  const value = useMemo(
+    () => ({ status, user, login, logout, applyProfilePhoto }),
+    [status, user, login, logout, applyProfilePhoto],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
