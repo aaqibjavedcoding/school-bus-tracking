@@ -1,9 +1,16 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { ViewAnnotation } from '@maplibre/maplibre-react-native';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { t } from '../../lib/i18n.ts';
 import type { DriverStopMarkerKind } from '../crew/crew-map-presentation.ts';
+
+/** Lazily loads the native annotation module only when a stop marker renders. */
+type MapLibreModule = typeof import('@maplibre/maplibre-react-native');
+
+function requireMapLibre(): MapLibreModule {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('@maplibre/maplibre-react-native') as MapLibreModule;
+}
 
 /**
  * A stop pin: a small slate dot **plus its always-visible name label**.
@@ -53,6 +60,9 @@ const StopMarkerView: React.FC<StopMarkerProps> = ({
   label,
   variant = 'plain',
 }) => {
+  // StopMarker is a native-map leaf. Do not evaluate MapLibre while the app
+  // is deciding whether Expo Go needs the fallback surface.
+  const { ViewAnnotation } = requireMapLibre();
   const isNext = variant === 'next';
   return (
     <ViewAnnotation
