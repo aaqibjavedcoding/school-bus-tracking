@@ -1777,6 +1777,13 @@ export class ApiClient {
     return this.delete<AccountProfilePhotoResponse>('/account/me/photo');
   }
 
+  /** Resolves the authenticated photo URL; the server still enforces access. */
+  public accountPhotoUrl(key: string | null, updatedAt?: string | null): string | null {
+    if (!key) return null;
+    const version = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : '';
+    return `${this.baseUrl}/crew-photos/${key.split('/').map(encodeURIComponent).join('/')}${version}`;
+  }
+
   /**
    * Read-only Parent Portal (Task 20) — served under `/api/v1/parent/*` and
    * reachable only by an authenticated PARENT. The API derives the tenant and

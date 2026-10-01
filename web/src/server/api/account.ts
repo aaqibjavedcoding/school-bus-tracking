@@ -24,7 +24,7 @@ async function readPhotoUpload(request: Request) {
 
 /** `PUT /api/v1/account/me/photo` */
 export const putAccountMePhoto: EndpointDefinition = {
-  roles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+  roles: [UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, raw, request }) => {
     const schoolId = user.school_id as string;
@@ -48,7 +48,7 @@ export const putAccountMePhoto: EndpointDefinition = {
 
 /** `DELETE /api/v1/account/me/photo` */
 export const deleteAccountMePhoto: EndpointDefinition = {
-  roles: [UserRole.DRIVER, UserRole.CONDUCTOR],
+  roles: [UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.SCHOOL_ADMIN],
   status: HttpStatus.OK,
   handler: async ({ user, request }) => {
     const schoolId = user.school_id as string;

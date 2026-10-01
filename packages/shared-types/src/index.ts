@@ -183,6 +183,8 @@ export interface AuthenticatedUser {
   first_name: string;
   last_name: string;
   email: string | null;
+  profile_photo_key: string | null;
+  profile_photo_updated_at: string | null;
 }
 
 /** Successful response payload of `POST /api/v1/auth/login`. */
