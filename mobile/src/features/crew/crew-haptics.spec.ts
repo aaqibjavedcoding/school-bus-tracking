@@ -36,7 +36,8 @@ const ALL_EVENTS: CrewFeedbackEventType[] = [
   'stop.approaching',
   // N7 — the ~300 m proximity alert.
   'stop.near',
-  // Crew stop marking — the server-confirmed receipts.
+  // Server GPS arrival + crew stop-marking receipts.
+  'stop.arrived',
   'stop.recorded',
   'stop.skipped',
   // Deep-fix R2 — the run passed a stop without serving it (server news).
@@ -92,6 +93,13 @@ describe('the event → pattern table', () => {
     for (const type of ['trip.boarding', 'trip.inProgress', 'trip.completed'] as const) {
       assert.equal(hapticFor({ type } as CrewFeedbackEvent), HapticPattern.light);
     }
+  });
+
+  test('a server GPS arrival is a SUCCESS notification', () => {
+    assert.equal(
+      hapticFor({ type: 'stop.arrived', stopName: 'Shivaji Chowk', studentCount: 0 }),
+      HapticPattern.success,
+    );
   });
 
   test('a next-stop announcement is a light tap — information, not an outcome', () => {

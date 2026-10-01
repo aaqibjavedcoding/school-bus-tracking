@@ -570,6 +570,11 @@ export type CrewFeedbackEvent =
    */
   | { type: 'stop.near'; stopName: string; studentCount: number; sequenceNumber: number | null }
   /**
+   * The server recorded a GPS arrival. The event contract has no manifest
+   * count, so `0` means unknown and the phrase says the stop name only.
+   */
+  | { type: 'stop.arrived'; stopName: string; studentCount: number }
+  /**
    * The server confirmed a **crew-marked** stop ("Stop 3 record ho gaya, 5
    * bachche chadhenge yahan").
    *
@@ -614,13 +619,16 @@ export const STOP_MARK_EVENTS: readonly CrewFeedbackEventType[] = [
 ];
 
 /**
- * Server-derived run news (deep-fix R2): a stop the frontier passed without
- * serving. Neither a next-stop prediction ({@link STOP_ANNOUNCEMENT_EVENTS})
- * nor a receipt for something the crew did ({@link STOP_MARK_EVENTS}) — it is
- * a fact about the run the crew needs to hear because nobody acted to cause
- * it.
+ * Server-derived run news: a GPS-confirmed stop arrival, or a stop the
+ * frontier passed without serving. Neither a next-stop prediction
+ * ({@link STOP_ANNOUNCEMENT_EVENTS}) nor a receipt for something the crew did
+ * ({@link STOP_MARK_EVENTS}) — each is a fact about the run the crew needs to
+ * hear because nobody acted to cause it.
  */
-export const STOP_RUN_NEWS_EVENTS: readonly CrewFeedbackEventType[] = ['stop.passed'];
+export const STOP_RUN_NEWS_EVENTS: readonly CrewFeedbackEventType[] = [
+  'stop.arrived',
+  'stop.passed',
+];
 
 /**
  * Events that are **haptic-only**, and why each one is silent:
@@ -710,6 +718,8 @@ function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | nu
       return stopPhrase(event, script);
     case 'stop.near':
       return stopNearPhrase(event, script);
+    case 'stop.arrived':
+      return stopArrivedPhrase(event, script);
     case 'stop.recorded':
     case 'stop.skipped':
     case 'stop.passed':
@@ -760,6 +770,36 @@ function stopNearPhrase(
     number,
     count: event.studentCount,
   });
+}
+
+/**
+ * "Arrived at Shivaji Chowk" — server-derived run news, not a crew-mark
+ * receipt. `TripStopArrivedEvent` does not include a manifest count; the
+ * announcer intentionally sends `0` for unknown and this function removes the
+ * template's trailing count clause instead of saying a made-up "0 students".
+ *
+ * Every arrival translation keeps `{count}` as the final comma-separated
+ * clause so a future source that has a real aggregate count can use the exact
+ * same localized line. This is deliberately not a manifest fetch: an arrival
+ * is useful immediately, while a slice read can be stale and must not delay
+ * speech.
+ */
+function stopArrivedPhrase(
+  event: Extract<CrewFeedbackEvent, { type: 'stop.arrived' }>,
+  script: VoiceScript,
+): string | null {
+  const name = spokenStopName(event.stopName);
+  if (name.length === 0) return null;
+
+  const countKnown =
+    Number.isInteger(event.studentCount) && event.studentCount > 0 && event.studentCount <= 999;
+  const line = t(voiceLine(script, 'voice.native.stop.arrived', 'voice.stop.arrived'), {
+    name,
+    count: countKnown ? event.studentCount : 0,
+  });
+  // `count` is the last comma-separated clause in every supported arrival
+  // translation. `name` may contain commas, so remove only the final clause.
+  return countKnown ? line : line.replace(/,\s*[^,]+$/, '').trim();
 }
 
 /**

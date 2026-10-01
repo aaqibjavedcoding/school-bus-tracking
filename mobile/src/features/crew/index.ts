@@ -112,6 +112,12 @@ export type { NextStopAnnouncementSource } from './useNextStopAnnouncements';
 export { useSkippedStopAnnouncements } from './useSkippedStopAnnouncements';
 export type { SkippedStopAnnouncementSource } from './useSkippedStopAnnouncements';
 export { SkippedStopAnnouncer } from './skip-announcer';
+// Server GPS arrivals: one named announcement per stop plus the trip screen's
+// manifest deep-link. Crew-marked null/null frames stay silent here because
+// their local `stop.recorded` receipt already ran.
+export { useArrivedStopAnnouncements } from './useArrivedStopAnnouncements';
+export type { ArrivedStopAnnouncementSource } from './useArrivedStopAnnouncements';
+export { ArrivedStopAnnouncer } from './arrived-stop-announcer';
 /**
  * Deep-fix R1 — the next stop's arrival zone, as the driver's map and card
  * see it: the same effective-radius circle the server's arrival engine

@@ -87,6 +87,10 @@ export const HAPTIC_BY_EVENT: Readonly<Record<CrewFeedbackEventType, HapticPatte
   // notice over road noise, so it gets the same tap — the voice line (and the
   // card it points at) carries the information.
   'stop.near': HapticPattern.light,
+  // A server GPS arrival is a significant, externally confirmed run fact:
+  // pair its spoken stop name with the same unambiguous success buzz as a
+  // completed crew mark.
+  'stop.arrived': HapticPattern.success,
   // A crew-marked stop the server confirmed: the crew *asked* for this one
   // and is waiting to know it landed, so it gets the significant-action
   // pattern rather than the lightest tap — the same buzz a completed trip
