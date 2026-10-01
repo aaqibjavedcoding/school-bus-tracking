@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { flushPendingRoute } from '../../src/features/notifications';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,6 +7,7 @@ import { UserRole } from '@school-bus-tracking/shared-types';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { RoleGate, useAuth } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
+import { ProfileHeaderButton } from '../../src/features/profile';
 import { crewRoleLabel } from '../../src/lib/roles';
 import { useBottomBarMetrics } from '../../src/theme/layout';
 import { startSyncManager, stopSyncManager } from '../../src/features/crew/offline';
@@ -71,7 +73,19 @@ function CrewTabs() {
         tabBarItemStyle: { paddingVertical: 0 },
         tabBarLabelStyle: { fontSize: bar.labelFontSize, fontWeight: '600', marginBottom: 0 },
         tabBarHideOnKeyboard: true,
-        headerRight: () => <LogoutButton />,
+        /**
+         * The account's photo, then sign-out. The avatar is the entry point
+         * to "My Profile" on every crew screen — it does not depend on a
+         * loaded trip, so the card is reachable on a day off and in the
+         * first seconds after login (it previously hung off a link the trip
+         * screen only renders once today's dispatch has arrived).
+         */
+        headerRight: () => (
+          <View style={headerActions.row}>
+            <ProfileHeaderButton href="/(crew)/profile" accessibilityLabel={t('profile.title')} />
+            <LogoutButton />
+          </View>
+        ),
       }}
     >
       <Tabs.Screen
@@ -128,9 +142,26 @@ function CrewTabs() {
           href: null,
         }}
       />
+      {/**
+       * "My Profile" — hidden from the tab bar exactly like Help, so the bar
+       * still carries the four driving actions and nothing else. It is
+       * opened by the header avatar above, which every crew screen shows.
+       */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: t('profile.title'),
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
+
+/** Header actions sit on one row: the profile avatar, then sign-out. */
+const headerActions = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center' },
+});
 
 export default function CrewLayout() {
   return (

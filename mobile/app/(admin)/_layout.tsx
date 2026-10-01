@@ -1,10 +1,12 @@
 import React, { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { flushPendingRoute } from '../../src/features/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@school-bus-tracking/design-tokens';
 import { RoleGate, useAuth } from '../../src/features/auth';
 import { LogoutButton } from '../../src/components/LogoutButton';
+import { ProfileHeaderButton } from '../../src/features/profile';
 import { useBottomBarMetrics } from '../../src/theme/layout';
 import { useSosAlertLoop } from '../../src/features/admin/emergencies/useSosAlertLoop';
 
@@ -58,7 +60,18 @@ function AdminTabs() {
           marginBottom: 0,
         },
         tabBarHideOnKeyboard: true,
-        headerRight: () => <LogoutButton />,
+        /**
+         * The admin's own photo, then sign-out. A school admin may own a
+         * profile photo exactly like the crew ([DECISION 1]) but had no
+         * surface for it on mobile; this avatar opens the same card the crew
+         * uses, from every admin screen.
+         */
+        headerRight: () => (
+          <View style={headerActions.row}>
+            <ProfileHeaderButton href="/(admin)/profile" accessibilityLabel="My Profile" />
+            <LogoutButton />
+          </View>
+        ),
       }}
     >
       <Tabs.Screen
@@ -113,6 +126,8 @@ function AdminTabs() {
       />
 
       {/* Hidden, programmatically-pushed routes (kept out of the tab bar). */}
+      {/* The admin's own profile photo — opened by the header avatar. */}
+      <Tabs.Screen name="profile" options={{ title: 'My Profile', href: null }} />
       <Tabs.Screen name="trips/[id]" options={{ title: 'Trip', href: null }} />
       <Tabs.Screen name="manage/students" options={{ title: 'Students', href: null }} />
       <Tabs.Screen name="manage/students/[id]" options={{ title: 'Student', href: null }} />
@@ -166,6 +181,11 @@ function SosAlertLoopController() {
   useSosAlertLoop(user?.role ?? null, { stopOnUnmount: true });
   return null;
 }
+
+/** Header actions sit on one row: the profile avatar, then sign-out. */
+const headerActions = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center' },
+});
 
 export default function AdminLayout() {
   return (

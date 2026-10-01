@@ -1,7 +1,7 @@
 import type { UploadFilePart } from '@school-bus-tracking/api-client';
 
 /**
- * "My Profile" photo — the pure half of the crew self-service card.
+ * "My Profile" photo — the pure half of the self-service card.
  *
  * React-free and native-free on purpose (same rule as `sos-flow.ts` and
  * `crew-feedback.ts`): every decision the card makes is a function here, so
@@ -24,16 +24,20 @@ import type { UploadFilePart } from '@school-bus-tracking/api-client';
  *    succeeding is not news; the success message is reserved for the two
  *    actions the API actually applied (see {@link profilePhotoReducer}).
  *
- * ### Why the photo is remembered on the device
+ * ### Where the photo comes from
  *
- * Phase 2A's API is write-only: `PUT`/`DELETE /account/me/photo` exist, but no
- * endpoint reads a photo back (the authenticated-user payload carries no
- * `profile_photo_key`, and there is no route that serves the bytes). So "the
- * current photo" the card shows is the one **this phone** set, mirrored in
- * AsyncStorage by `profile-photo-storage.ts` and confirmed by the key the API
- * returned. On a fresh install the card honestly shows the placeholder rather
- * than inventing a state it cannot know — and "Remove Photo" stays available
- * regardless, because the server may well hold a photo this device never saw.
+ * The server. The session payload carries `profile_photo_key` +
+ * `profile_photo_updated_at`, and the bytes are fetched from the
+ * authenticated photo route (`useProfilePhoto`), so a reinstall, a second
+ * phone and a fresh login all show the same face. AsyncStorage survives only
+ * as an **offline cache keyed by the storage key**
+ * (`profile-photo-storage.ts`), never as the authority on whether a photo
+ * exists — the previous build mirrored the raw camera-cache URI per user,
+ * which rotted with the cache directory.
+ *
+ * "Remove Photo" stays unconditional for the same reason it always was: the
+ * server may hold a photo this device has not loaded, and `DELETE` is
+ * idempotent.
  */
 
 /** What the card is doing, or was doing when it failed. */
@@ -72,10 +76,11 @@ export const initialProfilePhotoState: ProfilePhotoState = {
 /**
  * The card's whole behaviour, as a reducer.
  *
- * `restored` deliberately loses to anything the crew member has since done:
- * the AsyncStorage read resolves after the first render, and a slow disk must
- * never resurrect a photo the user just removed (or overwrite one they just
- * took). It therefore only fills an untouched, idle card.
+ * `restored` deliberately loses to anything the user has since done: the
+ * photo it carries arrives asynchronously (the device cache first, then the
+ * server), and a slow read must never resurrect a photo they just removed or
+ * overwrite one they just took. It therefore only fills an untouched, idle
+ * card.
  */
 export function profilePhotoReducer(
   state: ProfilePhotoState,
@@ -207,44 +212,4 @@ export function pickPictureSize(sizes: readonly string[] | null | undefined): st
   if (parsed.length === 0) return undefined;
   const bigEnough = parsed.find((entry) => entry.width >= MIN_PHOTO_WIDTH);
   return (bigEnough ?? parsed[parsed.length - 1]!).size;
-}
-
-/**
- * What the device remembers about the photo it set.
- *
- * The server's storage `key` is stored next to the local `uri` so the mirror
- * can only ever describe a photo the API confirmed — a capture that never
- * reached the server leaves nothing behind.
- */
-export interface StoredProfilePhoto {
-  uri: string;
-  key: string;
-}
-
-/** AsyncStorage key of one crew account's mirror — never shared between users. */
-export function profilePhotoStorageKey(userId: string): string {
-  return `sbt.mobile.profile-photo.${userId}`;
-}
-
-/**
- * Parses a stored mirror, or `null` when it is absent, corrupt or not the
- * shape we wrote — in which case the card falls back to the placeholder,
- * exactly as `parseSoundSettings` falls back to the role default.
- */
-export function parseStoredProfilePhoto(raw: string | null | undefined): StoredProfilePhoto | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const { uri, key } = parsed as Partial<Record<keyof StoredProfilePhoto, unknown>>;
-    if (typeof uri !== 'string' || !uri.trim()) return null;
-    if (typeof key !== 'string' || !key.trim()) return null;
-    return { uri, key };
-  } catch {
-    return null;
-  }
-}
-
-export function serializeStoredProfilePhoto(photo: StoredProfilePhoto): string {
-  return JSON.stringify({ uri: photo.uri, key: photo.key });
 }

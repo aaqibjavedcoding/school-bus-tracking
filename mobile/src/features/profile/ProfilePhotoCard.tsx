@@ -20,19 +20,24 @@ import {
   retryAttempt,
   type ProfilePhotoAttempt,
 } from './profile-photo.ts';
-import {
-  clearStoredProfilePhoto,
-  loadProfilePhoto,
-  saveProfilePhoto,
-} from './profile-photo-storage.ts';
+import { clearCachedPhoto, forgetLegacyPhotoMirror } from './profile-photo-storage.ts';
+import { useProfilePhoto } from './useProfilePhoto.ts';
 
 /**
- * "My Profile" — the crew member's own photo, on the Help & support screen.
+ * "My Profile" — the signed-in account's own photo.
  *
- * **No new screen, by the same decision Phase 3 made for the language switch
- * and the Sound & vibration card:** Help is the one settings home a crew
- * member is sent to, so their photo lives there too. The card is small on
- * purpose — an avatar and two buttons — because that is the whole feature.
+ * Shared by the crew Profile screen and the school admin's, which is why it
+ * lives in `features/profile` rather than `features/crew`: the API
+ * ([DECISION 1]) lets a driver, a conductor **and** a school admin own a
+ * photo, and one card serves all three. The surface is small on purpose — an
+ * avatar and two buttons — because that is the whole feature.
+ *
+ * **The server is the source of truth.** The photo shown is the one the
+ * session's `profile_photo_key` points at, fetched through the authenticated
+ * photo route (`useProfilePhoto`) and cached on the device only for offline
+ * display. That is what makes a reinstall, a second phone and a fresh login
+ * show the same face — the old build mirrored the raw camera-cache URI and
+ * silently lost it.
  *
  * **Camera only, no gallery.** The capture runs through `expo-camera`, which
  * the app already ships for the crew login QR path, so this adds no native
@@ -52,8 +57,11 @@ import {
  */
 export const ProfilePhotoCard: React.FC = () => {
   const t = useTranslation();
-  const { user } = useAuth();
+  const { user, applyProfilePhoto } = useAuth();
   const userId = user?.id ?? null;
+  const storageKey = user?.profile_photo_key ?? null;
+  // The bytes the server holds for this account (cache-first, then network).
+  const serverPhotoUri = useProfilePhoto(storageKey, user?.profile_photo_updated_at ?? null);
   const [state, dispatch] = useReducer(profilePhotoReducer, initialProfilePhotoState);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -61,18 +69,19 @@ export const ProfilePhotoCard: React.FC = () => {
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView | null>(null);
 
-  // Cold start: show the photo this device set (the API is write-only — see
-  // the note in `profile-photo.ts`). A late read never overwrites a newer
-  // local truth; the reducer enforces that.
+  // Cold start (and every later change to the session key): show whatever
+  // the server says this account's photo is. A late arrival never overwrites
+  // a newer local truth — a photo just captured, or one just removed; the
+  // reducer enforces that.
   useEffect(() => {
-    if (!userId) return;
-    let cancelled = false;
-    void loadProfilePhoto(userId).then((stored) => {
-      if (!cancelled) dispatch({ type: 'restored', photoUri: stored?.uri ?? null });
-    });
-    return () => {
-      cancelled = true;
-    };
+    if (serverPhotoUri) dispatch({ type: 'restored', photoUri: serverPhotoUri });
+  }, [serverPhotoUri]);
+
+  // One-time tidy-up: the pre-read-back build mirrored the raw camera-cache
+  // URI under a per-user key. It is never read again and the file it names
+  // may already have been purged.
+  useEffect(() => {
+    if (userId) void forgetLegacyPhotoMirror(userId);
   }, [userId]);
 
   const busy = isProfilePhotoBusy(state);
@@ -89,7 +98,7 @@ export const ProfilePhotoCard: React.FC = () => {
   const upload = useCallback(
     async (uri: string) => {
       const part = profilePhotoUploadPart(uri);
-      if (!part || !userId) {
+      if (!part) {
         dispatch({ type: 'started', attempt: { action: 'upload', uri } });
         dispatch({ type: 'failed' });
         return;
@@ -101,7 +110,11 @@ export const ProfilePhotoCard: React.FC = () => {
           dispatch({ type: 'failed' });
           return;
         }
-        void saveProfilePhoto(userId, { uri, key: result.profile_photo_key });
+        // The session carries the new key, so every surface that shows this
+        // account's photo (this card, the header, the next cold start)
+        // re-resolves from the server. The capture stays on screen in the
+        // meantime so the change is instant.
+        applyProfilePhoto(result.profile_photo_key, result.profile_photo_updated_at ?? null);
         dispatch({ type: 'succeeded' });
       } catch {
         // Online-only: the reason is not actionable for a crew member mid-run,
@@ -109,7 +122,7 @@ export const ProfilePhotoCard: React.FC = () => {
         dispatch({ type: 'failed' });
       }
     },
-    [userId],
+    [applyProfilePhoto],
   );
 
   /** Opens the camera, asking for the OS permission the first time. */
@@ -158,17 +171,23 @@ export const ProfilePhotoCard: React.FC = () => {
       .catch(() => setPictureSize(undefined));
   }, []);
 
-  /** Clears the photo server-side, then forgets the device mirror. */
+  /**
+   * Clears the photo server-side, then drops the offline copy.
+   *
+   * Unconditional by design: the server may hold a photo this device never
+   * saw (a reinstall, a second phone), and `DELETE` is idempotent.
+   */
   const remove = useCallback(async () => {
     dispatch({ type: 'started', attempt: { action: 'remove' } });
     try {
       await apiClient.clearAccountPhoto();
-      if (userId) void clearStoredProfilePhoto(userId);
+      if (storageKey) void clearCachedPhoto(storageKey);
+      applyProfilePhoto(null, null);
       dispatch({ type: 'succeeded' });
     } catch {
       dispatch({ type: 'failed' });
     }
-  }, [userId]);
+  }, [applyProfilePhoto, storageKey]);
 
   /** The manual retry: repeat exactly the attempt that failed. */
   const runRetry = useCallback(

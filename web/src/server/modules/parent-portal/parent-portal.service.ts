@@ -624,7 +624,13 @@ export class ParentPortalService {
     if (ids.length === 0) return [null, null];
     const rows = await this.users.findAll({
       where: { school_id: schoolId, id: { [Op.in]: ids } },
-      attributes: ['id', 'first_name', 'last_name', 'profile_photo_key'],
+      attributes: [
+        'id',
+        'first_name',
+        'last_name',
+        'profile_photo_key',
+        'profile_photo_updated_at',
+      ],
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
     const crew = (id: string | null): ParentCrewSummary | null => {
@@ -636,6 +642,9 @@ export class ParentPortalService {
             first_name: row.first_name,
             last_name: row.last_name,
             profile_photo_key: row.profile_photo_key ?? null,
+            // The cache-buster the app appends to the photo request; the
+            // same column the photo route derives its ETag from.
+            profile_photo_updated_at: row.profile_photo_updated_at?.toISOString() ?? null,
           }
         : null;
     };

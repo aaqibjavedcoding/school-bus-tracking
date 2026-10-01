@@ -5,18 +5,23 @@ import {
   MIN_PHOTO_WIDTH,
   initialProfilePhotoState,
   isProfilePhotoBusy,
-  parseStoredProfilePhoto,
   pickPictureSize,
   profileAvatarPresentation,
   profilePhotoMessage,
   profilePhotoReducer,
-  profilePhotoStorageKey,
   profilePhotoUploadPart,
   retryAttempt,
-  serializeStoredProfilePhoto,
   type ProfilePhotoEvent,
   type ProfilePhotoState,
 } from './profile-photo.ts';
+import {
+  legacyPhotoCacheKey,
+  parseCachedPhoto,
+  photoCacheKey,
+  photoDataUri,
+  resolvePhoto,
+  serializeCachedPhoto,
+} from './profile-photo-source.ts';
 
 /**
  * "My Profile" photo — the behaviour of the crew card, without a device.
@@ -157,13 +162,13 @@ describe('failure is online-only: one error, one manual retry', () => {
   });
 });
 
-describe('the device mirror never overwrites a newer local truth', () => {
-  test('it fills an untouched card', () => {
+describe('a late read never overwrites a newer local truth', () => {
+  test("the server's photo fills an untouched card", () => {
     const restored = run([{ type: 'restored', photoUri: CAPTURE }]);
     assert.equal(restored.photoUri, CAPTURE);
   });
 
-  test('a late read cannot resurrect a photo the crew member just removed', () => {
+  test('it cannot resurrect a photo the user just removed', () => {
     const afterRemoval = run([
       { type: 'started', attempt: { action: 'remove' } },
       { type: 'succeeded' },
@@ -263,15 +268,31 @@ describe('capture size stays small enough for the 2 MB cap', () => {
   });
 });
 
-describe('device mirror storage (the API is write-only in Phase 2A)', () => {
-  test('the key is scoped per crew account, so a shared phone never leaks a face', () => {
-    assert.equal(profilePhotoStorageKey('user-1'), 'sbt.mobile.profile-photo.user-1');
-    assert.notEqual(profilePhotoStorageKey('user-1'), profilePhotoStorageKey('user-2'));
+describe('the device cache is an offline copy, not the source of truth', () => {
+  /**
+   * Rewritten with the read-back (this change). This block used to pin the
+   * *mirror*: a per-user AsyncStorage entry holding the raw camera URI,
+   * which was the only way to show a photo while the API was write-only.
+   * The server now serves the bytes, so the same guarantees are pinned
+   * against the cache that replaced it — keyed by storage key, holding
+   * bytes, and never able to out-rank the session.
+   */
+  const DATA_URI = `data:image/jpeg;base64,${Buffer.from('bytes').toString('base64')}`;
+  const KEY = 'school-1/profile-photos/user-2/abc-photo.jpg';
+
+  test('the cache key is the storage key, so a replaced photo cannot show the old face', () => {
+    assert.equal(photoCacheKey(KEY), `sbt.mobile.profile-photo.v2.${KEY}`);
+    assert.notEqual(photoCacheKey(KEY), photoCacheKey('school-1/profile-photos/user-2/next.jpg'));
+    // And still never shared between accounts: the key embeds the owner.
+    assert.notEqual(photoCacheKey(KEY), photoCacheKey('school-1/profile-photos/user-9/abc.jpg'));
   });
 
-  test('round-trips a photo the API confirmed', () => {
-    const photo = { uri: CAPTURE, key: 'school-1/profile-photos/user-2/abc-photo.jpg' };
-    assert.deepEqual(parseStoredProfilePhoto(serializeStoredProfilePhoto(photo)), photo);
+  test('the pre-read-back mirror key is only remembered so it can be deleted', () => {
+    assert.equal(legacyPhotoCacheKey('user-1'), 'sbt.mobile.profile-photo.user-1');
+  });
+
+  test('round-trips cached bytes', () => {
+    assert.equal(parseCachedPhoto(serializeCachedPhoto(DATA_URI)), DATA_URI);
   });
 
   test('anything absent, corrupt or half-written reads as "no photo"', () => {
@@ -283,13 +304,51 @@ describe('device mirror storage (the API is write-only in Phase 2A)', () => {
       '[]',
       '"string"',
       '{}',
-      JSON.stringify({ uri: CAPTURE }),
-      JSON.stringify({ key: 'k' }),
-      JSON.stringify({ uri: '  ', key: 'k' }),
-      JSON.stringify({ uri: CAPTURE, key: '' }),
-      JSON.stringify({ uri: 7, key: 'k' }),
+      JSON.stringify({ dataUri: '' }),
+      JSON.stringify({ dataUri: 7 }),
+      JSON.stringify({ uri: DATA_URI }),
     ]) {
-      assert.equal(parseStoredProfilePhoto(raw), null, `${String(raw)} must not restore a photo`);
+      assert.equal(parseCachedPhoto(raw), null, `${String(raw)} must not restore a photo`);
     }
+  });
+
+  test('a cached file:// path is refused — that is the value that used to rot', () => {
+    assert.equal(parseCachedPhoto(JSON.stringify({ dataUri: CAPTURE })), null);
+  });
+
+  test('the session decides: no key means no photo, whatever the cache holds', () => {
+    assert.deepEqual(
+      resolvePhoto({ storageKey: null, cachedForKey: { key: KEY, uri: DATA_URI } }),
+      {
+        kind: 'none',
+      },
+    );
+    assert.deepEqual(resolvePhoto({ storageKey: '   ' }), { kind: 'none' });
+  });
+
+  test('a cache entry for another key is ignored', () => {
+    assert.deepEqual(
+      resolvePhoto({ storageKey: KEY, cachedForKey: { key: 'other/key.jpg', uri: DATA_URI } }),
+      { kind: 'none' },
+    );
+  });
+
+  test('cached bytes paint while offline, and fresh bytes win when they arrive', () => {
+    assert.deepEqual(resolvePhoto({ storageKey: KEY, cachedForKey: { key: KEY, uri: DATA_URI } }), {
+      kind: 'cached',
+      uri: DATA_URI,
+    });
+    const fetched = `data:image/png;base64,${Buffer.from('new').toString('base64')}`;
+    assert.deepEqual(
+      resolvePhoto({ storageKey: KEY, cachedForKey: { key: KEY, uri: DATA_URI }, fetched }),
+      { kind: 'remote', uri: fetched },
+    );
+  });
+
+  test('bytes keep the content type the server served them with', () => {
+    assert.ok(photoDataUri('AAA', 'image/png').startsWith('data:image/png;base64,'));
+    assert.ok(photoDataUri('AAA', 'image/jpeg').startsWith('data:image/jpeg;base64,'));
+    // Anything else is treated as JPEG rather than echoed into the URI.
+    assert.ok(photoDataUri('AAA', 'image/svg+xml').startsWith('data:image/jpeg;base64,'));
   });
 });

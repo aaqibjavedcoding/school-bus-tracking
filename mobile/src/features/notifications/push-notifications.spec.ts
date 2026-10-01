@@ -18,6 +18,10 @@ const user: AuthenticatedUser = {
   first_name: 'Ada',
   last_name: 'Parent',
   email: 'ada@school.edu',
+  // Part of the session payload since the photo read-back; a parent never
+  // owns one, so both fields are null.
+  profile_photo_key: null,
+  profile_photo_updated_at: null,
 };
 
 describe('push-notifications (non-native fallback)', () => {
