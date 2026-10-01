@@ -373,7 +373,7 @@ describe('the marker is the bundled bus sprite', () => {
     );
   });
 
-  test('rasterises the density sprites from the shared SVG and keeps the master out of app assets', () => {
+  test('rasterises the density sprites from the shared SVG, which is the only bus source', () => {
     const generator = read('scripts/generate-assets.mjs');
     assert.match(generator, /BUS_MARKER_ART_SVG/);
     assert.match(generator, /busMarkerPng/);
@@ -381,9 +381,19 @@ describe('the marker is the bundled bus sprite', () => {
     assert.equal(existsSync('assets/gen/bus-master.png'), false, 'the 1.6 MB master must not ship');
     assert.equal(
       existsSync('scripts/assets/bus-master.png'),
-      true,
-      'the build-time master was moved',
+      false,
+      'nor may a raster master survive as a second drawing: the SVG is the source',
     );
+    // Nothing in the app may hand-draw a bus next to the shared one.
+    const graphic = read('src/features/map/BusMarkerGraphic.tsx');
+    assert.doesNotMatch(graphic, /<Svg|<Path|react-native-svg/, 'no fork of the artwork');
+  });
+
+  test('the sprite is the top-down vehicle, nose up, so the rotation is the real bearing', () => {
+    const graphic = read('src/features/map/BusMarkerGraphic.tsx');
+    assert.match(graphic, /top-down/);
+    assert.match(graphic, /roof-view/);
+    assert.match(graphic, /heading of 0 is north/);
   });
 
   test('the bundled sprite ships @1x/@2x/@3x at exactly the pinned pixel sizes', () => {
@@ -430,5 +440,65 @@ describe('the marker has room to turn', () => {
     assert.match(marker, /height: BUS_MARKER_ROTATION_BOX/);
     assert.match(marker, /overflow: 'visible'/);
     assert.match(marker, /transform: \[\{ rotate: `\$\{heading\}deg` \}\]/);
+  });
+});
+
+/**
+ * The visibility contract: a delivered fix is always a bus on the map.
+ *
+ * The marker is allowed to change how it looks — frozen and slate for a
+ * last-known position, no halo under reduced motion — but it may never be
+ * replaced by nothing. The only things that may stand in its place are the
+ * two *stated* surfaces: the Expo Go "needs a dev build" panel and the "no
+ * coordinates" placeholder, both of which say what is missing.
+ */
+describe('the bus is visible whenever there is a fix', () => {
+  const surface = read('src/features/map/LiveMapSurface.tsx');
+  const marker = read('src/features/map/BusMarker.tsx');
+
+  test('renders the marker for any fix, fresh or stale', () => {
+    assert.match(surface, /\{fix \? \(\s*<BusMarker/, 'the fix alone decides that a bus exists');
+    const props = surface.slice(
+      surface.indexOf('<BusMarker'),
+      surface.indexOf('onFrame={onFrame}'),
+    );
+    assert.match(props, /animate=\{animate\}/, 'freshness is passed as presentation…');
+    assert.doesNotMatch(
+      props,
+      /animate \?|animate &&/,
+      '…never as a condition on rendering the marker',
+    );
+  });
+
+  test('a stale fix freezes and desaturates the bus instead of removing it', () => {
+    assert.match(marker, /<BusMarkerGraphic desaturated=\{!animate\}/);
+    assert.match(marker, /animate \? null : styles\.groundShadowStale/);
+    // `if (!marker) return null` may only fire before the first sampled
+    // position exists — never because the data went stale.
+    const bail = marker.slice(marker.indexOf('if (!marker) return null'));
+    assert.doesNotMatch(bail.slice(0, 80), /animate|stale/);
+  });
+
+  test('the only stand-ins are the two stated empty surfaces', () => {
+    assert.match(surface, /surfaceMode === 'needs-dev-build' \?/);
+    assert.match(surface, /<NeedsDevBuildPanel \/>/);
+    assert.match(surface, /surfaceMode === 'no-coordinates'/);
+    assert.match(surface, /t\('map\.noCoordinates'\)/);
+    // A fix is enough to get the real map surface: `mapSurfaceMode` only
+    // reports "no coordinates" when there are neither stops nor a fix.
+    const mode = read('src/features/map/map-surface-mode.ts');
+    assert.match(mode, /if \(!hasCoordinates && !hasFix\) \{\s*return 'no-coordinates';/);
+  });
+
+  test('keeps the marker off the route-snap line when the bus has left the route', () => {
+    // Display snapping is bounded in `route-snap.ts`; past the bound the
+    // marker draws the raw fix, so a traffic detour is still tracked (the
+    // behaviour itself is pinned end to end in `route-snap.spec.ts`).
+    const snap = read('src/features/map/route-snap.ts');
+    const bound = /SNAP_TO_ROUTE_MAX_OFFSET_M = (\d+)/.exec(snap);
+    assert.ok(bound, 'the bound must stay a named constant');
+    const metres = Number(bound[1]);
+    assert.ok(metres >= 40 && metres <= 50, `expected a 40–50 m bound, got ${metres}`);
+    assert.match(marker, /createRouteSnapper\(route\)/);
   });
 });

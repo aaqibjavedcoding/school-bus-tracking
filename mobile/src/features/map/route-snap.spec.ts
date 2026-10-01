@@ -6,6 +6,7 @@ import {
   createRouteSnapper,
   projectOntoRoute,
 } from './route-snap.ts';
+import { createBusMotion } from './bus-motion.ts';
 import { haversineMeters } from '../../lib/geo.ts';
 
 /**
@@ -96,10 +97,18 @@ describe('projectOntoRoute: onto a straight line', () => {
 
 describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
   it('clamps past-the-end fixes to the endpoint — never extrapolates the route', () => {
-    const projection = projectOntoRoute(offLine(1_050, 3), STRAIGHT_ROUTE)!;
+    // 30 m past the last stop: still inside the offset bound, so the honest
+    // answer is the endpoint itself rather than a point invented beyond it.
+    const projection = projectOntoRoute(offLine(1_030, 3), STRAIGHT_ROUTE)!;
     assert.deepEqual(projection.point, onLine(1_000));
     assert.equal(projection.segmentFraction, 1);
-    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(50, 3)) < 0.5);
+    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(30, 3)) < 0.5);
+  });
+
+  it('stops clamping to the endpoint once the bus has genuinely driven past it', () => {
+    // Far beyond the last stop is off the route like any other off-route fix:
+    // the marker draws the raw position instead of parking on the final stop.
+    assert.equal(projectOntoRoute(offLine(1_100, 3), STRAIGHT_ROUTE), null);
   });
 
   it('clamps before-the-start fixes to the route start', () => {
@@ -135,6 +144,18 @@ describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
 });
 
 describe('projectOntoRoute: the honesty bounds', () => {
+  it('keeps the offset bound inside the "same road" band (40–50 m)', () => {
+    // Wider than this and a parallel street one block over is still "on the
+    // route", which is the off-route defect: a driver who left the planned
+    // legs for traffic had the marker clamped back onto a line the bus was
+    // not driving. Narrower and ordinary lateral GPS wobble on a wide
+    // carriageway stops being damped at all.
+    assert.ok(
+      SNAP_TO_ROUTE_MAX_OFFSET_M >= 40 && SNAP_TO_ROUTE_MAX_OFFSET_M <= 50,
+      `expected a 40–50 m snap bound, got ${SNAP_TO_ROUTE_MAX_OFFSET_M}`,
+    );
+  });
+
   it('refuses to snap a fix that is genuinely off the route', () => {
     // 100 m east of a 1 km route: the bus is on another road. Drawing it on
     // the line would be a bigger lie than the jitter was.
@@ -182,5 +203,120 @@ describe('createRouteSnapper (the motion-machine port)', () => {
   it('returns null — leave the raw fix alone — off the route', () => {
     const snap = createRouteSnapper(STRAIGHT_ROUTE);
     assert.equal(snap(offLine(300, 250)), null);
+  });
+});
+
+/**
+ * The off-route guard, end to end: snapper → motion machine → marker.
+ *
+ * The field report this pins: a driver leaves the planned stop-to-stop legs
+ * because of traffic, and the marker has to keep showing where the bus
+ * actually is. The projection is display-only, so the test asserts the thing
+ * a parent sees — the *rendered* coordinate — rather than an internal flag.
+ */
+describe('a driver who leaves the planned route (the marker keeps tracking)', () => {
+  const EPOCH = Date.parse('2026-02-03T09:00:00.000Z');
+  const fixAt = (point: { latitude: number; longitude: number }, step: number) => ({
+    latitude: point.latitude,
+    longitude: point.longitude,
+    heading: null,
+    speed: 9,
+    accuracy: 6,
+    recorded_at: new Date(EPOCH + step * 4_000).toISOString(),
+  });
+
+  /** On the planned leg, then a detour around it, then back onto the leg. */
+  const DRIVE = [
+    offLine(400, 0),
+    offLine(430, 20),
+    offLine(455, 55),
+    offLine(480, 95),
+    offLine(520, 120),
+    offLine(560, 25),
+  ];
+
+  it('draws a far-from-route fix at the RAW GPS position, not clamped to the line', () => {
+    const motion = createBusMotion({
+      reducedMotion: true,
+      snapToRoute: createRouteSnapper(STRAIGHT_ROUTE),
+    });
+    const offRoute = DRIVE[3]; // 95 m east of the planned leg
+
+    motion.push(fixAt(DRIVE[0], 0), 0);
+    motion.push(fixAt(offRoute, 1), 4_000);
+    const rendered = motion.sample(4_000);
+
+    assert.ok(rendered !== null);
+    assert.equal(rendered.latitude, offRoute.latitude, 'the marker is at the raw latitude');
+    assert.equal(rendered.longitude, offRoute.longitude, 'and the raw longitude');
+    assert.ok(
+      Math.abs(rendered.longitude - LINE_LNG) > 90 * ONE_METER_LNG,
+      'it must NOT have been pulled back onto the planned polyline',
+    );
+  });
+
+  it('tracks the whole detour: on-route fixes snap, off-route fixes stay raw', () => {
+    const motion = createBusMotion({
+      reducedMotion: true,
+      snapToRoute: createRouteSnapper(STRAIGHT_ROUTE),
+    });
+
+    const seen: { latitude: number; longitude: number }[] = [];
+    DRIVE.forEach((point, step) => {
+      motion.push(fixAt(point, step), step * 4_000);
+      const rendered = motion.sample(step * 4_000);
+      assert.ok(rendered !== null);
+      seen.push({ latitude: rendered.latitude, longitude: rendered.longitude });
+
+      const projection = projectOntoRoute(point, STRAIGHT_ROUTE);
+      if (projection === null) {
+        // Off the route: the drawn position IS the fix, to the last digit.
+        assert.equal(rendered.latitude, point.latitude);
+        assert.equal(rendered.longitude, point.longitude);
+      } else {
+        assert.ok(
+          haversineMeters(rendered, projection.point) < 0.01,
+          'near the route the lateral wobble is still damped onto the line',
+        );
+      }
+      // Whatever is drawn, what is *reported* is always the raw fix.
+      assert.equal(rendered.source.latitude, point.latitude);
+      assert.equal(rendered.source.longitude, point.longitude);
+    });
+
+    // The detour fixes are the ones beyond the bound; the drive has both.
+    const offRouteCount = DRIVE.filter(
+      (point) => projectOntoRoute(point, STRAIGHT_ROUTE) === null,
+    ).length;
+    assert.ok(offRouteCount >= 3, 'the fixture really does leave the route');
+    // And the marker moved on every single fix — it never froze on the line.
+    for (let index = 1; index < seen.length; index += 1) {
+      assert.ok(
+        haversineMeters(seen[index - 1], seen[index]) > 1,
+        `fix ${index} did not move the marker`,
+      );
+    }
+  });
+
+  it('animates between off-route fixes and lands exactly on the raw position', () => {
+    const motion = createBusMotion({ snapToRoute: createRouteSnapper(STRAIGHT_ROUTE) });
+    const from = DRIVE[3];
+    const to = DRIVE[4];
+
+    motion.push(fixAt(from, 0), 0);
+    const outcome = motion.push(fixAt(to, 1), 4_000);
+    assert.equal(outcome.action, 'animated', 'a normal off-route step still tweens');
+
+    const midway = motion.sample(4_000 + 1_500);
+    assert.ok(midway !== null && midway.moving, 'the marker travels between fixes');
+    assert.ok(
+      haversineMeters(midway, to) > 1 && haversineMeters(midway, from) > 1,
+      'and it is genuinely in between, not jumping',
+    );
+
+    const settled = motion.sample(4_000 + 10_000);
+    assert.ok(settled !== null);
+    assert.equal(settled.latitude, to.latitude, 'the tween ends ON the raw fix');
+    assert.equal(settled.longitude, to.longitude);
   });
 });

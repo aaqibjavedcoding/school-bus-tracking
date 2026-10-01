@@ -7,8 +7,10 @@
  * committed SVG (mark, colours and KIDBUS wordmark included) at fixed sizes.
  *
  * The map bus is the same deal: `@school-bus-tracking/map-assets` owns the
- * sole 3/4 school-bus SVG. The three Metro density files below are mechanical
- * RGBA rasterisations of that shared SVG, never a second hand-drawn marker.
+ * sole top-down school-bus SVG. The three Metro density files below are
+ * mechanical RGBA rasterisations of that shared SVG, never a second
+ * hand-drawn marker. Re-run this script (and commit the three
+ * `assets/bus-marker*.png`) whenever that artwork changes.
  * The mark-only variant used by the adaptive-icon foreground, the splash and
  * the favicon is the same SVG with two purely mechanical derivations, so the
  * artwork itself is never redrawn here:
@@ -95,10 +97,12 @@ const markPng = async (canvas, markHeight, { verticalShift = 0 } = {}) => {
 };
 
 /**
- * Mechanical bus rasterisation for React Native. The static ground shadow is
+ * Mechanical bus rasterisation for React Native. The *ambient* ground disc is
  * rendered as a native layer outside the rotated PNG (see BusMarker.tsx), so
- * this art-only SVG intentionally contains the same coachwork but not that
- * shadow. `BUS_MARKER_ART_SVG` is derived from the one full shared SVG source.
+ * this art-only SVG intentionally carries the coachwork and its own baked
+ * contact shadow — which has the vehicle's shape and therefore has to turn
+ * with it — but not that unrotated disc. `BUS_MARKER_ART_SVG` is derived from
+ * the one full shared SVG source.
  */
 const busMarkerPng = async (scale) =>
   sharp(Buffer.from(BUS_MARKER_ART_SVG))

@@ -33,8 +33,10 @@ import { isValidCoordinate } from './bus-motion.ts';
  *    interpolation (see `bus-motion.ts` and `docs/live-tracking-map.md`).
  * 2. **Bounded by `SNAP_TO_ROUTE_MAX_OFFSET_M`.** A fix farther than that
  *    from the route is not snapped at all — the bus may genuinely be off the
- *    planned legs (depot, detour, wrong-route data), and gluing it to the
- *    line would be a bigger lie than the jitter was.
+ *    planned legs (depot, traffic detour, wrong-route data), and gluing it to
+ *    the line would be a bigger lie than the jitter was. Off the route the
+ *    marker therefore draws the **raw GPS position**, exactly like the web
+ *    map does, and keeps tracking the bus down whatever street it took.
  * 3. **The target is the drawn line, not a claim about roads.** The polyline
  *    connects the stops in planned order; the map already labels it "planned
  *    stop order — not the road route" (`map.routeNotice` /
@@ -53,11 +55,23 @@ export interface RouteSnapPoint {
 
 /**
  * The maximum lateral distance a fix may sit from the route and still be
- * projected onto it (honesty rule 2 in the module header). 60 m covers a
- * wide multi-lane road plus a coarse-fix radius; past it the bus is simply
- * somewhere else, and the map must say so rather than invent a position.
+ * projected onto it (honesty rule 2 in the module header).
+ *
+ * 45 m is the top of the band that is still plausibly *the same road*: a wide
+ * multi-lane carriageway with a service lane is ~25 m of tarmac, and an urban
+ * fix adds 10–20 m of error on top. Anything beyond that is another street.
+ *
+ * It used to be 60 m, and that was the off-route defect: when a driver left
+ * the planned stop-to-stop legs because of traffic, a parallel road one block
+ * over still fell inside the bound, so the marker was clamped back onto the
+ * line the bus was no longer driving — it crawled along the planned leg while
+ * the real bus was somewhere else. Tightening it to 45 m keeps the lateral
+ * GPS wobble damped on the road the bus is actually on (the jitter band is
+ * single-digit metres — see `MOTION_THRESHOLDS.jitterMinM`) while handing the
+ * marker straight back to the raw fix the moment the bus genuinely leaves the
+ * drawn route.
  */
-export const SNAP_TO_ROUTE_MAX_OFFSET_M = 60;
+export const SNAP_TO_ROUTE_MAX_OFFSET_M = 45;
 
 /** Where a fix landed on the route: the point, and how far off it sat. */
 export interface RouteProjection {
