@@ -117,6 +117,7 @@ The web frontend is engineered with **Next.js 14+ (App Router)** in **TypeScript
 - **Shared Design Token Integration**: UI components strictly consume `@school-bus-tracking/design-tokens` for standardized colors, typography, borders, and responsive breakpoints.
 - **Resilient API Client**: Uses `@school-bus-tracking/api-client` for type-safe interaction with the backend API.
 - **Super Admin platform console (`/admin/*`)**: a `SUPER_ADMIN`-only surface (`Dashboard`, `Schools`, `Subscriptions`, `Plans`, `Revenue`) guarded client-side by `canAccessPath()` and server-side by `@Roles(SUPER_ADMIN)` on every `/api/v1/admin/*` controller. Shared derivations (KPIs, distributions, estimated revenue, usage-vs-limit rows) live in `src/features/admin/metrics.ts` and are unit-tested; the charts in `src/features/admin/components` are dependency-free inline SVG/CSS, so the console adds no charting library to the bundle. All revenue figures are explicitly labelled **estimates** derived from plan list prices — the platform has no payment provider, invoicing or cash ledger.
+- **`/account` (`src/app/(authenticated)/account`)**: the console's own profile page — the photo (upload JPEG/PNG ≤ 2 MB, remove) plus read-only name, email, role and school. The client pre-check mirrors `server/modules/account/account.constants.ts` word for word (`src/features/account/profile-photo.ts`), the bytes are fetched from the authenticated photo route as an object URL, and a confirmed change is pushed into the live session (`useAuth().applyProfilePhoto`) so the sidebar avatar updates without a refresh. Reachable for exactly the roles that may own a photo, through `navItemsForRole()` + `canAccessPath()`.
 - **Emergency alarm for school admins (`src/features/emergencies`)**: a crew SOS (`emergency:new` on the existing `/emergencies` namespace) plays a prominent, repeating siren in the admin's tab on any screen. The siren is synthesised with the Web Audio API — no audio asset and no new dependency — and is gated by a pure policy module so that no other realtime frame (a parent `notification:new` above all) can ever produce a sound. The engine is framework-free with an injected audio context and scheduler, which makes the whole state machine (autoplay queueing, mute, repeat cap, degradation) unit-testable on the plain Node test runner; see `docs/notifications.md`.
 
 ---
@@ -165,6 +166,18 @@ every domain module, guard, DTO and business rule is preserved.
   authentication middleware with the REST API.
 - **Worker infrastructure (`src/server/workers`)**: retained for asynchronous
   processing (telemetry stream ingestion, bulk notifications, PDF report generation).
+- **Binary reads (profile photos)**: two routes serve stored bytes rather than
+  JSON — `GET /account/me/photo` (the caller's own, no id in the URL) and
+  `GET /crew-photos/{key…}` (a key-addressed read for the parent and admin
+  surfaces). They are ordinary `EndpointDefinition`s, run the same
+  guard pipeline, and opt out only of the response envelope (`raw: true`),
+  returning a `Response` with `image/jpeg` or `image/png`, a private
+  `Cache-Control`, `X-Content-Type-Options: nosniff` and an `ETag` derived
+  from `profile_photo_updated_at` (so `If-None-Match` answers 304). A thrown
+  exception still renders the normal JSON error envelope. Authorisation is
+  described in `docs/security.md`; the short version is that the tenant comes
+  from the JWT, the key must be referenced by a `users.profile_photo_key` row
+  in that tenant, and every refusal is the same generic 404.
 
 ---
 
@@ -177,7 +190,8 @@ The mobile client is a unified **React Native** application powered by **Expo (S
   - `(parent)` — dashboard/children (`/parent/dashboard`, `/parent/children*`), live bus tracking on a native map with the same trip rooms the web tracker joins, ETA/next-stop views, and the notification centre with an unread badge fed by the `/notifications` socket.
   - `(admin)` — the `SCHOOL_ADMIN` experience with feature parity for day-to-day management: operations dashboard, trip schedule and trip cockpit (dispatch lifecycle + live map + manifest), live tracking, attendance, emergencies, and a **Manage** hub exposing full CRUD (create / edit / delete) for students, buses, routes & stops, drivers & conductors, guardians, route assignments, and bus/driver compliance documents — all against the same API endpoints and shared Zod schemas the web console uses. **Web-only** back-office features are bulk Excel import/export, the import-job history, and the Reports area (see `docs/import-export-reports.md`). `SUPER_ADMIN` (platform console) still gets a "use the web console" notice screen.
 - **Driver/Conductor GPS (real device data only)**: `expo-location` foreground `watchPositionAsync` plus an opt-in background task (`startLocationUpdatesAsync` + `expo-task-manager`) with the location plugin permissions configured in `app.json`. Every fix is mapped to the shared `trip:location:update` Zod contract (km/h speed, normalized heading, device `recorded_at`), validated client-side with the same schema, and emitted over the existing socket — malformed or offline fixes are dropped, never queued or fabricated. Sharing auto-stops on terminal trip states and sign-out.
-- **Auth**: the same `/auth/login|refresh|logout` endpoints. The access token lives in JS memory only; the refresh cookie persists in the platform cookie jar so sessions survive app restarts.
+- **Auth**: the same `/auth/login|refresh|logout` endpoints. The access token lives in JS memory only; the refresh cookie persists in the platform cookie jar so sessions survive app restarts. `app/forgot-password.tsx` is a second caller of the existing `POST /auth/forgot-password` (school administrators only); the emailed link opens the **web** reset page, so the app has no reset screen and registers no deep link.
+- **Profile photos (`src/features/profile`)**: one card for every role that may own a photo (driver, conductor, school admin), mounted as a hidden route in both the `(crew)` and the `(admin)` navigator and opened from the header avatar. The bytes are fetched from the authenticated photo route through the shared client and rendered from memory; AsyncStorage holds an offline copy keyed by storage key, never the source of truth. The parent-side `CrewAvatar` uses the same download-then-render path, because React Native does not reliably forward an `Authorization` header given to `<Image source>`.
 - **Metro Monorepo Resolution**: Configured via `mobile/metro.config.js` — `watchFolders` points at the repository root and `nodeModulesPaths` lists `mobile/node_modules` first and the root second, so both the workspace packages (`@school-bus-tracking/*`) and hoisted dependencies resolve. Hierarchical (nested) `node_modules` lookup is deliberately left enabled: turning it off breaks transitive dependencies that ship their own nested copies.
 
 ---

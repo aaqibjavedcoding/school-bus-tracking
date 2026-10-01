@@ -85,18 +85,35 @@ Scope is deliberate — crew (DRIVER / CONDUCTOR) sign in with an admin-issued
 PIN and have no password to reset, and PARENT / SUPER_ADMIN self-service is out
 of scope.
 
+The mobile app now offers step 1 as well (`mobile/app/forgot-password.tsx`).
+It changes nothing on the server: the same endpoint, the same public rate
+limit, the same shared `forgotPasswordSchema`. Two mobile-specific notes:
+
+- the screen renders the generic sentence for **every** outcome _including a
+  transport failure_ — only a 400 (shape) and a 429 (rate limit) are allowed
+  to differ, because both describe the request rather than the account. A
+  "could not send" message would distinguish an accepted address from a
+  rejected one, which is the oracle the generic response exists to remove;
+- the link is visible to everyone on the email sign-in path, with a note
+  that self-service reset is for school administrators. Showing it per role
+  is impossible before sign-in, and hiding it would itself be a hint.
+
+Step 2 stays on the web: the emailed link opens the console's
+`/reset-password`, so the app registers no deep link and the token never
+passes through a mobile URL handler.
+
 The threat model and the answer to each part of it:
 
-| Risk                                    | Control                                                                                                                                                                                 |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Account enumeration**                 | One byte-identical response for a matching admin, a wrong-role account, an unknown email, an unknown school code, a deactivated account/school, and an SMTP failure. The service never throws on this path, because a 500 is also an answer. Asserted in `password-reset.service.spec.ts`. |
-| **Token theft from the database**       | Only the SHA-256 digest is stored (`password_reset_tokens.token_hash`), from a 256-bit random token — the same `generateRefreshToken()`/`hashToken()` pair as `refresh_tokens`. The plaintext exists only in the emailed link. |
-| **A link that outlives its usefulness** | TTL clamped to **30–60 minutes** (`PASSWORD_RESET_TTL_MS`, default 45). The email prints the enforced number, derived from the TTL rather than typed in. |
-| **Replay of a used link**               | `used_at` + a unique index on the digest, so concurrent clicks resolve to at most one redemption. |
-| **Several live links per account**      | Issuing a link marks every other unused row of that user used — one active link at a time. |
-| **The attacker keeps their session**    | A completed reset calls `AuthService.revokeAllUserSessions()`, killing every refresh token of the account, and mints none. The user signs in again. |
-| **Flooding a mailbox / guessing**       | The `password_reset_public` policy: 5 requests / 15 min per IP **and** 3 / hour per (school + email). Deliberately separate from — and stricter than — the admin-initiated `password_reset` policy. |
-| **Secrets in logs or the audit trail**  | The raw token is never logged, audited or returned. The success audit row (`auth.password_reset`) carries only `{ self_service, revoked_sessions }`. The *request* is intentionally not audited at all: a row naming the school and email would be the existence answer the response refuses to give. |
+| Risk                                    | Control                                                                                                                                                                                                                                                                                               |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Account enumeration**                 | One byte-identical response for a matching admin, a wrong-role account, an unknown email, an unknown school code, a deactivated account/school, and an SMTP failure. The service never throws on this path, because a 500 is also an answer. Asserted in `password-reset.service.spec.ts`.            |
+| **Token theft from the database**       | Only the SHA-256 digest is stored (`password_reset_tokens.token_hash`), from a 256-bit random token — the same `generateRefreshToken()`/`hashToken()` pair as `refresh_tokens`. The plaintext exists only in the emailed link.                                                                        |
+| **A link that outlives its usefulness** | TTL clamped to **30–60 minutes** (`PASSWORD_RESET_TTL_MS`, default 45). The email prints the enforced number, derived from the TTL rather than typed in.                                                                                                                                              |
+| **Replay of a used link**               | `used_at` + a unique index on the digest, so concurrent clicks resolve to at most one redemption.                                                                                                                                                                                                     |
+| **Several live links per account**      | Issuing a link marks every other unused row of that user used — one active link at a time.                                                                                                                                                                                                            |
+| **The attacker keeps their session**    | A completed reset calls `AuthService.revokeAllUserSessions()`, killing every refresh token of the account, and mints none. The user signs in again.                                                                                                                                                   |
+| **Flooding a mailbox / guessing**       | The `password_reset_public` policy: 5 requests / 15 min per IP **and** 3 / hour per (school + email). Deliberately separate from — and stricter than — the admin-initiated `password_reset` policy.                                                                                                   |
+| **Secrets in logs or the audit trail**  | The raw token is never logged, audited or returned. The success audit row (`auth.password_reset`) carries only `{ self_service, revoked_sessions }`. The _request_ is intentionally not audited at all: a row naming the school and email would be the existence answer the response refuses to give. |
 
 Response **timing** is not equalized — only the matching case hashes and
 mails. The public rate limit (5/15 min per IP, 3/hour per identity) is far too
@@ -106,8 +123,41 @@ unknown addresses costs more than it buys.
 Email leaves through `SmtpEmailProvider` (nodemailer, plain SMTP). Without
 complete `EMAIL_PROVIDER=smtp` + `SMTP_*` + `EMAIL_FROM` configuration the
 factory returns `NoOpEmailProvider`, so no deployment, test run or CI job
-needs credentials; a *partial* SMTP configuration warns (errors in production)
+needs credentials; a _partial_ SMTP configuration warns (errors in production)
 rather than failing silently at send time. See `docs/deployment.md`.
+
+### Serving a stored profile photo
+
+`GET /api/v1/crew-photos/{key…}` (and its no-id convenience form
+`GET /api/v1/account/me/photo`) return raw image bytes, so they are the one
+place where a _storage key_ — a value that travels through payloads and
+could be guessed or replayed — decides what a caller receives. The rules, in
+the order the handler applies them:
+
+| Risk                                             | Control                                                                                                                                                                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Anonymous read**                               | Bearer token required (`JwtAuthGuard`), then `@Roles(DRIVER, CONDUCTOR, SCHOOL_ADMIN, PARENT)`. A platform `SUPER_ADMIN` has no `school_id` and is refused.                                                    |
+| **Tenant escape**                                | The tenant comes from the verified JWT only — never from the URL. The key's first segment must equal the caller's `school_id`, and the confirming query is itself pinned with `school_id`.                     |
+| **Reading a key that is not a profile photo**    | The key must be referenced by a `users.profile_photo_key` row **in that tenant**; a driver-licence or document key in the same bucket is refused even though the bytes exist.                                  |
+| **Reading a role's photo that is not published** | The owning row's role must be one of the photo-owner roles (DRIVER, CONDUCTOR, SCHOOL_ADMIN).                                                                                                                  |
+| **Path traversal / absolute paths**              | The key is normalised before anything else: empty, `..` in any position, a leading `/`, a backslash, and percent-encoded separators are all rejected; the second segment must be `profile-photos`.             |
+| **Content sniffing**                             | Only `image/jpeg` and `image/png` are served, with `X-Content-Type-Options: nosniff`; anything else is treated as absent.                                                                                      |
+| **Information leakage**                          | **Every** failure — bad key, wrong tenant, orphan key, wrong role, missing blob, wrong type — is the identical generic `404 Photo not found`. Never a 403, which would confirm existence.                      |
+| **Shared caches**                                | `Cache-Control: private, no-cache, max-age=0, must-revalidate` plus an `ETag` derived from `profile_photo_updated_at`; clients add `?v=<profile_photo_updated_at>` so a replaced photo is a different address. |
+
+Negative coverage lives in `crew-photos.controller.spec.ts` (cross-tenant
+key, orphan key, a licence key in the same tenant, four traversal
+spellings, parent/crew reading an admin photo, `SUPER_ADMIN`,
+byte-identical 404s), `profile-photo-key.spec.ts` (the normaliser) and
+`account.service.spec.ts` (the tenant-pinned lookup). The session payload's
+own projection is pinned by `authenticated-user-projection.spec.ts`: exactly
+eight keys, never a credential — adding the two photo fields must not become
+a way to widen it.
+
+Clients never hold a photo URL that works without a token: there are no
+signed URLs (the deployment's only storage provider is
+`LocalStorageProvider`), so every surface downloads the bytes with the
+bearer token attached.
 
 ## Authorization
 
