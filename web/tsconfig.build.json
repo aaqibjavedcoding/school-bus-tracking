@@ -9,5 +9,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/server/**/*"],
-  "exclude": ["src/server/**/*.spec.ts", "src/server/http/route-testing.ts", "src/server/http/test-server.ts"]
+  "exclude": ["src/server/**/*.spec.ts", "src/server/http/route-testing.ts", "src/server/http/test-server.ts", "src/server/config/sequelize-cli.config.ts"]
 }
