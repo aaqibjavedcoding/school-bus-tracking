@@ -32,7 +32,15 @@ const port = Number(process.env.PORT ?? process.env.APP_PORT ?? 3001);
 const hostname = process.env.HOST ?? '0.0.0.0';
 
 async function main() {
-  require('dotenv').config();
+  // Keep the custom server's env-file precedence identical to the migration
+  // runner and database bootstrap: `.env.local` is the machine-specific
+  // override, while `.env` supplies shared defaults. Loading dotenv without a
+  // path makes the result depend on the directory from which `npm run dev`
+  // was launched and can point the app at a different database than
+  // `db:migrate`.
+  const dotenv = require('dotenv');
+  dotenv.config({ path: path.join(__dirname, '.env.local'), override: false });
+  dotenv.config({ path: path.join(__dirname, '.env'), override: false });
 
   // The backend is compiled to CommonJS by `npm run build:server`; `next build`
   // marks the same tree external and points at this output, so the custom
