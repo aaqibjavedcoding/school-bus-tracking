@@ -109,12 +109,14 @@ export function navItemsForRole(role: UserRole, managedSchoolActive = false): Na
         { href: '/attendance', label: 'Attendance', icon: 'check' },
         { href: '/reports', label: 'Reports', icon: 'chart' },
         { href: '/imports', label: 'Import data', icon: 'upload' },
+        { href: '/account', label: 'My account', icon: 'users' },
       ];
     case UserRole.DRIVER:
     case UserRole.CONDUCTOR:
       return [
         { href: '/crew', label: "Today's trip", icon: 'trip' },
         { href: '/tracking', label: 'Live map', icon: 'map' },
+        { href: '/account', label: 'My account', icon: 'users' },
       ];
     case UserRole.PARENT:
       return [
