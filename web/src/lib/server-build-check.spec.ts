@@ -8,8 +8,10 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const {
   inspectServerBuild,
+  inspectWorkspacePackageBuilds,
   listServerSources,
   describeProblem,
+  describeWorkspacePackageProblem,
   ensureServerBuild,
 } = require('../../server-build-check.js');
 
@@ -68,6 +70,46 @@ describe('server build check — source discovery', () => {
       'http/route-runtime.ts',
       'modules/dashboard/dashboard.service.ts',
     ]);
+  });
+});
+
+describe('server build check — workspace package inspection', () => {
+  it('reports stale generated package declarations before the server compiler reads them', () => {
+    const root = makeTree({
+      'packages/shared-types/package.json': '{"name":"@school-bus-tracking/shared-types"}',
+      'packages/shared-types/src/index.ts':
+        'export interface AuthenticatedUser { id: string; profile_photo_key: string | null; profile_photo_updated_at: string | null; }',
+      'packages/shared-types/dist/index.js': '',
+      'packages/shared-types/dist/index.d.ts': 'export interface AuthenticatedUser { id: string; }',
+    });
+    setMtime(path.join(root, 'packages/shared-types/dist/index.js'), 1_000);
+    setMtime(path.join(root, 'packages/shared-types/dist/index.d.ts'), 1_000);
+    setMtime(path.join(root, 'packages/shared-types/src/index.ts'), 5_000);
+
+    const result = inspectWorkspacePackageBuilds({ repoRoot: root });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'stale-package-outputs');
+    assert.deepEqual(result.stale.map((item: { output: string }) => item.output).sort(), [
+      'dist/index.d.ts',
+      'dist/index.js',
+    ]);
+    assert.match(describeWorkspacePackageProblem(result), /@school-bus-tracking\/shared-types/);
+    assert.match(describeWorkspacePackageProblem(result), /dist\/index\.d\.ts/);
+  });
+
+  it('passes when workspace package JS and declaration output are current', () => {
+    const root = makeTree({
+      'packages/shared-types/package.json': '{"name":"@school-bus-tracking/shared-types"}',
+      'packages/shared-types/src/index.ts': 'export const ok = true;',
+      'packages/shared-types/dist/index.js': 'exports.ok = true;',
+      'packages/shared-types/dist/index.d.ts': 'export declare const ok = true;',
+    });
+    setMtime(path.join(root, 'packages/shared-types/src/index.ts'), 1_000);
+    setMtime(path.join(root, 'packages/shared-types/dist/index.js'), 2_000);
+    setMtime(path.join(root, 'packages/shared-types/dist/index.d.ts'), 2_000);
+
+    const result = inspectWorkspacePackageBuilds({ repoRoot: root });
+    assert.deepEqual(result, { ok: true, missing: [], stale: [], reason: null });
   });
 });
 
@@ -179,6 +221,52 @@ describe('server build check — start-up policy', () => {
     const result = ensureServerBuild({ webDir: root, dev: false, log: () => {} });
     assert.equal(result.ok, true);
     assert.equal(result.rebuilt, false);
+  });
+
+  it('rebuilds workspace packages before the automatic dev server rebuild', () => {
+    const root = makeTree({
+      'web/src/server/api/auth.ts': '',
+      'web/dist/api/auth.js': '',
+      'packages/shared-types/package.json': '{"name":"@school-bus-tracking/shared-types"}',
+      'packages/shared-types/src/index.ts':
+        'export interface AuthenticatedUser { id: string; profile_photo_key: string | null; profile_photo_updated_at: string | null; }',
+      'packages/shared-types/dist/index.js': '',
+      'packages/shared-types/dist/index.d.ts': 'export interface AuthenticatedUser { id: string; }',
+    });
+    setMtime(path.join(root, 'web/dist/api/auth.js'), 1_000);
+    setMtime(path.join(root, 'web/src/server/api/auth.ts'), 5_000);
+    setMtime(path.join(root, 'packages/shared-types/dist/index.js'), 1_000);
+    setMtime(path.join(root, 'packages/shared-types/dist/index.d.ts'), 1_000);
+    setMtime(path.join(root, 'packages/shared-types/src/index.ts'), 5_000);
+
+    const calls: string[] = [];
+    const runCommand = (command: string, args: string[]) => {
+      if (args[0] === 'run' && args[1] === 'build:packages') {
+        calls.push('packages');
+        fs.writeFileSync(path.join(root, 'packages/shared-types/dist/index.js'), '');
+        fs.writeFileSync(
+          path.join(root, 'packages/shared-types/dist/index.d.ts'),
+          'export interface AuthenticatedUser { id: string; profile_photo_key: string | null; profile_photo_updated_at: string | null; }',
+        );
+        return { status: 0 };
+      }
+      if (command === process.execPath && args.includes('tsconfig.build.json')) {
+        calls.push('server');
+        fs.writeFileSync(path.join(root, 'web/dist/api/auth.js'), '');
+        return { status: 0 };
+      }
+      return { status: 1 };
+    };
+
+    const result = ensureServerBuild({
+      webDir: path.join(root, 'web'),
+      dev: true,
+      log: () => {},
+      runCommand,
+    });
+
+    assert.equal(result.rebuilt, true);
+    assert.deepEqual(calls, ['packages', 'server']);
   });
 
   it('can be bypassed explicitly with SKIP_SERVER_BUILD_CHECK=true', () => {
