@@ -390,10 +390,21 @@ describe('ParentPortalService', () => {
   });
 
   it('returns a dashboard with parent profile, school and child count', async () => {
-    const service = createService(defaultStubs(), {}, makeAttendance());
+    const photoUpdatedAt = new Date('2026-09-27T12:00:00.000Z');
+    const parentUser = makeUser({
+      profile_photo_key: `${SCHOOL_A}/profile-photos/${parentA.id}/photo.jpg`,
+      profile_photo_updated_at: photoUpdatedAt,
+    });
+    const service = createService(
+      defaultStubs({ users: { findAll: [parentUser], findOne: parentUser } }),
+      {},
+      makeAttendance(),
+    );
     const dashboard = await service.getDashboard(parentA);
     assert.equal(dashboard.parent.role, UserRole.PARENT);
     assert.equal(dashboard.parent.first_name, 'Dana'); // user stub firstName
+    assert.equal(dashboard.parent.profile_photo_key, parentUser.profile_photo_key);
+    assert.equal(dashboard.parent.profile_photo_updated_at, photoUpdatedAt.toISOString());
     assert.equal(dashboard.school?.name, 'Demo High');
     assert.equal(dashboard.count, 1);
   });

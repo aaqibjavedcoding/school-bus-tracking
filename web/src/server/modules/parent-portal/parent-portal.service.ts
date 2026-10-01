@@ -695,6 +695,8 @@ export class ParentPortalService {
       first_name: parentUser?.first_name ?? '',
       last_name: parentUser?.last_name ?? '',
       email: parentUser?.email ?? null,
+      profile_photo_key: parentUser?.profile_photo_key ?? null,
+      profile_photo_updated_at: parentUser?.profile_photo_updated_at?.toISOString() ?? null,
     };
   }
 }
