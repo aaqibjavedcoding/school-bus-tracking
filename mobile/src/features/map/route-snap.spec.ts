@@ -96,10 +96,10 @@ describe('projectOntoRoute: onto a straight line', () => {
 
 describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
   it('clamps past-the-end fixes to the endpoint — never extrapolates the route', () => {
-    const projection = projectOntoRoute(offLine(1_050, 3), STRAIGHT_ROUTE)!;
+    const projection = projectOntoRoute(offLine(1_040, 3), STRAIGHT_ROUTE)!;
     assert.deepEqual(projection.point, onLine(1_000));
     assert.equal(projection.segmentFraction, 1);
-    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(50, 3)) < 0.5);
+    assert.ok(Math.abs(projection.distanceMeters - Math.hypot(40, 3)) < 0.5);
   });
 
   it('clamps before-the-start fixes to the route start', () => {
@@ -135,6 +135,25 @@ describe('projectOntoRoute: segment ends, corners and parallel legs', () => {
 });
 
 describe('projectOntoRoute: the honesty bounds', () => {
+  it('keeps the off-route bound inside the 40–50 m band', () => {
+    // A rerouted bus (traffic diversion) one street over must NOT be glued
+    // to the planned polyline; a bus wobbling across a wide carriageway must
+    // not be thrown off it. 40–50 m is the honest window between the two.
+    assert.ok(SNAP_TO_ROUTE_MAX_OFFSET_M >= 40 && SNAP_TO_ROUTE_MAX_OFFSET_M <= 50);
+  });
+
+  it('far-from-route fix → raw position: snapping yields null so the caller draws the GPS fix', () => {
+    // The field case: the driver takes a parallel road because of traffic.
+    // The fix is ~80 m off the planned line — well past the bound — so the
+    // projection must refuse, and the motion machine falls back to the raw
+    // coordinate (the bus stays visible where it really is, never frozen on
+    // the planned line and never hidden).
+    const rerouted = offLine(500, 80);
+    assert.equal(projectOntoRoute(rerouted, STRAIGHT_ROUTE), null);
+    const snap = createRouteSnapper(STRAIGHT_ROUTE);
+    assert.equal(snap(rerouted), null, 'the port says "leave the raw fix alone"');
+  });
+
   it('refuses to snap a fix that is genuinely off the route', () => {
     // 100 m east of a 1 km route: the bus is on another road. Drawing it on
     // the line would be a bigger lie than the jitter was.

@@ -26,64 +26,58 @@ export const BUS_MARKER_BOX = {
 export const BUS_MARKER_ART_ID = 'sbt-bus-marker-art';
 export const BUS_MARKER_SHADOW_ID = 'sbt-bus-marker-shadow';
 
-/** Shared `<defs>` payload. This is mounted exactly once on the web map. */
+/**
+ * Shared `<defs>` payload. This is mounted exactly once on the web map.
+ *
+ * The art is a clean TOP-DOWN roof view (the Uber/Ola cab-marker idiom):
+ * portrait, nose up, heading 0 = north. Flat fills only — gradients turn to
+ * mud at the rendered 26 × 42 dp. Everything that makes it read as "school
+ * bus" at one glance is geometry, not texture:
+ *
+ *   1. a ~2 px white halo around the whole silhouette (contrast on any tile),
+ *   2. school-bus amber body with a subtly lighter flat roof panel,
+ *   3. a dark slate windshield band across the top ~20% — the heading cue,
+ *   4. rows of small dark side windows down both long edges,
+ *   5. two lighter roof hatches on the centre line,
+ *   6. a dark rear bumper band across the bottom.
+ *
+ * No text (unreadable at 26 px), no wheels (invisible from above), no baked
+ * shadow/halo/cone — those are separate marker layers owned by the consumers
+ * (web CSS layers, native BusMarker.tsx).
+ */
 export const BUS_MARKER_DEFS_SVG = `
-  <linearGradient id="sbt-bus-marker-body" x1="0" y1="0" x2="0.82" y2="1">
-    <stop offset="0" stop-color="#ffd56a"/>
-    <stop offset="0.38" stop-color="#f7ad20"/>
-    <stop offset="1" stop-color="#c96b09"/>
-  </linearGradient>
-  <linearGradient id="sbt-bus-marker-side" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#e8890d"/>
-    <stop offset="1" stop-color="#94430a"/>
-  </linearGradient>
-  <linearGradient id="sbt-bus-marker-glass" x1="0" y1="0" x2="0.85" y2="1">
-    <stop offset="0" stop-color="#eaf8ff"/>
-    <stop offset="0.45" stop-color="#77b9da"/>
-    <stop offset="1" stop-color="#26506f"/>
-  </linearGradient>
-  <filter id="sbt-bus-marker-shadow-blur" x="-40%" y="-120%" width="180%" height="340%">
-    <feGaussianBlur stdDeviation="2.2"/>
+  <filter id="sbt-bus-marker-shadow-blur" x="-30%" y="-20%" width="160%" height="140%">
+    <feGaussianBlur stdDeviation="2.6"/>
   </filter>
   <symbol id="${BUS_MARKER_SHADOW_ID}" viewBox="0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}">
-    <ellipse cx="31" cy="84.5" rx="19" ry="4.8" fill="#0f172a" opacity="0.34" filter="url(#sbt-bus-marker-shadow-blur)"/>
-    <ellipse cx="31" cy="84" rx="16" ry="3.2" fill="#0f172a" opacity="0.2"/>
+    <!-- Soft under-shadow for the top-down footprint, nudged south-east. -->
+    <rect x="9.5" y="10" width="43" height="88" rx="15" fill="#0f172a" opacity="0.28" filter="url(#sbt-bus-marker-shadow-blur)"/>
   </symbol>
   <symbol id="${BUS_MARKER_ART_ID}" viewBox="0 0 ${BUS_MARKER_BOX.viewBoxWidth} ${BUS_MARKER_BOX.viewBoxHeight}">
-    <!-- Nose is at the top: heading 0 is north. The offset side is the 3/4 view. -->
-    <path d="M15 32 36 15 49 24 52 67 34 88 12 77Z" fill="#172638" opacity="0.98"/>
-    <!-- Dark wheel wells and chassis sit behind the amber coachwork. -->
-    <path d="M12.8 48.5 18.2 45.5 19.1 63.5 13.3 66.8Z" fill="#07111e"/>
-    <path d="M43.5 37.5 50.3 34.2 51.4 54.4 44.8 58Z" fill="#07111e"/>
-    <path d="M13.5 70.5 20.5 67.1 21 78.8 15 81.3Z" fill="#07111e"/>
-    <path d="M40.8 61.5 51.6 56.6 52 68.8 43.2 76.3Z" fill="#07111e"/>
-    <ellipse cx="16.7" cy="56.4" rx="3.5" ry="5.4" fill="#334155" transform="rotate(-7 16.7 56.4)"/>
-    <ellipse cx="47.6" cy="46.2" rx="3.8" ry="5.6" fill="#334155" transform="rotate(-7 47.6 46.2)"/>
-    <ellipse cx="17.5" cy="74.5" rx="3.6" ry="5.2" fill="#334155" transform="rotate(-7 17.5 74.5)"/>
-    <ellipse cx="46.7" cy="67" rx="3.7" ry="5.3" fill="#334155" transform="rotate(-7 46.7 67)"/>
-    <path d="M15.7 30.5 35.7 15.7 47.6 24.3 47.3 67.3 32.4 82.2 15.2 74.1Z" fill="url(#sbt-bus-marker-body)" stroke="#0f172a" stroke-width="2.1" stroke-linejoin="round"/>
-    <!-- The darker passenger-side face makes the coach read as a lifted 3/4 object. -->
-    <path d="M39.8 20.2 47.6 24.3 47.3 67.3 32.4 82.2 32.3 36.1Z" fill="url(#sbt-bus-marker-side)" stroke="#0f172a" stroke-width="1.35" stroke-linejoin="round"/>
-    <!-- Roof cap / roof line. -->
-    <path d="M18.2 29.2 35.9 16.3 43.2 21.5 26.1 34.7Z" fill="#ffe49a" stroke="#71400b" stroke-width="1.2" stroke-linejoin="round"/>
-    <path d="M19.6 27.6 35.8 16.1 42.4 20.8" fill="none" stroke="#fff5ca" stroke-width="1.35" stroke-linecap="round" opacity="0.94"/>
-    <!-- Front windscreen: glass + white specular sweep. -->
-    <path d="M26.6 28.3 35.8 21.4 40.3 24.6 31 32.1Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1.1" stroke-linejoin="round"/>
-    <path d="M29.1 27.1 35.9 22.2 38 23.8" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" opacity="0.82"/>
-    <path d="M18.8 36.1 30.3 28.1 30.6 36.7 19.1 44.5Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1" stroke-linejoin="round"/>
-    <path d="M33.2 37.2 44.1 29.3 44.2 38.1 33.4 46.2Z" fill="url(#sbt-bus-marker-glass)" stroke="#16344a" stroke-width="1" stroke-linejoin="round"/>
-    <!-- Passenger windows and amber mullions. -->
-    <path d="M18.9 48.4 30.8 40.1 31.1 48.7 19.2 56.8Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M19.3 60.7 31.2 52.6 31.6 61.3 19.6 69.3Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M33.6 49.1 44.3 41.1 44.4 50.1 33.8 58.1Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <path d="M34 62.1 44.5 54.1 44.6 63.1 34.2 71.2Z" fill="#315d79" stroke="#173a52" stroke-width="1"/>
-    <!-- Bumpers, lamps and a small school-bus stripe retain legibility at 26px. -->
-    <path d="M15.3 74.2 32.4 82.2 47.3 67.3 47.2 72.2 33.7 86.1 15 78.8Z" fill="#202f41" stroke="#0f172a" stroke-width="1.15" stroke-linejoin="round"/>
-    <path d="M18.8 45.6 44.2 28.4" stroke="#78350f" stroke-width="1.45" opacity="0.8"/>
-    <circle cx="22" cy="34.7" r="1.35" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.65"/>
-    <circle cx="42.4" cy="27.2" r="1.25" fill="#fff3a6" stroke="#7c3e08" stroke-width="0.65"/>
-    <circle cx="20.2" cy="75.4" r="1.25" fill="#fb7185" stroke="#63142a" stroke-width="0.65"/>
-    <circle cx="41.3" cy="72.5" r="1.25" fill="#fb7185" stroke="#63142a" stroke-width="0.65"/>
+    <!-- Top-down roof view. Nose is at the top: heading 0 is north. -->
+    <!-- White outline halo (~2px at render size) around the silhouette. -->
+    <rect x="2.5" y="2" width="57" height="96" rx="14.5" fill="#ffffff"/>
+    <!-- Flat-front rounded body: school-bus amber. -->
+    <rect x="7.5" y="7" width="47" height="86" rx="10" fill="#F6B500" stroke="#D89C06" stroke-width="1.2"/>
+    <!-- Subtle lighter roof panel, flat. -->
+    <rect x="18" y="30" width="26" height="52" rx="5" fill="#FFC93C"/>
+    <!-- Front windshield band: the heading cue, dark slate across the nose. -->
+    <rect x="11.5" y="11" width="39" height="16" rx="5" fill="#16283C"/>
+    <rect x="14.5" y="13.2" width="33" height="3.2" rx="1.6" fill="#3E5D80" opacity="0.6"/>
+    <!-- Side window rows: four dark slate panes down each long edge. -->
+    <rect x="9.5" y="31" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="9.5" y="45" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="9.5" y="59" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="9.5" y="73" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="46" y="31" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="46" y="45" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="46" y="59" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <rect x="46" y="73" width="6.5" height="10" rx="2" fill="#16283C"/>
+    <!-- Roof hatches: two lighter amber rounded squares on the centre line. -->
+    <rect x="26" y="37" width="10" height="9" rx="2.5" fill="#FFE08A" stroke="#E0A50B" stroke-width="0.9"/>
+    <rect x="26" y="58" width="10" height="9" rx="2.5" fill="#FFE08A" stroke="#E0A50B" stroke-width="0.9"/>
+    <!-- Rear bumper band across the tail. -->
+    <rect x="12.5" y="84" width="37" height="7.5" rx="3" fill="#1D2C3E"/>
   </symbol>`;
 
 /**

@@ -53,11 +53,13 @@ export interface RouteSnapPoint {
 
 /**
  * The maximum lateral distance a fix may sit from the route and still be
- * projected onto it (honesty rule 2 in the module header). 60 m covers a
- * wide multi-lane road plus a coarse-fix radius; past it the bus is simply
- * somewhere else, and the map must say so rather than invent a position.
+ * projected onto it (honesty rule 2 in the module header). 45 m — inside the
+ * 40–50 m band — covers a wide multi-lane road plus a coarse-fix radius;
+ * past it the bus is simply somewhere else (traffic reroute, detour, depot),
+ * and the marker must draw the raw GPS fix rather than invent a position on
+ * the planned line.
  */
-export const SNAP_TO_ROUTE_MAX_OFFSET_M = 60;
+export const SNAP_TO_ROUTE_MAX_OFFSET_M = 45;
 
 /** Where a fix landed on the route: the point, and how far off it sat. */
 export interface RouteProjection {
