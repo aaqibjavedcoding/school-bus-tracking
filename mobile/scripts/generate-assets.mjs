@@ -7,7 +7,7 @@
  * committed SVG (mark, colours and KIDBUS wordmark included) at fixed sizes.
  *
  * The map bus is the same deal: `@school-bus-tracking/map-assets` owns the
- * sole 3/4 school-bus SVG. The three Metro density files below are mechanical
+ * sole top-down school-bus SVG. The three Metro density files below are mechanical
  * RGBA rasterisations of that shared SVG, never a second hand-drawn marker.
  * The mark-only variant used by the adaptive-icon foreground, the splash and
  * the favicon is the same SVG with two purely mechanical derivations, so the

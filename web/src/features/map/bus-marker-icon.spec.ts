@@ -43,14 +43,28 @@ describe('shared bus marker geometry', () => {
 });
 
 describe('shared bus marker artwork', () => {
-  it('is a fixed-size 3/4 nose-up coach with gradient, glass and chassis detail', () => {
+  it('is a fixed-size top-down nose-up bus: halo, amber body, windshield band, side windows, hatches, bumper', () => {
     assert.match(BUS_MARKER_SVG, new RegExp(`width="${BUS_MARKER_WIDTH}"`));
     assert.match(BUS_MARKER_SVG, new RegExp(`height="${BUS_MARKER_HEIGHT}"`));
-    assert.match(BUS_MARKER_SVG, /linearGradient id="sbt-bus-marker-body"/);
-    assert.match(BUS_MARKER_SVG, /sbt-bus-marker-glass/);
-    assert.match(BUS_MARKER_SVG, /specular/);
-    assert.match(BUS_MARKER_SVG, /Dark wheel wells and chassis/);
-    assert.match(BUS_MARKER_SVG, /Roof cap \/ roof line/);
+    assert.match(BUS_MARKER_SVG, /White outline halo/);
+    assert.match(BUS_MARKER_SVG, /fill="#F6B500"/, 'school-bus amber body');
+    assert.match(BUS_MARKER_SVG, /fill="#FFC93C"/, 'lighter flat roof panel');
+    assert.match(BUS_MARKER_SVG, /Front windshield band/, 'the heading cue at the nose');
+    assert.match(BUS_MARKER_SVG, /Side window rows/);
+    assert.match(BUS_MARKER_SVG, /Roof hatches/);
+    assert.match(BUS_MARKER_SVG, /Rear bumper band/);
+    // Dark slate glazing must read against the amber at 26 px.
+    assert.match(BUS_MARKER_SVG, /fill="#16283C"/);
+  });
+
+  it('stays legible at marker size: flat fills, no text, no baked wheels', () => {
+    assert.doesNotMatch(
+      BUS_MARKER_SVG,
+      /<linearGradient|<radialGradient/,
+      'gradients go muddy at 26 px',
+    );
+    assert.doesNotMatch(BUS_MARKER_SVG, /<text/i, 'labels are unreadable at marker size');
+    assert.doesNotMatch(BUS_MARKER_SVG, /wheel/i, 'wheels are invisible in a top-down roof view');
   });
 
   it('keeps its soft ground shadow outside the rotating group', () => {
