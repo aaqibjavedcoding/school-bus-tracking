@@ -368,14 +368,15 @@ describe('MarketingCampaignsService — scheduling and the recipient snapshot', 
   });
 
   it('honours an explicit scheduled_at timestamp', async () => {
+    const futureIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const { service, campaignRows } = makeService({
       campaign: makeCampaignRow(),
       audience: NAGPUR_AUDIENCE,
     });
     await service.schedule(ACTOR, CAMPAIGN_ID, {
-      scheduled_at: '2026-10-01T09:30:00.000Z',
+      scheduled_at: futureIso,
     });
-    assert.equal(campaignRows[0].scheduled_at?.toISOString(), '2026-10-01T09:30:00.000Z');
+    assert.equal(campaignRows[0].scheduled_at?.toISOString(), futureIso);
   });
 
   it('rejects a schedule timestamp in the past', async () => {
