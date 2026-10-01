@@ -1,0 +1,12 @@
+{
+  // The Sequelize CLI loads `src/server/config/sequelize-cli.config.ts` through a
+  // dynamic ESM `import()`, so that single file uses `import.meta.url` and must be
+  // typechecked as an ES module instead of with the CommonJS server program.
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "node"
+  },
+  "include": ["src/server/config/sequelize-cli.config.ts"],
+  "exclude": []
+}
