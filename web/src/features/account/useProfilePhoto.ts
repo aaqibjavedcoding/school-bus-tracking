@@ -21,8 +21,9 @@ import { hasProfilePhoto } from './profile-photo';
  * the "nothing changes after I upload" symptom, fixed), and a replaced photo
  * can never be served from a cache.
  *
- * `null` covers every "nothing to show" case identically — no key, still
- * loading, or the server's generic 404 — and the caller renders initials.
+ * `null` covers no key and the server's generic 404. The account surface may
+ * separately report a missing blob to the owner, without changing generic
+ * 404 behaviour for other callers.
  */
 export function useProfilePhoto(user: AuthenticatedUser | null): string | null {
   const key = user?.profile_photo_key ?? null;

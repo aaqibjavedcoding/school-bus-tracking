@@ -633,7 +633,7 @@ export class Container {
    * Used for any file byte the API persists — today: crew profile photos via
    * {@link account}. One instance so modules never race `mkdir` at boot.
    */
-  readonly documentStorage = lazy((): DocumentStorageProvider => new LocalStorageProvider());
+  readonly documentStorage = lazy((): DocumentStorageProvider => new LocalStorageProvider(process.env.DOCUMENT_STORAGE_PATH));
 
   /**
    * Crew self-service (`/account/me/...`). Bytes go through the same

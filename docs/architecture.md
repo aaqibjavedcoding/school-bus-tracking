@@ -290,3 +290,7 @@ The monorepo enforces automated quality checks:
 - `npm run lint`: ESLint rules enforcing code quality, no unused variables, and styling conventions.
 - `npm run format:check`: Prettier verification for consistent styling.
 - `npm run build`: Builds every workspace — the shared packages, the web application (App Router production bundle in `web/.next` plus the compiled server API in `web/dist`), and the mobile Expo bundle.
+
+### Document byte storage
+
+The account photo and compliance-document modules share `DocumentStorageProvider`. The local provider's root is configurable with `DOCUMENT_STORAGE_PATH`; deployments must provide persistent/shared storage (or replace the provider with an object-storage implementation) because database keys alone do not preserve bytes.
