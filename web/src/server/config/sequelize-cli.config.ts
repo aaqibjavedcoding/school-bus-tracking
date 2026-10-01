@@ -1,6 +1,5 @@
 import dotenv from 'dotenv';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import type { Options } from 'sequelize';
 
 /**
@@ -20,9 +19,9 @@ import type { Options } from 'sequelize';
  * (`npm run db:migrate`). `sequelize.sync()` must never be used.
  */
 // Match the custom server/database bootstrap exactly. `.env.local` wins over
-// `.env`, and paths are anchored to this web workspace instead of depending on
-// the directory from which `npm --prefix web ...` was invoked.
-const configDirectory = dirname(fileURLToPath(import.meta.url));
+// `.env`, and paths are anchored to the web workspace used as the working
+// directory by `npm --prefix web ...` scripts.
+const configDirectory = resolve(process.cwd(), 'src/server/config');
 
 dotenv.config({
   path: resolve(configDirectory, '../../../.env.local'),
