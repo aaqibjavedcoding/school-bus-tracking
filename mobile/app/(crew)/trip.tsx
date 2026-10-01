@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -16,10 +16,12 @@ import {
   StopMarkActions,
   TripStatusActions,
   TripNavigationCard,
+  isTripOpen,
   isTripShareable,
   useCrewStopMark,
   useCrewLocationSharing,
   useCrewToday,
+  useArrivedStopAnnouncements,
   useNextStopAnnouncements,
   useSkippedStopAnnouncements,
 } from '../../src/features/crew';
@@ -118,6 +120,17 @@ type NextStopManifest = {
  */
 export default function CrewTripScreen() {
   const router = useRouter();
+  // The manifest deep link is an effect, never render work. Keeping the
+  // mounted signal explicit also makes a late socket frame harmless while the
+  // crew is leaving this screen.
+  const isMountedRef = useRef(false);
+  const lastArrivalManifestNavigationRef = useRef<string | null>(null);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const { user } = useAuth();
   const t = useTranslation();
   const { data, loading, refreshing, error, reload, refresh, applyTrip } = useCrewToday(
@@ -434,6 +447,31 @@ export default function CrewTripScreen() {
    * `stop-service-state.ts` for the policy, both pure).
    */
   useSkippedStopAnnouncements({ tripId, event: live.lastSkippedStop });
+  useArrivedStopAnnouncements({ tripId, event: live.lastArrival });
+
+  /**
+   * Server GPS arrival → the stop-filtered manifest. This is deliberately a
+   * separate edge net from the voice policy: navigation has its own side
+   * effect and must remain idempotent across reconnects/rerenders even when
+   * Voice is disabled. Manual crew marks carry null/null coordinates and
+   * already left the crew in their chosen workflow, so they never auto-open.
+   */
+  useEffect(() => {
+    const event = live.lastArrival;
+    if (!isMountedRef.current || tripId === null || event === null) return;
+    if (event.trip_id !== tripId) return;
+    if (event.latitude === null && event.longitude === null) return;
+    // An arrival frame for a completed/cancelled run is audit history, not a
+    // current workflow cue. Use the event's live status rather than a stale
+    // today-list snapshot.
+    if (!isTripOpen(event.trip_status)) return;
+
+    const navigationKey = `${tripId}:${event.stop_id}`;
+    if (lastArrivalManifestNavigationRef.current === navigationKey) return;
+    lastArrivalManifestNavigationRef.current = navigationKey;
+    router.push({ pathname: '/manifest', params: { stopId: event.stop_id } });
+  }, [live.lastArrival, router, tripId]);
+
   const skippedNote = useMemo(
     () => skippedStopNoteForCard(live.lastSkippedStop, eta?.next_stop?.sequence_number ?? null),
     [live.lastSkippedStop, eta?.next_stop?.sequence_number],

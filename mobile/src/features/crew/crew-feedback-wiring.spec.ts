@@ -39,6 +39,8 @@ const FEEDBACK_MODULES = [
   // Batch 3C: the next-stop announcement policy is pure like the rest, so the
   // whole "when does the bus talk about stops" behaviour is spec-covered.
   'src/features/crew/next-stop-announcer.ts',
+  // Server GPS-arrival policy follows the same pure seam.
+  'src/features/crew/arrived-stop-announcer.ts',
 ];
 
 /** Call sites wired in Phase 3b (and by batch 3C). */
@@ -52,6 +54,8 @@ const WIRED_SURFACES = [
   // Batch 3C — ONE announcer call site, used by both crew roles (the trip
   // screen is shared, so there is no per-role wiring to drift).
   'src/features/crew/useNextStopAnnouncements.ts',
+  // GPS-arrival announcements report through the same dispatcher.
+  'src/features/crew/useArrivedStopAnnouncements.ts',
 ];
 
 /** Every file that could be tempted to ask the TTS engine something itself. */
@@ -213,7 +217,9 @@ describe('one announcer, both crew roles (batch 3C)', () => {
   test('the role never reaches the announcer or its glue', () => {
     for (const file of [
       'src/features/crew/next-stop-announcer.ts',
+      'src/features/crew/arrived-stop-announcer.ts',
       'src/features/crew/useNextStopAnnouncements.ts',
+      'src/features/crew/useArrivedStopAnnouncements.ts',
     ]) {
       assert.ok(
         !/\bisDriver\b|UserRole/.test(code(file)),
@@ -226,6 +232,25 @@ describe('one announcer, both crew roles (batch 3C)', () => {
     const hook = code('src/features/crew/useNextStopAnnouncements.ts');
     assert.ok(/feedback\.on\(event\)/.test(hook), 'the Voice switch and the throttle gate it');
     assert.ok(!/await\s+feedback\.on/.test(hook), 'and it is never awaited');
+  });
+
+  test('the shared trip screen wires server GPS arrivals exactly once', () => {
+    const trip = code('app/(crew)/trip.tsx');
+    assert.equal(trip.match(/useArrivedStopAnnouncements\(/g)?.length, 1);
+    assert.ok(
+      /useArrivedStopAnnouncements\(\{ tripId, event: live\.lastArrival \}\)/.test(trip),
+      'arrival voice must use the room event already owned by live tracking',
+    );
+    assert.ok(
+      /pathname: '\/manifest', params: \{ stopId: event\.stop_id \}/.test(trip),
+      'GPS arrival opens the existing stop-filtered manifest link',
+    );
+  });
+
+  test('the arrival hook reports through the dispatcher, never into the engine', () => {
+    const hook = code('src/features/crew/useArrivedStopAnnouncements.ts');
+    assert.ok(/feedback\.on\(feedbackEvent\)/.test(hook));
+    assert.ok(!/await\s+feedback\.on/.test(hook));
   });
 });
 

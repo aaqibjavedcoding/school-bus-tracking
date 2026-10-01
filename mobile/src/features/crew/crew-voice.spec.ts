@@ -28,6 +28,7 @@ import {
   SPOKEN_STUDENT_FIELDS,
   SPOKEN_STOP_NAME_MAX,
   STOP_ANNOUNCEMENT_EVENTS,
+  STOP_RUN_NEWS_EVENTS,
   VOICE_DENIED_FIELDS,
   VOICE_MIN_GAP_MS,
   VOICE_RATE,
@@ -553,6 +554,7 @@ describe('phrase shape: first name + action + time', () => {
       { type: 'stop.next', stopName: 'Shivaji Chowk', studentCount: 12 },
       { type: 'stop.approaching', stopName: 'Shivaji Chowk', studentCount: 12 },
       { type: 'stop.near', stopName: 'Shivaji Chowk', studentCount: 12, sequenceNumber: 4 },
+      { type: 'stop.arrived', stopName: 'Shivaji Chowk', studentCount: 0 },
     ];
     const phones: Array<[string, VoiceCapabilitySet | null]> = [
       ['un-probed (Latin fallback)', null],
@@ -606,6 +608,39 @@ describe('next-stop announcements: stop + count, in the active voice', () => {
         'Approaching Shivaji Chowk, 12 students',
       );
     });
+  });
+
+  test('a server GPS arrival says the stop name in the active voice mode', () => {
+    const event: CrewFeedbackEvent = {
+      type: 'stop.arrived',
+      stopName: 'Shivaji Chowk',
+      // The server event carries no manifest count. Zero means unknown and is
+      // intentionally omitted instead of speaking a made-up zero.
+      studentCount: 0,
+    };
+    inLocale('en', () => {
+      assert.equal(voicePhrase(event), 'Arrived at Shivaji Chowk');
+    });
+    onPhone('hi', phoneWith('en-IN'), () => {
+      assert.equal(voicePhrase(event), 'Shivaji Chowk pahunch gaye');
+    });
+    onPhone('hi', phoneWith('hi-IN'), () => {
+      assert.equal(voicePhrase(event), 'Shivaji Chowk पहुँच गए');
+    });
+    onPhone('mr', phoneWith('mr-IN'), () => {
+      assert.equal(voicePhrase(event), 'Shivaji Chowk येथे पोहोचलो');
+    });
+  });
+
+  test('an arrival uses the localized count clause only when a real aggregate is supplied', () => {
+    inLocale('en', () => {
+      assert.equal(
+        voicePhrase({ type: 'stop.arrived', stopName: 'Shivaji Chowk', studentCount: 12 }),
+        'Arrived at Shivaji Chowk, 12 students',
+      );
+      assert.equal(voicePhrase({ type: 'stop.arrived', stopName: '   ', studentCount: 0 }), null);
+    });
+    assert.ok(STOP_RUN_NEWS_EVENTS.includes('stop.arrived'));
   });
 
   test('the proximity line speaks the stop number, not the name', () => {

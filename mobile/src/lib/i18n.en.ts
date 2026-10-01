@@ -475,6 +475,7 @@ export const en = {
   'voice.stop.next': 'Next stop: {name}, {count} students',
   'voice.stop.approaching': 'Approaching {name}, {count} students',
   'voice.stop.near': 'Stop {number} coming up, {count} students',
+  'voice.stop.arrived': 'Arrived at {name}, {count} students',
   // The receipt for a stop the crew marked by hand, spoken only after the
   // server confirmed it (never on the optimistic tap).
   'voice.stop.recorded': 'Stop {number} recorded, {count} students board here',
@@ -500,6 +501,7 @@ export const en = {
   'voice.native.stop.next': 'Next stop: {name}, {count} students',
   'voice.native.stop.approaching': 'Approaching {name}, {count} students',
   'voice.native.stop.near': 'Stop {number} coming up, {count} students',
+  'voice.native.stop.arrived': 'Arrived at {name}, {count} students',
   'voice.native.stop.recorded': 'Stop {number} recorded, {count} students board here',
   'voice.native.stop.skipped': 'Stop {number} skipped',
   'voice.native.stop.passed': 'Stop {number} skipped — not served',
