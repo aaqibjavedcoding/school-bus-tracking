@@ -251,7 +251,7 @@ describe('StopsService.create', () => {
     assert.equal(capture.createPayload?.route_id, ROUTE_A);
     assert.equal(capture.createPayload?.name, 'Maple St & 5th Ave');
     assert.equal(capture.createPayload?.sequence_number, 3);
-    assert.equal(capture.createPayload?.geofence_radius_meters, 100);
+    assert.equal(capture.createPayload?.geofence_radius_meters, 20);
     assert.equal(capture.createPayload?.is_active, true);
     assert.equal(response.school_id, SCHOOL_A);
     assert.equal(response.route_id, ROUTE_A);

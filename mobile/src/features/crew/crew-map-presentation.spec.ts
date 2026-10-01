@@ -205,12 +205,12 @@ describe('driver map — motion and accuracy', () => {
     assert.equal(coarse.approximate, true);
     assert.equal(coarse.accuracyCircleMeters, 120);
 
-    const useless = deriveDriverMapPresentation(input({ accuracyMeters: 2_000 }));
+    const useless = deriveDriverMapPresentation(input({ accuracyMeters: 300 }));
     assert.equal(useless.approximate, true);
     assert.equal(
       useless.accuracyCircleMeters,
       null,
-      'a 2 km circle is a full screen, not information',
+      'a 300 m circle is a full screen, not information',
     );
 
     assert.equal(deriveDriverMapPresentation(input({ accuracyMeters: null })).approximate, false);

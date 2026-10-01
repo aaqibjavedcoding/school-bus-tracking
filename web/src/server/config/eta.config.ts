@@ -64,7 +64,7 @@ import { registerAs } from '../framework';
  *                                     per-stop accuracy gate, the departure
  *                                     margin and candidate selection. The
  *                                     stored radius stays the admin's intent
- *                                     (and new/edited stops must be ≥ 15 m);
+ *                                     (and new/edited stops must be ≥ 20 m);
  *                                     the floor is the runtime safety net for
  *                                     legacy/small stops so every arrival
  *                                     zone is a real circle, not a point;
@@ -171,6 +171,25 @@ import { registerAs } from '../framework';
  * 25 and not 5.
  */
 export const ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS = 25;
+
+/**
+ * Default radius stored for newly created stops (metres).
+ *
+ * Deployments may tune this with `STOP_DEFAULT_GEOFENCE_RADIUS_METERS`. Keep
+ * it large enough for normal phone GPS uncertainty; the 25 m effective-radius
+ * floor remains the final detection/drawing authority and must not be reduced
+ * to approximately 5 m merely to make the map look smaller.
+ */
+export const STOP_DEFAULT_GEOFENCE_RADIUS_METERS = 20;
+
+/** The stop default in effect for this process (env override applied). */
+export function stopDefaultGeofenceRadiusMeters(): number {
+  return numberFromEnv(
+    'STOP_DEFAULT_GEOFENCE_RADIUS_METERS',
+    STOP_DEFAULT_GEOFENCE_RADIUS_METERS,
+    20,
+  );
+}
 
 /** The floor in effect for this process (env override applied). */
 export function arrivalMinEffectiveRadiusMeters(): number {

@@ -59,14 +59,14 @@ export class CreateStopDto implements StopCreateRequest {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'Please enter a whole number for the geofence radius in metres.' })
-  // Admins may survey tight stops down to 15 m: DETECTION never uses the
+  // Admins may survey tight stops down to the 20 m default: DETECTION never uses the
   // stored radius directly, it uses max(stored, ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS)
   // (25 m — see web/src/server/config/eta.config.ts for why it is not 5 m).
-  @Min(15, {
-    message: 'Please enter a value between 15 and 2000 for the geofence radius in metres.',
+  @Min(20, {
+    message: 'Please enter a value between 20 and 2000 for the geofence radius in metres.',
   })
   @Max(2000, {
-    message: 'Please enter a value between 15 and 2000 for the geofence radius in metres.',
+    message: 'Please enter a value between 20 and 2000 for the geofence radius in metres.',
   })
   declare geofence_radius_meters?: number;
 
