@@ -200,6 +200,48 @@ collapsing it would make a change to the observer window silently change what
 `mobile/src/features/map/BusMap.web.tsx` (the dependency-free `react-native-web`
 fallback, which lists stops instead of drawing a map) is unchanged.
 
+## The vehicle in the 3D camera (web)
+
+The 2D camera keeps the flat top-down marker described in "The marker". The
+pitched **3D** camera does not: a `maplibregl.Marker` is an HTML element that
+MapLibre keeps viewport-aligned (`pitchAlignment: 'auto'`), so in a tilted
+scene it stands up facing the camera — a billboard, read on screen as a flat
+sticker floating over the map — and the engine additionally drives its inline
+`style.opacity` (`Marker._updateOpacity`, `opacityWhenCovered` defaults to
+`0.2`), which is how it could also read as a ghost. No CSS can turn a DOM
+element into a solid object inside the map's WebGL scene.
+
+So in 3D the bus is drawn **in** the scene, by the engine we already ship:
+`web/src/features/map/bus-3d.ts` builds a small extruded **mesh** — four
+wheels, a chassis skirt, the amber lower body, a dark window band, the roof, a
+nose block and bumpers, plus a roof beacon — as one GeoJSON `FeatureCollection`
+rendered by one `fill-extrusion` layer (`sbt-bus-3d-body`) with per-feature
+`base`, `height` and `color`. It is fully opaque (`fill-extrusion-opacity: 1`,
+vertical gradient on) and depth-tested against the 3D buildings, so it is a
+real volume, not an icon. The flat marker is hidden (`.is-hidden-by-3d-bus`)
+only once that mesh actually exists, so "no bus at all" is never an outcome.
+
+Cost: none. No three.js, no glTF asset, no model host, no extra tile or API
+provider — the geometry is computed from the live fix and uploaded exactly
+like the route line.
+
+- **Anchoring.** Vertices are built in a metric bus-local frame (x = right,
+  y = forward), rotated by the heading, then converted to degrees relative to
+  the fix. The origin is the GPS coordinate at every heading and zoom.
+- **Heading.** The mesh is rebuilt each animation frame from the same rendered
+  position/heading `bus-motion.ts` gives the flat marker, so rotation follows
+  the device course (or the derived bearing above the displacement/speed
+  thresholds) and motion stays smooth between fixes without inventing any.
+- **Size.** `busLengthMeters` converts a target on-screen length through the
+  mercator metres-per-pixel at the current latitude/zoom, clamped between a
+  real bus (12 m) and 260 m, so the vehicle stays readable when the camera
+  pulls back without becoming a city block. The mesh is rebuilt on `zoom`.
+- **Staleness** is a colour change (slate), never transparency.
+
+App layers (`route`, `trail`, `accuracy`, `stops`, the bus) are moved back to
+the top of the layer stack whenever the 3D building extrusion is inserted, so
+the buildings can never bury the stops.
+
 ## The marker
 
 A **top-view school bus**, nose up, school-bus yellow with a dark outline, a
