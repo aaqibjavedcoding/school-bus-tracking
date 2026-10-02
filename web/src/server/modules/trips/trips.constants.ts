@@ -63,9 +63,26 @@ export const TRIP_INVALID_TRANSITION_MESSAGE = (from: TripStatus, to: TripStatus
 export const TRIP_NOT_EDITABLE_MESSAGE = `Only ${TripStatus.SCHEDULED} trips can be rescheduled`;
 export const TRIP_ALREADY_TERMINAL_MESSAGE = 'Trip is already completed or cancelled';
 
-/** Conflict message for the one-open-trip-per-route-and-departure rule. */
+/**
+ * Conflict message for the one-open-trip-per-route-and-departure rule.
+ *
+ * The service appends the conflicting trip's school-local departure so the
+ * dispatcher is never left hunting a trip the list views date-scope away:
+ * a trip scheduled for another school-local date is invisible under the
+ * default "today" filter, and this message is the only trace of it.
+ */
 export const TRIP_CONFLICT_MESSAGE =
   'This route already has a trip scheduled at that departure time';
+
+/** Detail appended to {@link TRIP_CONFLICT_MESSAGE} for a located clash. */
+export const TRIP_CONFLICT_DETAIL_MESSAGE = (
+  departure: string,
+  timeZone: string,
+  dateOnly: string,
+): string =>
+  `${TRIP_CONFLICT_MESSAGE} — a trip already departs at ${departure} (${timeZone}), ` +
+  `filed under the school date ${dateOnly}. Open the Trips page with the date ` +
+  `filter set to ${dateOnly} to see or edit it.`;
 
 /** Confirmation returned after a soft delete. */
 export const TRIP_DELETED_MESSAGE = 'Trip deleted successfully';

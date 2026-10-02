@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  addCalendarDays,
   fromDateTimeLocalValue,
   isValidDateTimeLocal,
   joinDateTimeLocal,
@@ -64,4 +65,13 @@ test('joinDateTimeLocal is the inverse of splitDateTimeLocal', () => {
   const { date, time } = splitDateTimeLocal(value);
   assert.equal(joinDateTimeLocal(date, time), value);
   assert.equal(joinDateTimeLocal('', ''), '', 'an empty form stays empty, never hardcoded');
+});
+
+test('addCalendarDays shifts civil days without timezone drift', () => {
+  assert.equal(addCalendarDays('2026-08-30', 1), '2026-08-31');
+  assert.equal(addCalendarDays('2026-08-01', -1), '2026-07-31');
+  assert.equal(addCalendarDays('2026-12-31', 1), '2027-01-01', 'crosses the year');
+  assert.equal(addCalendarDays('2028-02-28', 1), '2028-02-29', 'leap year');
+  assert.equal(addCalendarDays('2026-02-28', 1), '2026-03-01', 'non-leap year');
+  assert.equal(addCalendarDays('not-a-date', 1), 'not-a-date', 'malformed passes through');
 });

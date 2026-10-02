@@ -7,6 +7,7 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { TRIP_STATUS_TRANSITIONS, isTripOpenForAttendance } from '@school-bus-tracking/validation';
 import { t } from '../../lib/i18n.ts';
+import { schoolDateOnly } from '../../lib/format.ts';
 
 /**
  * Pure crew-trip selectors shared by the DRIVER and CONDUCTOR screens (and
@@ -42,6 +43,39 @@ export function pickCrewTrip(items: TripResponse[]): TripResponse | null {
   }
 
   return [...items].sort(byStartAsc).reverse()[0] ?? null;
+}
+
+/**
+ * Narrows a multi-day trip window to the list `pickCrewTrip` should select
+ * from, without changing the selection rules themselves.
+ *
+ * The crew loader fetches today **plus the next school-local day**, because a
+ * dispatcher routinely schedules the next morning's run the evening before —
+ * and that trip is invisible to a today-only fetch (the API's `date` filter is
+ * the school-local calendar day of `scheduled_start_at`). Selection still
+ * prefers today's trips exactly as before, so an end-of-day screen keeps
+ * showing the finished run for review; only when today holds nothing does the
+ * earliest SCHEDULED trip from the window become the crew's next run.
+ */
+export function selectCrewTripsForDay(
+  today: string,
+  trips: TripResponse[],
+  timeZone?: string | null,
+): TripResponse[] {
+  if (trips.length === 0) {
+    return trips;
+  }
+
+  const todays = trips.filter(
+    (trip) => schoolDateOnly(timeZone, new Date(trip.scheduled_start_at)) === today,
+  );
+  if (todays.length > 0) {
+    return todays;
+  }
+
+  return trips
+    .filter((trip) => trip.status === TripStatus.SCHEDULED)
+    .sort((a, b) => a.scheduled_start_at.localeCompare(b.scheduled_start_at));
 }
 
 /**

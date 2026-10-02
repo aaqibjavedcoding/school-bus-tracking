@@ -319,6 +319,35 @@ moment Session 2 retires the route-level one. It is shipped now because the
 schema change and the index are cheap, and adding it later would mean a
 second migration and a second review of the same table.
 
+### 3.6.1 Trip views are scoped by the **school-local calendar day**
+
+`trips.scheduled_start_at` is a UTC instant; every list surface (admin Trips
+page, crew app, parent tracking, exports) filters it by the school's IANA
+timezone calendar day (`GET /trips?date=` / `date_from`+`date_to`). Three
+operational consequences, all of which have bitten in production:
+
+1. **A trip scheduled for another school-local date is invisible under a
+   "today" filter.** Scheduling tomorrow's 06:30 run this evening succeeds
+   (201) and then shows *nothing* on the admin Trips page default view and —
+   before the two-day crew window — on the driver's app. The crew loader now
+   fetches today **plus the next school-local day** and only falls forward to
+   the earliest `SCHEDULED` trip when today is empty
+   (`selectCrewTripsForDay`), so the next morning's run is visible the
+   evening before without changing end-of-day review behaviour.
+2. **The dispatch 409 says where the clash is filed.** The one-trip-per-
+   departure conflict message appends the clashing trip's school-local
+   departure and filing date (`TRIP_CONFLICT_DETAIL_MESSAGE`), so a
+   dispatcher is never told "it already exists" without being told where to
+   look.
+3. **The school's `timezone` column is load-bearing.** It defaults to `UTC`
+   for schools created through onboarding. A school in another zone left on
+   the default files some morning departures under the *previous* school
+   date (in IST, anything before 05:30) and shifts every "today" boundary.
+   Super Admins set it per school (Admin → Schools); it must be a real IANA
+   name (`Asia/Kolkata`, not `IST`), because both the API and the clients
+   fall back — the API to UTC, the clients to the device clock — which makes
+   the two sides disagree.
+
 ---
 
 ### 3.7 A hazard this schema has to respect: composite `ON DELETE SET NULL`

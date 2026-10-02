@@ -34,6 +34,7 @@ import {
 } from '../../../lib/errors';
 import {
   formatDateTime,
+  formatSchoolDateTime,
   fromDateTimeLocalValue,
   tripStatusLabel,
   tripStatusTone,
@@ -122,8 +123,14 @@ export default function TripsPage() {
     }
     setBusy(true);
     try {
-      unwrapEnvelope(await apiClient.createTrip(parsed.data));
-      toast.push('Trip scheduled.', 'success');
+      const created = unwrapEnvelope(await apiClient.createTrip(parsed.data));
+      // Say the school-local date explicitly: a trip filed under another
+      // school-local date does not appear under the default "today" filter,
+      // and the dispatcher must not be left wondering where it went.
+      toast.push(
+        `Trip scheduled for ${formatSchoolDateTime(created.scheduled_start_at, user?.school_timezone)} (school time).`,
+        'success',
+      );
       setOpen(false);
       await list.reload();
     } catch (error) {
@@ -211,7 +218,7 @@ export default function TripsPage() {
           description={
             list.search
               ? 'No trips match your search. Try a different term or clear it.'
-              : 'Schedule a trip from an active driver or conductor assignment.'
+              : `No trips on ${dateFilter || 'this date'} (school time). Trips appear on their scheduled date — move the date filter above to the day the trip departs.`
           }
           action={
             list.search ? (

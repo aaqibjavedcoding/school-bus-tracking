@@ -297,7 +297,12 @@ export default function AdminTripsScreen() {
     setFieldErrors({});
     try {
       const trip = unwrapEnvelope(await apiClient.createTrip(parsed.data));
-      toast.push('Trip scheduled.', 'success');
+      // Spell out the departure (device clock) so a trip filed under another
+      // school-local date is not mistaken for a lost create.
+      toast.push(
+        `Trip scheduled for ${formatDate(trip.scheduled_start_at)} · ${formatTime(trip.scheduled_start_at)}.`,
+        'success',
+      );
       setOpen(false);
       await list.reload();
       router.push(`/trips/${trip.id}`);
@@ -467,7 +472,7 @@ export default function AdminTripsScreen() {
               description={
                 filtersActive
                   ? 'No trips match the current filters.'
-                  : 'Nothing is scheduled. Tap Schedule to dispatch a trip from an active assignment.'
+                  : `Nothing is scheduled on ${day} (school time). Trips appear on the day they depart — move the day filter to that date. Tap Schedule to dispatch a trip from an active assignment.`
               }
               action={
                 filtersActive ? (

@@ -19,6 +19,7 @@ export {
   manifestCounts,
   groupManifestByStop,
   isTripOpen,
+  selectCrewTripsForDay,
 } from './crew-trip';
 export type { ManifestStopGroup } from './crew-trip';
 export { useCrewToday, buildCrewTodayData } from './useCrewToday';

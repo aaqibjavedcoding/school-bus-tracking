@@ -22,7 +22,12 @@ import {
   Trip,
   User,
 } from '../../database/models';
-import { addCalendarDays, dateOnlyInTimeZone, startOfDateInTimeZone } from '../../common/timezone';
+import {
+  addCalendarDays,
+  dateOnlyInTimeZone,
+  formatDateTimeInTimeZone,
+  startOfDateInTimeZone,
+} from '../../common/timezone';
 import type { TenantRequestUser as AuthenticatedRequestUser } from '../../common/guards';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { LiveTrackingService } from '../live-tracking/live-tracking.service';
@@ -35,6 +40,7 @@ import {
   TRIP_ASSIGNMENT_PERIOD_MESSAGE,
   TRIP_BUS_INVALID_MESSAGE,
   TRIP_CONDUCTOR_INVALID_MESSAGE,
+  TRIP_CONFLICT_DETAIL_MESSAGE,
   TRIP_CONFLICT_MESSAGE,
   TRIP_DATE_INVALID_MESSAGE,
   TRIP_DATE_RANGE_MESSAGE,
@@ -125,7 +131,7 @@ export class TripsService {
 
     const timeZone = await this.schoolTimeZone(schoolId);
     const target = await this.resolveDispatch(schoolId, dto, scheduledStartAt, timeZone);
-    await this.assertNoScheduleConflict(schoolId, target, scheduledStartAt, undefined);
+    await this.assertNoScheduleConflict(schoolId, target, scheduledStartAt, undefined, timeZone);
 
     try {
       const trip = await this.trips.create({
@@ -363,13 +369,9 @@ export class TripsService {
     };
 
     let target: DispatchTarget | null = null;
+    const timeZone = await this.schoolTimeZone(schoolId);
     if (dto.run_id !== undefined || dto.route_assignment_id !== undefined) {
-      target = await this.resolveDispatch(
-        schoolId,
-        dto,
-        scheduledStartAt,
-        await this.schoolTimeZone(schoolId),
-      );
+      target = await this.resolveDispatch(schoolId, dto, scheduledStartAt, timeZone);
       // Re-dispatch replaces the whole snapshot — including clearing the run
       // when the legacy assignment path is chosen — so the trip never mixes
       // resources from two sources.
@@ -385,6 +387,7 @@ export class TripsService {
       target ?? { run_id: trip.run_id, route_id: trip.route_id },
       scheduledStartAt,
       id,
+      timeZone,
     );
 
     try {
@@ -842,6 +845,7 @@ export class TripsService {
     target: Pick<DispatchTarget, 'route_id' | 'run_id'>,
     scheduledStartAt: Date,
     excludeId: string | undefined,
+    timeZone: string,
   ): Promise<void> {
     const clash = await this.trips.findOne({
       where: {
@@ -855,7 +859,19 @@ export class TripsService {
     });
 
     if (clash && clash.id !== excludeId) {
-      throw new ConflictException(TRIP_CONFLICT_MESSAGE);
+      // The plain message answers "was it created?" but not "where is it?" —
+      // a trip filed under another school-local date is invisible under the
+      // default "today" filter on every list surface, so the dispatcher needs
+      // the clash's school-local departure and date to find it again.
+      const clashStart = toDate(clash.scheduled_start_at);
+      const clashDate = dateOnlyInTimeZone(clashStart, timeZone);
+      throw new ConflictException(
+        TRIP_CONFLICT_DETAIL_MESSAGE(
+          formatDateTimeInTimeZone(clashStart, timeZone),
+          timeZone,
+          clashDate,
+        ),
+      );
     }
   }
 
