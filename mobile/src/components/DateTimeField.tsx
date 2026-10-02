@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import {
+  fromDateTimeLocalValue,
   isValidDateTimeLocal,
   joinDateTimeLocal,
   maskTime,
@@ -18,8 +19,13 @@ import { CalendarPicker } from './date-picker-calendar';
  * The value is the exact same `YYYY-MM-DDTHH:mm` *local* string the web form
  * holds in state, so both platforms feed `fromDateTimeLocalValue()` and the
  * shared `tripCreateSchema` with identical data. Nothing is hardcoded: the
- * field starts empty and the quick actions are computed from the device clock
- * at press time.
+ * field starts empty and the quick actions are computed from the clock at
+ * press time.
+ *
+ * The `timeZone` prop is the school's IANA timezone: the value, the quick
+ * actions and the shifts all operate on the school's wall clock, never on the
+ * device's. Omitting it (legacy sessions without a configured timezone) keeps
+ * the historical device-local behaviour.
  *
  * The **date** half is picked on the shared {@link CalendarPicker} — no
  * manual date typing anywhere in the app, so an impossible date (31 February)
@@ -38,6 +44,8 @@ export interface DateTimeFieldProps {
   /** Renders "Now"/"+1 hour"/"Clear" shortcuts computed from the device clock. */
   quickActions?: boolean;
   optional?: boolean;
+  /** School IANA timezone the value's wall clock belongs to. */
+  timeZone?: string | null;
 }
 
 export const DateTimeField: React.FC<DateTimeFieldProps> = ({
@@ -48,6 +56,7 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
   hint,
   quickActions = true,
   optional = false,
+  timeZone = null,
 }) => {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const keyboardForm = useKeyboardForm();
@@ -57,10 +66,14 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
 
   const setTime = (next: string) => onChange(joinDateTimeLocal(date, maskTime(next)));
 
+  // Shifting is instant arithmetic on the school-local value (converted to
+  // UTC and back), so "+30 min" means 30 school minutes even when the device
+  // sits in another timezone.
   const shift = (minutes: number) => {
-    const base = isValidDateTimeLocal(value) ? new Date(value) : new Date();
-    base.setMinutes(base.getMinutes() + minutes);
-    onChange(toDateTimeLocalValue(base));
+    const base = isValidDateTimeLocal(value)
+      ? new Date(fromDateTimeLocalValue(value, timeZone))
+      : new Date();
+    onChange(toDateTimeLocalValue(new Date(base.getTime() + minutes * 60_000), timeZone));
   };
 
   return (
@@ -99,7 +112,10 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
 
       {quickActions ? (
         <View style={styles.actions}>
-          <Pressable onPress={() => onChange(toDateTimeLocalValue(new Date()))} hitSlop={6}>
+          <Pressable
+            onPress={() => onChange(toDateTimeLocalValue(new Date(), timeZone))}
+            hitSlop={6}
+          >
             <Text style={styles.action}>Now</Text>
           </Pressable>
           <Pressable onPress={() => shift(30)} hitSlop={6}>

@@ -105,11 +105,15 @@ export default function TripsPage() {
         : form.route_assignment_id
           ? { route_assignment_id: form.route_assignment_id }
           : {}),
+      // School-local wall clocks, not device-local ones: the datetime-local
+      // values are the school's calendar, so both ends of the schedule are
+      // resolved in `user.school_timezone` (falling back to the device clock
+      // only for legacy sessions without one).
       scheduled_start_at: form.scheduled_start_at
-        ? fromDateTimeLocalValue(form.scheduled_start_at)
+        ? fromDateTimeLocalValue(form.scheduled_start_at, user?.school_timezone)
         : '',
       scheduled_end_at: form.scheduled_end_at
-        ? fromDateTimeLocalValue(form.scheduled_end_at)
+        ? fromDateTimeLocalValue(form.scheduled_end_at, user?.school_timezone)
         : null,
     };
     const parsed = tripCreateSchema.safeParse({

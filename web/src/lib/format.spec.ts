@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { formatCurrency, PLATFORM_CURRENCY, schoolDateOnly } from './format.ts';
+import {
+  formatCurrency,
+  fromDateTimeLocalValue,
+  PLATFORM_CURRENCY,
+  schoolDateOnly,
+} from './format.ts';
 
 /**
  * Currency display for the Super Admin Plans catalogue, the platform
@@ -80,5 +85,97 @@ describe('schoolDateOnly', () => {
       schoolDateOnly('America/Los_Angeles', new Date('2026-09-24T05:00:00.000Z')),
       '2026-09-23',
     );
+  });
+});
+
+/**
+ * Scheduling regression: a `datetime-local` value is the school's wall clock,
+ * never the device's. An admin whose browser runs in a different timezone
+ * than the school used to get `new Date(value)` — a device-timezone reading —
+ * which could save a 2 October 07:00 trip as a 1 October instant (and hide it
+ * from the driver's "today" list). These tests pin the school-timezone
+ * conversion on the reported zones, on both ends of the schedule, and keep
+ * the legacy device-timezone fallback for sessions without a timezone.
+ */
+describe('fromDateTimeLocalValue', () => {
+  it('interprets the value in the school timezone: Asia/Kolkata (UTC+5:30)', () => {
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'Asia/Kolkata'),
+      '2026-10-02T01:30:00.000Z',
+    );
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T15:30', 'Asia/Kolkata'),
+      '2026-10-02T10:00:00.000Z',
+    );
+  });
+
+  it('interprets the value in the school timezone: America/Chicago (UTC-5 CDT)', () => {
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'America/Chicago'),
+      '2026-10-02T12:00:00.000Z',
+    );
+  });
+
+  it('follows the school timezone across its daylight-saving change', () => {
+    // Chicago leaves DST on 1 November 2026: 2 October is CDT (UTC-5) but
+    // 2 November is CST (UTC-6). The same wall clock maps to different
+    // instants — the zone's rules, not a fixed offset, drive the conversion.
+    assert.equal(
+      fromDateTimeLocalValue('2026-11-02T07:00', 'America/Chicago'),
+      '2026-11-02T13:00:00.000Z',
+    );
+  });
+
+  it('keeps a trip scheduled on 2 October on 2 October in the school timezone', () => {
+    // The instant the API receives must land on the same school-local
+    // calendar date the trip lists filter by (schoolDateOnly), for the
+    // school admin and the driver alike.
+    for (const timeZone of ['Asia/Kolkata', 'America/Chicago']) {
+      const iso = fromDateTimeLocalValue('2026-10-02T07:00', timeZone);
+      assert.equal(schoolDateOnly(timeZone, new Date(iso)), '2026-10-02');
+    }
+  });
+
+  it('does not use the device timezone when a school timezone is configured', () => {
+    // A device ahead of the school (the reported bug: the trip fell back to
+    // 1 October) and a device behind it must produce the same instant.
+    const originalTz = process.env.TZ;
+    try {
+      for (const deviceTz of ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+        process.env.TZ = deviceTz;
+        assert.equal(
+          fromDateTimeLocalValue('2026-10-02T07:00', 'America/Chicago'),
+          '2026-10-02T12:00:00.000Z',
+          `device timezone ${deviceTz} leaked into the conversion`,
+        );
+        assert.equal(
+          fromDateTimeLocalValue('2026-10-02T07:00', 'Asia/Kolkata'),
+          '2026-10-02T01:30:00.000Z',
+          `device timezone ${deviceTz} leaked into the conversion`,
+        );
+      }
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  });
+
+  it('applies the school timezone to both ends of the schedule', () => {
+    const timeZone = 'Asia/Kolkata';
+    const start = fromDateTimeLocalValue('2026-10-02T07:00', timeZone);
+    const end = fromDateTimeLocalValue('2026-10-02T09:00', timeZone);
+    assert.equal(start, '2026-10-02T01:30:00.000Z');
+    assert.equal(end, '2026-10-02T03:30:00.000Z');
+    assert.ok(Date.parse(end) > Date.parse(start), 'the end must follow the start');
+  });
+
+  it('keeps the legacy device-timezone reading when no school timezone is available', () => {
+    // Legacy sessions (and any timezone the runtime cannot resolve) must
+    // behave exactly as before the school-timezone conversion existed.
+    const expected = new Date('2026-10-02T07:00').toISOString();
+    assert.equal(fromDateTimeLocalValue('2026-10-02T07:00'), expected);
+    assert.equal(fromDateTimeLocalValue('2026-10-02T07:00', null), expected);
+    assert.equal(fromDateTimeLocalValue('2026-10-02T07:00', ''), expected);
+    assert.equal(fromDateTimeLocalValue('2026-10-02T07:00', 'Not/AZone'), expected);
   });
 });

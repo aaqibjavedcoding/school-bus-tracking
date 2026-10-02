@@ -7,6 +7,7 @@ import {
   formatEtaMinutes,
   formatTime,
   formatRelative,
+  fromDateTimeLocalValue,
   tripStatusLabel,
   utcDateOnly,
   schoolDateOnly,
@@ -87,6 +88,27 @@ describe('schoolDateOnly', () => {
     assert.equal(
       schoolDateOnly('America/Los_Angeles', new Date('2026-09-24T05:00:00.000Z')),
       '2026-09-23',
+    );
+  });
+});
+
+describe('fromDateTimeLocalValue', () => {
+  // The trip form converts through this module; the re-export must carry the
+  // school-timezone behaviour of `lib/datetime.ts` (its regression suite is
+  // there), so both clients always send the API the identical instant.
+  it('converts a school-local schedule value into the UTC instant the API expects', () => {
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'Asia/Kolkata'),
+      '2026-10-02T01:30:00.000Z',
+    );
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'America/Chicago'),
+      '2026-10-02T12:00:00.000Z',
+    );
+    // Without a usable timezone the legacy device-timezone reading is kept.
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00'),
+      new Date('2026-10-02T07:00').toISOString(),
     );
   });
 });

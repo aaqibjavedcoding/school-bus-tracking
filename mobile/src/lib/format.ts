@@ -66,10 +66,13 @@ export function schoolDateOnly(timeZone?: string | null, date = new Date()): str
  * ISO-8601 UTC instant from a `YYYY-MM-DDTHH:mm` local value — the exact
  * mirror of the web `fromDateTimeLocalValue`, so both clients send the API
  * identical payloads.
+ *
+ * The value is interpreted in the school's IANA timezone when one is
+ * configured (a `datetime-local` value is the school's wall clock, not the
+ * device's); without a usable timezone the historical device-timezone
+ * reading is kept for legacy sessions.
  */
-export function fromDateTimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
-}
+export { fromDateTimeLocalValue } from './datetime.ts';
 
 /** Device-local time, e.g. "4:05 PM" (deterministic 12-hour clock). */
 export function formatTime(value: string | number | Date | null | undefined): string {

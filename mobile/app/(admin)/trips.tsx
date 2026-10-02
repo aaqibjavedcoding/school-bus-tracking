@@ -278,11 +278,15 @@ export default function AdminTripsScreen() {
         : form.route_assignment_id
           ? { route_assignment_id: form.route_assignment_id }
           : {}),
+      // School-local wall clocks, not device-local ones: the datetime-local
+      // values are the school's calendar, so both ends of the schedule are
+      // resolved in `user.school_timezone` (falling back to the device clock
+      // only for legacy sessions without one).
       scheduled_start_at: form.scheduled_start_at
-        ? fromDateTimeLocalValue(form.scheduled_start_at)
+        ? fromDateTimeLocalValue(form.scheduled_start_at, user?.school_timezone)
         : '',
       scheduled_end_at: form.scheduled_end_at
-        ? fromDateTimeLocalValue(form.scheduled_end_at)
+        ? fromDateTimeLocalValue(form.scheduled_end_at, user?.school_timezone)
         : null,
     };
     const parsed = tripCreateSchema.safeParse({
@@ -549,7 +553,8 @@ export default function AdminTripsScreen() {
           value={form.scheduled_start_at}
           onChange={(value) => setForm({ ...form, scheduled_start_at: value })}
           error={fieldErrors.scheduled_start_at}
-          hint="Device-local time — sent to the API as a UTC instant."
+          hint="School-local time — sent to the API as a UTC instant."
+          timeZone={user?.school_timezone}
         />
         <DateTimeField
           label="Scheduled end"
@@ -557,6 +562,7 @@ export default function AdminTripsScreen() {
           value={form.scheduled_end_at}
           onChange={(value) => setForm({ ...form, scheduled_end_at: value })}
           error={fieldErrors.scheduled_end_at}
+          timeZone={user?.school_timezone}
         />
         {lookups.loading ? (
           <Text style={styles.warn}>Loading active assignments…</Text>
