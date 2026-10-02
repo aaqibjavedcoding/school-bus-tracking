@@ -6,8 +6,9 @@ import {
   isValidDateTimeLocal,
   joinDateTimeLocal,
   maskTime,
+  shiftDateTimeLocalValue,
   splitDateTimeLocal,
-  toDateTimeLocalValue,
+  toSchoolDateTimeLocalValue,
 } from '../lib/datetime';
 import { useKeyboardForm } from './keyboard-form';
 import { CalendarPicker } from './date-picker-calendar';
@@ -25,7 +26,9 @@ import { CalendarPicker } from './date-picker-calendar';
  * manual date typing anywhere in the app, so an impossible date (31 February)
  * can never be entered. The **time** half stays a masked `HH:mm` entry
  * (time is not a date), and the quick actions ("Now", "+30 min", "+1 hour")
- * remain the fastest way to fill both at once.
+ * remain the fastest way to fill both at once. When the caller passes the
+ * school's `timeZone`, the value is read/stamped on the school clock rather
+ * than the device clock, keeping scheduled trips on the intended school day.
  */
 
 export interface DateTimeFieldProps {
@@ -38,6 +41,13 @@ export interface DateTimeFieldProps {
   /** Renders "Now"/"+1 hour"/"Clear" shortcuts computed from the device clock. */
   quickActions?: boolean;
   optional?: boolean;
+  /**
+   * IANA timezone the wall-clock value belongs to (the school's timezone for
+   * scheduling forms). Quick actions stamp the school-local wall time and the
+   * calendar highlights the school-local "today"; the device timezone remains
+   * the fallback when unset.
+   */
+  timeZone?: string | null;
 }
 
 export const DateTimeField: React.FC<DateTimeFieldProps> = ({
@@ -48,6 +58,7 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
   hint,
   quickActions = true,
   optional = false,
+  timeZone,
 }) => {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const keyboardForm = useKeyboardForm();
@@ -57,10 +68,16 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
 
   const setTime = (next: string) => onChange(joinDateTimeLocal(date, maskTime(next)));
 
+  /**
+   * Wall-clock arithmetic on the value itself: the "+30 min"/"+1 hour" steps
+   * stay in the school clock domain and never round-trip through the device
+   * timezone (which may differ from the school's).
+   */
   const shift = (minutes: number) => {
-    const base = isValidDateTimeLocal(value) ? new Date(value) : new Date();
-    base.setMinutes(base.getMinutes() + minutes);
-    onChange(toDateTimeLocalValue(base));
+    const base = isValidDateTimeLocal(value)
+      ? value
+      : toSchoolDateTimeLocalValue(new Date(), timeZone);
+    onChange(shiftDateTimeLocalValue(base, minutes));
   };
 
   return (
@@ -99,7 +116,10 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
 
       {quickActions ? (
         <View style={styles.actions}>
-          <Pressable onPress={() => onChange(toDateTimeLocalValue(new Date()))} hitSlop={6}>
+          <Pressable
+            onPress={() => onChange(toSchoolDateTimeLocalValue(new Date(), timeZone))}
+            hitSlop={6}
+          >
             <Text style={styles.action}>Now</Text>
           </Pressable>
           <Pressable onPress={() => shift(30)} hitSlop={6}>
@@ -128,6 +148,7 @@ export const DateTimeField: React.FC<DateTimeFieldProps> = ({
         visible={calendarOpen}
         value={date}
         initialDate={date || undefined}
+        timeZone={timeZone}
         onConfirm={(day) => onChange(joinDateTimeLocal(day, time))}
         onClose={() => setCalendarOpen(false)}
       />

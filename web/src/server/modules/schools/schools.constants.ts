@@ -12,6 +12,14 @@ export const SCHOOLS_USERS_REPOSITORY = 'SCHOOLS_USERS_REPOSITORY';
 export const SCHOOL_CODE_TAKEN_MESSAGE = 'A school with this code already exists';
 
 /**
+ * Message returned when the school timezone is not a resolvable IANA name.
+ * An unresolvable value would silently degrade trip day-math to UTC, so it is
+ * rejected at write time instead of persisting a broken tenant.
+ */
+export const SCHOOL_TIMEZONE_INVALID_MESSAGE =
+  'Please enter a valid IANA timezone, for example Asia/Kolkata';
+
+/**
  * Message returned when the admin email already exists inside the target
  * school. Email uniqueness is tenant-scoped (`uq_users_school_email`), so an
  * email used by another school remains valid here.

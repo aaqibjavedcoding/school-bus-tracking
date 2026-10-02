@@ -11,6 +11,23 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_WINDOW_MS = 36 * 60 * 60 * 1000;
 
+/**
+ * True when `value` resolves as an IANA timezone. Every trip day-boundary
+ * (`startOfDateInTimeZone`/`dateOnlyInTimeZone`) is computed in the school's
+ * configured timezone, so a misspelled value must be rejected at write time —
+ * silently persisting it makes every "today" query fall back to UTC and trips
+ * appear a day early/late for the school and its drivers.
+ */
+export function isValidIanaTimeZone(value: string): boolean {
+  if (!value || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,

@@ -3,12 +3,15 @@ import { test } from 'node:test';
 
 import {
   fromDateTimeLocalValue,
+  fromSchoolDateTimeLocalValue,
   isValidDateTimeLocal,
   joinDateTimeLocal,
   maskDate,
   maskTime,
+  shiftDateTimeLocalValue,
   splitDateTimeLocal,
   toDateTimeLocalValue,
+  toSchoolDateTimeLocalValue,
 } from './datetime.ts';
 
 test('toDateTimeLocalValue renders a zero-padded local datetime value', () => {
@@ -64,4 +67,64 @@ test('joinDateTimeLocal is the inverse of splitDateTimeLocal', () => {
   const { date, time } = splitDateTimeLocal(value);
   assert.equal(joinDateTimeLocal(date, time), value);
   assert.equal(joinDateTimeLocal('', ''), '', 'an empty form stays empty, never hardcoded');
+});
+
+test('fromSchoolDateTimeLocalValue converts school wall time in Asia/Kolkata', () => {
+  // 07:30 in Kolkata is 02:00 UTC — the SAME calendar day, so a morning trip
+  // never slides into the previous school day.
+  assert.equal(
+    fromSchoolDateTimeLocalValue('2026-10-02T07:30', 'Asia/Kolkata'),
+    '2026-10-02T02:00:00.000Z',
+  );
+  // The regression case: an early trip must not become "yesterday" for the
+  // school (and thus vanish from the driver's "today" list).
+  assert.equal(
+    fromSchoolDateTimeLocalValue('2026-10-02T00:30', 'Asia/Kolkata'),
+    '2026-10-01T19:00:00.000Z',
+  );
+});
+
+test('fromSchoolDateTimeLocalValue honours date-dependent US DST offsets', () => {
+  // October: Chicago is UTC-5 (CDT); March 1: UTC-6 (CST).
+  assert.equal(
+    fromSchoolDateTimeLocalValue('2026-10-02T07:30', 'America/Chicago'),
+    '2026-10-02T12:30:00.000Z',
+  );
+  assert.equal(
+    fromSchoolDateTimeLocalValue('2026-03-01T07:30', 'America/Chicago'),
+    '2026-03-01T13:30:00.000Z',
+  );
+});
+
+test('school helpers round-trip the wall clock', () => {
+  for (const value of ['2026-01-15T06:45', '2026-06-30T14:05', '2026-12-31T23:55']) {
+    for (const timeZone of ['Asia/Kolkata', 'America/Chicago', 'Pacific/Auckland', 'UTC']) {
+      assert.equal(
+        toSchoolDateTimeLocalValue(
+          new Date(fromSchoolDateTimeLocalValue(value, timeZone)),
+          timeZone,
+        ),
+        value,
+        `${value} in ${timeZone}`,
+      );
+    }
+  }
+});
+
+test('school helpers fall back to the device interpretation without a usable timezone', () => {
+  const value = '2026-10-02T07:30';
+  for (const timeZone of [undefined, null, '', 'Not/AZone']) {
+    assert.equal(fromSchoolDateTimeLocalValue(value, timeZone), new Date(value).toISOString());
+  }
+  const date = new Date(2026, 9, 2, 7, 30);
+  assert.equal(toSchoolDateTimeLocalValue(date, undefined), toDateTimeLocalValue(date));
+  assert.equal(toSchoolDateTimeLocalValue(date, 'Not/AZone'), toDateTimeLocalValue(date));
+});
+
+test('shiftDateTimeLocalValue shifts wall time, rolling over midnight back and forth', () => {
+  assert.equal(shiftDateTimeLocalValue('2026-10-02T07:30', 30), '2026-10-02T08:00');
+  assert.equal(shiftDateTimeLocalValue('2026-10-02T07:15', 60), '2026-10-02T08:15');
+  assert.equal(shiftDateTimeLocalValue('2026-10-02T23:45', 30), '2026-10-03T00:15');
+  assert.equal(shiftDateTimeLocalValue('2026-10-02T00:15', -30), '2026-10-01T23:45');
+  assert.equal(shiftDateTimeLocalValue('2026-01-01T00:00', -60), '2025-12-31T23:00');
 });

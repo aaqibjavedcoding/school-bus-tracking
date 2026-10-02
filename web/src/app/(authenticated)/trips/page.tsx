@@ -34,11 +34,11 @@ import {
 } from '../../../lib/errors';
 import {
   formatDateTime,
-  fromDateTimeLocalValue,
   tripStatusLabel,
   tripStatusTone,
   schoolDateOnly,
 } from '../../../lib/format';
+import { fromSchoolDateTimeLocalValue } from '../../../lib/school-datetime';
 import { apiClient } from '../../../services/api';
 
 export default function TripsPage() {
@@ -105,11 +105,14 @@ export default function TripsPage() {
         : form.route_assignment_id
           ? { route_assignment_id: form.route_assignment_id }
           : {}),
+      // The typed wall time is school time: converting it in the school's
+      // timezone keeps the trip on the intended calendar day even if this
+      // device's clock is set to another timezone.
       scheduled_start_at: form.scheduled_start_at
-        ? fromDateTimeLocalValue(form.scheduled_start_at)
+        ? fromSchoolDateTimeLocalValue(form.scheduled_start_at, user?.school_timezone)
         : '',
       scheduled_end_at: form.scheduled_end_at
-        ? fromDateTimeLocalValue(form.scheduled_end_at)
+        ? fromSchoolDateTimeLocalValue(form.scheduled_end_at, user?.school_timezone)
         : null,
     };
     const parsed = tripCreateSchema.safeParse({
@@ -335,6 +338,11 @@ export default function TripsPage() {
             id="scheduled_start_at"
             label="Scheduled start"
             error={fieldErrors.scheduled_start_at}
+            hint={
+              user?.school_timezone
+                ? `School time (${user.school_timezone}).`
+                : 'School local time.'
+            }
           >
             <Input
               id="scheduled_start_at"
