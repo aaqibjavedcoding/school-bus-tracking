@@ -966,10 +966,24 @@ table.data tbody tr:hover {
   animation: bus-marker-presence 2.4s ease-in-out infinite;
 }
 
+/*
+ * A stale fix is desaturated, never faded: a see-through vehicle reads as a
+ * rendering fault, and transparency was one of the symptoms this map was
+ * reported for. Staleness is carried by colour (and by the status card).
+ */
 .bus-marker.is-stale .bus-marker-art,
 .bus-marker.is-stale .bus-marker-shadow {
   filter: grayscale(1) saturate(0.18);
-  opacity: 0.68;
+  opacity: 1;
+}
+
+/*
+ * In the pitched camera the vehicle is the solid extruded mesh drawn inside
+ * the WebGL scene (`bus-3d.ts`); the flat DOM marker steps aside so the two
+ * can never be visible at once.
+ */
+.bus-marker.is-hidden-by-3d-bus {
+  display: none;
 }
 
 @keyframes bus-marker-presence {

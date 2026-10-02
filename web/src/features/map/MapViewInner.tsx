@@ -40,6 +40,13 @@ import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 import { resolveMapStyleUrl } from './map-style';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
+import {
+  BUS_3D_LAYER_ID,
+  BUS_3D_SOURCE_ID,
+  EMPTY_BUS_MESH,
+  busExtrusionLayer,
+  busMeshCollection,
+} from './bus-3d';
 import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
 import { stopsLayerCollection } from './stop-layer';
 import { useAuth } from '../auth/AuthProvider';
@@ -101,6 +108,30 @@ function fallbackNoticeMessage(reason: MapFallbackReason): string {
     : '3D view was turned off to keep the map smooth.';
 }
 
+/**
+ * Every app layer, in the order they must be drawn. Used to put them back on
+ * top after the 3D building extrusion is inserted into the base style: the
+ * extrusion goes *below* the style's first symbol layer, and MapLibre draws
+ * in layer order, so the stops/route/bus must sit above it or the 3D view can
+ * bury them under the buildings.
+ */
+const APP_LAYER_ORDER = [
+  'sbt-route-line',
+  'sbt-trail-line',
+  'sbt-accuracy-fill',
+  'sbt-accuracy-stroke',
+  'sbt-stops-dot',
+  'sbt-stops-number',
+  'sbt-stops-label',
+  BUS_3D_LAYER_ID,
+];
+
+function raiseAppLayers(map: maplibregl.Map): void {
+  for (const id of APP_LAYER_ORDER) {
+    if (map.getLayer(id)) map.moveLayer(id);
+  }
+}
+
 /** Add/remove presentation only; never add or replace an OpenFreeMap source. */
 function applyMapDimension(
   map: maplibregl.Map,
@@ -118,6 +149,7 @@ function applyMapDimension(
         map.addLayer(layer as unknown as maplibregl.LayerSpecification, before);
       }
     }
+    raiseAppLayers(map);
     return;
   }
   if (map.getLayer(MAP_BUILDING_LAYER_ID)) map.removeLayer(MAP_BUILDING_LAYER_ID);
@@ -258,6 +290,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   // Set by the map-init effect so `map.on('load')` can sync overlays without
   // depending on a callback that did not exist when the map was created.
   const syncOverlaysRef = useRef<(() => void) | null>(null);
+  // Rebuilds the extruded 3D bus mesh from the last rendered position. Held
+  // in a ref so MapLibre's own `zoom` event can re-scale the vehicle without
+  // the map effect depending on React state.
+  const busMeshSyncRef = useRef<(() => void) | null>(null);
   // Rolling window of recent map failures. A ref, not state: MapLibre can fire
   // dozens of error events per second during a bad pan and none of them should
   // cost a render unless the user-visible notice actually changes.
@@ -389,28 +425,78 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
   }, []);
 
-  const applyFrame = useCallback((now: number) => {
-    const rendered = motionRef.current.sample(now);
-    if (!rendered) return;
-    const lngLat: [number, number] = [rendered.longitude, rendered.latitude];
-    busMarkerRef.current?.setLngLat(lngLat);
-    if (busElementRef.current) {
-      setBusIconHeading(busElementRef.current, rendered.headingDeg);
-      setBusMarkerVisualState(busElementRef.current, {
-        ...busVisualStateRef.current,
-        moving: busVisualStateRef.current.moving && rendered.headingDeg !== null,
-      });
-    }
-    renderedRef.current = {
-      latitude: rendered.latitude,
-      longitude: rendered.longitude,
-      headingDeg: rendered.headingDeg,
-    };
-    // Imperative camera follow hook
-    if (followRef.current.mode === 'following') {
-      panRef.current?.(FOLLOW_CAMERA_THROTTLE_MS + 50, false);
-    }
+  /**
+   * Put the bus on the map at one rendered position.
+   *
+   * There are two representations and exactly one is ever visible:
+   *
+   * - **2D camera** — the existing flat DOM marker (unchanged).
+   * - **3D camera** — the extruded mesh in `sbt-bus-3d` (see `bus-3d.ts`),
+   *   with the DOM marker hidden. A DOM marker is viewport-aligned, so in a
+   *   pitched scene it is a billboard standing up in front of the map: that
+   *   is the "flat sticker" the 3D view was reported as, and no amount of CSS
+   *   can make an HTML element a solid object inside the WebGL scene.
+   *
+   * Called from the animation frame loop, so the mesh follows the same
+   * interpolated position the marker does — smooth between GPS fixes, always
+   * ending on a real fix (`bus-motion.ts` never extrapolates).
+   */
+  const paintBus = useCallback((rendered: RenderedMarker | null) => {
+    const map = mapRef.current;
+    if (!map || !mapReadyRef.current) return;
+    const element = busElementRef.current;
+    const source = map.getSource(BUS_3D_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    const mesh =
+      source && dimensionRef.current === '3d' && rendered
+        ? busMeshCollection({
+            latitude: rendered.latitude,
+            longitude: rendered.longitude,
+            headingDeg: rendered.headingDeg,
+            zoom: map.getZoom(),
+            stale: !busVisualStateRef.current.live,
+          })
+        : null;
+    // The flat marker steps aside only once there is a solid mesh to replace
+    // it with. If the 3D source is missing for any reason, the bus is still
+    // on the map — "no bus at all" is never an outcome of this function.
+    if (element) element.classList.toggle('is-hidden-by-3d-bus', mesh !== null);
+    source?.setData(mesh ?? EMPTY_BUS_MESH);
   }, []);
+
+  useEffect(() => {
+    busMeshSyncRef.current = () => paintBus(renderedRef.current);
+    return () => {
+      busMeshSyncRef.current = null;
+    };
+  }, [paintBus]);
+
+  const applyFrame = useCallback(
+    (now: number) => {
+      const rendered = motionRef.current.sample(now);
+      if (!rendered) return;
+      const lngLat: [number, number] = [rendered.longitude, rendered.latitude];
+      busMarkerRef.current?.setLngLat(lngLat);
+      if (busElementRef.current) {
+        setBusIconHeading(busElementRef.current, rendered.headingDeg);
+        setBusMarkerVisualState(busElementRef.current, {
+          ...busVisualStateRef.current,
+          moving: busVisualStateRef.current.moving && rendered.headingDeg !== null,
+        });
+      }
+      renderedRef.current = {
+        latitude: rendered.latitude,
+        longitude: rendered.longitude,
+        headingDeg: rendered.headingDeg,
+      };
+      // The solid 3D vehicle rides the same interpolated position/heading.
+      paintBus(renderedRef.current);
+      // Imperative camera follow hook
+      if (followRef.current.mode === 'following') {
+        panRef.current?.(FOLLOW_CAMERA_THROTTLE_MS + 50, false);
+      }
+    },
+    [paintBus],
+  );
 
   const startLoop = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -643,10 +729,21 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     });
     map.on('render', () => recordRenderFrameRef.current(nowMs()));
 
-    map.on('load', () => {
-      originalSkyRef.current = map.getStyle().sky;
-      applyMapDimension(map, dimensionRef.current, originalSkyRef.current);
-
+    /**
+     * Create every app source/layer. Idempotent (every step is guarded by a
+     * `getSource`/`getLayer` check) so it can run again whenever the style
+     * reloads.
+     *
+     * It is deliberately NOT responsible for the 3D camera presentation any
+     * more. Sky/building-extrusion application used to be the first statement
+     * of the `load` handler, which made the whole overlay set — the route, the
+     * accuracy ring, the STOPS and the readiness flag the bus marker waits on
+     * — hostage to it: one throw there and nothing below ever ran, so the map
+     * showed tiles and nothing else. Presentation now runs last, in its own
+     * try/catch, after the overlays and after `mapReady`.
+     */
+    let overlayHandlersBound = false;
+    const installOverlays = () => {
       // Route line source + layer
       if (!map.getSource('sbt-route')) {
         map.addSource('sbt-route', {
@@ -813,6 +910,22 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         });
       }
 
+      /*
+       * The live bus as real 3D geometry (see `bus-3d.ts`).
+       *
+       * Added LAST, so it sits above every other app layer, and as a
+       * `fill-extrusion` so it is an actual solid volume inside the WebGL
+       * scene — depth-tested against the 3D buildings, shaded, fully opaque.
+       * The flat DOM marker remains the 2D-camera representation; exactly one
+       * of the two is ever showing (see `syncBusPresentation`).
+       */
+      if (!map.getSource(BUS_3D_SOURCE_ID)) {
+        map.addSource(BUS_3D_SOURCE_ID, { type: 'geojson', data: EMPTY_BUS_MESH });
+      }
+      if (!map.getLayer(BUS_3D_LAYER_ID)) {
+        map.addLayer(busExtrusionLayer() as unknown as maplibregl.LayerSpecification);
+      }
+
       // The stop popup, via layer click handlers (the click affordance the
       // DOM markers used to carry). One popup instance, re-used per click;
       // the properties travel inside the GeoJSON, so the handler has no
@@ -842,15 +955,50 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           .setLngLat(click.lngLat)
           .addTo(map);
       };
-      map.on('click', 'sbt-stops-dot', onStopLayerClick as never);
-      map.on('click', 'sbt-stops-number', onStopLayerClick as never);
-      map.on('click', 'sbt-stops-label', onStopLayerClick as never);
-      map.on('mouseenter', 'sbt-stops-dot', () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', 'sbt-stops-dot', () => {
-        map.getCanvas().style.cursor = '';
-      });
+      // Bound once: `installOverlays` itself may run again after a style
+      // reload, and MapLibre would otherwise stack duplicate listeners.
+      if (!overlayHandlersBound) {
+        overlayHandlersBound = true;
+        map.on('click', 'sbt-stops-dot', onStopLayerClick as never);
+        map.on('click', 'sbt-stops-number', onStopLayerClick as never);
+        map.on('click', 'sbt-stops-label', onStopLayerClick as never);
+        map.on('mouseenter', 'sbt-stops-dot', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'sbt-stops-dot', () => {
+          map.getCanvas().style.cursor = '';
+        });
+        // The 3D bus keeps the flat marker's click affordance: tapping the
+        // vehicle opens the same status popup.
+        map.on('click', BUS_3D_LAYER_ID, ((event: { lngLat?: maplibregl.LngLat }) => {
+          const popup = busPopupRef.current;
+          const rendered = renderedRef.current;
+          if (!popup) return;
+          popup
+            .setLngLat(
+              rendered
+                ? [rendered.longitude, rendered.latitude]
+                : (event.lngLat as maplibregl.LngLat),
+            )
+            .addTo(map);
+        }) as never);
+        map.on('mouseenter', BUS_3D_LAYER_ID, () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', BUS_3D_LAYER_ID, () => {
+          map.getCanvas().style.cursor = '';
+        });
+      }
+    };
+
+    const onLoad = () => {
+      // Overlays first, and defensively: a failure in any one of them must
+      // not cost the others, and must never cost `mapReady`.
+      try {
+        installOverlays();
+      } catch (error) {
+        console.error('[MapView] overlay installation failed', error);
+      }
 
       // Sources and layers exist: the map can now take overlays. Flip the
       // readiness flag *before* syncing so the sync helpers (which read
@@ -864,17 +1012,54 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       // path alone.
       syncOverlaysRef.current?.();
 
+      // 3D presentation (sky + building extrusion) LAST: it is the newest,
+      // most style-dependent code in this file, and the overlays above must
+      // not depend on it succeeding.
+      try {
+        originalSkyRef.current = map.getStyle().sky;
+        applyMapDimension(map, dimensionRef.current, originalSkyRef.current);
+      } catch (error) {
+        console.error('[MapView] 3D presentation unavailable for this style', error);
+      }
+
       // Initial fit once per trip
       if (mappedStops.length > 0 || fixRef.current) {
         dispatch({ type: 'data-available' });
       }
-    });
+    };
+
+    map.on('load', onLoad);
+
+    // A style reload (or any late style mutation) drops app sources/layers.
+    // Re-installing them here is what keeps the stops and the 3D bus on the
+    // map instead of silently vanishing for the rest of the session.
+    const onStyleReload = () => {
+      if (!mapReadyRef.current || !map.isStyleLoaded()) return;
+      if (map.getLayer('sbt-stops-dot') && map.getLayer(BUS_3D_LAYER_ID)) return;
+      try {
+        installOverlays();
+        syncOverlaysRef.current?.();
+      } catch (error) {
+        console.error('[MapView] overlay re-installation failed', error);
+      }
+    };
+    map.on('styledata', onStyleReload as never);
+
+    // The drawn bus is sized in metres but must keep a readable on-screen
+    // size, so the mesh is rebuilt when the zoom changes.
+    const onZoom = () => {
+      busMeshSyncRef.current?.();
+    };
+    map.on('zoom', onZoom as never);
 
     return () => {
       map.off('movestart', onMoveStart as never);
       map.off('error', onMapErrorEvent as never);
       map.off('idle', onMapHealthy as never);
       map.off('styledata', onStyleData as never);
+      map.off('styledata', onStyleReload as never);
+      map.off('zoom', onZoom as never);
+      map.off('load', onLoad);
       stopLoop();
       stopPopupRef.current?.remove();
       stopPopupRef.current = null;
@@ -917,14 +1102,21 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map || !map.isStyleLoaded()) return;
-    applyMapDimension(map, dimension, originalSkyRef.current);
+    try {
+      applyMapDimension(map, dimension, originalSkyRef.current);
+    } catch (error) {
+      console.error('[MapView] 3D presentation unavailable for this style', error);
+    }
     if (user?.role === 'DRIVER' || dimension === '2d') map.touchPitch.disable();
     else map.touchPitch.enable();
     map.easeTo({
       pitch: dimension === '3d' ? MAP_3D_PITCH : 0,
       duration: reducedMotion ? 0 : 280,
     });
-  }, [dimension, mapReady, reducedMotion, user?.role]);
+    // Swap the vehicle representation with the camera: solid extruded mesh
+    // in 3D, flat marker in 2D. Never both, never neither.
+    paintBus(renderedRef.current);
+  }, [dimension, mapReady, reducedMotion, user?.role, paintBus]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {
@@ -1015,7 +1207,16 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         const el = createBusMarkerElement();
         setBusMarkerVisualState(el, busVisualStateRef.current);
         busElementRef.current = el;
-        const created = new maplibregl.Marker({ element: el, anchor: 'center' })
+        // `opacityWhenCovered` defaults to '0.2' in MapLibre and is applied
+        // by the engine straight onto the element's inline style — which is
+        // one of the ways the bus could read as a translucent ghost. The bus
+        // is a vehicle, not a hint: it is opaque in every camera state.
+        const created = new maplibregl.Marker({
+          element: el,
+          anchor: 'center',
+          opacity: '1',
+          opacityWhenCovered: '1',
+        })
           .setLngLat(lngLat)
           .addTo(readyMap);
         const popup = new maplibregl.Popup({ offset: 24, closeButton: true });
@@ -1035,6 +1236,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
       motionRef.current.reset();
       renderedRef.current = null;
       lastPushedFixRef.current = null;
+      // No position any more: clear the mesh too, or the last bus would stay
+      // frozen on the map after the trip's fix went away.
+      paintBus(null);
       return;
     }
 
@@ -1084,7 +1288,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     if (busElementRef.current)
       setBusMarkerVisualState(busElementRef.current, busVisualStateRef.current);
     applyFrame(now);
-  }, [fix, presentation.animate, reducedMotion, applyFrame, startLoop, dispatch]);
+  }, [fix, presentation.animate, reducedMotion, applyFrame, startLoop, dispatch, paintBus]);
 
   /**
    * The single place that pushes application state onto the map.
