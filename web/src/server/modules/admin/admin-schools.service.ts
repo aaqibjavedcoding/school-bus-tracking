@@ -30,6 +30,8 @@ import {
   User,
 } from '../../database/models';
 import { SchoolsService } from '../schools/schools.service';
+import { SCHOOL_TIMEZONE_INVALID_MESSAGE } from '../schools/schools.constants';
+import { isValidIanaTimeZone } from '../../common/timezone';
 import { AdminSubscriptionsService } from './admin-subscriptions.service';
 import { NO_SUBSCRIPTION_INFO } from './admin-subscriptions.constants';
 import {
@@ -232,7 +234,15 @@ export class AdminSchoolsService {
     if (dto.postal_code !== undefined) updates.postal_code = nullableTrim(dto.postal_code);
     if (dto.country !== undefined)
       updates.country = dto.country ? dto.country.trim().toUpperCase() : null;
-    if (dto.timezone !== undefined) updates.timezone = dto.timezone.trim();
+    if (dto.timezone !== undefined) {
+      const timeZone = dto.timezone.trim();
+      // Persist only resolvable IANA names: trip day-boundaries are computed
+      // in this timezone, and an invalid value silently falls back to UTC.
+      if (!isValidIanaTimeZone(timeZone)) {
+        throw new BadRequestException(SCHOOL_TIMEZONE_INVALID_MESSAGE);
+      }
+      updates.timezone = timeZone;
+    }
 
     if (Object.keys(updates).length === 0) {
       throw new BadRequestException('Please provide at least one school profile field to update.');

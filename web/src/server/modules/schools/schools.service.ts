@@ -1,12 +1,14 @@
-import { ConflictException } from '../../framework';
+import { BadRequestException, ConflictException } from '../../framework';
 import { UniqueConstraintError } from 'sequelize';
 import { SchoolOnboardingResponse, UserRole } from '@school-bus-tracking/shared-types';
 import { hashPassword, normalizeEmail } from '../../auth';
 import { School, User } from '../../database/models';
+import { isValidIanaTimeZone } from '../../common/timezone';
 import {
   ADMIN_EMAIL_TAKEN_MESSAGE,
   ONBOARDING_CONFLICT_MESSAGE,
   SCHOOL_CODE_TAKEN_MESSAGE,
+  SCHOOL_TIMEZONE_INVALID_MESSAGE,
 } from './schools.constants';
 import { OnboardSchoolDto } from './dto/onboard-school.dto';
 
@@ -118,6 +120,12 @@ export class SchoolsService {
         }
 
         const subdomain = nullableTrim(params.subdomain);
+        const timeZone = params.timezone?.trim();
+        // A timezone that Intl cannot resolve would silently degrade every
+        // trip "today" boundary to UTC — reject it instead of persisting.
+        if (timeZone && !isValidIanaTimeZone(timeZone)) {
+          throw new BadRequestException(SCHOOL_TIMEZONE_INVALID_MESSAGE);
+        }
         const school = await this.schools.create(
           {
             name: schoolName,
@@ -131,7 +139,11 @@ export class SchoolsService {
             state: nullableTrim(params.state),
             postal_code: nullableTrim(params.postal_code),
             country: nullableTrim(params.country),
-            timezone: params.timezone?.trim() || 'UTC',
+            // India-focused deployment: a school onboarded without an
+            // explicit timezone operates in IST, not UTC — otherwise every
+            // morning trip lands in the previous UTC day and disappears from
+            // the driver's "today" screen.
+            timezone: timeZone || 'Asia/Kolkata',
             is_active: true,
           },
           { transaction },

@@ -18,13 +18,8 @@ import {
   getApiErrorMessage,
   unwrapEnvelope,
 } from '../../src/lib/errors';
-import {
-  formatDate,
-  formatTime,
-  fromDateTimeLocalValue,
-  tripStatusLabel,
-  schoolDateOnly,
-} from '../../src/lib/format';
+import { formatDate, formatTime, tripStatusLabel, schoolDateOnly } from '../../src/lib/format';
+import { fromSchoolDateTimeLocalValue } from '../../src/lib/datetime';
 import {
   LIVE_FILTER,
   LIVE_STATUSES,
@@ -278,11 +273,14 @@ export default function AdminTripsScreen() {
         : form.route_assignment_id
           ? { route_assignment_id: form.route_assignment_id }
           : {}),
+      // The typed wall time is school time: converting it in the school's
+      // timezone keeps the trip on the intended calendar day even when this
+      // device's clock is set to another timezone.
       scheduled_start_at: form.scheduled_start_at
-        ? fromDateTimeLocalValue(form.scheduled_start_at)
+        ? fromSchoolDateTimeLocalValue(form.scheduled_start_at, user?.school_timezone)
         : '',
       scheduled_end_at: form.scheduled_end_at
-        ? fromDateTimeLocalValue(form.scheduled_end_at)
+        ? fromSchoolDateTimeLocalValue(form.scheduled_end_at, user?.school_timezone)
         : null,
     };
     const parsed = tripCreateSchema.safeParse({
@@ -549,7 +547,12 @@ export default function AdminTripsScreen() {
           value={form.scheduled_start_at}
           onChange={(value) => setForm({ ...form, scheduled_start_at: value })}
           error={fieldErrors.scheduled_start_at}
-          hint="Device-local time — sent to the API as a UTC instant."
+          timeZone={user?.school_timezone}
+          hint={
+            user?.school_timezone
+              ? `School time (${user.school_timezone}) — sent to the API as a UTC instant.`
+              : 'School local time — sent to the API as a UTC instant.'
+          }
         />
         <DateTimeField
           label="Scheduled end"
@@ -557,6 +560,7 @@ export default function AdminTripsScreen() {
           value={form.scheduled_end_at}
           onChange={(value) => setForm({ ...form, scheduled_end_at: value })}
           error={fieldErrors.scheduled_end_at}
+          timeZone={user?.school_timezone}
         />
         {lookups.loading ? (
           <Text style={styles.warn}>Loading active assignments…</Text>

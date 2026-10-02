@@ -3,7 +3,15 @@
 import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
 import { adminSchoolCreateSchema } from '@school-bus-tracking/validation';
-import { Button, Card, Field, Input, PageHeader, PasswordInput, useToast } from '../../../../../components/ui';
+import {
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  PasswordInput,
+  useToast,
+} from '../../../../../components/ui';
 import {
   fieldErrorsFromUnknown,
   fieldErrorsFromZod,
@@ -35,7 +43,10 @@ const EMPTY: FormState = {
   phone: '',
   city: '',
   country: '',
-  timezone: 'UTC',
+  // India-focused deployment: defaults to IST so trip day-boundaries match
+  // the school's local calendar out of the box (a UTC default makes morning
+  // trips render as the previous day).
+  timezone: 'Asia/Kolkata',
   adminFirstName: '',
   adminLastName: '',
   adminEmail: '',
@@ -222,7 +233,7 @@ export default function NewSchoolPage() {
               id="timezone"
               label="Timezone"
               error={fieldErrors['school.timezone']}
-              hint="IANA timezone, e.g. America/Chicago."
+              hint="IANA timezone, e.g. Asia/Kolkata."
             >
               <Input
                 id="timezone"
