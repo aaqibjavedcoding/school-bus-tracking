@@ -109,7 +109,12 @@ export function useCrewStopMark(
       );
 
       if (outcome.mode === 'queued') {
-        setNote(t('trip.stopMark.queued'));
+        const queued = t('trip.stopMark.queued');
+        setNote(queued);
+        // The quick hold button on the next-stop card renders no note of its
+        // own — without this call a queued mark was completely invisible
+        // there, which read as "the button did nothing".
+        onNote?.(queued, 'info');
         return;
       }
       if (result) {

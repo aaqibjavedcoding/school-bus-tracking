@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
+  TripStatus,
   UserRole,
   type TripProgressResponse,
   type TripResponse,
@@ -64,6 +65,7 @@ import {
   KeyValue,
   LoadingView,
   Screen,
+  useToast,
 } from '../../src/components';
 import { formatDate, formatTime, roleLabel } from '../../src/lib/format';
 import { crewCopy } from '../../src/features/crew/crew-copy';
@@ -133,6 +135,15 @@ export default function CrewTripScreen() {
   }, []);
   const { user } = useAuth();
   const t = useTranslation();
+  /**
+   * The screen's toast channel — the place a crew action's outcome is said
+   * out loud. Two failures were previously silent at the moment of the tap
+   * (a refused GPS start on a lifecycle button, a refused/successful manual
+   * stop mark on the hold button); both now surface here with the server's or
+   * the lifecycle's own reason, while the dedicated surfaces (strip, mark
+   * card) keep their existing inline notes.
+   */
+  const toast = useToast();
   const { data, loading, refreshing, error, reload, refresh, applyTrip } = useCrewToday(
     user?.school_timezone,
   );
@@ -178,17 +189,46 @@ export default function CrewTripScreen() {
    *    faked. The conductor's lifecycle taps never start GPS: sharing is the
    *    driver's job. A completed trip stops sharing through the lifecycle's own
    *    trip-closed rule.
+   * 3. **The refusal is spoken at the tap, not only on the strip.** A start
+   *    that does not run (location services off, permission refused) used to
+   *    fail with the trip already running — the driver saw the green
+   *    "boarding" state and drove with the bus invisible, because the only
+   *    trace of the refusal was the small strip line. The lifecycle's own
+   *    reason now toasts immediately, so the fix it names (grant the
+   *    permission here, or turn location on) is a decision made with the
+   *    button that caused it — never a separate trip to Settings the driver
+   *    did not know they needed.
+   * 4. **Depart & drive keeps the bus alive with the screen locked.** A
+   *    foreground watch is suspended by the OS once the phone is locked, so
+   *    the moment the driver actually drives, delivery silently dies. When
+   *    the OS background-location permission is **already granted**, the
+   *    background task is enabled here without any further prompt — the crew
+   *    consented to this run's sharing with the lifecycle tap, and the OS
+   *    permission was given earlier. When it is not granted the foreground
+   *    watch continues as before; nothing sends the driver to Settings.
    */
-  const { startSharing } = sharing;
+  const { startSharing, enableBackground, backgroundPermission } = sharing;
   const onTransitionApplied = useCallback(
     (applied: TripResponse) => {
       applyTrip(applied);
       void reload();
       if (isDriver && isTripShareable(applied)) {
-        void startSharing(applied);
+        void (async () => {
+          const started = await startSharing(applied);
+          if (!started.ok) {
+            toast.push(started.message ?? t('gps.message.startFailed'), 'danger');
+            return;
+          }
+          if (applied.status === TripStatus.IN_PROGRESS && backgroundPermission === 'granted') {
+            // Best effort only: a refusal (no trip, runtime without the task)
+            // is already visible on the strip and must not toast over the
+            // successful start the driver just got.
+            await enableBackground();
+          }
+        })();
       }
     },
-    [applyTrip, reload, isDriver, startSharing],
+    [applyTrip, reload, isDriver, startSharing, enableBackground, backgroundPermission, toast, t],
   );
 
   /**
@@ -364,6 +404,14 @@ export default function CrewTripScreen() {
    * The one-tap escape hatch on the next-stop card. Same hook, same offline
    * queue and same server-confirmed receipt as the "Arrived / Skip stop"
    * block further down — the card just puts it where the driver already is.
+   *
+   * Field fix: this hook's note/error were **never rendered on this screen**
+   * — the dedicated mark card below got the toast and the inline note, but a
+   * hold on this button that failed (server refusal, closed-trip conflict)
+   * or succeeded produced no visible change at all, which read as "the button
+   * does nothing". The receipt and the failure now toast exactly like the
+   * mark card's, and the error also stays on screen as a line under the card
+   * until the next attempt.
    */
   const quickMark = useCrewStopMark(
     trip?.id ?? '',
@@ -377,7 +425,15 @@ export default function CrewTripScreen() {
     () => {
       void refresh();
     },
+    (message, tone) => toast.push(message, tone),
   );
+  /**
+   * Stop marking is only accepted by the server while the run is open
+   * (`BOARDING`/`IN_PROGRESS` — `isTripOpen`). Before this gate the hold
+   * button was offered on a `SCHEDULED` run too, and every hold answered
+   * with an invisible 409 while the driver held it again and again.
+   */
+  const stopMarkingOpen = trip ? isTripOpen(trip.status) : false;
 
   // The manifest slice is **self-identifying**: it carries the stop id it was
   // fetched for. `useLoad` keeps the PREVIOUS stop's `data` while the next
@@ -625,18 +681,25 @@ export default function CrewTripScreen() {
        * Conductor: the standalone kids card (they don't drive; same data).
        */}
       {isDriver ? (
-        <TripNavigationCard
-          stops={stops}
-          nextStopId={nextStopId}
-          eta={eta}
-          previousFrontier={progress.frontier}
-          kidsSummary={nextStopKids}
-          kidsLoaded={kidsLoaded}
-          arrivalDiagnostics={arrivalDiagnostics}
-          skippedNote={skippedNote}
-          onMarkArrived={() => void quickMark.mark('arrive')}
-          markArrivedBusy={quickMark.busy}
-        />
+        <View>
+          <TripNavigationCard
+            stops={stops}
+            nextStopId={nextStopId}
+            eta={eta}
+            previousFrontier={progress.frontier}
+            kidsSummary={nextStopKids}
+            kidsLoaded={kidsLoaded}
+            arrivalDiagnostics={arrivalDiagnostics}
+            skippedNote={skippedNote}
+            onMarkArrived={stopMarkingOpen ? () => void quickMark.mark('arrive') : undefined}
+            markArrivedBusy={quickMark.busy}
+          />
+          {quickMark.error ? (
+            <Text style={styles.markError} accessibilityLiveRegion="polite">
+              {quickMark.error}
+            </Text>
+          ) : null}
+        </View>
       ) : (
         <NextStopKidCard summary={nextStopKids} loaded={kidsLoaded} />
       )}
@@ -655,7 +718,7 @@ export default function CrewTripScreen() {
         <StopMarkActions
           tripId={trip.id}
           stop={
-            progress.nextStop
+            stopMarkingOpen && progress.nextStop
               ? {
                   id: progress.nextStop.id,
                   name: progress.nextStop.name,
@@ -724,6 +787,19 @@ const styles = StyleSheet.create({
   muted: {
     fontSize: 14,
     color: '#475569',
+  },
+  /**
+   * The manual stop-mark failure line under the next-stop card — the same
+   * pattern the dedicated mark card uses (bold, danger, announced once by
+   * screen readers). It stays until the next attempt; the toast above carries
+   * the same words the moment the refusal lands.
+   */
+  markError: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#b91c1c',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
   },
   /**
    * The two-button row above the SOS panel.

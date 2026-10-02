@@ -86,11 +86,13 @@ describe('the crew trip screen wires the split', () => {
 
   it('keeps every sharing start under the driver-only gate', () => {
     // The only startSharing call is the one inside the isDriver-guarded
-    // transition callback.
+    // transition callback (the call itself may sit inside the guarded async
+    // block that toasts a refused start — the gate is the `if`, not the
+    // statement shape).
     const starts = screen.match(/startSharing\(/g) ?? [];
     assert.ok(starts.length >= 1);
     const guarded = screen.match(
-      /if \(isDriver && isTripShareable\(applied\)\) \{\s*void startSharing/,
+      /if \(isDriver && isTripShareable\(applied\)\) \{[\s\S]*?startSharing\(/,
     );
     assert.ok(guarded, 'startSharing must stay behind the isDriver transition gate');
   });

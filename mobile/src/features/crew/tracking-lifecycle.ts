@@ -1290,19 +1290,63 @@ export interface StartCrewTrackingInput {
 }
 
 /**
+ * Serialized start queue: at most one start path runs at a time.
+ *
+ * Two screens can ask the lifecycle to start within the same tick — the
+ * transition tap (`onTransitionApplied`) and a hydration that resumed a
+ * persisted context are the two real callers today — and the start body has
+ * `await` points *before* the watcher is adopted (`refreshCrewPermissions`,
+ * the OS permission request), so two interleaved runs could both see
+ * `watch === null` and create **two** native watchers. Only one is remembered
+ * (`watch` holds the second); the first keeps producing fixes that can never
+ * be stopped. Chaining the calls closes the gap.
+ *
+ * A start that is still queued when a stop/logout/trip-switch happens
+ * (`epoch` bump) is dropped, exactly like an in-flight start's late
+ * completions: the crew's newest decision wins.
+ */
+let startQueue: Promise<unknown> | null = null;
+
+/**
  * Starts foreground GPS sharing for one trip (explicit user action).
  *
  * Idempotent: starting twice — from two screens, or twice from one — keeps the
  * single watcher and never duplicates it. A different trip switches the context
  * (dropping the previous trip's pending fix, which must never be replayed).
  */
-export async function startCrewTracking(
+export function startCrewTracking(
+  input: StartCrewTrackingInput,
+): Promise<{ ok: boolean; message: string | null }> {
+  const enqueuedIn = epoch;
+  const run = (startQueue ?? Promise.resolve()).then(() => {
+    if (enqueuedIn !== epoch) {
+      // A stop/logout landed while this start waited its turn: the newest
+      // decision wins, and a logged-out session must never adopt a watcher.
+      return { ok: false, message: null } as const;
+    }
+    return runStartCrewTracking(input);
+  });
+  // The chain itself never rejects (the body catches its own errors); the
+  // re-arm just keeps a failed legacy call from blocking the queue forever.
+  startQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function runStartCrewTracking(
   input: StartCrewTrackingInput,
 ): Promise<{ ok: boolean; message: string | null }> {
   const startedIn = epoch;
   patch({ busy: true, message: null });
   try {
     const permissions = await refreshCrewPermissions();
+    if (epoch !== startedIn) {
+      // A stop/logout landed while the OS was answering the permission reads:
+      // the newest decision wins — nothing is patched, nothing persisted.
+      return { ok: false, message: null };
+    }
     if (permissions.servicesEnabled === false) {
       const message = t('gps.message.servicesOff');
       patch({ message });
@@ -1319,6 +1363,12 @@ export async function startCrewTracking(
         const message = t('gps.message.permissionRequired');
         patch({ message });
         return { ok: false, message };
+      }
+      if (epoch !== startedIn) {
+        // The OS permission dialog can stay up for seconds; a stop/logout
+        // that landed meanwhile is the newer decision. Nothing is patched
+        // beyond the permission readout above, nothing is persisted.
+        return { ok: false, message: null };
       }
     }
 
@@ -1734,7 +1784,23 @@ async function restoreOwnedContext(
  * permissions, whether the background task is actually started, and — for the
  * signed-in account only — a persisted context left by a headless run.
  *
- * It never starts delivery and never resumes another user's trip.
+ * It never starts delivery for a trip the crew member has not already been
+ * sharing, and never resumes another user's trip.
+ *
+ * ### Restart resume (field fix)
+ *
+ * A foreground `watchPositionAsync` does not survive the process: an OS kill,
+ * a battery-optimiser sweep, a crash or a force-close ends it, while the trip
+ * itself stays `BOARDING`/`IN_PROGRESS` on the server. Before this fix the
+ * persisted context was restored *as data only* — the app came back with the
+ * strip reading "Share GPS" and **no fixes flowed** until the driver noticed
+ * and tapped it, so the bus vanished from every map (driver, conductor,
+ * parent, admin) mid-run. The context is itself the record of the driver's
+ * explicit consent (it is only ever written by a successful start, is owned
+ * and freshness-checked at restore, and a deliberate stop clears it), so on a
+ * fresh, owned context the foreground watch is started again here. The
+ * server's eligibility re-check inside the started run still closes it when
+ * the trip has since ended — nothing is shared for a closed trip.
  */
 export async function hydrateCrewTracking(identity: {
   userId: string;
@@ -1788,6 +1854,16 @@ export async function hydrateCrewTracking(identity: {
       attachSocketListeners();
       if (backgroundActive) {
         void runRecovery('hydrate');
+      } else {
+        // The OS background task is not running, so nothing is delivering
+        // fixes for a trip the server still counts as live. Restart the
+        // foreground watch through the normal start path (permission and
+        // services checks, socket, bounded eligibility re-check included).
+        void startCrewTracking({
+          tripId: decision.context.tripId,
+          userId: decision.context.userId,
+          schoolId: decision.context.schoolId,
+        });
       }
     } else if (decision.decision === 'other-user' || decision.decision === 'other-school') {
       await clearPersistedContext();
@@ -1822,6 +1898,7 @@ export async function __resetCrewTrackingForTests(): Promise<void> {
   statsWriteInFlight = false;
   socketListenersAttached = false;
   lastRevokedReason = null;
+  startQueue = null;
   state = { ...initialState, stats: { ...initialStats } };
   publish();
 }

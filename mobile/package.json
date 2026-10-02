@@ -29,7 +29,7 @@
     "test:sim": "npm run test:offline-sim && npm run test:push-sim && npm run test:feedback-sim && npm run test:tracking-sim",
     "clean": "rimraf .expo dist",
     "verify:firebase": "node scripts/verify-firebase-config.mjs",
-    "test:tracking-sim": "node --experimental-strip-types --experimental-test-module-mocks --no-warnings --import ./scripts/test-loaders/native-stubs.loader.mjs --test src/features/crew/tracking-recovery.sim.spec.ts"
+    "test:tracking-sim": "node --experimental-strip-types --experimental-test-module-mocks --no-warnings --import ./scripts/test-loaders/native-stubs.loader.mjs --test src/features/crew/tracking-recovery.sim.spec.ts src/features/crew/tracking-resume.sim.spec.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
