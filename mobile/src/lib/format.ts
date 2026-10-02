@@ -67,8 +67,31 @@ export function schoolDateOnly(timeZone?: string | null, date = new Date()): str
  * mirror of the web `fromDateTimeLocalValue`, so both clients send the API
  * identical payloads.
  */
-export function fromDateTimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
+/**
+ * Converts a school-local datetime-local value to an ISO instant. Never let
+ * the device timezone decide the trip's calendar date: admins may schedule
+ * from a device in a different timezone than the school.
+ */
+export function fromDateTimeLocalValue(value: string, timeZone?: string | null): string {
+  if (!timeZone) return new Date(value).toISOString();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return new Date(value).toISOString();
+  const [, year, month, day, hour, minute] = match;
+  const target = Date.UTC(+year, +month - 1, +day, +hour, +minute);
+  let candidate = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(candidate));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const rendered = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+    const correction = rendered - target;
+    if (correction === 0) break;
+    candidate -= correction;
+  }
+  return new Date(candidate).toISOString();
 }
 
 /** Device-local time, e.g. "4:05 PM" (deterministic 12-hour clock). */

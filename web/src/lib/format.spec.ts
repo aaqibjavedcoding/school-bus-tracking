@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { formatCurrency, PLATFORM_CURRENCY, schoolDateOnly } from './format.ts';
+import {
+  formatCurrency,
+  fromDateTimeLocalValue,
+  PLATFORM_CURRENCY,
+  schoolDateOnly,
+} from './format.ts';
 
 /**
  * Currency display for the Super Admin Plans catalogue, the platform
@@ -67,6 +72,19 @@ describe('formatCurrency', () => {
     assert.equal(formatCurrency('not-a-number', 'INR'), 'INR 0');
     // An unknown ISO code is neither a crash nor a rupee.
     assert.match(formatCurrency(12, 'XX'), /XX 12\.00/);
+  });
+});
+
+describe('fromDateTimeLocalValue', () => {
+  it('interprets the form value in the school timezone, not the device timezone', () => {
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'Asia/Kolkata'),
+      '2026-10-02T01:30:00.000Z',
+    );
+    assert.equal(
+      fromDateTimeLocalValue('2026-10-02T07:00', 'America/Chicago'),
+      '2026-10-02T12:00:00.000Z',
+    );
   });
 });
 

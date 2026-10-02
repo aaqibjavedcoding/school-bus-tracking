@@ -41,8 +41,35 @@ export function toDateTimeLocalValue(value: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function fromDateTimeLocalValue(value: string): string {
-  return new Date(value).toISOString();
+/**
+ * Converts a school-local datetime-local value to an ISO instant.
+ *
+ * `new Date('YYYY-MM-DDTHH:mm')` interprets the value in the browser's
+ * timezone. That is wrong when the admin's device timezone differs from the
+ * school's timezone and can move an early trip onto the previous calendar
+ * day. The form value is a wall-clock time in the school's IANA timezone.
+ */
+export function fromDateTimeLocalValue(value: string, timeZone?: string | null): string {
+  if (!timeZone) return new Date(value).toISOString();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return new Date(value).toISOString();
+
+  const [, year, month, day, hour, minute] = match;
+  const target = Date.UTC(+year, +month - 1, +day, +hour, +minute);
+  let candidate = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(candidate));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const rendered = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+    const correction = rendered - target;
+    if (correction === 0) break;
+    candidate -= correction;
+  }
+  return new Date(candidate).toISOString();
 }
 
 export function formatSpeedKmh(value: number | null | undefined): string {

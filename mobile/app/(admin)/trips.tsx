@@ -279,10 +279,10 @@ export default function AdminTripsScreen() {
           ? { route_assignment_id: form.route_assignment_id }
           : {}),
       scheduled_start_at: form.scheduled_start_at
-        ? fromDateTimeLocalValue(form.scheduled_start_at)
+        ? fromDateTimeLocalValue(form.scheduled_start_at, user?.school_timezone)
         : '',
       scheduled_end_at: form.scheduled_end_at
-        ? fromDateTimeLocalValue(form.scheduled_end_at)
+        ? fromDateTimeLocalValue(form.scheduled_end_at, user?.school_timezone)
         : null,
     };
     const parsed = tripCreateSchema.safeParse({
