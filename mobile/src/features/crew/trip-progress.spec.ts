@@ -338,7 +338,15 @@ describe('the crew trip screen is wired to the trip-scoped frontier', () => {
 
   it('keeps no frontier ref and mutates nothing during render', () => {
     assert.ok(!/frontierRef/.test(code), 'frontierRef is the bug — it survived a trip switch');
-    assert.ok(!/\.current\s*=/.test(code), 'the frontier must not be assigned during render');
+    // The frontier must never be assigned outside the settling effect. The
+    // ban is scoped to the FRONTIER refs — the screen legitimately owns other
+    // refs (the mounted flag, the arrival-manifest navigation key), which the
+    // previous blanket `\.current\s*=` ban also caught and made this spec red
+    // the day those refs were introduced.
+    assert.ok(
+      !/frontierState\.current\s*=/.test(code),
+      'the frontier must not be assigned during render',
+    );
     assert.ok(
       !/derived\.nextStop\s*:\s*derived\.nextStop/.test(code),
       'the dead ternary must stay deleted',

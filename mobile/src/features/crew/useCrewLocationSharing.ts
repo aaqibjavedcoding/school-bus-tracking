@@ -107,8 +107,13 @@ export interface CrewLocationSharing {
    * lifecycle tap was just confirmed by the server (`BOARDING` /
    * `IN_PROGRESS`), and sharing must start on that confirmed trip without
    * waiting for the list to reload. A non-shareable trip is refused either way.
+   *
+   * Returns the lifecycle's own start result (`ok: false` plus the reason the
+   * watch is not running — location services off, permission refused, start
+   * error) so the surface that asked can say it **at the tap**. Callers that
+   * prefer silence may ignore it; the strip keeps showing the same reason.
    */
-  startSharing: (trip?: TripResponse) => Promise<void>;
+  startSharing: (trip?: TripResponse) => Promise<{ ok: boolean; message: string | null }>;
   stopSharing: () => Promise<void>;
   enableBackground: () => Promise<void>;
   disableBackground: () => Promise<void>;
@@ -257,21 +262,24 @@ export function useCrewLocationSharing(
     apiBaseUrl: API_BASE_URL,
   });
 
-  const startSharing = useCallback(async (tripOverride?: TripResponse) => {
-    const currentTrip = tripOverride ?? tripRef.current;
-    if (!currentTrip || !isTripShareable(currentTrip)) {
-      return;
-    }
-    const who = identityRef.current;
-    if (!who) {
-      return;
-    }
-    await startCrewTracking({
-      tripId: currentTrip.id,
-      userId: who.userId,
-      schoolId: who.schoolId,
-    });
-  }, []);
+  const startSharing = useCallback(
+    async (tripOverride?: TripResponse): Promise<{ ok: boolean; message: string | null }> => {
+      const currentTrip = tripOverride ?? tripRef.current;
+      if (!currentTrip || !isTripShareable(currentTrip)) {
+        return { ok: false, message: null };
+      }
+      const who = identityRef.current;
+      if (!who) {
+        return { ok: false, message: null };
+      }
+      return startCrewTracking({
+        tripId: currentTrip.id,
+        userId: who.userId,
+        schoolId: who.schoolId,
+      });
+    },
+    [],
+  );
 
   const stopSharing = useCallback(async () => {
     await stopCrewTracking('user');
