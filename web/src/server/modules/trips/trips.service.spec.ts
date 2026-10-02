@@ -725,6 +725,23 @@ async function expectConflict(promise: Promise<unknown>, message: string) {
 }
 
 /**
+ * The schedule-conflict 409 appends the clashing trip's school-local
+ * departure (see `TRIP_CONFLICT_DETAIL_MESSAGE`), so these assertions match
+ * the stable prefix rather than the localized detail.
+ */
+async function expectConflictStartingWith(promise: Promise<unknown>, prefix: string) {
+  await assert.rejects(promise, (error: unknown) => {
+    assert.ok(error instanceof ConflictException);
+    assert.equal(error.getStatus(), 409);
+    assert.ok(
+      error.message === prefix || error.message.startsWith(`${prefix} —`),
+      `expected 409 message to start with "${prefix}", got "${error.message}"`,
+    );
+    return true;
+  });
+}
+
+/**
  * The shared live-tracking and notifications captures are reset between tests
  * so the lifecycle assertions below see only their own transitions.
  */
@@ -946,7 +963,24 @@ describe('TripsService.create', () => {
   it('rejects a second trip on the same route at the same departure', async () => {
     const service = makeService(makeRepositories([makeTrip()]));
 
-    await expectConflict(service.create(SCHOOL_A, createDto()), TRIP_CONFLICT_MESSAGE);
+    await expectConflictStartingWith(service.create(SCHOOL_A, createDto()), TRIP_CONFLICT_MESSAGE);
+  });
+
+  it("names the clashing trip's school-local departure and date in the 409", async () => {
+    // A dispatcher who schedules a trip for another school-local date cannot
+    // find it under the default "today" filter; the conflict message is the
+    // only trace, so it must say where the trip is filed.
+    const service = makeService(makeRepositories([makeTrip()]));
+
+    await assert.rejects(service.create(SCHOOL_A, createDto()), (error: unknown) => {
+      assert.ok(error instanceof ConflictException);
+      assert.equal(error.getStatus(), 409);
+      // The stub school lookup falls back to UTC, and the stub trip departs
+      // 2026-09-01T06:30:00.000Z.
+      assert.match(error.message, /01 Sep 2026, 06:30 \(UTC\)/);
+      assert.match(error.message, /2026-09-01/);
+      return true;
+    });
   });
 
   it('maps a database uniqueness race to 409', async () => {
@@ -1274,7 +1308,7 @@ describe('TripsService.update', () => {
       service.update(SCHOOL_A, TRIP_A, updateDto({ scheduled_end_at: '2026-09-01T05:00:00.000Z' })),
       TRIP_DATE_RANGE_MESSAGE,
     );
-    await expectConflict(
+    await expectConflictStartingWith(
       service.update(
         SCHOOL_A,
         TRIP_A,
@@ -1806,13 +1840,13 @@ describe('TripsService.create — run dispatch (Phase 3)', () => {
     // match it).
     const existing = makeTrip({ run_id: RUN_A, route_id: ROUTE_B, driver_id: DRIVER_A });
     const service = makeService(makeRepositories([existing]));
-    await expectConflict(service.create(SCHOOL_A, runDto()), TRIP_CONFLICT_MESSAGE);
+    await expectConflictStartingWith(service.create(SCHOOL_A, runDto()), TRIP_CONFLICT_MESSAGE);
   });
 
   it('still enforces the route+departure rule for run dispatches', async () => {
     const existing = makeTrip({ id: TRIP_B, route_id: ROUTE_A, run_id: null });
     const service = makeService(makeRepositories([existing]));
-    await expectConflict(service.create(SCHOOL_A, runDto()), TRIP_CONFLICT_MESSAGE);
+    await expectConflictStartingWith(service.create(SCHOOL_A, runDto()), TRIP_CONFLICT_MESSAGE);
   });
 });
 

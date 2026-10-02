@@ -13,6 +13,7 @@ import {
   mergeTripUpdate,
   nextCrewTransitions,
   pickCrewTrip,
+  selectCrewTripsForDay,
   transitionLabel,
 } from './crew-trip.ts';
 
@@ -99,6 +100,85 @@ describe('pickCrewTrip', () => {
 
   it('returns null without trips', () => {
     assert.equal(pickCrewTrip([]), null);
+  });
+});
+
+describe('selectCrewTripsForDay', () => {
+  // The crew loader fetches today plus the next school-local day; these tests
+  // pin how that two-day window collapses back onto the screen's selection
+  // list without changing what pickCrewTrip then picks.
+  it("keeps only today's trips when the day has any", () => {
+    const selected = selectCrewTripsForDay(
+      '2026-08-29',
+      [
+        trip({ id: 'today-completed', status: TripStatus.COMPLETED }),
+        trip({
+          id: 'tomorrow',
+          status: TripStatus.SCHEDULED,
+          // 02:00 UTC on 30 Aug is 07:30 school time in Asia/Kolkata.
+          scheduled_start_at: '2026-08-30T02:00:00.000Z',
+        }),
+      ],
+      'Asia/Kolkata',
+    );
+    assert.deepEqual(
+      selected.map((item) => item.id),
+      ['today-completed'],
+    );
+  });
+
+  it('falls forward to the earliest scheduled trip of the window when today is empty', () => {
+    const selected = selectCrewTripsForDay(
+      '2026-08-29',
+      [
+        trip({
+          id: 'tomorrow-afternoon',
+          status: TripStatus.SCHEDULED,
+          scheduled_start_at: '2026-08-30T10:00:00.000Z',
+        }),
+        trip({
+          id: 'tomorrow-morning',
+          status: TripStatus.SCHEDULED,
+          scheduled_start_at: '2026-08-30T01:00:00.000Z',
+        }),
+      ],
+      'Asia/Kolkata',
+    );
+    assert.equal(selected.length, 2);
+    assert.equal(pickCrewTrip(selected)?.id, 'tomorrow-morning');
+  });
+
+  it('ignores cancelled future trips when falling forward', () => {
+    const selected = selectCrewTripsForDay(
+      '2026-08-29',
+      [
+        trip({
+          id: 'cancelled',
+          status: TripStatus.CANCELLED,
+          scheduled_start_at: '2026-08-30T01:00:00.000Z',
+        }),
+      ],
+      'Asia/Kolkata',
+    );
+    assert.deepEqual(selected, []);
+  });
+
+  it('buckets a trip by the school timezone, not the device clock', () => {
+    // 2026-08-29T20:00:00.000Z is already 30 Aug in Kolkata but still 29 Aug
+    // in Chicago — a school running on Chicago time files it under today.
+    const selected = selectCrewTripsForDay(
+      '2026-08-29',
+      [trip({ id: 'edge', scheduled_start_at: '2026-08-29T20:00:00.000Z' })],
+      'America/Chicago',
+    );
+    assert.deepEqual(
+      selected.map((item) => item.id),
+      ['edge'],
+    );
+  });
+
+  it('passes an empty window through untouched', () => {
+    assert.deepEqual(selectCrewTripsForDay('2026-08-29', [], 'Asia/Kolkata'), []);
   });
 });
 

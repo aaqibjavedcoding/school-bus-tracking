@@ -33,6 +33,61 @@ export function dateOnlyInTimeZone(date: Date, timeZone: string): string {
 }
 
 /**
+ * Human `d MMM yyyy, HH:mm` in `timeZone` — the form operator-facing messages
+ * quote a departure in, so a dispatcher in another timezone still reads the
+ * school's wall clock. Built from `formatToParts` with a numeric month mapped
+ * through a fixed name table (ICU builds disagree on abbreviations — "Sept"
+ * vs "Sep" — and an operator message must be stable and testable).
+ */
+const SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+export function formatDateTimeInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const lookup = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
+  const day = lookup('day');
+  const monthNumber = Number(lookup('month'));
+  const year = lookup('year');
+  const hour = lookup('hour');
+  const minute = lookup('minute');
+  if (
+    !day ||
+    !Number.isInteger(monthNumber) ||
+    monthNumber < 1 ||
+    monthNumber > 12 ||
+    !year ||
+    !hour ||
+    !minute
+  ) {
+    throw new RangeError('Could not resolve a date and time in the requested timezone.');
+  }
+  // `hourCycle` values above 24:00 are impossible with hour12:false, but the
+  // '24' hour of midnight appears on some ICU builds — normalise it.
+  const normalizedHour = hour === '24' ? '00' : hour.padStart(2, '0');
+  return `${day} ${SHORT_MONTHS[monthNumber - 1]} ${year}, ${normalizedHour}:${minute}`;
+}
+
+/**
  * First UTC instant whose tenant-local calendar date is `value` or later.
  *
  * For a normal date this is local midnight. If a jurisdiction skips a whole

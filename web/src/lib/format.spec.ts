@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { formatCurrency, PLATFORM_CURRENCY, schoolDateOnly } from './format.ts';
+import {
+  formatCurrency,
+  formatSchoolDateTime,
+  PLATFORM_CURRENCY,
+  schoolDateOnly,
+} from './format.ts';
 
 /**
  * Currency display for the Super Admin Plans catalogue, the platform
@@ -80,5 +85,31 @@ describe('schoolDateOnly', () => {
       schoolDateOnly('America/Los_Angeles', new Date('2026-09-24T05:00:00.000Z')),
       '2026-09-23',
     );
+  });
+});
+
+describe('formatSchoolDateTime', () => {
+  it('renders the departure on the school wall clock', () => {
+    // 01:00 UTC is 06:30 in Kolkata and 20:00 (previous day) in Chicago.
+    assert.equal(
+      formatSchoolDateTime('2026-10-03T01:00:00.000Z', 'Asia/Kolkata'),
+      '03 Oct 2026, 06:30',
+    );
+    assert.equal(
+      formatSchoolDateTime('2026-10-03T01:00:00.000Z', 'America/Chicago'),
+      '02 Oct 2026, 20:00',
+    );
+  });
+
+  it('falls back to the device clock only when the school timezone is unknown', () => {
+    // No timezone: still a valid rendering, never a crash or a wrong date
+    // assertion (the exact device rendering depends on the host clock).
+    const formatted = formatSchoolDateTime('2026-10-03T01:00:00.000Z', undefined);
+    assert.match(formatted, /\d{2} \w{3} 2026, \d{2}:00/);
+  });
+
+  it('degrades gracefully for missing or invalid values', () => {
+    assert.equal(formatSchoolDateTime(null, 'Asia/Kolkata'), '—');
+    assert.equal(formatSchoolDateTime('not-a-date', 'Asia/Kolkata'), '—');
   });
 });

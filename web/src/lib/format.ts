@@ -114,6 +114,67 @@ export function formatDateTime(value: string | null | undefined): string {
   return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+/**
+ * `d MMM yyyy, HH:mm` on the **school's** wall clock — the clock trips are
+ * scheduled and date-filed by. A dispatcher whose device sits in another
+ * timezone still reads the departure exactly as the school will run it, and
+ * confirmation toasts can state the school-local date a trip was filed under
+ * (a trip scheduled for another school-local date does not appear under the
+ * Trips page's default "today" filter). The month name comes from a fixed
+ * table because ICU builds disagree on abbreviations ("Sept" vs "Sep").
+ */
+const SCHOOL_SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+export function formatSchoolDateTime(
+  value: string | null | undefined,
+  timeZone?: string | null,
+): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    ...(timeZone ? { timeZone } : {}),
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const lookup = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
+  const day = lookup('day');
+  const monthNumber = Number(lookup('month'));
+  const year = lookup('year');
+  const hour = lookup('hour');
+  const minute = lookup('minute');
+  if (
+    !day ||
+    !Number.isInteger(monthNumber) ||
+    monthNumber < 1 ||
+    monthNumber > 12 ||
+    !year ||
+    !hour ||
+    !minute
+  ) {
+    return '—';
+  }
+  const normalizedHour = hour === '24' ? '00' : hour.padStart(2, '0');
+  return `${day} ${SCHOOL_SHORT_MONTHS[monthNumber - 1]} ${year}, ${normalizedHour}:${minute.padStart(2, '0')}`;
+}
+
 export function formatTime(value: string | null | undefined): string {
   if (!value) return '—';
   const date = new Date(value);

@@ -25,6 +25,20 @@ export function joinDateTimeLocal(date: string, time: string): string {
   return `${date}T${time}`;
 }
 
+/**
+ * Adds civil calendar days to a `YYYY-MM-DD` without touching a timezone —
+ * the same pure-day arithmetic the API applies to its `date_from`/`date_to`
+ * trip filters. UTC is used purely as the arithmetic scratchpad, so daylight
+ * saving can never shift the result by 23 or 25 hours.
+ */
+export function addCalendarDays(dateOnly: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly);
+  if (!match) return dateOnly;
+  const [, y, m, d] = match;
+  const shifted = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d) + days));
+  return shifted.toISOString().slice(0, 10);
+}
+
 /** True when the string is a real calendar date/time in `YYYY-MM-DDTHH:mm`. */
 export function isValidDateTimeLocal(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);

@@ -3,16 +3,21 @@ import type { TripResponse } from '@school-bus-tracking/shared-types';
 import { apiClient } from '../../services/api';
 import { unwrapEnvelope } from '../../lib/errors';
 import { schoolDateOnly } from '../../lib/format';
+import { addCalendarDays } from '../../lib/datetime';
 import { useLoad } from '../../hooks/useLoad';
-import { mergeTripUpdate, pickCrewTrip } from './crew-trip';
+import { mergeTripUpdate, pickCrewTrip, selectCrewTripsForDay } from './crew-trip';
 
 /**
  * Today's-trip loader for the shared DRIVER/CONDUCTOR experience.
  *
  * The API scopes `GET /trips` to the caller's own runs (the server pins
- * `driver_id`/`conductor_id` from the JWT), so the client only asks for
- * today's list and picks the relevant run — active first, then earliest
- * scheduled, else the latest finished one for review.
+ * `driver_id`/`conductor_id` from the JWT), so the client asks for a
+ * two-school-day window — today plus tomorrow — and picks the relevant run:
+ * today's active run first, then today's earliest scheduled one, else the
+ * latest finished one for review. When today holds nothing at all, the
+ * earliest SCHEDULED trip of the window (typically tomorrow morning's run,
+ * dispatched the evening before) is picked so the crew sees their next trip
+ * instead of a dead screen. See `selectCrewTripsForDay` for the exact rule.
  *
  * Route and bus labels come from the trip payload itself: the server
  * enriches every `TripResponse` with `route_code` / `route_name` and
@@ -66,8 +71,17 @@ export function buildCrewTodayData(date: string, trips: TripResponse[]): CrewTod
 export function useCrewToday(timeZone?: string | null) {
   const load = useCallback(async (): Promise<CrewTodayData> => {
     const date = schoolDateOnly(timeZone);
-    const tripsEnvelope = await apiClient.listTrips({ page: 1, limit: 25, date });
-    return buildCrewTodayData(date, unwrapEnvelope(tripsEnvelope).items);
+    // Two school-local days in one query: `date_from`/`date_to` are inclusive
+    // school-local calendar days on the server, so this window covers trips
+    // filed under tomorrow without ever hiding one filed under today.
+    const tripsEnvelope = await apiClient.listTrips({
+      page: 1,
+      limit: 25,
+      date_from: date,
+      date_to: addCalendarDays(date, 1),
+    });
+    const window = unwrapEnvelope(tripsEnvelope).items;
+    return buildCrewTodayData(date, selectCrewTripsForDay(date, window, timeZone));
   }, [timeZone]);
 
   const state = useLoad<CrewTodayData>(load, [timeZone]);
