@@ -3,6 +3,7 @@ import { School } from './school.model';
 import { User } from './user.model';
 import { Bus } from './bus.model';
 import { Route } from './route.model';
+import { RouteGeometry } from './route-geometry.model';
 import { Stop } from './stop.model';
 import { Student } from './student.model';
 import { RouteAssignment } from './route-assignment.model';
@@ -102,6 +103,11 @@ export { Bus } from './bus.model';
 export type { BusAttributes, BusCreationAttributes } from './bus.model';
 export { Route } from './route.model';
 export type { RouteAttributes, RouteCreationAttributes } from './route.model';
+export { RouteGeometry } from './route-geometry.model';
+export type {
+  RouteGeometryAttributes,
+  RouteGeometryCreationAttributes,
+} from './route-geometry.model';
 export { Stop } from './stop.model';
 export type { StopAttributes, StopCreationAttributes } from './stop.model';
 export { Student } from './student.model';
@@ -272,6 +278,7 @@ export const models: ModelCtor<Model>[] = [
   User,
   Bus,
   Route,
+  RouteGeometry,
   Stop,
   Student,
   RouteAssignment,
