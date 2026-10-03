@@ -96,6 +96,59 @@ it can be enabled as an individual required status check:
 | Android Expo export  | `cd mobile && npx expo export --platform android` | Metro bundles every route; no device needed                        |
 | Production image     | `docker build -f infrastructure/Dockerfile .`     | Also validates `infrastructure/docker-compose.prod.yml`            |
 
+### Running a slice instead of everything
+
+Test files are **discovered**, not listed: `scripts/run-specs.mjs` walks the
+source tree and every `*.spec.ts(x)` it finds is a test. That means a new spec
+runs the moment it exists — there is no list to remember — and it means the
+same discovery can be narrowed, which is the difference between a 4-minute
+feedback loop and a 12-second one.
+
+| Want | Command | Typical time |
+| --- | --- | --- |
+| Everything for one surface | `npm --prefix web run test:server` | ~3m45s |
+| | `npm --prefix web run test:web` | ~6s |
+| | `npm --prefix mobile test` | ~16s |
+| Only the specs whose path matches a word | `npm --prefix web run test:scope -- routing` | seconds |
+| | `npm --prefix mobile run test:scope -- map` | ~3s |
+| Only what your branch touched | `npm run test:changed` | seconds |
+| See what would run, run nothing | `npm run test:list` | instant |
+
+`--filter` can be repeated (`-- eta -- routes`), and matches anywhere in the
+path, so a word like `map`, `crew` or `marketing` is usually enough.
+`--changed` compares against the merge base with `origin/main` and selects the
+changed specs, each changed file's sibling spec, and the other specs in the
+same directory.
+
+**Rule of thumb while developing (and the rule agent sessions must follow):**
+run the scoped command for the area you are changing, and let CI run the rest.
+`npm --prefix web run test:server` spawns 183 ts-node processes and is the one
+command that genuinely takes minutes — it belongs in CI, not in a dev loop.
+
+### Why discovery replaced the hardcoded lists
+
+The `test` scripts used to enumerate every spec path inline — 183 paths in
+`test:server`, 46 in `test:web`, 114 in mobile's `test`. Besides being
+unscopeable, the lists were quietly wrong:
+
+- `mobile/src/features/crew/arrived-stop-announcer.spec.ts` existed, passed,
+  and was never executed by CI, because nobody added it to the list;
+- `test:web` contained `src/lib/nav-routes.spec.tssrc/features/admin/subscriptions/helpers.spec.ts`
+  — two paths joined by a missing space, so Node silently skipped both specs.
+
+Discovery found all three on the first run. A spec that exists now runs.
+
+### What discovery deliberately skips
+
+- `*.sim.spec.ts` — the simulation suites need their own node flags and module
+  loaders, so they keep their dedicated scripts (`test:sim` and friends).
+- `web/test/integration/**` and `web/test/e2e/**` — these need a live
+  PostgreSQL and run through `test:integration` / `test:e2e` / `test:db`.
+
+`--isolation=none` exists in the runner for experiments, but the server suites
+are **not** isolation-safe today (they share module state and fail en masse in
+a single process). Do not use it in CI.
+
 Node is pinned via `.nvmrc` (the project's supported production version,
 Node 22), dependencies install deterministically with `npm ci` from
 `package-lock.json`, and the npm download cache is enabled.
