@@ -28,7 +28,7 @@ means **self-hosted OSRM**, never a hosted directions API.
 
 ---
 
-## Session 1 — Road routing backend (no UI changes)
+## Session 1 — Road routing backend, zero running cost (no UI changes)
 
 ```text
 In this repo, implement ONLY the backend half of road-following route geometry.
@@ -38,75 +38,103 @@ PROBLEM
 Routes are drawn as straight stop-to-stop lines ("flight paths"). A driver
 cannot tell which road leads to the next stop. We need real road geometry.
 
-HARD CONSTRAINT (non-negotiable, already enforced by
-web/scripts/map-provider-policy.spec.ts and mobile/scripts/map-provider-policy.spec.ts):
-no API key, no credit card, no metered provider. So the routing engine is
-SELF-HOSTED OSRM reached over plain HTTP at a URL we configure. No hosted
-directions API, no Google/Mapbox/ORS/GraphHopper, no key= in any URL.
+HARD CONSTRAINTS (non-negotiable)
+1. No API key, no credit card, no metered provider, no paid hosted service.
+   Already enforced by web/scripts/map-provider-policy.spec.ts and
+   mobile/scripts/map-provider-policy.spec.ts — both must stay green.
+2. ZERO additional running cost. The design must not require renting a server.
+   That is possible because a bus route's shape almost never changes: routing
+   is an occasional job whose answer we STORE, not a per-request service.
+3. Never lean on the public FOSSGIS OSRM/Valhalla demo servers in production —
+   their policy is 1 req/s, fair use, not for production services.
+
+THE ARCHITECTURE TO IMPLEMENT
+- Compute ONCE per route, cache FOREVER in our own DB, keyed by a hash of the
+  route's ordered stop coordinates. Hash unchanged => zero engine calls.
+- The engine is an OSRM container running a CITY/DISTRICT extract (not all of
+  India), sized to sit next to the app on the box we already run — a metro
+  extract serves on roughly 0.5-2 GB RAM.
+- The expensive graph build (osrm-extract -> osrm-partition -> osrm-customize)
+  NEVER runs in production: it runs in GitHub Actions or on a laptop, once per
+  extract, and the artefacts are reused.
 
 WHAT TO BUILD
 1. Config: web/src/server/config/routing.config.ts, following the exact shape
    and test style of the existing eta.config.ts.
-   - ROUTING_SERVICE_URL (optional). Unset/blank => routing is DISABLED and the
-     app keeps today's straight-line behaviour. Never silently invent geometry.
-   - ROUTING_TIMEOUT_MS (default 5000), ROUTING_ENABLED derived from the URL.
+   - ROUTING_SERVICE_URL (optional). Unset/blank => routing DISABLED and the app
+     keeps today's straight-line behaviour. Never silently invent geometry.
+   - ROUTING_TIMEOUT_MS (default 5000), ROUTING_MAX_REQUESTS_PER_SECOND
+     (default 1, a hard client-side throttle so we can never hammer any host),
+     ROUTING_ENABLED derived from the URL.
    - Reject non-http(s) URLs and any URL containing key= or api_key= with a
-     clear startup error; add a spec for that.
+     clear startup error. Spec it.
 2. A new server module web/src/server/modules/routing/ matching the conventions
    of modules/eta/ (index.ts, *.service.ts, *.service.spec.ts, dto/):
-   - A provider-agnostic interface RoutingProvider with one method:
-     route(waypoints: Coordinate[]) => Promise<RoadRoute | null>, where
-     RoadRoute = { geometry: GeoJSON LineString, distanceMeters, durationSeconds,
-     legs: [{ distanceMeters, durationSeconds, maneuvers: [...] }] }.
-   - An OsrmRoutingProvider implementation hitting
+   - Interface RoutingProvider: route(waypoints) => Promise<RoadRoute | null>,
+     RoadRoute = { geometry: GeoJSON LineString, distanceMeters,
+     durationSeconds, legs: [{ distanceMeters, durationSeconds, maneuvers }] }.
+   - OsrmRoutingProvider hitting
      {base}/route/v1/driving/{coords}?overview=full&geometries=geojson&steps=true
-     with a timeout, one retry, and strict response validation. Never throw into
+     with the configured timeout, ONE retry, the request-per-second throttle,
+     a descriptive User-Agent, and strict response validation. Never throw into
      the request path: return null and log.
-   - Maneuvers normalised to our own shape:
+   - Maneuvers normalised to our own OSRM-independent shape:
      { type, modifier, roadName: string | null, distanceMeters, location }.
-     Keep this shape OSRM-independent so a Valhalla provider can be added later.
-3. Persistence + cache: a new migration in web/src/server/database/migrations/
-   (follow the naming/timestamp convention of the newest file there) creating
-   route_geometries: id, route_id (FK, unique per stop-set hash), stops_hash,
-   geometry (JSONB), distance_meters, duration_seconds, legs (JSONB),
-   provider, computed_at, plus the standard base-model timestamp columns.
-   stops_hash = stable hash of the ordered (stop_id, lat, lng) tuples, so the
-   cache invalidates by itself when a route's stops change. A cached row is
-   reused forever until the hash changes — this keeps request volume near zero.
-4. API: extend the existing routes module (web/src/server/modules/routes/) with
-   GET /routes/:id/geometry returning
-   { status: 'road' | 'unavailable', geometry, distance_meters, duration_seconds,
-     legs, computed_at, provider } and the same tenant/role guards as the
-   existing route endpoints. 'unavailable' when routing is disabled, the engine
-   failed, or fewer than 2 located stops. Authorisation must be identical to
-   GET /routes/:id — write a controller spec that proves cross-tenant access is
-   denied.
-5. Types: add the response shapes to packages/shared-types/src/index.ts and
-   wire the endpoint into packages/api-client, following existing patterns.
-6. Infrastructure + docs:
-   - infrastructure/docker-compose.yml: an OPTIONAL, profile-gated osrm service
-     (profile: routing) using the official osrm/osrm-backend image with an
-     India extract, plus a short README section on building the graph.
-   - docs/live-tracking-map.md: a new "Road routing" section stating what the
-     geometry is, that it is cached, that it degrades to straight lines, and
-     that it still costs nothing because the engine is ours.
-   - README.md env table: the two new variables.
+3. Persistence: a migration in web/src/server/database/migrations/ (follow the
+   naming/timestamp convention of the newest file there) creating
+   route_geometries: id, route_id (FK), stops_hash (unique with route_id),
+   geometry JSONB, distance_meters, duration_seconds, legs JSONB, provider,
+   computed_at, plus the standard base-model timestamp columns.
+   stops_hash = stable hash of the ordered (stop_id, lat, lng) tuples.
+   Reads must NEVER trigger a recompute storm: computing is idempotent and
+   guarded so two concurrent requests make at most one engine call.
+4. When geometry is computed: lazily on the first request for a route whose
+   hash has no row, AND eagerly (fire-and-forget, non-blocking) when an admin
+   saves a route's stops. Both paths go through the same service.
+5. API: extend web/src/server/modules/routes/ with
+   GET /routes/:id/geometry => { status: 'road' | 'unavailable', geometry,
+   distance_meters, duration_seconds, legs, computed_at, provider }, with the
+   SAME tenant/role guards as GET /routes/:id. 'unavailable' when routing is
+   disabled, the engine failed, or fewer than 2 located stops. Add a controller
+   spec proving cross-tenant access is denied.
+   Also add an admin-only POST /routes/:id/geometry/recompute for the offline
+   batch path below, behind the existing admin guard.
+6. Types + client: response shapes in packages/shared-types/src/index.ts and
+   the endpoint in packages/api-client, following existing patterns.
+7. Zero-cost operations (this part matters as much as the code):
+   - infrastructure/docker-compose.yml: an OPTIONAL profile-gated `osrm`
+     service (profile: routing) using osrm/osrm-backend, serving a prebuilt
+     graph from a mounted volume with --algorithm mld. It must NOT start by
+     default and must not be required for the app to boot.
+   - scripts/: a documented one-shot graph build script taking a Geofabrik
+     extract URL (default: a city/district extract, NOT all of India) and
+     producing the .osrm artefacts.
+   - .github/workflows/: a manually-dispatchable workflow that builds the graph
+     on the free runner and uploads the artefacts, plus an optional job that
+     starts OSRM, calls the recompute endpoint for routes missing geometry, and
+     exits — so the project works even if the production box has no spare RAM.
+   - infrastructure/README.md + docs/live-tracking-map.md: a "Road routing"
+     section stating the architecture, that geometry is cached forever, that it
+     degrades to straight lines, and that the running cost is zero.
+   - README.md env table: the new variables.
 
 ACCEPTANCE
 - npm run lint, npm run typecheck and npm test all pass.
-- New unit specs cover: config validation, stops_hash stability, cache hit/miss,
-  OSRM response parsing (including a malformed payload), timeout => null,
-  routing-disabled => 'unavailable', and the controller's tenant isolation.
-- No UI file changes. No change to ETA logic, notifications, auth or any other
-  module. git diff --stat should only show routing/config/routes/types/
-  api-client/infrastructure/docs files.
+- Specs cover: config validation (including the key= rejection), stops_hash
+  stability and invalidation, cache hit/miss, concurrent-request single-call
+  guard, the rate-limit throttle, OSRM response parsing incl. a malformed
+  payload, timeout => null, routing-disabled => 'unavailable', and controller
+  tenant isolation.
+- The app boots and all existing tests pass with ROUTING_SERVICE_URL unset.
+- No UI file changes, no ETA/notifications/auth changes. git diff --stat should
+  show only routing/config/routes/types/api-client/scripts/.github/
+  infrastructure/docs files.
 
 WHEN DONE
-Commit on the current session branch, push it, and open a PR with gh describing
-the change, the env variables, and how to run OSRM locally. Give me the PR link.
+Commit on the current session branch, push, and open a PR with gh describing
+the change, the env variables, how to build the graph for free, and why the
+running cost is zero. Give me the PR link.
 ```
-
----
 
 ## Session 2 — Web map draws the real road line
 
@@ -393,9 +421,11 @@ Each prompt above already contains these, but if you edit a prompt, keep them:
 |---|---|
 | Tiles (OpenFreeMap public) | ₹0 |
 | Style, icons, 3D, night mode, POI sheet | ₹0 |
-| Road routing — self-hosted OSRM, India extract, cached per route | one VPS, ~₹2,000–4,000/month |
-| External turn-by-turn hand-off (kept) | ₹0 |
+| Road routing — OSRM container on the existing box, city extract, graph built in GitHub Actions, geometry cached per route in our DB | ₹0 |
+| In-app turn-by-turn maneuvers (from the cached route) | ₹0 |
+| External navigation hand-off (kept) | ₹0 |
 
-Routing is the only line with a number on it, and it is a flat server cost, not
-a per-request bill — no API key anywhere, which is exactly the rule the repo
-enforces in CI.
+**Total: ₹0/month.** Nothing in this plan requires a new server, an account, a
+card or a key. Routing is cheap because it is computed once per route and
+stored — the engine is idle almost all the time, and the one memory-hungry step
+runs on free CI, never in production.

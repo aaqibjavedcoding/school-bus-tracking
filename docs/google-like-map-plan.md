@@ -20,9 +20,12 @@ Constraint being honoured: the product rule in
   S3/VPS pe imagery. Recommendation: **Phase 3 tak skip**.
 - **Search (place/address)** — free hai, par public instances fair-use hain.
   Rasta: debounce + cache ab, self-host Photon jab scale ho (~₹1.5k/mo).
-- **Road-snapped route line + real ETA + turn-by-turn** — free *software*
-  (OSRM/Valhalla), par **apna server** chahiye (~₹2–4k/mo). Public demo servers
-  production ke liye allowed nahi.
+- **Road-snapped route line + real ETA + turn-by-turn** — ye bhi **₹0** me ho
+  jaata hai: OSRM container sirf apne shehar ka extract chalaye to ~0.5 GB RAM
+  leta hai (ek paid Mumbai+Hyderabad deployment 0.25 CPU / 0.5 GB pe chalta
+  hai), aur heavy graph-building step GitHub Actions ke free runner pe hota
+  hai. Route geometry route ke banne par ek baar compute hoti hai aur DB me
+  hamesha ke liye cache — runtime pe requests na ke barabar.
 - **Live traffic** — koi free source nahi. Lekin hamare paas apna fleet GPS
   history hai → apna "school-route traffic" khud derive kar sakte hain, free.
 
@@ -41,9 +44,9 @@ sab features" free me nahi hote — unka free version = apna chhota server.**
 | 4 | 3D buildings, pitch/rotate, smooth zoom | ✅ Yes | Already MapLibre; `building` layer is in the tiles |
 | 5 | Satellite / hybrid view | ❌ Not free+unlimited+commercial | See §4 |
 | 6 | Place / address search | ⚠️ Free, fair-use limited | Photon or Nominatim; self-host to make it unlimited |
-| 7 | Road-snapped route polyline (not straight lines) | ⚠️ Free software, needs own server | OSRM / Valhalla on a VPS |
-| 8 | Real road-distance ETA | ⚠️ Same as 7 | Same engine |
-| 9 | In-app turn-by-turn for driver | ⚠️ Same as 7, or keep today's deep link (free) | Recommend keeping deep link |
+| 7 | Road-snapped route polyline (not straight lines) | ✅ Yes | OSRM container, city extract, on the box we already pay for |
+| 8 | Real road-distance ETA | ✅ Yes | Same engine, same cached geometry |
+| 9 | In-app turn-by-turn for driver | ✅ Yes | Maneuvers come with the cached route |
 | 10 | Live traffic colours | ❌ No free source | Derive from our own fleet history |
 | 11 | Street View | ❌ Not from Google | Mapillary (free key, sparse India coverage) |
 
@@ -181,29 +184,40 @@ Use Photon with 300 ms debounce + a server-side cache of resolved queries in our
 own DB. When it grows: self-host Photon with an India extract (~8 GB RAM VPS,
 roughly ₹1,500/month) → then it genuinely is unlimited.
 
-### 5.2 Road-snapped route line, real ETA, turn-by-turn
+### 5.2 Road-snapped route line, real ETA, turn-by-turn — at zero cost
 
 Today the amber line on the driver card is honestly labelled "planned stop
 order, not the road route", and navigation is a **deep link** to the phone's map
-app (`src/lib/navigation.ts`) — free, zero infrastructure, and it is why we have
-no routing bill.
+app (`src/lib/navigation.ts`).
 
-To get an actual road polyline and road-distance ETA:
+The road geometry can be added without paying anyone, because of one property
+of this product: **a bus route's shape almost never changes.** It changes when
+an admin adds, removes or moves a stop. So routing is not a per-request runtime
+service at all — it is an occasional job whose answer we store.
 
-| Engine | Licence | Public instance | Production answer |
-|---|---|---|---|
-| **OSRM** | BSD | FOSSGIS demo: 1 req/s, no heavy use, not for production | Self-host |
-| **Valhalla** | MIT | FOSSGIS demo, same fair-use | Self-host |
+**The zero-cost architecture**
 
-Self-hosting an India extract: OSRM car profile on a 8–16 GB VPS. One-off build
-of the graph, then **unlimited requests, zero marginal cost**, roughly
-₹2,000–4,000/month of server. Routes change only when a route's stops change —
-so we'd cache every computed polyline in our DB and the request volume would be
-near zero anyway.
+1. **Compute once, store forever.** A `route_geometries` row keyed by a hash of
+   the route's ordered stop coordinates. Hash unchanged ⇒ no engine call, ever.
+   A school with 20 routes makes 20 calls in its lifetime.
+2. **The engine is a container next to the app.** `osrm-backend` with a **city
+   or district extract**, not all of India. A metro extract needs roughly
+   0.5–2 GB of RAM at serve time — one production deployment serves Mumbai and
+   Hyderabad routing on **0.25 CPU and 0.5 GB RAM**. That fits on the server the
+   app is already running on. **₹0 extra.**
+3. **The heavy step runs where compute is already free.** Building the graph
+   (`osrm-extract` → `osrm-partition` → `osrm-customize`) is the memory-hungry
+   part. It runs **once per extract** on a GitHub Actions runner (4 cores,
+   16 GB, free minutes) or on a laptop, and the built artefacts are uploaded.
+   Production never builds a graph.
+4. **If the app box truly has no spare RAM**, the engine does not have to run
+   continuously at all: a manually-triggered GitHub Actions job can start OSRM,
+   compute geometry for every route that is missing it, POST the results to an
+   admin endpoint, and shut down. Free, and correct, because the data is static.
 
-**Recommendation:** Phase 3, and only when a school asks for "real" ETA. Keep
-the deep-link navigation for drivers permanently — it is better than anything
-we'd build, and it is free.
+**What we do NOT do:** hosted directions APIs (all metered), and no leaning on
+the FOSSGIS public demo servers in production — their policy is 1 request per
+second, fair use, explicitly not for production third-party services.
 
 ### 5.3 Live traffic
 
@@ -230,13 +244,15 @@ outside metros is thin. Not worth it for a bus app.
 |---|---|---|---|
 | 1 | Google-like cartography + icons | **₹0** | ✅ Yes |
 | 2 | Google-like interactions, 3D, night mode | **₹0** | ✅ Yes |
-| 3a | Self-hosted OpenFreeMap tiles (removes the SLA risk) | ~₹1,500–2,500 | ✅ Yes |
-| 3b | Self-hosted Photon (search) | ~₹1,500 | ✅ Yes |
-| 3c | Self-hosted OSRM (routes + ETA) | ~₹2,000–4,000 | ✅ Yes |
-| 4 | Own traffic model from fleet history | ₹0 (our DB) | ✅ Yes |
+| 3 | Road routing — OSRM container, city extract, on the existing app server; graph built in GitHub Actions; geometry cached per route in our DB | **₹0** | ✅ Yes |
+| 4 | Own traffic model from fleet history | **₹0** (our DB) | ✅ Yes |
+| — | Place search — Photon public, debounced + cached | **₹0** | ✅ Yes |
 | — | Satellite | Not recommended | — |
 
-Note 3a, 3b and 3c can share one box if traffic is modest.
+**Total additional monthly cost of every phase: ₹0.** The only optional paid
+line in the whole plan would be moving the OSRM container onto its own box, and
+that is a scaling choice, never a requirement — the geometry is cached, so the
+engine is idle almost all the time.
 
 ---
 
