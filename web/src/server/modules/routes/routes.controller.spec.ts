@@ -1,12 +1,14 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { JwtService, Reflector } from '../../framework';
+import { JwtService, NotFoundException, Reflector } from '../../framework';
 import { JwtAccessTokenPayload, UserRole } from '@school-bus-tracking/shared-types';
 import { callHandler, makeGuardContext } from '../../http/route-testing';
 import type { EndpointDefinition } from '../../http/route-runtime';
 import { overrideContainer } from '../../container';
 import { AuthenticatedRequestUser, JwtAuthGuard, RolesGuard } from '../../common/guards';
 import { RoutesService } from './routes.service';
+import { RouteGeometryService } from '../routing/route-geometry.service';
+import { ROUTE_NOT_FOUND_MESSAGE } from './routes.constants';
 import { CreateRouteDto } from './dto/create-route.dto';
 import { ListRoutesQueryDto } from './dto/list-routes-query.dto';
 import { ReorderRouteStopsDto } from './dto/reorder-route-stops.dto';
@@ -15,6 +17,7 @@ import {
   deleteRoutesById,
   getRoutes,
   getRoutesById,
+  getRoutesByIdGeometry,
   getRoutesByIdStops,
   patchRoutesById,
   postRoutes,
@@ -63,6 +66,7 @@ async function activateGuards(
 const createHandler = postRoutes as EndpointDefinition<never, never>;
 const findOneHandler = getRoutesById as EndpointDefinition<never, never>;
 const findStopsHandler = getRoutesByIdStops as EndpointDefinition<never, never>;
+const geometryHandler = getRoutesByIdGeometry as EndpointDefinition<never, never>;
 const reorderHandler = putRoutesByIdStops as EndpointDefinition<never, never>;
 
 describe('RoutesController (authorization)', () => {
@@ -209,6 +213,135 @@ describe('RoutesController (authorization)', () => {
     }
 
     assert.equal(receivedDto?.code, 'NORTH-AM');
+  });
+});
+
+describe('RoutesController GET /routes/:id/geometry', () => {
+  const SCHOOL_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  const okGeometry = {
+    status: 'ok' as const,
+    route_id: ROUTE_ID,
+    stops_hash: 'a'.repeat(64),
+    geometry: {
+      type: 'LineString' as const,
+      coordinates: [
+        [73.0479, 33.6844],
+        [73.0613, 33.6972],
+      ] as [number, number][],
+    },
+    distance_meters: 4820.5,
+    duration_seconds: 612.3,
+    legs: [],
+    provider: 'osrm',
+    computed_at: '2026-10-03T08:30:00.000Z',
+  };
+
+  it('uses exactly the guards of GET /routes/:id — the same four roles', async () => {
+    assert.deepEqual(geometryHandler.roles, findOneHandler.roles);
+    // And they really are readable by crew and parents, like the route itself.
+    for (const role of [
+      UserRole.SCHOOL_ADMIN,
+      UserRole.DRIVER,
+      UserRole.CONDUCTOR,
+      UserRole.PARENT,
+    ]) {
+      const request: MockRequest = {
+        headers: { authorization: `Bearer ${await signAccessToken(role)}` },
+      };
+      await activateGuards(request, geometryHandler);
+      assert.equal(request.user?.role, role);
+    }
+  });
+
+  it('rejects SUPER_ADMIN like GET /routes/:id does', async () => {
+    const request: MockRequest = {
+      headers: { authorization: `Bearer ${await signAccessToken(UserRole.SUPER_ADMIN)}` },
+    };
+    await assert.rejects(
+      activateGuards(request, geometryHandler),
+      (error: { getStatus?: () => number }) => {
+        assert.equal(error.getStatus?.(), 403);
+        return true;
+      },
+    );
+  });
+
+  it('rejects an unauthenticated request with 401', async () => {
+    await assert.rejects(
+      activateGuards({ headers: {} }, geometryHandler),
+      (error: { getStatus?: () => number }) => {
+        assert.equal(error.getStatus?.(), 401);
+        return true;
+      },
+    );
+  });
+
+  it('happy path: serves the cached geometry, scoped to the token school', async () => {
+    const seen: Array<{ schoolId: string; id: string }> = [];
+    const service = {
+      getGeometry: async (schoolId: string, id: string) => {
+        seen.push({ schoolId, id });
+        return okGeometry;
+      },
+    } as unknown as RouteGeometryService;
+    const restore = overrideContainer('routeGeometry', service);
+    try {
+      const result = await callHandler(getRoutesByIdGeometry, {
+        user: ADMIN_USER,
+        params: { id: ROUTE_ID },
+      });
+
+      assert.deepEqual(result, okGeometry);
+      assert.deepEqual(seen, [{ schoolId: SCHOOL_A, id: ROUTE_ID }]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('passes an unavailable answer through untouched (it is not an error)', async () => {
+    const service = {
+      getGeometry: async () => ({ status: 'unavailable' }),
+    } as unknown as RouteGeometryService;
+    const restore = overrideContainer('routeGeometry', service);
+    try {
+      const result = await callHandler(getRoutesByIdGeometry, {
+        user: ADMIN_USER,
+        params: { id: ROUTE_ID },
+      });
+
+      assert.deepEqual(result, { status: 'unavailable' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('cross-tenant is denied: the service 404 surfaces unchanged', async () => {
+    // Another school's route id must be indistinguishable from a typo.
+    const service = {
+      getGeometry: async (schoolId: string) => {
+        if (schoolId !== SCHOOL_A) {
+          throw new NotFoundException(ROUTE_NOT_FOUND_MESSAGE);
+        }
+        return okGeometry;
+      },
+    } as unknown as RouteGeometryService;
+    const restore = overrideContainer('routeGeometry', service);
+    try {
+      await assert.rejects(
+        callHandler(getRoutesByIdGeometry, {
+          user: { ...ADMIN_USER, school_id: SCHOOL_B },
+          params: { id: ROUTE_ID },
+        }),
+        (error: { getStatus?: () => number; message?: string }) => {
+          assert.equal(error.getStatus?.(), 404);
+          assert.equal(error.message, ROUTE_NOT_FOUND_MESSAGE);
+          return true;
+        },
+      );
+    } finally {
+      restore();
+    }
   });
 });
 
