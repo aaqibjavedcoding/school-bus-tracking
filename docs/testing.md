@@ -120,6 +120,14 @@ path, so a word like `map`, `crew` or `marketing` is usually enough.
 changed specs, each changed file's sibling spec, and the other specs in the
 same directory.
 
+### Whole-codebase guards
+
+Feature-scoped runs cannot see specs that assert invariants across the whole
+codebase, such as model-registry, i18n, map-provider, migration and security
+policies. Run `npm run test:guards` (about 20 specs, ~13s) before every push.
+Whenever a new whole-codebase invariant gets a spec, add its path fragment to
+the appropriate suite in `GUARD_FRAGMENTS` in `scripts/run-specs.mjs`.
+
 **Rule of thumb while developing (and the rule agent sessions must follow):**
 run the scoped command for the area you are changing, and let CI run the rest.
 `npm --prefix web run test:server` spawns 183 ts-node processes and is the one

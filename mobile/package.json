@@ -31,7 +31,8 @@
     "verify:firebase": "node scripts/verify-firebase-config.mjs",
     "test:tracking-sim": "node --experimental-strip-types --experimental-test-module-mocks --no-warnings --import ./scripts/test-loaders/native-stubs.loader.mjs --test src/features/crew/tracking-recovery.sim.spec.ts src/features/crew/tracking-resume.sim.spec.ts",
     "test:scope": "node ../scripts/run-specs.mjs mobile --filter",
-    "test:changed": "node ../scripts/run-specs.mjs mobile --changed"
+    "test:changed": "node ../scripts/run-specs.mjs mobile --changed",
+    "test:guards": "node ../scripts/run-specs.mjs mobile --guards"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",

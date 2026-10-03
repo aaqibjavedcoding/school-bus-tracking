@@ -38,7 +38,8 @@
     "smoke:eta": "cross-env DB_AUTO_CONNECT=false DB_ALLOW_NO_CONNECT=true TS_NODE_PROJECT=tsconfig.server.json node -r ts-node/register/transpile-only scripts/smoke/smoke-eta-arrivals.ts",
     "build:server": "tsc -p tsconfig.build.json",
     "test:scope": "node ../scripts/run-specs.mjs web --filter",
-    "test:changed": "node ../scripts/run-specs.mjs web --changed"
+    "test:changed": "node ../scripts/run-specs.mjs web --changed",
+    "test:guards": "node ../scripts/run-specs.mjs web --guards"
   },
   "dependencies": {
     "@school-bus-tracking/api-client": "*",

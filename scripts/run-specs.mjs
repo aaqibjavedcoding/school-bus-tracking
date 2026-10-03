@@ -19,11 +19,17 @@
  * 3. **There was no way to run a slice.** Touching one map module meant running
  *    all 343 specs, so an agent session doing a two-file change spent its whole
  *    budget on unrelated tests — and timed out.
+ * 4. **Scoped runs missed whole-codebase guards.** The road-routing backend was
+ *    green under its feature filter, then failed CI because adding the
+ *    RouteGeometry model tripped the model-count checkpoint in
+ *    `database/marketing-models.spec.ts`. Guards mode keeps registry, policy,
+ *    migration, security and i18n invariants in every pre-push test pass.
  *
- * Discovery by convention fixes all three: a `*.spec.ts` under the right
+ * Discovery by convention fixes all four: a `*.spec.ts` under the right
  * directory **is** a test, no registration step. And because discovery is a
- * list we control, the same script can narrow it — by substring or by what git
- * says changed.
+ * list we control, the same script can narrow it — by substring, by what git
+ * says changed, or to the whole-codebase guards that a feature slice cannot
+ * see.
  *
  * ## What is deliberately NOT discovered
  *
@@ -37,10 +43,11 @@
  *
  *   node scripts/run-specs.mjs <suite> [options]
  *
- *   suite: web-server | web-client | web | mobile | all
+ *   suite: web-server | web-client | web | mobile | all | guards
  *
  *   --filter <text>   only specs whose path contains <text> (repeatable)
  *   --changed         only specs related to files changed vs the merge base
+ *   --guards          only whole-codebase invariant specs for the selected suite(s)
  *   --base <ref>      base ref for --changed (default: origin/main, then main)
  *   --list            print the files that would run, run nothing
  *   --isolation=none  run a suite in a single process (faster, less isolated)
@@ -50,6 +57,8 @@
  *   node scripts/run-specs.mjs web-server --filter routing
  *   node scripts/run-specs.mjs mobile --filter map --filter crew
  *   node scripts/run-specs.mjs all --changed
+ *   node scripts/run-specs.mjs guards
+ *   node scripts/run-specs.mjs web --guards
  */
 
 import { spawnSync } from 'node:child_process';
@@ -109,10 +118,35 @@ const SUITES = {
   },
 };
 
+/**
+ * Specs that protect whole-codebase invariants and therefore cannot be inferred
+ * from a feature-scoped filter. Fragments are relative to each suite's cwd.
+ */
+export const GUARD_FRAGMENTS = {
+  'web-server': [
+    'database/marketing-models.spec',
+    'database/database.module.spec',
+    'database/base-model-timestamp-columns.spec',
+    'migrations.spec',
+    'http/route-runtime-idempotency.spec',
+    'common/security/',
+  ],
+  'web-client': ['map-provider-policy.spec', 'list-refresh-policy.spec', 'nav-routes.spec'],
+  mobile: [
+    'map-provider-policy.spec',
+    'i18n-parity.spec',
+    'i18n-literals.spec',
+    'i18n-clipping.spec',
+    'maplibre-runtime.spec',
+    'app-config-warnings.spec',
+  ],
+};
+
 /** Suite names that expand to several suites. */
 const GROUPS = {
   web: ['web-server', 'web-client'],
   all: ['web-server', 'web-client', 'mobile'],
+  guards: ['web-server', 'web-client', 'mobile'],
 };
 
 function walk(dir, out) {
@@ -205,13 +239,19 @@ export function specsForChanges(suiteName, changed) {
     touchedDirs.add(dirname(relPath));
   }
 
-  return all.filter(
-    (spec) => touchedSpecs.has(spec) || touchedDirs.has(dirname(spec)),
-  );
+  return all.filter((spec) => touchedSpecs.has(spec) || touchedDirs.has(dirname(spec)));
 }
 
 function parseArgs(argv) {
-  const options = { suites: [], filters: [], changed: false, base: null, list: false, isolation: null };
+  const options = {
+    suites: [],
+    filters: [],
+    changed: false,
+    guards: false,
+    base: null,
+    list: false,
+    isolation: null,
+  };
   const positional = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -221,6 +261,8 @@ function parseArgs(argv) {
       options.filters.push(arg.slice('--filter='.length));
     } else if (arg === '--changed') {
       options.changed = true;
+    } else if (arg === '--guards') {
+      options.guards = true;
     } else if (arg === '--base') {
       options.base = argv[++i];
     } else if (arg === '--list') {
@@ -235,6 +277,7 @@ function parseArgs(argv) {
   }
   const name = positional[0] ?? 'all';
   options.suites = GROUPS[name] ?? [name];
+  if (name === 'guards') options.guards = true;
   // Bare words after the suite are treated as filters: `run-specs mobile map`.
   options.filters.push(...positional.slice(1));
   return options;
@@ -269,12 +312,16 @@ function main() {
   let worst = 0;
   for (const suiteName of options.suites) {
     if (!SUITES[suiteName]) {
-      console.error(`Unknown suite "${suiteName}". Known: ${Object.keys(SUITES).join(', ')}, ${Object.keys(GROUPS).join(', ')}`);
+      console.error(
+        `Unknown suite "${suiteName}". Known: ${Object.keys(SUITES).join(', ')}, ${Object.keys(GROUPS).join(', ')}`,
+      );
       return 1;
     }
-    let specs = options.changed
-      ? specsForChanges(suiteName, changed)
-      : discoverSpecs(suiteName);
+    let specs = options.changed ? specsForChanges(suiteName, changed) : discoverSpecs(suiteName);
+    if (options.guards) {
+      const fragments = GUARD_FRAGMENTS[suiteName].map((fragment) => fragment.split('/').join(sep));
+      specs = specs.filter((spec) => fragments.some((fragment) => spec.includes(fragment)));
+    }
     if (options.filters.length > 0) {
       specs = specs.filter((spec) => options.filters.some((f) => spec.includes(f)));
     }

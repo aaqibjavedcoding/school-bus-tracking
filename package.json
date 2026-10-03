@@ -27,6 +27,7 @@
     "seed": "npm --prefix web run db:seed",
     "test:changed": "node scripts/run-specs.mjs all --changed",
     "test:scope": "node scripts/run-specs.mjs all --filter",
+    "test:guards": "node scripts/run-specs.mjs guards",
     "test:list": "node scripts/run-specs.mjs all --list"
   },
   "devDependencies": {

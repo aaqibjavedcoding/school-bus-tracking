@@ -101,9 +101,54 @@ describe('marketing model registry', () => {
     }
   });
 
-  it('keeps the registry free of accidental marketing duplicates', () => {
-    // 31 pre-marketing models (incl. RouteGeometry) + the 12 marketing models.
-    assert.equal(models.length, 43);
+  it('keeps the complete model registry intentional and duplicate-free', () => {
+    const registeredModelNames = models.map((model) => model.name).sort();
+
+    assert.deepEqual(registeredModelNames, [
+      'AssistedManagementSession',
+      'AuditLog',
+      'Bus',
+      'BusDocument',
+      'CrewPairingToken',
+      'DeviceToken',
+      'DocumentRequirement',
+      'DriverDocument',
+      'EmailCampaign',
+      'EmailCampaignRecipient',
+      'EmailEvent',
+      'EmailTemplate',
+      'EmailTemplateVersion',
+      'EmergencyEvent',
+      'IdempotencyKey',
+      'ImportJob',
+      'MarketingAttribution',
+      'MarketingDeliverySettings',
+      'MarketingLead',
+      'MarketingLeadEvent',
+      'MarketingNotificationJob',
+      'MarketingProviderEvent',
+      'MarketingSuppression',
+      'Notification',
+      'PasswordResetToken',
+      'Plan',
+      'RefreshToken',
+      'Route',
+      'RouteAssignment',
+      'RouteGeometry',
+      'Run',
+      'RunCrew',
+      'School',
+      'SchoolSubscription',
+      'Shift',
+      'Stop',
+      'Student',
+      'StudentGuardian',
+      'Trip',
+      'TripLocation',
+      'TripStopArrival',
+      'TripStudentAttendance',
+      'User',
+    ]);
   });
 });
 
