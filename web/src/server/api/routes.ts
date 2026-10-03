@@ -50,6 +50,25 @@ export const getRoutesById: EndpointDefinition = {
   },
 };
 
+/**
+ * `GET /api/v1/routes/:id/geometry`
+ *
+ * The road-following shape of the route (cached; computed once per stop
+ * list by the routing engine) or `{ status: 'unavailable' }`. Same guard
+ * contract as `GET /routes/:id`: every authenticated school role may read
+ * it, and cross-tenant ids answer the same generic 404 as a nonexistent
+ * route.
+ */
+export const getRoutesByIdGeometry: EndpointDefinition = {
+  roles: [UserRole.SCHOOL_ADMIN, UserRole.DRIVER, UserRole.CONDUCTOR, UserRole.PARENT],
+  status: HttpStatus.OK,
+  handler: async ({ user, params }) => {
+    const schoolId = user.school_id as string;
+    const id = parseUuidParam(params['id'], { label: 'route' });
+    return container().routeGeometry().getGeometry(schoolId, id);
+  },
+};
+
 /** `GET /api/v1/routes/:id/details` */
 export const getRoutesByIdDetails: EndpointDefinition = {
   roles: [UserRole.SCHOOL_ADMIN],

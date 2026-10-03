@@ -154,6 +154,7 @@ import {
   RouteCreateRequest,
   RouteDeleteResponse,
   RouteDetailResponse,
+  RouteGeometryResponse,
   RouteListQuery,
   RouteListResponse,
   RouteMinimalListResponse,
@@ -2015,6 +2016,18 @@ export class ApiClient {
   /** Full route detail: route facts, stops, students and the active trip. */
   public async getRouteDetails(id: string): Promise<ApiResponse<RouteDetailResponse>> {
     return this.get<RouteDetailResponse>(`/routes/${encodeURIComponent(id)}/details`);
+  }
+
+  /**
+   * Road-following geometry of a route (`GET /routes/:id/geometry`).
+   *
+   * `status: 'ok'` carries the cached road polyline plus turn-by-turn legs;
+   * `status: 'unavailable'` (not an error — still HTTP 200) means routing is
+   * disabled, too few stops are surveyed, or the engine could not compute
+   * the shape yet.
+   */
+  public async getRouteGeometry(id: string): Promise<ApiResponse<RouteGeometryResponse>> {
+    return this.get<RouteGeometryResponse>(`/routes/${encodeURIComponent(id)}/geometry`);
   }
 
   public async updateRoute(

@@ -42,6 +42,7 @@ import {
   passwordResetConfig,
   rateLimitConfig,
   retentionConfig,
+  routingConfig,
   securityConfig,
   subscriptionConfig,
   websocketConfig,
@@ -76,6 +77,7 @@ import {
   Plan,
   RefreshToken,
   Route,
+  RouteGeometry,
   RouteAssignment,
   Run,
   RunCrew,
@@ -164,6 +166,8 @@ import { ParentGuardiansService } from './modules/parents/parent-guardians.servi
 import { ParentsService } from './modules/parents/parents.service';
 import { ReportsService } from './modules/reports/reports.service';
 import { RoutesService } from './modules/routes/routes.service';
+import { RouteGeometryService } from './modules/routing/route-geometry.service';
+import { OsrmRoutingProvider } from './modules/routing/osrm.provider';
 import { RunCrewService } from './modules/run-crew/run-crew.service';
 import { RunsService } from './modules/runs/runs.service';
 import { SchoolsService } from './modules/schools/schools.service';
@@ -220,6 +224,7 @@ export class Container {
         rateLimitConfig,
         subscriptionConfig,
         retentionConfig,
+        routingConfig,
         notificationsConfig,
         notificationDeliveryConfig,
         passwordResetConfig,
@@ -718,6 +723,27 @@ export class Container {
         this.runs(),
       ),
   );
+
+  /**
+   * Road-following route geometry (compute-once, cache-forever).
+   *
+   * The engine client is only constructed when `ROUTING_SERVICE_URL` is
+   * configured; a blank URL hands the service a `null` provider, which is
+   * the deployment-wide "geometry unavailable" state and guarantees no
+   * network call is ever attempted.
+   */
+  readonly routeGeometry = lazy(() => {
+    const serviceUrl = this.config().get<string | null>('routing.serviceUrl') ?? null;
+    const provider =
+      serviceUrl === null
+        ? null
+        : new OsrmRoutingProvider({
+            baseUrl: serviceUrl,
+            timeoutMs: this.config().get<number>('routing.timeoutMs'),
+            maxRequestsPerSecond: this.config().get<number>('routing.maxRequestsPerSecond'),
+          });
+    return new RouteGeometryService(Route, Stop, RouteGeometry, provider);
+  });
 
   readonly shifts = lazy(() => new ShiftsService(Shift, Run));
 

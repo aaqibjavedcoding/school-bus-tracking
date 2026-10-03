@@ -3003,6 +3003,77 @@ export interface RouteStopsListResponse {
   items: StopResponse[];
 }
 
+/**
+ * Road-following route geometry (`GET /api/v1/routes/:id/geometry`).
+ *
+ * Routes are more than straight stop-to-stop flight paths: the geometry is
+ * the polyline of the actual roads a driver must take, computed ONCE by the
+ * self-hosted routing engine and cached FOREVER in `route_geometries` (a
+ * route's shape almost never changes — the cache key is a hash of the
+ * ordered stop coordinates, so any stop change simply computes a new row).
+ *
+ * Every numeric/geo field below is snake_case on the wire; the engine's own
+ * response vocabulary never crosses the API boundary.
+ */
+
+/** GeoJSON LineString in WGS-84 — `[longitude, latitude]` pairs. */
+export interface RouteGeometryLineString {
+  type: 'LineString';
+  coordinates: [number, number][];
+}
+
+/** One turn-by-turn instruction point along a leg. */
+export interface RouteGeometryManeuver {
+  /** Engine maneuver type, e.g. `depart`, `turn`, `roundabout`, `arrive`. */
+  type: string;
+  /** Direction modifier (`left`, `sharp right`, …); null when omitted. */
+  modifier: string | null;
+  /** Name of the road the step travels on (may be ''). */
+  road_name: string;
+  /** Length of the step in metres. */
+  distance_meters: number;
+  /** `[longitude, latitude]` where the maneuver happens. */
+  location: [number, number];
+}
+
+/** One stop-to-stop section of the route. */
+export interface RouteGeometryLeg {
+  distance_meters: number;
+  duration_seconds: number;
+  maneuvers: RouteGeometryManeuver[];
+}
+
+/** `status: 'ok'` payload: the cached road-following geometry. */
+export interface RouteGeometryAvailableResponse {
+  status: 'ok';
+  route_id: string;
+  /** Cache key: sha256 of the ordered (stop_id, lat, lng) tuples. */
+  stops_hash: string;
+  geometry: RouteGeometryLineString;
+  distance_meters: number;
+  duration_seconds: number;
+  legs: RouteGeometryLeg[];
+  /** Routing engine that produced the geometry (e.g. `osrm`). */
+  provider: string;
+  /** ISO-8601 timestamp of the (single, forever) computation. */
+  computed_at: string;
+}
+
+/**
+ * `status: 'unavailable'` payload: geometry cannot be served right now —
+ * routing is disabled on this deployment, the route has fewer than two
+ * located stops, or the engine could not compute it (a failure is never
+ * cached, so the next read tries again). Not an error: HTTP 200.
+ */
+export interface RouteGeometryUnavailableResponse {
+  status: 'unavailable';
+}
+
+/** Successful payload of `GET /api/v1/routes/:id/geometry`. */
+export type RouteGeometryResponse =
+  | RouteGeometryAvailableResponse
+  | RouteGeometryUnavailableResponse;
+
 /** Body of `POST /api/v1/stops`. */
 export interface StopCreateRequest {
   /** Target route; must belong to the authenticated school. */

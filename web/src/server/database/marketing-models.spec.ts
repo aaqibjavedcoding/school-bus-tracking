@@ -102,8 +102,8 @@ describe('marketing model registry', () => {
   });
 
   it('keeps the registry free of accidental marketing duplicates', () => {
-    // 30 pre-marketing models + the 12 marketing models.
-    assert.equal(models.length, 42);
+    // 31 pre-marketing models (incl. RouteGeometry) + the 12 marketing models.
+    assert.equal(models.length, 43);
   });
 });
 
