@@ -49,6 +49,7 @@ import {
 } from './bus-3d';
 import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
 import { stopsLayerCollection } from './stop-layer';
+import { chooseRouteLine } from './route-geometry';
 import { useAuth } from '../auth/AuthProvider';
 import { useMapCameraMode } from './useMapCameraMode';
 import {
@@ -116,6 +117,7 @@ function fallbackNoticeMessage(reason: MapFallbackReason): string {
  * bury them under the buildings.
  */
 const APP_LAYER_ORDER = [
+  'sbt-route-casing',
   'sbt-route-line',
   'sbt-trail-line',
   'sbt-accuracy-fill',
@@ -209,6 +211,7 @@ function createBusMarkerElement(): HTMLDivElement {
 export const MapViewInner: React.FC<MapViewProps> = ({
   fix,
   stops = [],
+  roadGeometry = null,
   highlightStopId = null,
   nextStopId = null,
   trail,
@@ -308,14 +311,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     [stops],
   );
 
-  const lineCoords = useMemo(
-    () =>
-      mappedStops
-        .slice()
-        .sort((a, b) => a.sequence_number - b.sequence_number)
-        .map((stop) => [stop.longitude, stop.latitude] as [number, number]),
-    [mappedStops],
+  const routeLine = useMemo(
+    () => chooseRouteLine({ roadGeometry, stops }),
+    [roadGeometry, stops],
   );
+  const lineCoords = routeLine?.line.coordinates ?? [];
 
   // Driven-path breadcrumb (crew console). GeoJSON expects [lng, lat].
   const trailCoords = useMemo(
@@ -758,15 +758,37 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           },
         });
       }
+      if (!map.getLayer('sbt-route-casing')) {
+        map.addLayer({
+          id: 'sbt-route-casing',
+          type: 'line',
+          source: 'sbt-route',
+          layout: {
+            visibility: routeLine?.kind === 'road' ? 'visible' : 'none',
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
+          paint: {
+            'line-color': '#172554',
+            'line-width': 8,
+            'line-opacity': 0.72,
+          },
+        });
+      }
       if (!map.getLayer('sbt-route-line')) {
         map.addLayer({
           id: 'sbt-route-line',
           type: 'line',
           source: 'sbt-route',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
+          },
           paint: {
             'line-color': '#2563eb',
             'line-width': 4,
-            'line-opacity': 0.55,
+            'line-opacity': routeLine?.kind === 'road' ? 0.9 : 0.55,
+            ...(routeLine?.kind === 'road' ? {} : { 'line-dasharray': [2, 2] }),
           },
         });
       }
@@ -1132,7 +1154,15 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         coordinates: lineCoords.length >= 2 ? lineCoords : [],
       },
     });
-  }, [lineCoords]);
+    const isRoad = routeLine?.kind === 'road';
+    if (map.getLayer('sbt-route-casing')) {
+      map.setLayoutProperty('sbt-route-casing', 'visibility', isRoad ? 'visible' : 'none');
+    }
+    if (map.getLayer('sbt-route-line')) {
+      map.setPaintProperty('sbt-route-line', 'line-opacity', isRoad ? 0.9 : 0.55);
+      map.setPaintProperty('sbt-route-line', 'line-dasharray', isRoad ? null : [2, 2]);
+    }
+  }, [lineCoords, routeLine?.kind]);
 
   // Update driven-path line when the trail grows. Writes the DECIMATED
   // coordinates — a fresh fix re-sets this whole line, so the payload is the
@@ -1548,8 +1578,15 @@ export const MapViewInner: React.FC<MapViewProps> = ({
             <span>Driven path</span>
           </div>
           <div className="map-legend-row">
-            <span className="map-legend-line is-planned" aria-hidden="true" />
-            <span>Planned order</span>
+            <span
+              className={`map-legend-line${routeLine?.kind === 'road' ? '' : ' is-planned'}`}
+              aria-hidden="true"
+            />
+            <span>
+              {routeLine?.kind === 'road'
+                ? 'Road route'
+                : 'Straight-line estimate — road route unavailable'}
+            </span>
           </div>
         </div>
       ) : null}
