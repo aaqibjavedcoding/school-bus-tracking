@@ -34,3 +34,13 @@ export {
 
 export { useOfflineAction, useSyncState } from './useOfflineAction';
 export { OfflineSyncBanner } from './OfflineSyncBanner';
+
+export {
+  loadTripRoadGeometry,
+  readCachedRoadGeometry,
+} from './route-geometry-cache';
+export {
+  roadGeometryCacheKey,
+  type RoadGeometryLoader,
+  type RoadGeometryLoaderDeps,
+} from './route-geometry-core';
