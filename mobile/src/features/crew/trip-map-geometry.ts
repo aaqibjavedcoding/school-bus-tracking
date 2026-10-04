@@ -1,11 +1,13 @@
 import type { Feature, LineString, Point, Polygon } from 'geojson';
 import type {
+  RouteGeometryLineString,
   StopResponse,
   TripLocationHistoryResponse,
   TripLocationResponse,
 } from '@school-bus-tracking/shared-types';
 import { isValidCoordinate } from '../../lib/navigation.ts';
 import { accuracyCirclePolygon } from '../map/accuracy-circle.ts';
+import { projectOntoRoute } from '../map/route-snap.ts';
 import { arrivalZoneOfStop } from './arrival-zone.ts';
 
 /**
@@ -22,10 +24,16 @@ import { arrivalZoneOfStop } from './arrival-zone.ts';
  *   map allowed to be described as "driven";
  * - **the planned legs** (`buildPlannedLegsLine`) — what is *ahead*: straight
  *   stop-to-stop segments from the next stop onward. This is explicitly **not
- *   a road route** — the platform has no routing engine (road-following
- *   geometry is a separate, backlog effort) — so the map's caption must say
- *   "planned order", and this module's shape keeps the two lines impossible
- *   to confuse: different sources, different colours, different layers.
+ *   a road route** — straight lines between stops, with no knowledge of the
+ *   roads between them — so whenever it is drawn the map's caption must say
+ *   "planned order";
+ * - **the road route** (`buildRoadRouteLine`) — what is *ahead*, on the roads:
+ *   the routing engine's cached polyline for this route (`GET
+ *   /routes/:id/geometry`), trimmed to start at the next stop. It replaces the
+ *   planned legs whenever it can be drawn honestly; `null` hands the line back
+ *   to `buildPlannedLegsLine`, so the amber "ahead" line always exists in
+ *   exactly one shape and the caption follows the shape (see
+ *   `map.roadNotice` / `map.plannedNotice`).
  *
  * The map component decides *colours and dash patterns*; this module only
  * decides *what geometry exists*. Every function returns `null` for "nothing
@@ -87,6 +95,98 @@ export function buildPlannedLegsLine(
     if (!isValidCoordinate(stop.latitude, stop.longitude)) continue;
     coordinates.push([stop.longitude, stop.latitude]);
   }
+  if (coordinates.length < 2) return null;
+  return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } };
+}
+
+/**
+ * Two coordinates closer than this (in degrees — ~0.1 mm) are the same road
+ * vertex: the projector's spherical interpolation lands a fraction of a
+ * micrometre short of an exact vertex, and such a start must not be drawn as
+ * a duplicate of the vertex it landed on.
+ */
+const ROAD_VERTEX_EPSILON_DEGREES = 1e-9;
+
+/** True when two `[longitude, latitude]` pairs are the same vertex. */
+function coincidentCoordinate(a: [number, number], b: [number, number]): boolean {
+  return (
+    Math.abs(a[0] - b[0]) < ROAD_VERTEX_EPSILON_DEGREES &&
+    Math.abs(a[1] - b[1]) < ROAD_VERTEX_EPSILON_DEGREES
+  );
+}
+
+/**
+ * The road route ahead — the routing engine's polyline for this route,
+ * trimmed to start at the next stop — or `null`, in which case
+ * `buildPlannedLegsLine` stays the fallback.
+ *
+ * `roadGeometry` is the `GET /routes/:id/geometry` payload (or the offline
+ * copy of one — see `offline/route-geometry-core.ts`); it is NOT trusted:
+ * anything that is not a LineString with at least two coordinates that pass
+ * `isValidCoordinate` draws nothing.
+ *
+ * The trim reuses the display-only projector `projectOntoRoute`
+ * (`../map/route-snap.ts`): the next stop is projected onto the road polyline
+ * and everything behind the projected point is dropped, so the line shows the
+ * road from the next stop to the end of the route — never the kilometres the
+ * bus has already driven. `null` (fallback) whenever the road line cannot
+ * honestly serve this trip:
+ *
+ * - no next stop, an id that is not one of this route's stops, or a next stop
+ *   without surveyed coordinates — the same inputs `buildPlannedLegsLine`
+ *   requires, so the two lines can never disagree about where "ahead" starts
+ *   (and the map never picks a next stop of its own here either);
+ * - the next stop sits farther than `SNAP_TO_ROUTE_MAX_OFFSET_M` from the
+ *   road line. The engine routes **through** every stop, so a stop well off
+ *   the line means the geometry is not this stop list's road (a stale cached
+ *   shape after a stop was moved) — and drawing it would claim a road this
+ *   route does not take;
+ * - fewer than two coordinates remain ahead (the next stop is the last stop:
+ *   nothing is ahead on either line — `buildPlannedLegsLine` returns `null`
+ *   for the same input).
+ */
+export function buildRoadRouteLine(
+  roadGeometry: RouteGeometryLineString | null | undefined,
+  { fromStopId, stops }: { fromStopId: string | null | undefined; stops: readonly StopResponse[] },
+): Feature<LineString> | null {
+  if (!roadGeometry || roadGeometry.type !== 'LineString') return null;
+  if (!Array.isArray(roadGeometry.coordinates)) return null;
+
+  // The road polyline, filtered by the module's own coordinate rule: a NaN or
+  // out-of-range pair from a mangled payload is dropped, never trusted.
+  const road: Array<[number, number]> = [];
+  for (const coordinate of roadGeometry.coordinates) {
+    if (!Array.isArray(coordinate) || coordinate.length < 2) continue;
+    const [longitude, latitude] = coordinate;
+    if (typeof longitude !== 'number' || typeof latitude !== 'number') continue;
+    if (!isValidCoordinate(latitude, longitude)) continue;
+    road.push([longitude, latitude]);
+  }
+  if (road.length < 2) return null;
+
+  // The same next-stop rule as the planned legs: known id, surveyed stop.
+  const nextStop = fromStopId ? (stops.find((stop) => stop.id === fromStopId) ?? null) : null;
+  if (!nextStop || nextStop.latitude === null || nextStop.longitude === null) return null;
+  if (!isValidCoordinate(nextStop.latitude, nextStop.longitude)) return null;
+
+  // Where "ahead" starts on the road: the point of the polyline nearest the
+  // next stop. `null` here is the honesty guard — the stop is not on this
+  // road, so this is not this route's road.
+  const projection = projectOntoRoute(
+    { latitude: nextStop.latitude, longitude: nextStop.longitude },
+    road.map(([longitude, latitude]) => ({ latitude, longitude })),
+  );
+  if (!projection) return null;
+  if (!isValidCoordinate(projection.point.latitude, projection.point.longitude)) return null;
+
+  const start: [number, number] = [projection.point.longitude, projection.point.latitude];
+  const tail = road.slice(projection.segmentIndex + 1);
+  // The projector's spherical math lands a hair short of an exact vertex, so
+  // "start at the vertex" is decided by proximity, not by fraction: a start
+  // that coincides with the first kept vertex (to ~0.1 mm) must not be drawn
+  // twice, and a projection that landed on a vertex simply starts there.
+  const coordinates =
+    tail.length === 0 || coincidentCoordinate(start, tail[0]) ? tail : [start, ...tail];
   if (coordinates.length < 2) return null;
   return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } };
 }
