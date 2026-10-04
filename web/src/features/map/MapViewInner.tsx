@@ -58,6 +58,10 @@ import {
   type PoiTapInfo,
   type TappedFeature,
 } from './poi-sheet';
+import {
+  createCompassControl,
+  shouldShowRecentreControl,
+} from './map-controls';
 import { stopsLayerCollection } from './stop-layer';
 import { chooseRouteLine } from './route-geometry';
 import { useAuth } from '../auth/AuthProvider';
@@ -304,6 +308,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const lastCameraAtRef = useRef(0);
   const fixRef = useRef(fix);
   fixRef.current = fix;
+  // Mirror of the reduced-motion hook for the imperative paths (the compass
+  // control's reset and the follow-camera pans), so animation decisions read
+  // the CURRENT preference rather than a render-time capture.
+  const reducedMotionRef = useRef(reducedMotion);
+  reducedMotionRef.current = reducedMotion;
   const recenterRef = useRef<(() => void) | null>(null);
   const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
   const onMapErrorRef = useRef(onMapError);
@@ -565,7 +574,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     frameRef.current = requestAnimationFrame(tickFrame);
   }, [applyFrame]);
 
-  // Pan helper (centre-only, preserves zoom)
+  // Pan helper (centre-only, preserves zoom). Reduced motion: the same
+  // target, reached instantly — the follow camera's centre stays honest,
+  // only the animation goes (mirroring the 2D/3D pitch ease below).
   const panTo = useCallback((target: LatLngTuple, durationSeconds: number) => {
     const map = mapRef.current;
     if (!map) return;
@@ -573,7 +584,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     lastCameraAtRef.current = nowMs();
     map.panTo([target[1], target[0]], {
       animate: true,
-      duration: durationSeconds * 1000,
+      duration: reducedMotionRef.current ? 0 : durationSeconds * 1000,
     });
   }, []);
 
@@ -716,14 +727,26 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     mapRef.current = map;
     appliedStyleUrlRef.current = styleUrl;
 
-    // Engine chrome, same for every role: zoom + compass and fullscreen.
+    // Engine chrome, same for every role: zoom + fullscreen on the right,
+    // the scale bar bottom-left, and the Google-style compass that appears
+    // only while the map is rotated (the engine's always-on nav compass is
+    // deliberately off; ours still resets north through the engine's easeTo,
+    // and honours the reduced-motion preference — see `map-controls.ts`).
     // Placement is deliberate — the bottom corners stay reserved for provider
     // attribution/logo, while every app and engine control stays top/right.
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    map.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: false, showCompass: false }),
+      'top-right',
+    );
+    map.addControl(
+      createCompassControl({ reducedMotion: () => reducedMotionRef.current }) as maplibregl.IControl,
+      'top-right',
+    );
     map.addControl(
       new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }),
       'top-right',
     );
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 96, unit: 'metric' }), 'bottom-left');
 
     // Style/tile/glyph failures and WebGL context loss arrive here. MapLibre
     // fires this for every 404 tile and every request cancelled by a pan, so
@@ -1661,6 +1684,33 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           >
             i
           </button>
+          {/*
+            The recentre control (Session 6): exists only while the user owns
+            the camera (`shouldShowRecentreControl`), and every tap goes to
+            the EXISTING follow-camera path (`recenterRef` → the follow-camera
+            dispatch) — no second camera system. The "Follow bus" pill below
+            keeps its role as the labelled follow-state control.
+          */}
+          {shouldShowRecentreControl(exploring ? 'exploring' : 'following') ? (
+            <button
+              type="button"
+              className="map-recentre-control"
+              aria-label="Re-centre on the bus"
+              title="Re-centre on the bus"
+              onClick={() => recenterRef.current?.()}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <circle cx="12" cy="12" r="2.1" fill="currentColor" />
+                <path
+                  d="M12 2.5v2.8M12 18.7v2.8M2.5 12h2.8M18.7 12h2.8"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          ) : null}
         </div>
         <button
           type="button"

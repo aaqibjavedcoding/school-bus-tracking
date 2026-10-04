@@ -1073,6 +1073,71 @@ table.data tbody tr:hover {
   box-shadow: var(--shadow-sm);
 }
 
+/* The recentre (target) control: a round utility button like the info one. */
+.map-recentre-control {
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--color-primary-600);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-recentre-control:hover {
+  background: var(--color-slate-100);
+}
+
+.map-recentre-control:focus-visible {
+  outline: 2px solid var(--color-primary-600);
+  outline-offset: 2px;
+}
+
+/*
+ * The Google-style compass (Session 6): hidden while the map is north-up,
+ * shown while rotated; the two-half needle counter-rotates the camera
+ * bearing (map-controls.ts applies the transform imperatively, so rotating
+ * the map costs no React render).
+ */
+.sbt-compass-control.is-hidden {
+  display: none;
+}
+
+.sbt-compass-control .sbt-compass-button {
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 0;
+  cursor: pointer;
+}
+
+.sbt-compass-needle {
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid #d93025;
+  position: relative;
+}
+
+.sbt-compass-needle::after {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 9px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 9px solid var(--color-slate-400, #94a3b8);
+}
+
 .map-legend {
   position: absolute;
   z-index: 8;
