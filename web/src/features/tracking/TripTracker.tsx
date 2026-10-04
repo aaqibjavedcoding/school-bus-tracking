@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type {
+  RouteGeometryLineString,
   StopResponse,
   TripEtaResponse,
   TripStatus,
@@ -22,6 +23,7 @@ import { deriveTrackingPresentation } from '../map/tracking-presentation';
 import { MAP_FAILED_MESSAGE } from '../map/map-error-policy';
 import { ConnectionIndicator } from './ConnectionIndicator';
 import { ErrorBoundary } from '../../components/ui/ErrorBoundary';
+import { apiClient } from '../../services/api';
 import { useLiveTripTracking, type ConnectionState, type LiveFix } from './useLiveTripTracking';
 
 export const TripTracker: React.FC<{
@@ -198,6 +200,25 @@ export const TripTrackerView: React.FC<{
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
+  const routeId = stops?.[0]?.route_id ?? null;
+  const [roadGeometry, setRoadGeometry] = useState<RouteGeometryLineString | null>(null);
+
+  // Route geometry changes with the route, not with the live GPS stream. A
+  // failed/unavailable lookup deliberately degrades to the planned stop line.
+  useEffect(() => {
+    let current = true;
+    setRoadGeometry(null);
+    if (!routeId) return () => { current = false; };
+    void apiClient
+      .getRouteGeometry(routeId)
+      .then((response) => {
+        if (current) setRoadGeometry(response.data?.status === 'ok' ? response.data.geometry : null);
+      })
+      .catch(() => {
+        if (current) setRoadGeometry(null);
+      });
+    return () => { current = false; };
+  }, [routeId]);
 
   if (!tripId) {
     return (
@@ -239,6 +260,7 @@ export const TripTrackerView: React.FC<{
           key={tripId}
           fix={fix}
           stops={stops}
+          roadGeometry={roadGeometry}
           highlightStopId={highlightStopId}
           nextStopId={nextStopId ?? eta?.next_stop?.stop_id ?? null}
           trail={trail}

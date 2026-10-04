@@ -1,4 +1,4 @@
-import type { StopResponse } from '@school-bus-tracking/shared-types';
+import type { RouteGeometryLineString, StopResponse } from '@school-bus-tracking/shared-types';
 import type { ConnectionState, LiveFix } from '../tracking/useLiveTripTracking';
 
 /** One point of the driven-path line, oldest first. */
@@ -22,6 +22,8 @@ export interface MapCameraControls {
 export interface MapViewProps {
   fix: LiveFix | null;
   stops?: StopResponse[];
+  /** Road-following geometry returned by GET /routes/:id/geometry. */
+  roadGeometry?: RouteGeometryLineString | null;
   highlightStopId?: string | null;
   /**
    * The stop the bus should head to now — rendered enlarged and amber (the
