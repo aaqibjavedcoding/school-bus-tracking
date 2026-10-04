@@ -80,7 +80,15 @@ export interface LiveWebViewMapProps {
   height?: number;
   nextStopId?: string | null;
   trailFeature?: Feature<LineString> | null;
+  /**
+   * The line ahead of the bus: the routing engine's road polyline when the
+   * geometry exists, the planned stop-to-stop segments otherwise — the twin
+   * of `LiveMapSurface`'s prop of the same name. Painted solid amber either
+   * way; `plannedLineKind` is what the legend caption follows.
+   */
   plannedFeature?: Feature<LineString> | null;
+  /** Which shape `plannedFeature` holds (see `LiveMapSurface`). */
+  plannedLineKind?: 'road' | 'planned';
   accuracyCircleFeature?: Feature<Polygon> | null;
   animate?: boolean;
   busTitle?: string;
@@ -310,6 +318,7 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
   nextStopId = null,
   trailFeature = null,
   plannedFeature = null,
+  plannedLineKind = 'planned',
   accuracyCircleFeature = null,
   animate = false,
   busTitle,
@@ -698,7 +707,13 @@ export const LiveWebViewMap: React.FC<LiveWebViewMapProps> = ({
     });
   }, [mapReady, fix, animate, reducedMotion, onFrame]);
 
-  const plannedOrderDetail = plannedFeature ? t('map.plannedNotice') : t('map.routeNotice');
+  // Same caption rule as the native surface: the words follow the shape
+  // actually drawn (road route / planned order / straight connectors).
+  const plannedOrderDetail = plannedFeature
+    ? plannedLineKind === 'road'
+      ? t('map.roadNotice')
+      : t('map.plannedNotice')
+    : t('map.routeNotice');
   const zoneDetail = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
   const fallbackMessage = fallbackNotice ? fallbackNoticeMessage(fallbackNotice) : null;
 

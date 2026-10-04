@@ -50,12 +50,7 @@ describe('normalizeRoadGeometry — an untrusted value as a road geometry', () =
   it('drops coordinates that fail isValidCoordinate instead of drawing them', () => {
     const mangled: unknown = {
       type: 'LineString',
-      coordinates: [
-        [Number.NaN, 19.04],
-        ...geometry.coordinates,
-        [72.9, 91],
-        'not-a-point',
-      ],
+      coordinates: [[Number.NaN, 19.04], ...geometry.coordinates, [72.9, 91], 'not-a-point'],
     };
     assert.deepEqual(normalizeRoadGeometry(mangled), geometry);
   });
@@ -67,7 +62,13 @@ describe('normalizeRoadGeometry — an untrusted value as a road geometry', () =
       null,
     );
     assert.equal(
-      normalizeRoadGeometry({ type: 'LineString', coordinates: [[Number.NaN, 19.05], [91, 19.06]] }),
+      normalizeRoadGeometry({
+        type: 'LineString',
+        coordinates: [
+          [Number.NaN, 19.05],
+          [91, 19.06],
+        ],
+      }),
       null,
     );
   });
@@ -189,7 +190,7 @@ describe('createRoadGeometryLoader — one fetch per trip, the cache offline', (
     assert.equal(await state.loader.load('trip-1', 'route-1'), null);
     assert.equal(fetches, 1);
     assert.equal(state.writes.length, 0);
-  });;
+  });
 
   it('falls back to the persisted copy when the fetch fails (signal lost)', async () => {
     const state = harness();
