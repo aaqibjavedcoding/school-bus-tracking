@@ -136,7 +136,6 @@ function routeProgress(
 
 function legManeuvers(
   leg: RouteGeometryLeg,
-  position: ManeuverPosition,
   start: ManeuverPosition,
   end: ManeuverPosition,
 ): UsableManeuver[] {
@@ -203,7 +202,7 @@ export function currentManeuver(input: CurrentManeuverInput): CurrentManeuver | 
     latitude: endStop.latitude as number,
     longitude: endStop.longitude as number,
   };
-  const candidates = legManeuvers(legs[stopIndex - 1], position as ManeuverPosition, start, end);
+  const candidates = legManeuvers(legs[stopIndex - 1], start, end);
   if (candidates.length === 0) return null;
 
   const positionProgress = routeProgress(position as ManeuverPosition, start, end);
