@@ -535,6 +535,11 @@ export function spokenClock(
  * privacy rule is enforced by the *shape* before any scanner runs —
  * `crew-voice.spec.ts` asserts exactly that.
  */
+export interface VoiceManeuver {
+  instruction: string;
+  distanceMeters: number;
+}
+
 export type CrewFeedbackEvent =
   | { type: 'board.confirmed'; firstName: string; at?: string | null }
   | { type: 'drop.confirmed'; firstName: string; at?: string | null }
@@ -559,16 +564,27 @@ export type CrewFeedbackEvent =
    * announcement of who is waiting at the next stop would put four children's
    * names on a speaker, and the manifest screen already shows them.
    */
-  | { type: 'stop.next'; stopName: string; studentCount: number }
+  | { type: 'stop.next'; stopName: string; studentCount: number; maneuver?: VoiceManeuver }
   /** The same stop, said again because the bus is nearly there. */
-  | { type: 'stop.approaching'; stopName: string; studentCount: number }
+  | {
+      type: 'stop.approaching';
+      stopName: string;
+      studentCount: number;
+      maneuver?: VoiceManeuver;
+    }
   /**
    * Proximity alert (N7): the server's own `distance_meters` has crossed the
    * near threshold (~300 m) — doors-soon territory. The sequence number is
    * the stop's own position on the route ("Stop 4 aa raha hai"), never
    * student data; `null` never fires (see `next-stop-announcer.ts`).
    */
-  | { type: 'stop.near'; stopName: string; studentCount: number; sequenceNumber: number | null }
+  | {
+      type: 'stop.near';
+      stopName: string;
+      studentCount: number;
+      sequenceNumber: number | null;
+      maneuver?: VoiceManeuver;
+    }
   /**
    * The server recorded a GPS arrival. The event contract has no manifest
    * count, so `0` means unknown and the phrase says the stop name only.
@@ -729,6 +745,22 @@ function buildPhrase(event: CrewFeedbackEvent, script: VoiceScript): string | nu
   }
 }
 
+/** A spoken numeric distance for the cached engine value, never client geometry. */
+export function spokenManeuverDistance(distanceMeters: number): string | null {
+  if (!Number.isFinite(distanceMeters) || distanceMeters < 0) return null;
+  return String(Math.round(distanceMeters));
+}
+
+function maneuverPhrase(event: VoiceManeuver, script: VoiceScript): string | null {
+  const instruction = event.instruction.trim();
+  const distance = spokenManeuverDistance(event.distanceMeters);
+  if (!instruction || distance === null) return null;
+  return t(voiceLine(script, 'voice.native.maneuver', 'voice.maneuver'), {
+    instruction,
+    distance,
+  });
+}
+
 /**
  * "Next stop: Shivaji Chowk, 12 students" — and the approaching variant of the
  * same two facts.
@@ -742,6 +774,7 @@ function stopPhrase(
   event: Extract<CrewFeedbackEvent, { type: 'stop.next' } | { type: 'stop.approaching' }>,
   script: VoiceScript,
 ): string | null {
+  if (event.maneuver) return maneuverPhrase(event.maneuver, script);
   const name = spokenStopName(event.stopName);
   if (name.length === 0) return null;
   const params = { name, count: event.studentCount };
@@ -764,6 +797,7 @@ function stopNearPhrase(
   event: Extract<CrewFeedbackEvent, { type: 'stop.near' }>,
   script: VoiceScript,
 ): string | null {
+  if (event.maneuver) return maneuverPhrase(event.maneuver, script);
   const number = event.sequenceNumber;
   if (number === null || !Number.isInteger(number) || number < 1) return null;
   return t(voiceLine(script, 'voice.native.stop.near', 'voice.stop.near'), {

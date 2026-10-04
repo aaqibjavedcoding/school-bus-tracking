@@ -670,6 +670,30 @@ describe('next-stop announcements: stop + count, in the active voice', () => {
     });
   });
 
+  test('a cached maneuver uses the engine distance and keeps the next-stop edge', () => {
+    inLocale('en', () => {
+      assert.equal(
+        voicePhrase({
+          type: 'stop.next',
+          stopName: 'Shivaji Chowk',
+          studentCount: 12,
+          maneuver: { instruction: 'Turn right onto Wardha Road', distanceMeters: 85 },
+        }),
+        'Turn right onto Wardha Road in 85 metres',
+      );
+      assert.equal(
+        voicePhrase({
+          type: 'stop.near',
+          stopName: 'Shivaji Chowk',
+          studentCount: 12,
+          sequenceNumber: 4,
+          maneuver: { instruction: 'Turn right onto Wardha Road', distanceMeters: 1_250 },
+        }),
+        'Turn right onto Wardha Road in 1250 metres',
+      );
+    });
+  });
+
   test('a near line without a known stop number says nothing (never a guessed number)', () => {
     inLocale('en', () => {
       assert.equal(

@@ -36,6 +36,7 @@ import { apiClient } from '../../services/api';
 import { currentManeuver } from './next-stop-directions';
 import { NextStopAnnouncer } from './next-stop-announcer';
 import { feedback } from './crew-feedback';
+import { crewCopy } from './crew-copy';
 
 /**
  * The next-stop card (Task 44, hardened 3E, reworked N3/N6).
