@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it, beforeEach, afterEach } from 'node:test';
+import { KIDBUS_DAY_STYLE, KIDBUS_NIGHT_STYLE } from '@school-bus-tracking/map-assets';
 
 import {
+  BUNDLED_MAP_STYLES,
+  DEFAULT_MAP_STYLE,
   DEFAULT_MAP_STYLE_URL,
   MAP_ATTRIBUTION,
   MAP_STYLE_ENV_VARIABLE,
@@ -13,6 +16,7 @@ import {
   glyphUrlTransforms,
   inspectMapStyle,
   isOfflineFallbackStyle,
+  resolveMapStyleInput,
   resolveMapStyleUrl,
   restyleForRetry,
   __resetMapStyleWarningsForTests,
@@ -44,14 +48,25 @@ afterEach(() => {
 });
 
 describe('the default', () => {
-  it('is the OpenFreeMap public style over OpenStreetMap data', () => {
-    assert.equal(DEFAULT_MAP_STYLE_URL, '/map-styles/kidbus-day.json');
+  it('is the bundled KidBus day style object, with the night object bundled alongside it', () => {
+    assert.equal(DEFAULT_MAP_STYLE, KIDBUS_DAY_STYLE);
+    assert.equal(BUNDLED_MAP_STYLES.day, KIDBUS_DAY_STYLE);
+    assert.equal(BUNDLED_MAP_STYLES.night, KIDBUS_NIGHT_STYLE);
+    assert.equal(resolveMapStyleInput({}), KIDBUS_DAY_STYLE);
+    assert.equal(resolveMapStyleInput(env('   ')), KIDBUS_DAY_STYLE);
+    assert.equal(resolveMapStyleInput({}, 'dark'), KIDBUS_NIGHT_STYLE);
   });
 
-  it('is https or same-origin (the fallback must never be a plaintext downgrade)', () => {
-    assert.ok(
-      DEFAULT_MAP_STYLE_URL.startsWith('https://') || DEFAULT_MAP_STYLE_URL.startsWith('/'),
-      `the default must never be a plaintext http URL: ${DEFAULT_MAP_STYLE_URL}`,
+  it('never uses a bare relative path as the native default', () => {
+    assert.equal(
+      typeof DEFAULT_MAP_STYLE === 'object' && DEFAULT_MAP_STYLE !== null,
+      true,
+      'the native default must be a bundled style object, not a URL',
+    );
+    assert.equal(
+      DEFAULT_MAP_STYLE_URL.startsWith('/'),
+      false,
+      `a root-relative default cannot be resolved on native: ${DEFAULT_MAP_STYLE_URL}`,
     );
   });
 
@@ -71,7 +86,16 @@ describe('resolveMapStyleUrl', () => {
   it('uses the default when the variable is blank (an empty override is no override)', () => {
     assert.equal(resolveMapStyleUrl(env('')), DEFAULT_MAP_STYLE_URL);
     assert.equal(resolveMapStyleUrl(env('   ')), DEFAULT_MAP_STYLE_URL);
+    assert.equal(resolveMapStyleInput(env('')), DEFAULT_MAP_STYLE);
+    assert.equal(resolveMapStyleInput(env('   ')), DEFAULT_MAP_STYLE);
     assert.equal(warnings.length, 0);
+  });
+
+  it('keeps a valid URL override as a URL while invalid input falls back to the object', () => {
+    const selfHosted = 'https://tiles.schoolbustracking.example/styles/bright';
+    assert.equal(resolveMapStyleInput(env(selfHosted)), selfHosted);
+    assert.equal(resolveMapStyleInput(env('garbage')), DEFAULT_MAP_STYLE);
+    assert.equal(warnings.length, 1);
   });
 
   it('returns an https override verbatim (self-hosted style switch)', () => {

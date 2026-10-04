@@ -15,8 +15,9 @@
  * The scale path is to **self-host** OpenFreeMap
  * (https://github.com/hyperknot/openfreemap) on our own server and change
  * **one variable** — `EXPO_PUBLIC_MAP_STYLE_URL` — with no app code change.
- * `resolveMapStyleUrl` is the single place that decides which URL the map
- * actually loads, so nothing else in the app may hard-code a tile endpoint.
+ * `resolveMapStyleUrl` is the single place that validates that optional URL
+ * override, so nothing else in the app may hard-code a style endpoint. With no
+ * override, native MapLibre receives one of the bundled style objects instead.
  *
  * ### Why https-only
  *
@@ -24,40 +25,43 @@
  * the wire in the clear on any network. That is not an acceptable failure
  * mode for a bus-full of children's routes, so a non-https override is
  * rejected (warned once, at bundle time — the value is inlined by Metro, so
- * the process-level warning is the honest one) and the default is used
- * instead. The default itself is https, so the fallback is never a downgrade.
+ * the process-level warning is the honest one) and the bundled object is used
+ * instead. The default object has no style URL to downgrade or resolve.
  *
  * The module is pure — no React, no native imports, no `process` — so every
  * branch is pinned by `map-style.spec.ts` under plain `node --test`.
  */
 
-/**
- * The default style: OpenFreeMap's public **"bright"** style.
- *
- * No key, no registration, no limits advertised by the provider
- * (https://openfreemap.org); attribution "OpenFreeMap © OpenMapTiles, Data from
- * OpenStreetMap" is carried by MapLibre from the style JSON itself.
- *
- * ### Why this style and not the other one on the same host
+import {
+  KIDBUS_DAY_STYLE,
+  KIDBUS_NIGHT_STYLE,
+  type KidbusDayStyle,
+  type KidbusNightStyle,
+} from '@school-bus-tracking/map-assets';
 
- * Labels were never a provider problem: both public OpenFreeMap styles declare
- * road, place and area label layers and carry their `glyphs` and `sprite` on the
- * **same host** as the tiles, so nothing extra had to be allowed by the CSP for
- * text to draw. Two things made the map look unlabeled, and both are fixed:
+/**
+ * The native default is the bundled KidBus style object, not a URL. The day
+ * and night objects are shipped with the app; the device's colour scheme picks
+ * between them before the object reaches MapLibre. Their vector source and
+ * glyphs still use OpenFreeMap's public OpenStreetMap tiles, with no key,
+ * account, or billing.
  *
- * 1. the camera policy (`fitBounds` in `MapViewInner`) settles on the **lowest**
- *    zoom that contains the whole route — z10–z12 for a several-kilometre run,
- *    where a street map has every reason to omit minor roads and area names. The
- *    web fit is now floored at `MIN_FIT_ZOOM`;
- * 2. `"bright"` is the variant of the same free style family that keeps its
- *    road, shield, neighbourhood, park and water labels across the mid zooms a
- *    tracking screen actually sits at, which is what the fix asks for: a map that
- *    reads like a normal map.
- *
- * The swap is a style id inside one URL: same host, no key, no billing, no CSP
- * change.
+ * `DEFAULT_MAP_STYLE_URL` remains as the URL-policy compatibility value used
+ * by `resolveMapStyleUrl` when there is no usable override. It is deliberately
+ * empty: the native default is an object, so there is no default URL to fetch
+ * and no origin for React Native to resolve. `useMapStyle` never passes this
+ * value to MapLibre.
  */
-export const DEFAULT_MAP_STYLE_URL = '/map-styles/kidbus-day.json';
+export const BUNDLED_MAP_STYLES: Readonly<{
+  day: KidbusDayStyle;
+  night: KidbusNightStyle;
+}> = {
+  day: KIDBUS_DAY_STYLE,
+  night: KIDBUS_NIGHT_STYLE,
+};
+
+export const DEFAULT_MAP_STYLE = BUNDLED_MAP_STYLES.day;
+export const DEFAULT_MAP_STYLE_URL = '';
 
 /**
  * The attribution the style is known for. MapLibre renders the attribution
@@ -77,13 +81,16 @@ export const MAP_STYLE_ENV_VARIABLE = 'EXPO_PUBLIC_MAP_STYLE_URL';
 let warnedAboutNonHttpsStyle = false;
 
 /**
- * Resolves the style URL the map will load.
+ * Resolves only the optional style URL override.
  *
- * - unset (or blank) `EXPO_PUBLIC_MAP_STYLE_URL` → the OpenFreeMap default;
+ * - unset (or blank) `EXPO_PUBLIC_MAP_STYLE_URL` → the bundled-style sentinel;
  * - a value that is `https://…` → that value, verbatim (trimmed);
+ * - a same-origin path → that path, for compatibility with the existing
+ *   override contract;
  * - anything else (http, a bare hostname, garbage) → a one-time warning plus
- *   the default. The map must never silently point at a keyed or plaintext
- *   tile endpoint.
+ *   the bundled-style sentinel. The native default is selected separately by
+ *   `resolveMapStyleInput`, so this function never makes React Native resolve a
+ *   root-relative default path.
  *
  * @param env the environment as the app sees it (at minimum the
  *   `EXPO_PUBLIC_MAP_STYLE_URL` entry).
@@ -104,10 +111,35 @@ export function resolveMapStyleUrl(env: Record<string, string | undefined>): str
     console.warn(
       `[map-style] ${MAP_STYLE_ENV_VARIABLE} must be an https:// URL or same-origin path ` +
         '(tile traffic carries GPS positions and must never ride plain http). ' +
-        `Falling back to the default style: ${DEFAULT_MAP_STYLE_URL}`,
+        'Falling back to the bundled KidBus style object.',
     );
   }
   return DEFAULT_MAP_STYLE_URL;
+}
+
+export type MapStyleInput = string | object;
+export type BundledMapStyle = KidbusDayStyle | KidbusNightStyle;
+
+/**
+ * Selects the source handed to the native style pipeline. A non-blank valid
+ * override remains a URL and keeps the existing fetch/inspect/retry path;
+ * otherwise the selected bundled object is used directly, with no style JSON
+ * request and no origin-dependent URL.
+ */
+export function resolveMapStyleInput(
+  env: Record<string, string | undefined>,
+  scheme: 'light' | 'dark' = 'light',
+  resolvedUrl?: string,
+): MapStyleInput {
+  const raw = env[MAP_STYLE_ENV_VARIABLE];
+  if (raw === undefined || raw.trim() === '') {
+    return scheme === 'dark' ? BUNDLED_MAP_STYLES.night : BUNDLED_MAP_STYLES.day;
+  }
+  const resolved = resolvedUrl ?? resolveMapStyleUrl(env);
+  if (resolved === DEFAULT_MAP_STYLE_URL) {
+    return scheme === 'dark' ? BUNDLED_MAP_STYLES.night : BUNDLED_MAP_STYLES.day;
+  }
+  return resolved;
 }
 
 /** Test seam: back to the "never warned" state. */
@@ -129,11 +161,12 @@ export function __resetMapStyleWarningsForTests(): void {
 //    unencoded spaces in the fontstack segment (maplibre-native#3939 family),
 //    so the fontstack path must be requested percent-encoded.
 //
-// The pipeline (`use-map-style.ts`) fetches the style JSON in JS, repairs the
-// `glyphs` template if it is missing or non-https, rewrites every fontstack
-// request to its encoded form via `TransformRequestManager`, probes one real
-// glyph URL to *verify* the endpoint answers, and reports every failure into
-// the map-diagnostics store — never blank-silent.
+// The pipeline (`use-map-style.ts`) inspects the bundled object directly or
+// fetches an override style JSON in JS, repairs the `glyphs` template if it is
+// missing or non-https, rewrites every fontstack request to its encoded form
+// via `TransformRequestManager`, probes one real glyph URL to *verify* the
+// endpoint answers, and reports every failure into the map-diagnostics store —
+// never blank-silent.
 
 /** The canonical OpenFreeMap fonts endpoint, https like everything we load. */
 export const OPENFREEMAP_GLYPHS_TEMPLATE =
