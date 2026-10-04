@@ -69,7 +69,8 @@ function requireMapLibre(): MapLibreModule {
  * what is genuinely theirs:
  *
  * - **driver** (`DriverTripMap`): the GPS honesty panel and its no-fix CTA,
- *   the trail and planned-legs lines, the next-stop driving line;
+ *   the trail, the road line ahead (planned legs as its fallback) and the
+ *   next-stop driving line;
  * - **observer** (`BusMap`): the freshness panel (live / last known / no
  *   position — the socket's words, never the driver's "your device" line).
  *
@@ -120,8 +121,21 @@ export interface LiveMapSurfaceProps {
   nextStopId?: string | null;
   /** The driven path (driver variant only; the observer passes nothing). */
   trailFeature?: Feature<LineString> | null;
-  /** The planned stop order ahead (driver variant only). */
+  /**
+   * The line ahead of the bus (driver variant only): the routing engine's
+   * road polyline when the geometry exists, the planned stop-to-stop
+   * segments otherwise. Painted solid amber either way — the legend caption
+   * (`plannedLineKind`) is what says which shape it is.
+   */
   plannedFeature?: Feature<LineString> | null;
+  /**
+   * Which shape `plannedFeature` holds — `'road'` (engine geometry, trimmed
+   * from the next stop) or `'planned'` (straight stop-to-stop segments) — so
+   * the legend caption never describes a line that is not drawn:
+   * `map.roadNotice` vs `map.plannedNotice`. Defaults to `'planned'`; the
+   * native driver map is the caller that passes `'road'`.
+   */
+  plannedLineKind?: 'road' | 'planned';
   /** The GPS accuracy circle, already derived by the wrapper's presentation. */
   accuracyCircleFeature?: Feature<Polygon> | null;
   /** Whether the marker may animate (the wrapper's freshness verdict). */
@@ -358,8 +372,9 @@ const LiveMapSurfaceMap: React.FC<SurfaceProps> = React.memo(
           </GeoJSONSource>
         ) : null}
 
-        {/* The planned stop order ahead — the caption under the map says it is
-            not the road route. */}
+        {/* The line ahead of the bus — the road route when the geometry
+            exists, the planned stop order otherwise. Same amber paint either
+            way; the legend caption is what tells the shapes apart. */}
         {plannedFeature ? (
           <GeoJSONSource id="sbt-planned" data={plannedFeature}>
             <Layer type="line" id="sbt-planned-line" source="sbt-planned" paint={PLANNED_PAINT} />
@@ -502,6 +517,7 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
   nextStopId = null,
   trailFeature = null,
   plannedFeature = null,
+  plannedLineKind = 'planned',
   accuracyCircleFeature = null,
   animate = false,
   busTitle,
@@ -744,8 +760,14 @@ export const LiveMapSurface: React.FC<LiveMapSurfaceProps> = ({
     ) : null;
 
   // Honest line explanations now live behind the info affordance rather than
-  // as permanent duplicate copy below the map.
-  const plannedOrderDetail = plannedFeature ? t('map.plannedNotice') : t('map.routeNotice');
+  // as permanent duplicate copy below the map. The caption follows the shape
+  // actually drawn: the road route, the planned order, or — with no ahead
+  // line at all (observer variant) — the straight stop connectors.
+  const plannedOrderDetail = plannedFeature
+    ? plannedLineKind === 'road'
+      ? t('map.roadNotice')
+      : t('map.plannedNotice')
+    : t('map.routeNotice');
   const zoneDetail = arrivalZoneFeature ? t('map.arrivalZoneNotice') : null;
   const fallbackMessage = fallbackNotice ? fallbackNoticeMessage(fallbackNotice) : null;
 

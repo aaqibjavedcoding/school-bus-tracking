@@ -1,7 +1,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Feature, LineString, Polygon } from 'geojson';
-import type { StopResponse, TripLocationHistoryResponse } from '@school-bus-tracking/shared-types';
+import type {
+  RouteGeometryLineString,
+  StopResponse,
+  TripLocationHistoryResponse,
+} from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { t } from '../../lib/i18n.ts';
 import { useTranslation } from '../../lib/i18n-provider';
@@ -20,6 +24,7 @@ import { accuracyCirclePolygon } from '../map/accuracy-circle';
 import { MapIssueLines } from '../map/map-issue-lines';
 import { decimateTrailLine } from '../map/polyline-simplify.ts';
 import { LiveMapSurface } from '../map/LiveMapSurface';
+import { loadTripRoadGeometry } from './offline/route-geometry-cache';
 import {
   driverMapCopy,
   driverMapNoFixLabel,
@@ -27,7 +32,12 @@ import {
   type DriverMapNoFixCta,
   type DriverMapPresentation,
 } from './crew-map-presentation.ts';
-import { buildPlannedLegsLine, buildTrailLine, historyFixesForTrip } from './trip-map-geometry.ts';
+import {
+  buildPlannedLegsLine,
+  buildRoadRouteLine,
+  buildTrailLine,
+  historyFixesForTrip,
+} from './trip-map-geometry.ts';
 
 /**
  * The **Driver Trip** map: where this driver is, on their own run.
@@ -45,8 +55,8 @@ import { buildPlannedLegsLine, buildTrailLine, historyFixesForTrip } from './tri
  *   line always, the delivery line only while the school cannot see what is
  *   drawn) and its no-fix repair CTA, which re-runs the **GPS strip's own**
  *   action rather than inventing a second recovery mechanism;
- * - the **trail** (the server's recorded fixes for this trip) and the
- *   **planned legs** ahead, both built by the pure `trip-map-geometry.ts`;
+ * - the **trail** (the server's recorded fixes for this trip) and the **road
+ *   line** ahead, both built by the pure `trip-map-geometry.ts`;
  * - the next-stop driving line on the card.
  *
  * ### Supplementary by design
@@ -72,7 +82,7 @@ import { buildPlannedLegsLine, buildTrailLine, historyFixesForTrip } from './tri
  * fixes — are presentation only. They are never written into history, ETA,
  * attendance or notifications, exactly as on the observer map.
  *
- * ### The two lines, and the honesty each one owes
+ * ### The lines, and the honesty each one owes
  *
  * - **Trail** (dotted, green) — the path already driven, built by
  *   `buildTrailLine` from the server's recorded fixes
@@ -80,11 +90,16 @@ import { buildPlannedLegsLine, buildTrailLine, historyFixesForTrip } from './tri
  *   `historyFixesForTrip`), then decimated to ~5 m (`polyline-simplify.ts`)
  *   before it reaches the map source. The only line here allowed to be called
  *   "driven".
- * - **Planned legs** (solid, amber) — stop-to-stop straight segments from the
- *   next stop onward, built by `buildPlannedLegsLine` from the same
- *   `deriveTripProgressForTrip` next stop the card below uses. It is the
- *   **planned order, not a road route** — the platform has no routing engine —
- *   so the caption under the map says exactly that.
+ * - **The road ahead** (solid, amber) — the routing engine's polyline for
+ *   this route (`GET /routes/:id/geometry`), loaded **once per trip** by
+ *   `loadTripRoadGeometry` (offline-cached, so a driver who loses signal
+ *   mid-trip keeps the line) and trimmed to start at the next stop by
+ *   `buildRoadRouteLine`. When the road cannot be drawn honestly — routing
+ *   unavailable, offline with nothing cached, a next stop the cached shape
+ *   does not serve — the **planned legs** take its place: `buildPlannedLegsLine`'s
+ *   straight stop-to-stop segments, in the same amber paint. The legend
+ *   caption follows the shape (`map.roadNotice` vs `map.plannedNotice`): only
+ *   the fallback may read as "planned stop order — not the road route".
  *
  * The next-stop id is always an input (`nextStopId`): the marker, the card
  * line, the Navigate hand-off and the voice all read the one derivation, and
@@ -186,6 +201,37 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
     [stops, nextStopId],
   );
 
+  // The road ahead: the routing engine's polyline for this route, loaded ONCE
+  // per trip — remounts (the fullscreen map included) and next-stop changes
+  // answer from the loader's memory, and its offline copy answers when the
+  // signal is gone (`offline/route-geometry-cache.ts`).
+  const routeId = stops[0]?.route_id ?? null;
+  const roadGeometryLoad = useLoad<{
+    routeId: string | null;
+    geometry: RouteGeometryLineString | null;
+  }>(async () => {
+    if (!tripId || !routeId) return { routeId: null, geometry: null };
+    return { routeId, geometry: await loadTripRoadGeometry(tripId, routeId) };
+  }, [tripId, routeId]);
+  // `useLoad` keeps the previous load's data while the next request is in
+  // flight — so a geometry fetched for another route must never survive a
+  // route switch, exactly like `historyFixesForTrip` refuses another trip's
+  // fixes. The payload names the route it was loaded for.
+  const roadGeometry =
+    roadGeometryLoad.data && roadGeometryLoad.data.routeId === routeId
+      ? roadGeometryLoad.data.geometry
+      : null;
+  const roadFeature = useMemo<Feature<LineString> | null>(
+    () => buildRoadRouteLine(roadGeometry, { fromStopId: nextStopId, stops }),
+    [roadGeometry, nextStopId, stops],
+  );
+
+  // One amber line ahead of the bus, in the most honest shape available: the
+  // road when the geometry serves this trip, the planned legs otherwise. Same
+  // colour, same width — the legend caption (`plannedLineKind`) is what tells
+  // the two shapes apart.
+  const aheadFeature = roadFeature ?? plannedFeature;
+
   const accuracyCircleFeature = useMemo<Feature<Polygon> | null>(() => {
     if (!localFix || presentation.accuracyCircleMeters === null) return null;
     return accuracyCirclePolygon(
@@ -273,7 +319,8 @@ export const DriverTripMap: React.FC<DriverTripMapProps> = ({
       height={height}
       nextStopId={nextStopId}
       trailFeature={trailFeature}
-      plannedFeature={plannedFeature}
+      plannedFeature={aheadFeature}
+      plannedLineKind={roadFeature ? 'road' : 'planned'}
       accuracyCircleFeature={accuracyCircleFeature}
       animate={presentation.animate}
       busTitle={t('map.busA11y')}

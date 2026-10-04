@@ -6,6 +6,7 @@ import type { StopResponse, TripLocationResponse } from '@school-bus-tracking/sh
 import {
   buildArrivalZonePolygon,
   buildPlannedLegsLine,
+  buildRoadRouteLine,
   buildTrailLine,
   historyFixesForTrip,
   upcomingStopsFrom,
@@ -13,13 +14,17 @@ import {
 import { OFFLINE_FALLBACK_MIN_RADIUS_METERS } from './arrival-zone.ts';
 
 /**
- * The driver map's two honest lines, pinned.
+ * The driver map's honest lines, pinned.
  *
  * - the trail may only ever be built from recorded fixes;
  * - the planned line may only ever start at the **next stop the screen was
  *   given** — the map never picks one — and may only reach stops with real
  *   coordinates;
- * - both prefer "draw nothing" (`null`) over drawing a wrong or implied line.
+ * - the road line may only ever be the engine's polyline trimmed from that
+ *   same next stop, and every one of its nulls leaves the planned line as
+ *   the fallback;
+ * - all of them prefer "draw nothing" (`null`) over drawing a wrong or
+ *   implied line.
  */
 
 function fix(
@@ -154,6 +159,149 @@ describe('buildPlannedLegsLine — the planned stop order ahead', () => {
 
   it('handles an empty stop list', () => {
     assert.equal(buildPlannedLegsLine([], 's1'), null);
+  });
+});
+
+describe('buildRoadRouteLine — the road route ahead', () => {
+  const stops = [
+    stop('s1', 1, 19.05, 72.85),
+    stop('s2', 2, 19.06, 72.86),
+    stop('s3', 3, 19.07, 72.87),
+    stop('s4', 4, 19.08, 72.88),
+  ];
+
+  // A road polyline that passes through every stop, with intermediate
+  // vertices a routing engine would produce between them.
+  const road = {
+    type: 'LineString' as const,
+    coordinates: [
+      [72.85, 19.05],
+      [72.855, 19.055],
+      [72.86, 19.06],
+      [72.862, 19.063],
+      [72.87, 19.07],
+      [72.875, 19.075],
+      [72.88, 19.08],
+    ] as Array<[number, number]>,
+  };
+
+  it('returns the road line from the next stop to the end of the route', () => {
+    const line = buildRoadRouteLine(road, { fromStopId: 's2', stops });
+    assert.ok(line);
+    assert.equal(line.geometry.type, 'LineString');
+    // Everything behind the next stop (s2 is a vertex of the polyline) is
+    // dropped: the road already driven must not be drawn as "ahead".
+    assert.deepEqual(line.geometry.coordinates, road.coordinates.slice(2));
+  });
+
+  it('starts mid-segment at the point nearest the stop, not at the segment start', () => {
+    // A stop halfway along the second road segment: the trim point is its
+    // projection onto that segment, the half behind the stop is dropped with
+    // everything before it, and the engine's own vertices carry the rest.
+    const mid = [stop('mid', 2, 19.0575, 72.8575), ...stops.slice(1)];
+    const line = buildRoadRouteLine(road, { fromStopId: 'mid', stops: mid });
+    assert.ok(line);
+    const coordinates = line.geometry.coordinates;
+    assert.equal(coordinates.length, road.coordinates.length - 1);
+    const [startLng, startLat] = coordinates[0];
+    assert.ok(Math.abs(startLng - 72.8575) < 1e-6, `starts near the stop: ${startLng}`);
+    assert.ok(Math.abs(startLat - 19.0575) < 1e-6, `starts near the stop: ${startLat}`);
+    assert.deepEqual(coordinates.slice(1), road.coordinates.slice(2));
+  });
+
+  it('draws the whole road when the next stop is the first stop', () => {
+    const line = buildRoadRouteLine(road, { fromStopId: 's1', stops });
+    assert.ok(line);
+    assert.deepEqual(line.geometry.coordinates, road.coordinates);
+  });
+
+  it('draws nothing when the next stop is the last stop — matching the planned line', () => {
+    // Nothing is ahead on either line; the two builders must agree.
+    assert.equal(buildRoadRouteLine(road, { fromStopId: 's4', stops }), null);
+    assert.equal(buildPlannedLegsLine(stops, 's4'), null);
+  });
+
+  it('drops invalid coordinates instead of drawing them', () => {
+    const mangled = {
+      type: 'LineString' as const,
+      coordinates: [
+        [Number.NaN, 19.05],
+        ...road.coordinates,
+        [200, 19.09],
+      ] as Array<[number, number]>,
+    };
+    const line = buildRoadRouteLine(mangled, { fromStopId: 's2', stops });
+    assert.ok(line);
+    // The NaN pair ahead of the bus and the out-of-range pair behind it are
+    // both gone, and every surviving coordinate is one of the valid ones.
+    assert.deepEqual(line.geometry.coordinates, road.coordinates.slice(2));
+    for (const [longitude, latitude] of line.geometry.coordinates) {
+      assert.ok(
+        Number.isFinite(longitude) && longitude >= -180 && longitude <= 180,
+        `valid longitude: ${longitude}`,
+      );
+      assert.ok(
+        Number.isFinite(latitude) && latitude >= -90 && latitude <= 90,
+        `valid latitude: ${latitude}`,
+      );
+    }
+  });
+
+  it('draws nothing for a payload that is not a usable LineString', () => {
+    assert.equal(buildRoadRouteLine(null, { fromStopId: 's2', stops }), null);
+    assert.equal(buildRoadRouteLine(undefined, { fromStopId: 's2', stops }), null);
+    assert.equal(
+      buildRoadRouteLine(
+        { type: 'LineString', coordinates: [] },
+        { fromStopId: 's2', stops },
+      ),
+      null,
+    );
+    assert.equal(
+      buildRoadRouteLine(
+        { type: 'LineString', coordinates: [[72.86, 19.06]] },
+        { fromStopId: 's2', stops },
+      ),
+      null,
+    );
+    assert.equal(
+      buildRoadRouteLine(
+        { type: 'MultiLineString', coordinates: [road.coordinates] } as unknown as never,
+        { fromStopId: 's2', stops },
+      ),
+      null,
+    );
+  });
+
+  it('draws nothing without a next stop, an unknown id, or an unsurveyed stop', () => {
+    assert.equal(buildRoadRouteLine(road, { fromStopId: null, stops }), null);
+    assert.equal(buildRoadRouteLine(road, { fromStopId: undefined, stops }), null);
+    assert.equal(buildRoadRouteLine(road, { fromStopId: 'other-route-stop', stops }), null);
+    assert.equal(
+      buildRoadRouteLine(road, { fromStopId: 's2', stops: [stop('s2', 2, null, null)] }),
+      null,
+    );
+  });
+
+  it('draws nothing when the next stop is nowhere near the road (stale geometry)', () => {
+    // A stop moved far off the cached polyline: the engine routes through
+    // every stop, so this geometry is not this stop list's road. The road
+    // line refuses, and the planned legs stay the honest fallback.
+    const moved = [
+      stop('s1', 1, 19.05, 72.85),
+      stop('s2', 2, 19.5, 72.5),
+      stop('s3', 3, 19.07, 72.87),
+    ];
+    assert.equal(buildRoadRouteLine(road, { fromStopId: 's2', stops: moved }), null);
+    assert.ok(buildPlannedLegsLine(moved, 's2'));
+  });
+
+  it('keeps the planned legs as the fallback whenever it returns null', () => {
+    // The pairing that makes the swap safe: every null of the road builder
+    // leaves a next stop the planned builder can still draw from — except
+    // the cases where both agree there is nothing ahead (pinned above).
+    assert.equal(buildRoadRouteLine(null, { fromStopId: 's2', stops }), null);
+    assert.ok(buildPlannedLegsLine(stops, 's2'));
   });
 });
 
