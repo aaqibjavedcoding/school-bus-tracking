@@ -1578,8 +1578,15 @@ export const MapViewInner: React.FC<MapViewProps> = ({
             <span>Driven path</span>
           </div>
           <div className="map-legend-row">
-            <span className="map-legend-line is-planned" aria-hidden="true" />
-            <span>Planned order</span>
+            <span
+              className={`map-legend-line${routeLine?.kind === 'road' ? '' : ' is-planned'}`}
+              aria-hidden="true"
+            />
+            <span>
+              {routeLine?.kind === 'road'
+                ? 'Road route'
+                : 'Straight-line estimate — road route unavailable'}
+            </span>
           </div>
         </div>
       ) : null}
