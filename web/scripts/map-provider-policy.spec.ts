@@ -239,7 +239,6 @@ describe('the tracking map shows a real map, not just shapes', () => {
   });
 
   it('loads labels from the same free host, so no key and no new CSP host', () => {
-    const styleSource = readFileSync(join(webRoot, 'src/features/map/map-style.ts'), 'utf8');
     const style = JSON.parse(readFileSync(join(webRoot, 'public/map-styles/kidbus-day.json'), 'utf8')) as { sources: Record<string, {url?: string}> };
     for (const source of Object.values(style.sources)) { assert.ok(source.url?.startsWith('https://tiles.openfreemap.org/')); assert.ok(!source.url?.includes('key=')); }
     // The CSP lists the tile host once and once only — no key, no wildcard, and
