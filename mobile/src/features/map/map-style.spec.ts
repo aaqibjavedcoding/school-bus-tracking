@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe('the default', () => {
   it('is the OpenFreeMap public style over OpenStreetMap data', () => {
-    assert.equal(DEFAULT_MAP_STYLE_URL, 'https://tiles.openfreemap.org/styles/bright');
+    assert.equal(DEFAULT_MAP_STYLE_URL, '/map-styles/kidbus-day.json');
   });
 
   it('is https (the fallback must never be a plaintext downgrade)', () => {

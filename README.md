@@ -229,7 +229,7 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   with `trip_not_open`).
 - Maps: **MapLibre** on both surfaces — **web** `maplibre-gl` v5 (`web/src/features/map`)
   and **mobile** `@maplibre/maplibre-react-native` (`BusMap.tsx` + `BusMap.web.tsx`) —
-  over **OpenFreeMap**'s public instance (`https://tiles.openfreemap.org/styles/bright`,
+  using our same-origin `kidbus-day` style over **OpenFreeMap**'s public instance (`https://tiles.openfreemap.org/planet`,
   OpenStreetMap data), breadcrumbs + marker + heading. Both maps are open source with
   **no key, no account, no billing** (product rule — `docs/live-tracking-map.md` →
   "Map provider policy"). The mobile map engine is a custom native module the Expo Go

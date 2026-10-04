@@ -116,3 +116,4 @@ export const STOP_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox=
   <path d="M12 2.5a8.5 8.5 0 0 0-8.5 8.5c0 6.4 8.5 17.5 8.5 17.5S20.5 17.4 20.5 11A8.5 8.5 0 0 0 12 2.5Z" fill="url(#sbt-stop-pin)" stroke="#fff" stroke-width="2" filter="url(#sbt-stop-lift)"/>
   <circle cx="12" cy="11" r="3.1" fill="#f8fafc"/>
 </svg>`;
+export * from './kidbus-day';
