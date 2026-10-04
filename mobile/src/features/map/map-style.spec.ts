@@ -48,8 +48,11 @@ describe('the default', () => {
     assert.equal(DEFAULT_MAP_STYLE_URL, '/map-styles/kidbus-day.json');
   });
 
-  it('is https (the fallback must never be a plaintext downgrade)', () => {
-    assert.ok(DEFAULT_MAP_STYLE_URL.startsWith('https://'));
+  it('is https or same-origin (the fallback must never be a plaintext downgrade)', () => {
+    assert.ok(
+      DEFAULT_MAP_STYLE_URL.startsWith('https://') || DEFAULT_MAP_STYLE_URL.startsWith('/'),
+      `the default must never be a plaintext http URL: ${DEFAULT_MAP_STYLE_URL}`,
+    );
   });
 
   it('carries the provider attribution the docs and policy guard claim', () => {

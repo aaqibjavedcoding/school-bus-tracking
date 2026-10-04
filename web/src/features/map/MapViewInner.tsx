@@ -16,7 +16,6 @@ import {
   MAP_3D_SKY,
   MAP_BUILDING_LAYER_ID,
   MAP_MAX_PITCH,
-  buildingExtrusionLayerForStyle,
   type MapDimension,
   type MapFallbackReason,
 } from '@school-bus-tracking/map-assets';
@@ -37,17 +36,32 @@ import {
 } from './follow-camera';
 import { deriveTrackingPresentation } from './tracking-presentation';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
-import { resolveMapStyleUrl } from './map-style';
+import { usePrefersColorScheme } from './usePrefersColorScheme';
+import { resolveThemedMapStyleUrl } from './style-variant';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
 import {
   BUS_3D_LAYER_ID,
   BUS_3D_SOURCE_ID,
   EMPTY_BUS_MESH,
+  buildingsLayerForDimension,
+  buildingsLayerVisible,
   busExtrusionLayer,
   busMeshCollection,
 } from './bus-3d';
 import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
+import {
+  BUS_DOM_MARKER_LAYER_ID,
+  POI_LAYER_ID,
+  mapTapQueryLayerIds,
+  resolveMapTap,
+  type PoiTapInfo,
+  type TappedFeature,
+} from './poi-sheet';
+import {
+  createCompassControl,
+  shouldShowRecentreControl,
+} from './map-controls';
 import { stopsLayerCollection } from './stop-layer';
 import { chooseRouteLine } from './route-geometry';
 import { useAuth } from '../auth/AuthProvider';
@@ -134,7 +148,14 @@ function raiseAppLayers(map: maplibregl.Map): void {
   }
 }
 
-/** Add/remove presentation only; never add or replace an OpenFreeMap source. */
+/**
+ * Add/remove presentation only; never add or replace an OpenFreeMap source.
+ *
+ * The "is the buildings layer on?" decision lives in `bus-3d.ts`
+ * (`buildingsLayerVisible`, spec'd in `bus-3d-buildings.spec.ts`) — this
+ * function only applies it: sky + extrusion while the 3D camera owns the map,
+ * the untouched base style in 2D.
+ */
 function applyMapDimension(
   map: maplibregl.Map,
   dimension: MapDimension,
@@ -142,10 +163,10 @@ function applyMapDimension(
 ): void {
   map.setMaxPitch(MAP_MAX_PITCH);
   const setSky = map.setSky.bind(map) as (sky?: unknown) => unknown;
-  if (dimension === '3d') {
+  if (buildingsLayerVisible(dimension)) {
     setSky(MAP_3D_SKY);
     if (!map.getLayer(MAP_BUILDING_LAYER_ID)) {
-      const layer = buildingExtrusionLayerForStyle(map.getStyle());
+      const layer = buildingsLayerForDimension(map.getStyle(), dimension);
       if (layer) {
         const before = map.getStyle().layers.find((candidate) => candidate.type === 'symbol')?.id;
         map.addLayer(layer as unknown as maplibregl.LayerSpecification, before);
@@ -221,6 +242,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   onMapNotice,
 }) => {
   const reducedMotion = usePrefersReducedMotion();
+  // The app's existing theme signal (OS prefers-color-scheme): picks the
+  // shipped day/night style variant unless the env override pins a style —
+  // the pure selection lives in `style-variant.ts`.
+  const colorScheme = usePrefersColorScheme();
   const { user } = useAuth();
   const { dimension, threeDUnavailable, fallbackNotice, setPreferredDimension, recordRenderFrame } =
     useMapCameraMode({
@@ -230,6 +255,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     });
   const [exploring, setExploring] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  // The POI tap sheet: ONLY driven by taps (never per-frame), reading the
+  // already-rendered vector-tile feature — see `poi-sheet.ts`. Null = closed.
+  const [poiSheet, setPoiSheet] = useState<PoiTapInfo | null>(null);
   const [tick, setTick] = useState(0);
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
   // Explicit map-readiness signal. The map is created by an effect gated on
@@ -250,6 +278,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const originalSkyRef = useRef<unknown>(undefined);
+  // The style the running map currently has — set at creation, and the guard
+  // that keeps the theme-swap effect from re-setting the same style.
+  const appliedStyleUrlRef = useRef<string | null>(null);
   const dimensionRef = useRef(dimension);
   dimensionRef.current = dimension;
   const recordRenderFrameRef = useRef(recordRenderFrame);
@@ -277,6 +308,11 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const lastCameraAtRef = useRef(0);
   const fixRef = useRef(fix);
   fixRef.current = fix;
+  // Mirror of the reduced-motion hook for the imperative paths (the compass
+  // control's reset and the follow-camera pans), so animation decisions read
+  // the CURRENT preference rather than a render-time capture.
+  const reducedMotionRef = useRef(reducedMotion);
+  reducedMotionRef.current = reducedMotion;
   const recenterRef = useRef<(() => void) | null>(null);
   const panRef = useRef<((durationMs: number, force: boolean) => void) | null>(null);
   const onMapErrorRef = useRef(onMapError);
@@ -301,6 +337,19 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   // dozens of error events per second during a bad pan and none of them should
   // cost a render unless the user-visible notice actually changes.
   const mapErrorStateRef = useRef<MapErrorState>(INITIAL_MAP_ERROR_STATE);
+
+  // The resolved map style: the validated env override when one is pinned,
+  // otherwise the theme signal picks the shipped day/night variant
+  // (`style-variant.ts`). The day default on first paint means a server-side
+  // render and a `matchMedia`-less browser land exactly on Session 5's map.
+  const styleUrl = useMemo(
+    () =>
+      resolveThemedMapStyleUrl(
+        { NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL },
+        colorScheme,
+      ),
+    [colorScheme],
+  );
 
   const mappedStops = useMemo(
     () =>
@@ -392,6 +441,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     const id = setInterval(() => setTick((v) => v + 1), 5_000);
     return () => clearInterval(id);
   }, []);
+
+  // POI tap sheet: Escape dismisses (the outside-tap path is the map click
+  // handler in installOverlays). The listener exists only while a sheet is
+  // actually open.
+  useEffect(() => {
+    if (!poiSheet) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPoiSheet(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [poiSheet]);
 
   // Reduced motion live update
   useEffect(() => {
@@ -513,7 +574,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     frameRef.current = requestAnimationFrame(tickFrame);
   }, [applyFrame]);
 
-  // Pan helper (centre-only, preserves zoom)
+  // Pan helper (centre-only, preserves zoom). Reduced motion: the same
+  // target, reached instantly — the follow camera's centre stays honest,
+  // only the animation goes (mirroring the 2D/3D pitch ease below).
   const panTo = useCallback((target: LatLngTuple, durationSeconds: number) => {
     const map = mapRef.current;
     if (!map) return;
@@ -521,7 +584,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     lastCameraAtRef.current = nowMs();
     map.panTo([target[1], target[0]], {
       animate: true,
-      duration: durationSeconds * 1000,
+      duration: reducedMotionRef.current ? 0 : durationSeconds * 1000,
     });
   }, []);
 
@@ -633,10 +696,6 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     if (webglSupported === null) return; // wait for check
     if (!mapWanted) return; // nothing to draw yet — see the latch above
 
-    const styleUrl = resolveMapStyleUrl({
-      NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
-    });
-
     const initialCenter: [number, number] = fix
       ? [fix.longitude, fix.latitude]
       : mappedStops.length > 0
@@ -666,15 +725,28 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
 
     mapRef.current = map;
+    appliedStyleUrlRef.current = styleUrl;
 
-    // Engine chrome, same for every role: zoom + compass and fullscreen.
+    // Engine chrome, same for every role: zoom + fullscreen on the right,
+    // the scale bar bottom-left, and the Google-style compass that appears
+    // only while the map is rotated (the engine's always-on nav compass is
+    // deliberately off; ours still resets north through the engine's easeTo,
+    // and honours the reduced-motion preference — see `map-controls.ts`).
     // Placement is deliberate — the bottom corners stay reserved for provider
     // attribution/logo, while every app and engine control stays top/right.
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
+    map.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: false, showCompass: false }),
+      'top-right',
+    );
+    map.addControl(
+      createCompassControl({ reducedMotion: () => reducedMotionRef.current }) as maplibregl.IControl,
+      'top-right',
+    );
     map.addControl(
       new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }),
       'top-right',
     );
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 96, unit: 'metric' }), 'bottom-left');
 
     // Style/tile/glyph failures and WebGL context loss arrive here. MapLibre
     // fires this for every 404 tile and every request cancelled by a pan, so
@@ -1010,6 +1082,63 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         map.on('mouseleave', BUS_3D_LAYER_ID, () => {
           map.getCanvas().style.cursor = '';
         });
+
+        /*
+         * The POI tap sheet (see `poi-sheet.ts`). ONE general click handler
+         * classifies the tap over the features the map has ALREADY rendered
+         * — `queryRenderedFeatures`, no network, no new source. The pure
+         * `resolveMapTap` owns the precedence: stops and the bus (anywhere in
+         * the hit list) win and this handler does nothing for them, so their
+         * existing popups above stay the only popups; otherwise the first
+         * usable POI opens the sheet and anything else (an "outside tap")
+         * dismisses it.
+         */
+        const onMapTap = (event: unknown) => {
+          const click = event as {
+            point?: maplibregl.Point;
+            originalEvent?: { button?: number; target?: EventTarget | null };
+          };
+          if (!click.point) return;
+          // Primary button / touch only — secondary clicks keep their meaning.
+          if (click.originalEvent?.button !== undefined && click.originalEvent.button !== 0) {
+            return;
+          }
+          const features: TappedFeature[] = [];
+          // The flat 2D bus marker is a DOM element: invisible to
+          // queryRenderedFeatures, but a tap on it still beats a POI behind
+          // it, so it goes into the pure decision as a synthetic entry.
+          const target = click.originalEvent?.target;
+          if (typeof Element !== 'undefined' && target instanceof Element) {
+            if (target.closest('.maplibregl-marker')) {
+              features.push({ layerId: BUS_DOM_MARKER_LAYER_ID });
+            }
+          }
+          // Only ask for layers that exist (an override style might have no
+          // `poi` layer); MapLibre errors when quering a missing layer id.
+          const queryLayerIds = mapTapQueryLayerIds().filter((id) => map.getLayer(id));
+          if (queryLayerIds.length > 0) {
+            const rendered = map.queryRenderedFeatures(click.point, { layers: queryLayerIds });
+            for (const feature of rendered) {
+              features.push({
+                layerId: feature.layer?.id ?? '',
+                properties: feature.properties ?? null,
+              });
+            }
+          }
+          const outcome = resolveMapTap(features);
+          setPoiSheet(outcome.type === 'poi' ? outcome.poi : null);
+        };
+        map.on('click', onMapTap as never);
+        // Same pointer affordance the stops get, guarded for override styles
+        // that have no POI layer at all.
+        if (map.getLayer(POI_LAYER_ID)) {
+          map.on('mouseenter', POI_LAYER_ID, () => {
+            map.getCanvas().style.cursor = 'pointer';
+          });
+          map.on('mouseleave', POI_LAYER_ID, () => {
+            map.getCanvas().style.cursor = '';
+          });
+        }
       }
     };
 
@@ -1052,17 +1181,28 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     map.on('load', onLoad);
 
-    // A style reload (or any late style mutation) drops app sources/layers.
-    // Re-installing them here is what keeps the stops and the 3D bus on the
-    // map instead of silently vanishing for the rest of the session.
+    // A style reload (or any late style mutation — including a day↔night
+    // theme swap) drops app sources/layers. Re-installing them here is what
+    // keeps the stops and the 3D bus on the map instead of silently
+    // vanishing for the rest of the session.
     const onStyleReload = () => {
       if (!mapReadyRef.current || !map.isStyleLoaded()) return;
-      if (map.getLayer('sbt-stops-dot') && map.getLayer(BUS_3D_LAYER_ID)) return;
+      const overlaysMissing = !map.getLayer('sbt-stops-dot') || !map.getLayer(BUS_3D_LAYER_ID);
+      // A style swap in the 3D camera also drops the buildings extrusion.
+      const buildingsMissing =
+        buildingsLayerVisible(dimensionRef.current) && !map.getLayer(MAP_BUILDING_LAYER_ID);
+      if (!overlaysMissing && !buildingsMissing) return;
       try {
-        installOverlays();
-        syncOverlaysRef.current?.();
+        if (overlaysMissing) {
+          installOverlays();
+          syncOverlaysRef.current?.();
+        }
+        // Re-apply the 2D/3D presentation against the NEW style's baseline:
+        // the previous style's sky/rest state (and extrusion) died with it.
+        originalSkyRef.current = map.getStyle().sky;
+        applyMapDimension(map, dimensionRef.current, originalSkyRef.current);
       } catch (error) {
-        console.error('[MapView] overlay re-installation failed', error);
+        console.error('[MapView] style re-application failed', error);
       }
     };
     map.on('styledata', onStyleReload as never);
@@ -1139,6 +1279,24 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     // in 3D, flat marker in 2D. Never both, never neither.
     paintBus(renderedRef.current);
   }, [dimension, mapReady, reducedMotion, user?.role, paintBus]);
+
+  /**
+   * Theme change: swap the base style day↔night on the ONE running map.
+   *
+   * The map is still created exactly once (the init latch above is
+   * untouched). `setStyle` drops every style source/layer, so the re-apply
+   * is handed to the same `styledata` handler that covers style reloads:
+   * overlays come back, then the 2D/3D presentation re-applies against the
+   * new style's baseline. Only a genuine URL change reaches `setStyle` — a
+   * pinned env override resolves to one constant URL and can never churn.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    if (appliedStyleUrlRef.current === styleUrl) return;
+    appliedStyleUrlRef.current = styleUrl;
+    map.setStyle(styleUrl);
+  }, [mapReady, styleUrl]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {
@@ -1526,6 +1684,33 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           >
             i
           </button>
+          {/*
+            The recentre control (Session 6): exists only while the user owns
+            the camera (`shouldShowRecentreControl`), and every tap goes to
+            the EXISTING follow-camera path (`recenterRef` → the follow-camera
+            dispatch) — no second camera system. The "Follow bus" pill below
+            keeps its role as the labelled follow-state control.
+          */}
+          {shouldShowRecentreControl(exploring ? 'exploring' : 'following') ? (
+            <button
+              type="button"
+              className="map-recentre-control"
+              aria-label="Re-centre on the bus"
+              title="Re-centre on the bus"
+              onClick={() => recenterRef.current?.()}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <circle cx="12" cy="12" r="2.1" fill="currentColor" />
+                <path
+                  d="M12 2.5v2.8M12 18.7v2.8M2.5 12h2.8M18.7 12h2.8"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          ) : null}
         </div>
         <button
           type="button"
@@ -1545,6 +1730,22 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           {followBusLabel}
         </button>
       </div>
+      {poiSheet ? (
+        <div className="map-poi-sheet" role="dialog" aria-label="Place details">
+          <div className="map-poi-sheet-text">
+            <strong>{poiSheet.name ?? poiSheet.category}</strong>
+            {poiSheet.name ? <span className="map-poi-sheet-category">{poiSheet.category}</span> : null}
+          </div>
+          <button
+            type="button"
+            className="map-poi-sheet-close"
+            aria-label="Close place details"
+            onClick={() => setPoiSheet(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {legendOpen ? (
         <div className="map-legend" role="region" aria-label="Map legend">
           <div className="map-legend-header">
