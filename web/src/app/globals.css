@@ -1197,6 +1197,70 @@ table.data tbody tr:hover {
  * message renders on top of it, and the container is hidden — never
  * unmounted — until there is something to draw.
  */
+/*
+ * The POI tap sheet: a compact Google-style place card anchored to the
+ * bottom-centre of the map. Opened only by a tap on a rendered POI feature
+ * (stops and the bus win the tap), dismissed by an outside tap, Escape or
+ * its close button.
+ */
+.map-poi-sheet {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  min-width: 180px;
+  max-width: min(320px, calc(100% - 28px));
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-slate-200);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.97);
+  color: var(--color-slate-800, #1e293b);
+  box-shadow: var(--shadow-md);
+  font-size: 0.85rem;
+}
+
+.map-poi-sheet-text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.map-poi-sheet-text strong {
+  overflow-wrap: anywhere;
+}
+
+.map-poi-sheet-category {
+  color: var(--color-slate-500, #64748b);
+  font-size: 0.78rem;
+}
+
+.map-poi-sheet-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-slate-600, #475569);
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-poi-sheet-close:hover {
+  background: var(--color-slate-100);
+}
+
+.map-poi-sheet-close:focus-visible {
+  outline: 2px solid var(--color-primary-600);
+  outline-offset: 2px;
+}
+
 .map-container-hidden {
   visibility: hidden;
 }

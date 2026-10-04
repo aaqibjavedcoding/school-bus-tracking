@@ -49,6 +49,14 @@ import {
   busMeshCollection,
 } from './bus-3d';
 import { simplifyPolylineMeters, TRAIL_SIMPLIFY_TOLERANCE_METERS } from './polyline-simplify';
+import {
+  BUS_DOM_MARKER_LAYER_ID,
+  POI_LAYER_ID,
+  mapTapQueryLayerIds,
+  resolveMapTap,
+  type PoiTapInfo,
+  type TappedFeature,
+} from './poi-sheet';
 import { stopsLayerCollection } from './stop-layer';
 import { chooseRouteLine } from './route-geometry';
 import { useAuth } from '../auth/AuthProvider';
@@ -238,6 +246,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     });
   const [exploring, setExploring] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  // The POI tap sheet: ONLY driven by taps (never per-frame), reading the
+  // already-rendered vector-tile feature — see `poi-sheet.ts`. Null = closed.
+  const [poiSheet, setPoiSheet] = useState<PoiTapInfo | null>(null);
   const [tick, setTick] = useState(0);
   const [webglSupported, setWebglSupported] = useState<boolean | null>(null);
   // Explicit map-readiness signal. The map is created by an effect gated on
@@ -400,6 +411,18 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     const id = setInterval(() => setTick((v) => v + 1), 5_000);
     return () => clearInterval(id);
   }, []);
+
+  // POI tap sheet: Escape dismisses (the outside-tap path is the map click
+  // handler in installOverlays). The listener exists only while a sheet is
+  // actually open.
+  useEffect(() => {
+    if (!poiSheet) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPoiSheet(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [poiSheet]);
 
   // Reduced motion live update
   useEffect(() => {
@@ -1018,6 +1041,63 @@ export const MapViewInner: React.FC<MapViewProps> = ({
         map.on('mouseleave', BUS_3D_LAYER_ID, () => {
           map.getCanvas().style.cursor = '';
         });
+
+        /*
+         * The POI tap sheet (see `poi-sheet.ts`). ONE general click handler
+         * classifies the tap over the features the map has ALREADY rendered
+         * — `queryRenderedFeatures`, no network, no new source. The pure
+         * `resolveMapTap` owns the precedence: stops and the bus (anywhere in
+         * the hit list) win and this handler does nothing for them, so their
+         * existing popups above stay the only popups; otherwise the first
+         * usable POI opens the sheet and anything else (an "outside tap")
+         * dismisses it.
+         */
+        const onMapTap = (event: unknown) => {
+          const click = event as {
+            point?: maplibregl.Point;
+            originalEvent?: { button?: number; target?: EventTarget | null };
+          };
+          if (!click.point) return;
+          // Primary button / touch only — secondary clicks keep their meaning.
+          if (click.originalEvent?.button !== undefined && click.originalEvent.button !== 0) {
+            return;
+          }
+          const features: TappedFeature[] = [];
+          // The flat 2D bus marker is a DOM element: invisible to
+          // queryRenderedFeatures, but a tap on it still beats a POI behind
+          // it, so it goes into the pure decision as a synthetic entry.
+          const target = click.originalEvent?.target;
+          if (typeof Element !== 'undefined' && target instanceof Element) {
+            if (target.closest('.maplibregl-marker')) {
+              features.push({ layerId: BUS_DOM_MARKER_LAYER_ID });
+            }
+          }
+          // Only ask for layers that exist (an override style might have no
+          // `poi` layer); MapLibre errors when quering a missing layer id.
+          const queryLayerIds = mapTapQueryLayerIds().filter((id) => map.getLayer(id));
+          if (queryLayerIds.length > 0) {
+            const rendered = map.queryRenderedFeatures(click.point, { layers: queryLayerIds });
+            for (const feature of rendered) {
+              features.push({
+                layerId: feature.layer?.id ?? '',
+                properties: feature.properties ?? null,
+              });
+            }
+          }
+          const outcome = resolveMapTap(features);
+          setPoiSheet(outcome.type === 'poi' ? outcome.poi : null);
+        };
+        map.on('click', onMapTap as never);
+        // Same pointer affordance the stops get, guarded for override styles
+        // that have no POI layer at all.
+        if (map.getLayer(POI_LAYER_ID)) {
+          map.on('mouseenter', POI_LAYER_ID, () => {
+            map.getCanvas().style.cursor = 'pointer';
+          });
+          map.on('mouseleave', POI_LAYER_ID, () => {
+            map.getCanvas().style.cursor = '';
+          });
+        }
       }
     };
 
@@ -1553,6 +1633,22 @@ export const MapViewInner: React.FC<MapViewProps> = ({
           {followBusLabel}
         </button>
       </div>
+      {poiSheet ? (
+        <div className="map-poi-sheet" role="dialog" aria-label="Place details">
+          <div className="map-poi-sheet-text">
+            <strong>{poiSheet.name ?? poiSheet.category}</strong>
+            {poiSheet.name ? <span className="map-poi-sheet-category">{poiSheet.category}</span> : null}
+          </div>
+          <button
+            type="button"
+            className="map-poi-sheet-close"
+            aria-label="Close place details"
+            onClick={() => setPoiSheet(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {legendOpen ? (
         <div className="map-legend" role="region" aria-label="Map legend">
           <div className="map-legend-header">
