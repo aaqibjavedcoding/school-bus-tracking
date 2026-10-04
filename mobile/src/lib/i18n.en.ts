@@ -628,6 +628,10 @@ export const en = {
   // PR N2 honesty captions: each caption is shown only while its line is on
   // the map, so the legend can never describe a line that is not drawn.
   'map.plannedNotice': 'Amber line: planned stop order — not the road route.',
+  // The road route ahead (routing-engine geometry, Session 3): shown instead
+  // of plannedNotice whenever the real road line is the one drawn — the same
+  // amber line, so the caption is what says which shape it is.
+  'map.roadNotice': 'Amber line: the road route to the stops ahead.',
   'map.trailNotice': 'Green dotted line: the path already driven.',
   'map.arrivalZoneNotice':
     "Dashed ring: the next stop's arrival zone — inside it, the stop records.",
