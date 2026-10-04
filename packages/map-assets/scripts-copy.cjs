@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-require-imports --
+ * CommonJS tooling script, same exemption as web/scripts/**\/*.js: it runs
+ * under plain node from the package build and needs require() for the
+ * compiled dist output.
+ */
 /**
  * Ship the built styles where the web app serves them from.
  *
