@@ -3,9 +3,12 @@ import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View }
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import type {
+  RouteGeometryLeg,
+  RouteGeometryResponse,
   StopResponse,
   TripArrivalDiagnostics,
   TripEtaResponse,
+  TripLocationResponse,
 } from '@school-bus-tracking/shared-types';
 import { colors, spacing, borderRadius, typography } from '@school-bus-tracking/design-tokens';
 import { Button, Card } from '../../components';
@@ -27,6 +30,13 @@ import { NextStopKidRows } from './NextStopKidCard';
 import type { NextStopKidsSummary } from './next-stop-kids.ts';
 import { arrivalHoldReason, arrivalZoneStatus, distanceToStopMeters } from './arrival-zone.ts';
 import { HoldToConfirmButton } from './HoldToConfirmButton';
+import { useLoad } from '../../hooks/useLoad';
+import { unwrapEnvelope } from '../../lib/errors';
+import { apiClient } from '../../services/api';
+import { currentManeuver } from './next-stop-directions';
+import { NextStopAnnouncer } from './next-stop-announcer';
+import { feedback } from './crew-feedback';
+import { crewCopy } from './crew-copy';
 
 /**
  * The next-stop card (Task 44, hardened 3E, reworked N3/N6).
@@ -72,6 +82,13 @@ export interface TripNavigationCardProps {
   nextStopId?: string | null;
   /** Full ETA response for robust derivation (frontier + distances). */
   eta?: TripEtaResponse | null;
+  /**
+   * Cached route legs from Session 3. The card can also load these itself when
+   * the parent does not pass them, so the trip screen needs no extra wiring.
+   */
+  legs?: readonly RouteGeometryLeg[] | null;
+  /** Position used to decide which maneuver is still ahead. */
+  position?: Pick<TripLocationResponse, 'latitude' | 'longitude'> | null;
   /** Previous frontier for monotonic guarantee (persisted in parent if needed). */
   previousFrontier?: number;
   /**
@@ -113,6 +130,8 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   stops,
   nextStopId,
   eta = null,
+  legs,
+  position = null,
   previousFrontier,
   kidsSummary = null,
   kidsLoaded = true,
@@ -129,6 +148,43 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
   const router = useRouter();
   const next = derived.nextStop;
   const target = next ? navigationTargetOf(next) : null;
+
+  /**
+   * The route endpoint already returns the cached road geometry and its legs.
+   * Keep the route/trip identity beside the result: `useLoad` deliberately
+   * retains old data while a new request is in flight, but a maneuver from the
+   * old run is worse than no strip at all.
+   */
+  const tripId = eta?.trip_id ?? null;
+  const routeId = stops[0]?.route_id ?? null;
+  const geometryLoad = useLoad<{
+    tripId: string | null;
+    routeId: string | null;
+    legs: readonly RouteGeometryLeg[] | null;
+  }>(async () => {
+    if (!tripId || !routeId) return { tripId, routeId, legs: null };
+    const payload = unwrapEnvelope<RouteGeometryResponse>(await apiClient.getRouteGeometry(routeId));
+    return {
+      tripId,
+      routeId,
+      legs: payload.status === 'ok' ? payload.legs : null,
+    };
+  }, [tripId, routeId]);
+  const loadedLegs =
+    geometryLoad.data?.tripId === tripId && geometryLoad.data.routeId === routeId
+      ? geometryLoad.data.legs
+      : null;
+  // An explicitly supplied `legs` value is useful to the existing cached map
+  // surface and to pure component tests. `undefined` means "load the same
+  // route geometry here"; `null` means "the geometry is unavailable".
+  const maneuverLegs = legs === undefined ? loadedLegs : legs;
+  const maneuver = currentManeuver({
+    legs: maneuverLegs,
+    position: position ?? eta?.latest ?? null,
+    nextStopId: next?.id ?? null,
+    stops,
+    instructionBuilder: crewCopy.directions.maneuverInstruction,
+  });
 
   /**
    * PR 3 — the buttons hand off to real turn-by-turn.
@@ -201,6 +257,64 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
 
   const showAttendancePrompt =
     returnedFromMaps && Boolean(next) && (kidsSummary?.pendingCount ?? 0) > 0;
+
+  /**
+   * The same edge policy and trigger thresholds as the existing next-stop
+   * announcement. This is intentionally not a second timer or cadence: the
+   * pure announcer decides when the fact is new, and the shared dispatcher
+   * applies the existing mute preference, throttle and native seam.
+   */
+  const maneuverAnnouncerRef = useRef(new NextStopAnnouncer());
+  useEffect(() => {
+    if (!maneuver || !next) return;
+    const event = maneuverAnnouncerRef.current.observe({
+      tripId,
+      stopId: next.id,
+      stopName: next.name,
+      studentCount: kidsSummary?.total ?? 0,
+      countKnown: kidsLoaded,
+      etaMinutes: eta?.next_stop?.eta_minutes ?? null,
+      distanceMeters: eta?.next_stop?.distance_meters ?? null,
+      sequenceNumber: next.sequence_number,
+    });
+    if (event !== null) {
+      const maneuverVoice = {
+        instruction: maneuver.instruction,
+        distanceMeters: maneuver.distanceMeters,
+      };
+      if (event.type === 'stop.near') {
+        feedback.on({
+          type: 'stop.near',
+          stopName: next.name,
+          studentCount: kidsSummary?.total ?? 0,
+          sequenceNumber: event.sequenceNumber,
+          maneuver: maneuverVoice,
+        });
+      } else if (event.type === 'stop.next') {
+        feedback.on({
+          type: 'stop.next',
+          stopName: next.name,
+          studentCount: kidsSummary?.total ?? 0,
+          maneuver: maneuverVoice,
+        });
+      } else {
+        feedback.on({
+          type: 'stop.approaching',
+          stopName: next.name,
+          studentCount: kidsSummary?.total ?? 0,
+          maneuver: maneuverVoice,
+        });
+      }
+    }
+  }, [
+    maneuver,
+    next,
+    tripId,
+    kidsSummary?.total,
+    kidsLoaded,
+    eta?.next_stop?.eta_minutes,
+    eta?.next_stop?.distance_meters,
+  ]);
 
   const distanceEta = next
     ? [
@@ -339,6 +453,22 @@ export const TripNavigationCard: React.FC<TripNavigationCardProps> = ({
             <NextStopKidRows summary={kidsSummary} />
           ) : null}
           <Text style={styles.coords}>{formatCoordinate(target.latitude, target.longitude)}</Text>
+          {maneuver ? (
+            <View style={styles.maneuverStrip} accessibilityLiveRegion="polite">
+              <Ionicons name="arrow-forward-circle" size={28} color={colors.primary[700]} />
+              <View style={styles.maneuverText}>
+                <Text style={styles.maneuverInstruction}>{maneuver.instruction}</Text>
+                <Text style={styles.maneuverDistance}>
+                  {formatDistanceMeters(maneuver.distanceMeters)}
+                </Text>
+                {maneuver.preview ? (
+                  <Text style={styles.maneuverPreview}>
+                    {crewCopy.directions.preview(maneuver.preview.instruction)}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
           {single ? (
             <Button
               label={t('navigate.card.buttonNext')}
@@ -496,6 +626,35 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSizes.base,
     color: colors.neutral[600],
     marginTop: spacing.xs,
+  },
+  maneuverStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.primary[50],
+    borderWidth: 1,
+    borderColor: colors.primary[200],
+  },
+  maneuverText: {
+    flex: 1,
+    gap: 2,
+  },
+  maneuverInstruction: {
+    fontSize: typography.fontSizes.lg,
+    fontWeight: '800',
+    color: colors.neutral[950] ?? colors.neutral[900],
+  },
+  maneuverDistance: {
+    fontSize: typography.fontSizes.base,
+    fontWeight: '700',
+    color: colors.primary[700],
+  },
+  maneuverPreview: {
+    fontSize: typography.fontSizes.sm,
+    color: colors.neutral[600],
   },
   action: {
     marginTop: spacing.md,

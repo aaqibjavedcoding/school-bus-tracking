@@ -703,9 +703,22 @@ declares only the *visibility* entries that make those links openable from a
 release build (Android 11+ `<queries>`, iOS `LSApplicationQueriesSchemes`) —
 no URL, no key, no account. The vendor's `comgoogle…` scheme stays banned.
 
+The driver now also gets a compact local **next maneuver strip** immediately
+above those buttons. It reads the nearest upcoming maneuver from the cached
+route leg that ends at the authoritative next stop, using the engine's
+`distance_meters` and showing the following maneuver as a small preview. It
+does not calculate a route, estimate distance from GPS, or fall back to a
+straight line: if the legs, the current position, or the route identity are
+not usable, the strip is absent. The external deep link stays because it is
+still the correct owner of live turn-by-turn guidance: it can recalculate
+around traffic, obey the device's map preferences, and provide voice guidance
+without adding a directions SDK, a second routing service, or a new backend
+cost. The strip is orientation at a glance; **Navigate** remains the explicit
+hand-off for full guidance.
+
 This is why the planned amber line on the driving card is still labelled as
-**stop order, not the road route**: the only real road route lives in the map
-app, one tap away. Pinned by `src/lib/navigation-directions.spec.ts` (order,
+**stop order, not the road route**: the only live guidance session lives in the
+map app, one tap away. Pinned by `src/lib/navigation-directions.spec.ts` (order,
 chunking, the 2048-character ceiling, invalid coordinates, the Android intent
 format) and by the provider policy spec.
 

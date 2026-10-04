@@ -43,6 +43,42 @@ export const crewCopy = {
   },
 
   /** Status-card chrome. */
+  directions: {
+    /** The compact preview label below the current turn. */
+    preview: (instruction: string): string => t('navigate.card.maneuverThen', { instruction }),
+    /**
+     * Localised engine instruction. Road names are data and are interpolated
+     * unchanged; the short vocabulary around them belongs to the dictionary.
+     */
+    maneuverInstruction(type: string, modifier: string | null, roadName: string | null): string {
+      const direction = modifier?.trim() || t('navigate.maneuver.ahead');
+      const road = roadName?.trim() || t('navigate.maneuver.road');
+      switch (type.trim().toLowerCase()) {
+        case 'depart':
+          return t('navigate.maneuver.depart', { road });
+        case 'turn':
+          return t('navigate.maneuver.turn', { direction, road });
+        case 'merge':
+          return t('navigate.maneuver.merge', { road });
+        case 'fork':
+          return t('navigate.maneuver.fork', { direction, road });
+        case 'end of road':
+          return t('navigate.maneuver.endOfRoad', { direction, road });
+        case 'on ramp':
+          return t('navigate.maneuver.onRamp', { road });
+        case 'off ramp':
+          return t('navigate.maneuver.offRamp', { road });
+        case 'roundabout':
+          return t('navigate.maneuver.roundabout', { direction, road });
+        case 'arrive':
+          return t('navigate.maneuver.arrive', { road });
+        case 'continue':
+        case 'notification':
+        default:
+          return t('navigate.maneuver.continue', { road });
+      }
+    },
+  },
   get detailsToggle(): string {
     return t('trip.detailsToggle');
   },
