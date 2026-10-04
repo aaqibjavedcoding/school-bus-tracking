@@ -148,7 +148,8 @@ function legManeuvers(
       end,
     );
     if (progress === null) continue;
-    values.push({ source, roadName: source.road_name.trim() || null, progress });
+    const roadName = typeof source.road_name === 'string' ? source.road_name.trim() || null : null;
+    values.push({ source, roadName, progress });
   }
   return values;
 }
@@ -187,9 +188,13 @@ export function currentManeuver(input: CurrentManeuverInput): CurrentManeuver | 
 
   const startStop = orderedStops[stopIndex - 1];
   const endStop = orderedStops[stopIndex];
+  // Legs have no stop ids. If an earlier stop is unsurveyed, the engine's
+  // located-stop leg array cannot be aligned to the manifest without a guess.
   if (
-    !isValidCoordinate(startStop.latitude ?? Number.NaN, startStop.longitude ?? Number.NaN) ||
-    !isValidCoordinate(endStop.latitude ?? Number.NaN, endStop.longitude ?? Number.NaN)
+    orderedStops.slice(0, stopIndex + 1).some(
+      (stop) =>
+        !isValidCoordinate(stop.latitude ?? Number.NaN, stop.longitude ?? Number.NaN),
+    )
   ) {
     return null;
   }
