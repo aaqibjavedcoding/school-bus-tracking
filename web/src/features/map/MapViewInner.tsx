@@ -36,7 +36,8 @@ import {
 } from './follow-camera';
 import { deriveTrackingPresentation } from './tracking-presentation';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
-import { resolveMapStyleUrl } from './map-style';
+import { usePrefersColorScheme } from './usePrefersColorScheme';
+import { resolveThemedMapStyleUrl } from './style-variant';
 import { accuracyCirclePolygon } from './accuracy-circle';
 import { canSyncOverlays, syncBusMarker as reconcileBusMarker } from './map-overlays';
 import {
@@ -237,6 +238,10 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   onMapNotice,
 }) => {
   const reducedMotion = usePrefersReducedMotion();
+  // The app's existing theme signal (OS prefers-color-scheme): picks the
+  // shipped day/night style variant unless the env override pins a style —
+  // the pure selection lives in `style-variant.ts`.
+  const colorScheme = usePrefersColorScheme();
   const { user } = useAuth();
   const { dimension, threeDUnavailable, fallbackNotice, setPreferredDimension, recordRenderFrame } =
     useMapCameraMode({
@@ -269,6 +274,9 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const originalSkyRef = useRef<unknown>(undefined);
+  // The style the running map currently has — set at creation, and the guard
+  // that keeps the theme-swap effect from re-setting the same style.
+  const appliedStyleUrlRef = useRef<string | null>(null);
   const dimensionRef = useRef(dimension);
   dimensionRef.current = dimension;
   const recordRenderFrameRef = useRef(recordRenderFrame);
@@ -320,6 +328,19 @@ export const MapViewInner: React.FC<MapViewProps> = ({
   // dozens of error events per second during a bad pan and none of them should
   // cost a render unless the user-visible notice actually changes.
   const mapErrorStateRef = useRef<MapErrorState>(INITIAL_MAP_ERROR_STATE);
+
+  // The resolved map style: the validated env override when one is pinned,
+  // otherwise the theme signal picks the shipped day/night variant
+  // (`style-variant.ts`). The day default on first paint means a server-side
+  // render and a `matchMedia`-less browser land exactly on Session 5's map.
+  const styleUrl = useMemo(
+    () =>
+      resolveThemedMapStyleUrl(
+        { NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL },
+        colorScheme,
+      ),
+    [colorScheme],
+  );
 
   const mappedStops = useMemo(
     () =>
@@ -664,10 +685,6 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     if (webglSupported === null) return; // wait for check
     if (!mapWanted) return; // nothing to draw yet — see the latch above
 
-    const styleUrl = resolveMapStyleUrl({
-      NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
-    });
-
     const initialCenter: [number, number] = fix
       ? [fix.longitude, fix.latitude]
       : mappedStops.length > 0
@@ -697,6 +714,7 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     }
 
     mapRef.current = map;
+    appliedStyleUrlRef.current = styleUrl;
 
     // Engine chrome, same for every role: zoom + compass and fullscreen.
     // Placement is deliberate — the bottom corners stay reserved for provider
@@ -1140,17 +1158,28 @@ export const MapViewInner: React.FC<MapViewProps> = ({
 
     map.on('load', onLoad);
 
-    // A style reload (or any late style mutation) drops app sources/layers.
-    // Re-installing them here is what keeps the stops and the 3D bus on the
-    // map instead of silently vanishing for the rest of the session.
+    // A style reload (or any late style mutation — including a day↔night
+    // theme swap) drops app sources/layers. Re-installing them here is what
+    // keeps the stops and the 3D bus on the map instead of silently
+    // vanishing for the rest of the session.
     const onStyleReload = () => {
       if (!mapReadyRef.current || !map.isStyleLoaded()) return;
-      if (map.getLayer('sbt-stops-dot') && map.getLayer(BUS_3D_LAYER_ID)) return;
+      const overlaysMissing = !map.getLayer('sbt-stops-dot') || !map.getLayer(BUS_3D_LAYER_ID);
+      // A style swap in the 3D camera also drops the buildings extrusion.
+      const buildingsMissing =
+        buildingsLayerVisible(dimensionRef.current) && !map.getLayer(MAP_BUILDING_LAYER_ID);
+      if (!overlaysMissing && !buildingsMissing) return;
       try {
-        installOverlays();
-        syncOverlaysRef.current?.();
+        if (overlaysMissing) {
+          installOverlays();
+          syncOverlaysRef.current?.();
+        }
+        // Re-apply the 2D/3D presentation against the NEW style's baseline:
+        // the previous style's sky/rest state (and extrusion) died with it.
+        originalSkyRef.current = map.getStyle().sky;
+        applyMapDimension(map, dimensionRef.current, originalSkyRef.current);
       } catch (error) {
-        console.error('[MapView] overlay re-installation failed', error);
+        console.error('[MapView] style re-application failed', error);
       }
     };
     map.on('styledata', onStyleReload as never);
@@ -1227,6 +1256,24 @@ export const MapViewInner: React.FC<MapViewProps> = ({
     // in 3D, flat marker in 2D. Never both, never neither.
     paintBus(renderedRef.current);
   }, [dimension, mapReady, reducedMotion, user?.role, paintBus]);
+
+  /**
+   * Theme change: swap the base style day↔night on the ONE running map.
+   *
+   * The map is still created exactly once (the init latch above is
+   * untouched). `setStyle` drops every style source/layer, so the re-apply
+   * is handed to the same `styledata` handler that covers style reloads:
+   * overlays come back, then the 2D/3D presentation re-applies against the
+   * new style's baseline. Only a genuine URL change reaches `setStyle` — a
+   * pinned env override resolves to one constant URL and can never churn.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) return;
+    if (appliedStyleUrlRef.current === styleUrl) return;
+    appliedStyleUrlRef.current = styleUrl;
+    map.setStyle(styleUrl);
+  }, [mapReady, styleUrl]);
 
   // Update route line when stops change
   const syncRouteLine = useCallback(() => {

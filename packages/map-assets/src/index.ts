@@ -117,3 +117,4 @@ export const STOP_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox=
   <circle cx="12" cy="11" r="3.1" fill="#f8fafc"/>
 </svg>`;
 export * from './kidbus-day';
+export * from './kidbus-night';
