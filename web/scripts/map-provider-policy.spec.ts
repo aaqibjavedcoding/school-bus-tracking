@@ -182,7 +182,7 @@ describe('web map provider policy (no key, no card, no billing — off tile.open
     const mapStylePath = join(webRoot, 'src/features/map/map-style.ts');
     assert.ok(existsSync(mapStylePath), 'web/src/features/map/map-style.ts missing');
     const content = readFileSync(mapStylePath, 'utf8');
-    assert.match(content, /tiles\.openfreemap\.org/, 'map-style.ts must default to OpenFreeMap');
+    assert.match(content, /\/map-styles\/kidbus-day\.json/, 'map-style.ts must default to shipped style');
     assert.match(
       content,
       /NEXT_PUBLIC_MAP_STYLE_URL/,
@@ -240,9 +240,8 @@ describe('the tracking map shows a real map, not just shapes', () => {
 
   it('loads labels from the same free host, so no key and no new CSP host', () => {
     const styleSource = readFileSync(join(webRoot, 'src/features/map/map-style.ts'), 'utf8');
-    const url = /DEFAULT_MAP_STYLE_URL = '([^']+)'/.exec(styleSource)![1]!;
-    assert.equal(new URL(url).host, 'tiles.openfreemap.org', 'the style must stay on the free host');
-    assert.match(url, /\/styles\/bright$/, 'bright is the label-visible variant');
+    const style = JSON.parse(readFileSync(join(webRoot, 'public/map-styles/kidbus-day.json'), 'utf8')) as { sources: Record<string, {url?: string}> };
+    for (const source of Object.values(style.sources)) { assert.ok(source.url?.startsWith('https://tiles.openfreemap.org/')); assert.ok(!source.url?.includes('key=')); }
     // The CSP lists the tile host once and once only — no key, no wildcard, and
     // glyphs/sprite come from the same origin (`connect-src`), so a style change
     // must never need a new host here.

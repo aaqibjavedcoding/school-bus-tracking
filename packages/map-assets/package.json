@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts-copy.cjs",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist"
   },

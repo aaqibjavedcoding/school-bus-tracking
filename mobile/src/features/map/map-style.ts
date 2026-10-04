@@ -57,7 +57,7 @@
  * The swap is a style id inside one URL: same host, no key, no billing, no CSP
  * change.
  */
-export const DEFAULT_MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/bright';
+export const DEFAULT_MAP_STYLE_URL = '/map-styles/kidbus-day.json';
 
 /**
  * The attribution the style is known for. MapLibre renders the attribution
@@ -94,7 +94,7 @@ export function resolveMapStyleUrl(env: Record<string, string | undefined>): str
     return DEFAULT_MAP_STYLE_URL;
   }
   const url = raw.trim();
-  if (url.startsWith('https://')) {
+  if (url.startsWith('https://') || url.startsWith('/')) {
     return url;
   }
   if (!warnedAboutNonHttpsStyle) {
@@ -102,7 +102,7 @@ export function resolveMapStyleUrl(env: Record<string, string | undefined>): str
     // Deliberately no value echo beyond the scheme class: a misconfigured URL
     // is a build error, and the warning goes to the developer, not the phone.
     console.warn(
-      `[map-style] ${MAP_STYLE_ENV_VARIABLE} must be an https:// URL ` +
+      `[map-style] ${MAP_STYLE_ENV_VARIABLE} must be an https:// URL or same-origin path ` +
         '(tile traffic carries GPS positions and must never ride plain http). ' +
         `Falling back to the default style: ${DEFAULT_MAP_STYLE_URL}`,
     );
