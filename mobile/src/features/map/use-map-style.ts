@@ -4,11 +4,12 @@
  * by `map-style.spec.ts`) and whose retry policy lives in
  * `map-style-recovery.ts` (pure, pinned by `map-style-recovery.spec.ts`).
  *
- * On mount (per style URL) it:
+ * On mount (per bundled object or override URL) it:
  *
- * 1. fetches the style JSON in JS **with bounded backoff** (deep-fix R3:
+ * 1. inspects the bundled day/night style object directly, or fetches an
+ *    override style JSON in JS **with bounded backoff** (deep-fix R3:
  *    `[2 s, 5 s, 15 s]` — one flaky first fetch on mobile data used to be a
- *    permanent red line and a dead map until the app restarted) and repairs a
+ *    permanent red line and a dead map until the app restarted), and repairs a
  *    missing/non-https `glyphs` template (`inspectMapStyle`); the inspected
  *    object is passed to the map so the successful retry is the request
  *    MapLibre actually uses;
@@ -23,13 +24,13 @@
  *
  * ### Recovery (R3), stated once
  *
- * - **The fetch retries** (`runWithBackoff`): one flaky first fetch on mobile
- *   data used to be a permanent red line and a dead map until the app
- *   restarted. When the whole bounded budget is spent the pipeline reports
- *   `styleLoad` and swaps in the bundled offline base style
+ * - **The override fetch retries** (`runWithBackoff`): one flaky first fetch
+ *   on mobile data used to be a permanent red line and a dead map until the
+ *   app restarted. When the whole bounded budget is spent the pipeline
+ *   reports `styleLoad` and swaps in the bundled offline base style
  *   (`OFFLINE_FALLBACK_MAP_STYLE` — zero network, a plain background), so a
  *   dead-zone phone still shows stops, the bus and an honest status instead
- *   of a dead box.
+ *   of a dead box. The default object has no style JSON request to retry.
  * - **The engine's own load retries** (`onStyleLoadFailed`, wired to the
  *   Map's `onDidFailLoadingMap`): `planStyleLoadFailure` schedules a bounded
  *   sequence of style **re-sets** (`restyleForRetry`, one `metadata` nonce —
@@ -45,6 +46,7 @@
  * in flight); every timer is cleared on unmount.
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useColorScheme } from 'react-native';
 import { mapStyleForDimension, type MapDimension } from '@school-bus-tracking/map-assets';
 import type { MapProps, StyleSpecification } from '@maplibre/maplibre-react-native';
 import {
@@ -52,8 +54,10 @@ import {
   buildGlyphProbeUrl,
   glyphUrlTransforms,
   inspectMapStyle,
+  resolveMapStyleInput,
   resolveMapStyleUrl,
   restyleForRetry,
+  type MapStyleInput,
   type MapStyleIssueCode,
   type StyleInspection,
 } from './map-style.ts';
@@ -130,8 +134,8 @@ interface StyleControllerDeps {
  * in React state, because none of it is render data.
  */
 function createStyleController(deps: StyleControllerDeps) {
-  /** The URL being loaded; refreshed per render by the hook body. */
-  let styleUrl = '';
+  /** The bundled style object or override URL; refreshed per render by the hook body. */
+  let styleInput: MapStyleInput = '';
   /** Unmounted (or effect-cleaned-up): every scheduled thing must stop. */
   let disposed = false;
   /** The fetch pipeline is running — a native did-fail must not double up. */
@@ -211,19 +215,32 @@ function createStyleController(deps: StyleControllerDeps) {
   }
 
   /**
-   * The JS pipeline: bounded fetch → repair → hand the inspected object to
-   * the map. On total exhaustion: the offline base style, plus the line that
-   * names the cause. Success does not clear `styleLoad` here — the engine
-   * still has to *render* the style, and `notifyStyleLoaded` owns that.
+   * The JS pipeline: inspect a bundled object, or bounded-fetch an override
+   * URL, then hand the inspected object to the map. On total exhaustion: the
+   * offline base style, plus the line that names the cause. Success does not
+   * clear `styleLoad` here — the engine still has to *render* the style, and
+   * `notifyStyleLoaded` owns that.
    */
   async function runPipeline(): Promise<void> {
     if (fetching || disposed) return;
     fetching = true;
+    const source = styleInput;
     try {
       const inspection = await runWithBackoff({
         isCancelled: () => disposed,
         attempt: async () => {
-          const response = await fetch(styleUrl);
+          if (typeof source !== 'string') {
+            // The default is already the style object shipped in the bundle.
+            // Inspect it synchronously; never fetch a URL just to turn it back
+            // into the same object.
+            const inspected = inspectMapStyle(source);
+            if (inspected.glyphsTemplate === null) {
+              throw new Error('bundled style is not an object');
+            }
+            return inspected as StyleInspection & { glyphsTemplate: string };
+          }
+
+          const response = await fetch(source);
           if (!response.ok) throw new Error(`style HTTP ${response.status}`);
           const inspected = inspectMapStyle(await response.json());
           if (inspected.glyphsTemplate === null) {
@@ -310,8 +327,9 @@ function createStyleController(deps: StyleControllerDeps) {
           restyleForRetry(baseStyle, retryGeneration) as unknown as StyleSpecification,
         );
       } else {
-        // The map is still on the raw URL: run the fetch pipeline (bounded)
-        // to get the inspected object — or the fallback if the network is gone.
+        // No inspected object is available: run the style pipeline (which
+        // directly inspects a bundled object or bounded-fetches an override)
+        // to get one — or the fallback if the network is gone.
         void runPipeline();
       }
     }, action.delayMs);
@@ -353,11 +371,11 @@ function createStyleController(deps: StyleControllerDeps) {
   }
 
   return {
-    get styleUrl() {
-      return styleUrl;
+    get styleInput() {
+      return styleInput;
     },
-    set styleUrl(next: string) {
-      styleUrl = next;
+    set styleInput(next: MapStyleInput) {
+      styleInput = next;
     },
     runPipeline,
     onStyleLoadFailed,
@@ -385,11 +403,20 @@ export function useMapStyle(
   /** False while the Expo Go fallback is being rendered. */
   enabled = true,
 ): MapStyleState {
-  const styleUrl = resolveMapStyleUrl(env);
-  const [mapStyle, setMapStyle] = useState<MapProps['mapStyle']>(styleUrl);
-  // URLs cannot be decorated, so the initial request remains the existing
-  // OpenFreeMap URL. Once the inspected style object arrives, 3D adds only a
-  // sky and a layer that references its already-present vector source.
+  const colorScheme = useColorScheme();
+  const resolvedStyleUrl = resolveMapStyleUrl(env);
+  const styleInput = resolveMapStyleInput(
+    env,
+    colorScheme === 'dark' ? 'dark' : 'light',
+    resolvedStyleUrl,
+  );
+  const [mapStyle, setMapStyle] = useState<MapProps['mapStyle']>(
+    styleInput as MapProps['mapStyle'],
+  );
+  // URLs cannot be decorated, so an override remains the existing URL until
+  // the pipeline fetches and inspects it. The bundled day/night object is
+  // already native-ready; 3D adds only a sky and a layer that references its
+  // already-present vector source.
   const presentedMapStyle = useMemo(
     () => mapStyleForDimension(mapStyle, dimension) as MapProps['mapStyle'],
     [mapStyle, dimension],
@@ -402,8 +429,9 @@ export function useMapStyle(
     controllerRef.current = createStyleController({ setMapStyle });
   }
   const controller = controllerRef.current;
-  // The controller was created once; keep its view of the URL current.
-  controller.styleUrl = styleUrl;
+  // The controller was created once; keep its view of the bundled object or
+  // override URL current.
+  controller.styleInput = styleInput;
 
   useEffect(() => {
     if (!enabled) {
@@ -451,7 +479,7 @@ export function useMapStyle(
       const handle = subscription as { remove?: () => void } | undefined;
       handle?.remove?.();
     };
-  }, [enabled, styleUrl, controller]);
+  }, [enabled, styleInput, controller]);
 
   // Auto-recovery on reconnect. Airplane mode off must clear the notice with
   // no app restart and no manual tap, so the transition into `online` re-runs
