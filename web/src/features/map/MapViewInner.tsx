@@ -16,7 +16,6 @@ import {
   MAP_3D_SKY,
   MAP_BUILDING_LAYER_ID,
   MAP_MAX_PITCH,
-  buildingExtrusionLayerForStyle,
   type MapDimension,
   type MapFallbackReason,
 } from '@school-bus-tracking/map-assets';
@@ -44,6 +43,8 @@ import {
   BUS_3D_LAYER_ID,
   BUS_3D_SOURCE_ID,
   EMPTY_BUS_MESH,
+  buildingsLayerForDimension,
+  buildingsLayerVisible,
   busExtrusionLayer,
   busMeshCollection,
 } from './bus-3d';
@@ -134,7 +135,14 @@ function raiseAppLayers(map: maplibregl.Map): void {
   }
 }
 
-/** Add/remove presentation only; never add or replace an OpenFreeMap source. */
+/**
+ * Add/remove presentation only; never add or replace an OpenFreeMap source.
+ *
+ * The "is the buildings layer on?" decision lives in `bus-3d.ts`
+ * (`buildingsLayerVisible`, spec'd in `bus-3d-buildings.spec.ts`) — this
+ * function only applies it: sky + extrusion while the 3D camera owns the map,
+ * the untouched base style in 2D.
+ */
 function applyMapDimension(
   map: maplibregl.Map,
   dimension: MapDimension,
@@ -142,10 +150,10 @@ function applyMapDimension(
 ): void {
   map.setMaxPitch(MAP_MAX_PITCH);
   const setSky = map.setSky.bind(map) as (sky?: unknown) => unknown;
-  if (dimension === '3d') {
+  if (buildingsLayerVisible(dimension)) {
     setSky(MAP_3D_SKY);
     if (!map.getLayer(MAP_BUILDING_LAYER_ID)) {
-      const layer = buildingExtrusionLayerForStyle(map.getStyle());
+      const layer = buildingsLayerForDimension(map.getStyle(), dimension);
       if (layer) {
         const before = map.getStyle().layers.find((candidate) => candidate.type === 'symbol')?.id;
         map.addLayer(layer as unknown as maplibregl.LayerSpecification, before);

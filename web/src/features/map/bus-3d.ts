@@ -1,4 +1,8 @@
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
+import {
+  buildingExtrusionLayerForStyle,
+  type MapDimension,
+} from '@school-bus-tracking/map-assets';
 
 /**
  * The live bus as REAL 3D geometry — MapLibre `fill-extrusion`, no new deps.
@@ -305,3 +309,35 @@ export const EMPTY_BUS_MESH: FeatureCollection<Polygon> = {
   type: 'FeatureCollection',
   features: [],
 };
+
+/**
+ * Is the tile-driven 3D-buildings layer on?
+ *
+ * The answer is exactly one rule, stated here rather than as a boolean buried
+ * in an effect: **building volumes exist only while the 3D camera is on.**
+ * The 2D camera keeps the base style's flat building footprint fill and looks
+ * precisely like it always did — no extrusion, no sky, no elevated camera
+ * furniture. Every other guard a user might think of (reduced motion, the
+ * dropped-frame fallback) is already folded into `dimension` upstream by
+ * `useMapCameraMode`, so this function takes the *effective* dimension and
+ * nothing else.
+ *
+ * Pure (no MapLibre, no DOM) so the decision can be pinned by
+ * `bus-3d-buildings.spec.ts` under `node --test`.
+ */
+export function buildingsLayerVisible(dimension: MapDimension | null | undefined): boolean {
+  return dimension === '3d';
+}
+
+/**
+ * The building fill-extrusion for this camera mode, or `null` in 2D or when
+ * the loaded style exposes no building source to extrude (the layer geometry
+ * itself is shared policy from `@school-bus-tracking/map-assets`, driven by
+ * the tiles' `render_height`/`height` attributes — no new source, no network).
+ */
+export function buildingsLayerForDimension(
+  style: unknown,
+  dimension: MapDimension,
+): Record<string, unknown> | null {
+  return buildingsLayerVisible(dimension) ? buildingExtrusionLayerForStyle(style) : null;
+}
