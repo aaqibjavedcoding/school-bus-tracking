@@ -38,6 +38,7 @@ import { pickFieldLabels } from '../../../../lib/field-errors';
 import { GeofencePreview, GEOFENCE_RADIUS_HELP } from '../../../../features/stops/GeofencePreview';
 import { stopCode } from '../../../../lib/format';
 import { apiClient } from '../../../../services/api';
+import { StopLocationPicker } from '../../../../features/stops/StopLocationPicker';
 
 /**
  * What this form's inputs are called in a sentence.
@@ -312,6 +313,10 @@ export default function RouteDetailPage() {
               onChange={(event) => setForm({ ...form, address: event.target.value })}
             />
           </Field>
+          <StopLocationPicker
+            value={{ latitude: form.latitude, longitude: form.longitude }}
+            onChange={(coordinates) => setForm((current) => ({ ...current, ...coordinates }))}
+          />
           <div className="grid grid-2">
             <Field id="latitude" label="Latitude" error={fieldErrors.latitude}>
               <Input

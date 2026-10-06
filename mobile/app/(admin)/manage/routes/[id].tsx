@@ -40,6 +40,7 @@ import {
   GeofencePreview,
   GEOFENCE_RADIUS_HELP,
 } from '../../../../src/features/admin/stops/GeofencePreview';
+import { StopLocationPicker } from '../../../../src/features/admin/stops/StopLocationPicker';
 
 const EMPTY = {
   name: '',
@@ -355,6 +356,10 @@ export default function ManageRouteStopsScreen() {
           onChangeText={(text) => setForm({ ...form, address: text })}
           autoCapitalize="words"
           error={fieldErrors.address}
+        />
+        <StopLocationPicker
+          value={{ latitude: form.latitude, longitude: form.longitude }}
+          onChange={(coordinates) => setForm((current) => ({ ...current, ...coordinates }))}
         />
         <View style={styles.row}>
           <View style={styles.flex}>
