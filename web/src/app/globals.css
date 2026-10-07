@@ -3267,8 +3267,37 @@ table.data.compact th {
 }
 
 /* Stop location picker */
-.stop-location-picker { display: grid; gap: .5rem; grid-column: 1 / -1; }
-.stop-location-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-.stop-location-map { height: 280px; min-height: 220px; width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid var(--border, #d8dee8); }
-.stop-location-note { font-size: .78rem; margin: 0; }
-@media (max-width: 600px) { .stop-location-map { height: 240px; } .stop-location-toolbar .btn { min-height: 44px; } }
+.stop-location-picker {
+  display: grid;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+}
+.stop-location-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.stop-location-map {
+  height: clamp(220px, 32vh, 320px);
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border, #d8dee8);
+}
+.stop-location-map-loading {
+  display: grid;
+  place-items: center;
+}
+.stop-location-note {
+  font-size: 0.78rem;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .stop-location-map {
+    height: 240px;
+  }
+  .stop-location-toolbar .btn {
+    min-height: 44px;
+  }
+}
