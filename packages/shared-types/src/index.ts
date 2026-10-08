@@ -3074,6 +3074,52 @@ export type RouteGeometryResponse =
   | RouteGeometryAvailableResponse
   | RouteGeometryUnavailableResponse;
 
+/**
+ * Body of `PUT /api/v1/routes/:id/geometry` — the write half of the
+ * forever-cache, used by the geometry backfill (`.github/workflows/osrm-backfill.yml`)
+ * and any operator tooling: the routing engine has no write API, so the
+ * caller computes the road shape offline and stores the result here.
+ *
+ * The row is keyed server-side by the SAME `hashRouteStops()` the read path
+ * computes from the route's current located stops, so the next `GET` is a
+ * cache hit. `status: 'road'` is the only accepted value — it says "this
+ * geometry follows the roads", as opposed to the dashed stop-to-stop
+ * fallback the maps draw when no row exists.
+ */
+export interface RouteGeometryStoreRequest {
+  /** Always `'road'` — the geometry follows the road network. */
+  status: 'road';
+  /** GeoJSON LineString in WGS-84 — `[longitude, latitude]` pairs. */
+  geometry: RouteGeometryLineString;
+  /** Total road distance of the route, metres (finite, >= 0). */
+  distance_meters: number;
+  /** Total driving duration of the route, seconds (finite, >= 0). */
+  duration_seconds: number;
+  /** Stop-to-stop sections with turn-by-turn maneuvers. */
+  legs: RouteGeometryLeg[];
+  /** Routing engine that produced the geometry (e.g. `osrm`). */
+  provider: string;
+  /** ISO-8601 timestamp of the computation; defaults to "now" server-side. */
+  computed_at?: string;
+}
+
+/** Successful payload of `PUT /api/v1/routes/:id/geometry` — the stored row, as served. */
+export type RouteGeometryStoreResponse = RouteGeometryAvailableResponse;
+
+/** Successful payload of `POST /api/v1/routes/:id/geometry/recompute`. */
+export interface RouteGeometryRecomputeResponse {
+  id: string;
+  /** Confirmation message (the cache rows were dropped). */
+  message: string;
+  /**
+   * The geometry as served right after the recompute: `ok` when an engine
+   * is configured and computed a fresh row, `unavailable` when routing is
+   * disabled on this deployment (blank `ROUTING_SERVICE_URL`) or the route
+   * cannot be routed.
+   */
+  geometry: RouteGeometryResponse;
+}
+
 /** Body of `POST /api/v1/stops`. */
 export interface StopCreateRequest {
   /** Target route; must belong to the authenticated school. */

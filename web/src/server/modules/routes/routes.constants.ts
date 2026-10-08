@@ -42,3 +42,14 @@ export const ROUTE_STOPS_ORDER_INCOMPLETE_MESSAGE =
 /** Message returned when a stop id in the payload is not on this route. */
 export const ROUTE_STOPS_ORDER_UNKNOWN_STOP_MESSAGE =
   'One or more stop ids do not belong to this route';
+
+/**
+ * Message returned when a road geometry is stored for a route with fewer
+ * than two located stops: there is no stop list to key the cache row on,
+ * and the read path would never serve it.
+ */
+export const ROUTE_GEOMETRY_TOO_FEW_STOPS_MESSAGE =
+  'The route needs at least two stops with coordinates before a road geometry can be stored';
+
+/** Confirmation message of `POST /routes/:id/geometry/recompute`. */
+export const ROUTE_GEOMETRY_RECOMPUTE_MESSAGE = 'Cached route geometry cleared';

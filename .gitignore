@@ -34,6 +34,10 @@ pnpm-debug.log*
 # Local document storage created at runtime by LocalStorageProvider
 .document-storage/
 
+# Prebuilt OSRM routing graph (produced by scripts/osrm-graph.sh; hundreds
+# of MB, rebuilt from the monthly Geofabrik extract — never commit it).
+infrastructure/osrm-data/
+
 # IDE & OS
 .DS_Store
 .idea/

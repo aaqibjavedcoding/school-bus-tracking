@@ -721,6 +721,8 @@ export class Container {
         Student,
         this.planLimits(),
         this.runs(),
+        // Eager geometry compute after a stop reorder (fire-and-forget).
+        this.routeGeometry(),
       ),
   );
 
@@ -767,7 +769,16 @@ export class Container {
     () => new RunCrewService(RunCrew, Run, Route, User, Shift, RouteAssignment, this.sequelize),
   );
 
-  readonly stops = lazy(() => new StopsService(Stop, Route, this.planLimits()));
+  readonly stops = lazy(
+    () =>
+      new StopsService(
+        Stop,
+        Route,
+        this.planLimits(),
+        // Eager geometry compute after a stop save/delete (fire-and-forget).
+        this.routeGeometry(),
+      ),
+  );
 
   /**
    * Dashboard headline counts — four parallel COUNT queries, no enrichment.
