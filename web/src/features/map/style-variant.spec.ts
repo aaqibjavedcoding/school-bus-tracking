@@ -9,7 +9,7 @@ import {
   resolveThemedMapStyleUrl,
 } from './style-variant.ts';
 import { DEFAULT_MAP_STYLE_URL, MAP_STYLE_ENV_VARIABLE } from './map-style.ts';
-import { KIDBUS_DAY_STYLE, KIDBUS_NIGHT_STYLE } from '@school-bus-tracking/map-assets';
+import { KIDBUS_DAY_STYLE, KIDBUS_NIGHT_STYLE, nightPaintFor } from '@school-bus-tracking/map-assets';
 
 /**
  * Night-style selection + the kidbus-night asset (Session 6, step 3).
@@ -102,20 +102,100 @@ describe('the kidbus-night style asset', () => {
 
   it('only paint changed — and to the pinned night palette', () => {
     const paintOf = (style: StyleLike, id: string) => style.layers.find((l) => l.id === id)?.paint ?? {};
-    // Land, water, roads, casings, labels — the palette from the session brief.
+    // Land, water, roads, casings, labels — the palette from the session brief,
+    // re-pinned for the Session-7 cartography. Two renames are deliberate:
+    // `place` is no longer one layer (the area names are class-wise now, and the
+    // night palette is asserted against `place-suburb`, the layer this pass
+    // exists to make visible), and the single `road-fills`/`road-casings` pair
+    // became one pass per width group — the values are pinned on the `secondary`
+    // group, whose class match covers the mid/high end of both.
     assert.equal(paintOf(night, 'background')['background-color'], '#202124');
     assert.equal(paintOf(night, 'water')['fill-color'], '#17263c');
     assert.equal(paintOf(night, 'waterway')['line-color'], '#17263c');
-    assert.equal(paintOf(night, 'road-casings')['line-color'], '#202124');
-    assert.equal((paintOf(night, 'road-fills')['line-color'] as unknown[]).at(-1), '#3c4043');
+    assert.equal((paintOf(night, 'road-casing-secondary')['line-color'] as unknown[]).at(-1), '#1a1b1d');
+    assert.equal((paintOf(night, 'road-fill-secondary')['line-color'] as unknown[]).at(-1), '#3c4043');
+    // The road hierarchy survives the recolouring: arterials stay amber.
+    // ['match', ['get','class'], <classes>, <colour>, …]
+    assert.deepEqual((paintOf(night, 'road-fill-major')['line-color'] as unknown[]).slice(2, 4), [
+      ['motorway', 'motorway_link', 'trunk', 'trunk_link'],
+      '#a8862f',
+    ]);
     assert.equal(paintOf(night, 'transportation_name')['text-color'], '#9aa0a6');
-    assert.equal(paintOf(night, 'place')['text-color'], '#9aa0a6');
+    assert.equal(paintOf(night, 'place-suburb')['text-color'], '#9aa0a6');
     assert.equal(paintOf(night, 'poi')['text-color'], '#9aa0a6');
     // day paints really were replaced on every layer that has one
     for (const layer of night.layers) {
       if (day.layers.find((d) => d.id === layer.id)?.paint) {
         assert.notDeepEqual(layer.paint, day.layers.find((d) => d.id === layer.id)?.paint, `${layer.id} recoloured`);
       }
+    }
+  });
+
+  it('changes colour, never geometry: every road keeps the day style\'s own width', () => {
+    const paintOf = (style: StyleLike, id: string) => style.layers.find((l) => l.id === id)?.paint ?? {};
+    const roadIds = day.layers
+      .map((layer) => layer.id)
+      .filter((id) => id.startsWith('road-'));
+    assert.ok(roadIds.length >= 12, `expected the road passes, found ${roadIds.length}`);
+    // Night is a recolour of the day style, and `nightPaintFor` copies every
+    // paint key it does not override — so the widths (fill and casing, all
+    // three brunnel passes) are the *same expression instances*. If night ever
+    // starts carrying its own ladder, a road would change width at dusk.
+    for (const id of roadIds) {
+      assert.deepEqual(paintOf(night, id)['line-width'], paintOf(day, id)['line-width'], `${id} width`);
+      assert.notDeepEqual(paintOf(night, id)['line-color'], paintOf(day, id)['line-color'], `${id} recoloured`);
+    }
+    // And the casing really is its fill + a constant, stop for stop, so an
+    // edited fill table can never leave a road with a hairline edge.
+    for (const [fillId, casingId, extra] of [
+      ['road-fill-major', 'road-casing-major', 1.4],
+      ['road-fill-secondary', 'road-casing-secondary', 1.2],
+      ['road-fill-minor', 'road-casing-minor', 1.2],
+    ] as const) {
+      // ['interpolate', ['linear'], ['zoom'], z0, w0, z1, w1, …]
+      const widths = (id: string) =>
+        (paintOf(day, id)['line-width'] as unknown[]).slice(4).filter((_, index) => index % 2 === 0).map(Number);
+      assert.equal((paintOf(day, fillId)['line-width'] as unknown[])[0], 'interpolate');
+      assert.deepEqual(
+        widths(casingId),
+        widths(fillId).map((width) => width + extra),
+        `${casingId} must be ${fillId} + ${extra}px at every stop`,
+      );
+    }
+  });
+
+  it('recolours every place class, not just the big names', () => {
+    const paintOf = (style: StyleLike, id: string) => style.layers.find((l) => l.id === id)?.paint ?? {};
+    // The complaint being fixed is that a colony/suburb name never appeared.
+    // A place layer that kept its daytime halo on a black map would be just as
+    // invisible, so every class the day style ships has a night paint.
+    for (const id of [
+      'place-city',
+      'place-town',
+      'place-village',
+      'place-suburb',
+      'place-quarter',
+      'place-hamlet',
+      'place-neighbourhood',
+      'place-state',
+    ]) {
+      assert.ok(day.layers.some((l) => l.id === id), `the day style must ship ${id}`);
+      assert.equal(paintOf(night, id)['text-halo-color'], '#202124', `${id} night halo`);
+      assert.notDeepEqual(paintOf(night, id), paintOf(day, id), `${id} recoloured`);
+    }
+  });
+
+  it('recolours every painted layer — no layer silently keeps its day paint', () => {
+    // The night transform is a rule (`nightPaintFor`), not a list: it either
+    // returns a recoloured paint or null, and a null on a layer the day style
+    // paints is a colour that would render in daylight on a black map. This is
+    // the check that catches a new day layer nobody gave a night colour to.
+    const painted = day.layers.filter((layer) => layer.paint !== undefined);
+    assert.ok(painted.length >= 20, `expected a painted style, found ${painted.length} painted layers`);
+    for (const layer of painted as unknown as Array<{ id: string; paint: Record<string, unknown> }>) {
+      const nightPaint = nightPaintFor(layer);
+      assert.ok(nightPaint, `${layer.id}: no night paint — it would stay in daytime colours`);
+      assert.notDeepEqual(nightPaint, layer.paint, `${layer.id}: night paint must differ from the day paint`);
     }
   });
 

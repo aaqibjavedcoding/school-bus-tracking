@@ -19,7 +19,11 @@ import {
   resolveMapStyleInput,
   resolveMapStyleUrl,
   restyleForRetry,
+  apiOriginFromBaseUrl,
+  resolveMapSpriteUrl,
+  withNativeSprite,
   __resetMapStyleWarningsForTests,
+  __resetSpriteWarningForTests,
 } from './map-style.ts';
 
 /**
@@ -35,6 +39,7 @@ let realWarn: typeof console.warn;
 
 beforeEach(() => {
   __resetMapStyleWarningsForTests();
+  __resetSpriteWarningForTests();
   warnings = [];
   realWarn = console.warn;
   console.warn = (message: string) => {
@@ -286,5 +291,125 @@ describe('restyleForRetry (the re-set that actually re-sets)', () => {
     const retried = restyleForRetry(style, 1) as { metadata: Record<string, unknown> };
     assert.equal(retried.metadata['sbt:retry-generation'], 1);
     assert.equal(typeof retried.metadata, 'object');
+  });
+});
+
+/**
+ * The sprite on native (Session 7). The bundled styles use the same
+ * root-relative sprite path the web app serves same-origin
+ * (`/map-sprites/kidbus`), and native MapLibre has no document origin to
+ * resolve it against — so the pipeline resolves it against the API origin, the
+ * one origin the app already trusts, and never against a third-party host.
+ *
+ * These cases are the whole rule: absolute stays absolute, a root-relative path
+ * gains the API origin, and a style that cannot be resolved loses the field and
+ * says so once rather than handing MapLibre a path it could only fail on.
+ */
+describe('the sprite URL on native', () => {
+  it('extracts an origin from an API base URL, and strips any credential', () => {
+    assert.equal(apiOriginFromBaseUrl('https://api.example.com/api/v1'), 'https://api.example.com');
+    assert.equal(apiOriginFromBaseUrl('http://192.168.1.20:3001/api/v1'), 'http://192.168.1.20:3001');
+    assert.equal(apiOriginFromBaseUrl('https://user:secret@api.example.com/api/v1'), 'https://api.example.com');
+    assert.equal(apiOriginFromBaseUrl('  https://api.example.com/api/v1  '), 'https://api.example.com');
+    assert.equal(apiOriginFromBaseUrl(''), null);
+    assert.equal(apiOriginFromBaseUrl('   '), null);
+    assert.equal(apiOriginFromBaseUrl(null), null);
+    assert.equal(apiOriginFromBaseUrl(undefined), null);
+    assert.equal(apiOriginFromBaseUrl('api.example.com'), null, 'a bare host is not an origin');
+    assert.equal(apiOriginFromBaseUrl('file:///tmp/api'), null, 'only http(s) origins serve the sprite');
+  });
+
+  it('resolves the shipped sprite path against that origin', () => {
+    assert.equal(
+      resolveMapSpriteUrl('/map-sprites/kidbus', 'https://api.example.com/api/v1'),
+      'https://api.example.com/map-sprites/kidbus',
+    );
+    // A dev LAN API is http, and the sprite follows it: same origin, same trust
+    // level, same server that is already answering every other request.
+    assert.equal(
+      resolveMapSpriteUrl('/map-sprites/kidbus', 'http://192.168.1.20:3001'),
+      'http://192.168.1.20:3001/map-sprites/kidbus',
+    );
+    // A self-hoster who pins their own absolute sprite keeps it verbatim.
+    assert.equal(
+      resolveMapSpriteUrl('https://tiles.example.org/sprites/kidbus', 'https://api.example.com'),
+      'https://tiles.example.org/sprites/kidbus',
+    );
+    // Nothing else is rewritten.
+    assert.equal(resolveMapSpriteUrl('//cdn.example.com/sprite', 'https://api.example.com'), '//cdn.example.com/sprite');
+  });
+
+  it('reports an unresolvable sprite instead of guessing one', () => {
+    assert.equal(resolveMapSpriteUrl('/map-sprites/kidbus', null), '');
+    assert.equal(resolveMapSpriteUrl('/map-sprites/kidbus', 'not-a-url'), '');
+  });
+
+  it('hands the engine a fetched-and-inspected style with a fetchable sprite', () => {
+    const resolved = withNativeSprite(KIDBUS_DAY_STYLE, 'https://api.example.com/api/v1') as {
+      sprite: string;
+      sources: unknown;
+      layers: unknown;
+    };
+    assert.equal(resolved.sprite, 'https://api.example.com/map-sprites/kidbus');
+    // Only the sprite moved: sources and layers are the same objects.
+    assert.equal(resolved.sources, KIDBUS_DAY_STYLE.sources);
+    assert.equal(resolved.layers, KIDBUS_DAY_STYLE.layers);
+    // …and the bundled constant itself is untouched (web reads the same shape).
+    assert.equal(KIDBUS_DAY_STYLE.sprite, '/map-sprites/kidbus');
+  });
+
+  it('leaves a style alone when there is nothing to resolve, and drops it when it cannot be', () => {
+    const absolute = { version: 8, sprite: 'https://tiles.example.org/sprites/kidbus', layers: [] };
+    assert.equal(withNativeSprite(absolute, 'https://api.example.com'), absolute);
+
+    const noSprite = { version: 8, layers: [] };
+    assert.equal(withNativeSprite(noSprite, 'https://api.example.com'), noSprite);
+
+    // A URL input (an override before it is fetched) is not an object.
+    assert.equal(withNativeSprite('https://tiles.example.org/style.json', 'https://api.example.com'), 'https://tiles.example.org/style.json');
+  });
+
+  it('warns exactly once when the sprite cannot be resolved, and drops only that field', () => {
+    warnings = [];
+    const stripped = withNativeSprite(KIDBUS_NIGHT_STYLE, null) as Record<string, unknown>;
+    assert.equal('sprite' in stripped, false, 'a relative sprite would only 404 on the device');
+    assert.match(String(warnings[0]), /sprite/);
+    assert.match(String(warnings[0]), /EXPO_PUBLIC_API_URL/);
+    assert.equal(warnings.length, 1);
+    // Every other field survives — labels, stops, the route and the bus are
+    // unaffected by a missing POI sprite, and that is what the warning says.
+    assert.equal(stripped.glyphs, KIDBUS_NIGHT_STYLE.glyphs);
+    assert.equal(stripped.layers, KIDBUS_NIGHT_STYLE.layers);
+    withNativeSprite(KIDBUS_NIGHT_STYLE, null);
+    assert.equal(warnings.length, 1, 'one warning per process, not per render');
+    assert.equal(KIDBUS_NIGHT_STYLE.sprite, '/map-sprites/kidbus', 'the bundled object is never mutated');
+  });
+});
+
+/**
+ * The positive half of the provider rule on native: the sprite the styles name
+ * is *ours* (same-origin on web, the API origin on the phone) — it is not a
+ * third-party sprite CDN, and resolving it never introduces a new host.
+ */
+describe('the sprite stays on our own origins', () => {
+  it('the bundled styles name a root-relative sprite and a keyless tile host', () => {
+    for (const [name, style] of Object.entries(BUNDLED_MAP_STYLES)) {
+      assert.equal(style.sprite, '/map-sprites/kidbus', `${name}: the sprite is ours to serve`);
+      for (const source of Object.values(style.sources)) {
+        assert.match(String(source.url), /^https:\/\/tiles\.openfreemap\.org\//);
+        assert.doesNotMatch(String(source.url), /key=|api_key=/);
+      }
+      assert.match(style.glyphs, /^https:\/\/tiles\.openfreemap\.org\/fonts\//);
+    }
+  });
+
+  it('resolving the sprite adds no host beyond the API origin', () => {
+    const resolved = withNativeSprite(KIDBUS_DAY_STYLE, 'https://api.example.com/api/v1') as {
+      sprite: string;
+    };
+    const url = new URL(resolved.sprite);
+    assert.equal(url.protocol, 'https:');
+    assert.equal(url.origin, 'https://api.example.com');
+    assert.equal(url.pathname, '/map-sprites/kidbus');
   });
 });
