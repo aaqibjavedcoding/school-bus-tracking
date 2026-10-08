@@ -154,7 +154,10 @@ import {
   RouteCreateRequest,
   RouteDeleteResponse,
   RouteDetailResponse,
+  RouteGeometryRecomputeResponse,
   RouteGeometryResponse,
+  RouteGeometryStoreRequest,
+  RouteGeometryStoreResponse,
   RouteListQuery,
   RouteListResponse,
   RouteMinimalListResponse,
@@ -2028,6 +2031,40 @@ export class ApiClient {
    */
   public async getRouteGeometry(id: string): Promise<ApiResponse<RouteGeometryResponse>> {
     return this.get<RouteGeometryResponse>(`/routes/${encodeURIComponent(id)}/geometry`);
+  }
+
+  /**
+   * Stores an engine-computed road geometry into the forever-cache
+   * (`PUT /routes/:id/geometry`, SCHOOL_ADMIN only).
+   *
+   * This is the write half of the cache used by the geometry backfill
+   * (`.github/workflows/osrm-backfill.yml`): the routing engine has no
+   * write API, so the caller computes the road shape offline and stores
+   * the result here. The server keys the row by the route's CURRENT stop
+   * list, so the next {@link getRouteGeometry} is a cache hit.
+   */
+  public async storeRouteGeometry(
+    id: string,
+    body: RouteGeometryStoreRequest,
+  ): Promise<ApiResponse<RouteGeometryStoreResponse>> {
+    return this.put<RouteGeometryStoreResponse>(`/routes/${encodeURIComponent(id)}/geometry`, body);
+  }
+
+  /**
+   * Drops every cached geometry row of the route and computes a fresh one
+   * immediately when a routing engine is configured
+   * (`POST /routes/:id/geometry/recompute`, SCHOOL_ADMIN only).
+   *
+   * The response carries the honest post-drop read: `geometry.status` is
+   * `'ok'` after a fresh compute, `'unavailable'` when routing is disabled
+   * on the deployment.
+   */
+  public async recomputeRouteGeometry(
+    id: string,
+  ): Promise<ApiResponse<RouteGeometryRecomputeResponse>> {
+    return this.post<RouteGeometryRecomputeResponse>(
+      `/routes/${encodeURIComponent(id)}/geometry/recompute`,
+    );
   }
 
   public async updateRoute(

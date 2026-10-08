@@ -1,16 +1,22 @@
 import { UniqueConstraintError } from 'sequelize';
-import { NotFoundException } from '../../framework';
+import { BadRequestException, NotFoundException } from '../../framework';
 import type {
   RouteGeometryAvailableResponse,
   RouteGeometryLeg,
   RouteGeometryLineString,
+  RouteGeometryRecomputeResponse,
   RouteGeometryResponse,
 } from '@school-bus-tracking/shared-types';
 import { Route, RouteGeometry, Stop } from '../../database/models';
-import { ROUTE_NOT_FOUND_MESSAGE } from '../routes/routes.constants';
+import {
+  ROUTE_GEOMETRY_RECOMPUTE_MESSAGE,
+  ROUTE_GEOMETRY_TOO_FEW_STOPS_MESSAGE,
+  ROUTE_NOT_FOUND_MESSAGE,
+} from '../routes/routes.constants';
 import { hashRouteStops } from './stops-hash';
 import type { RoadRoute } from './osrm-response';
 import type { RouteCoordinate } from './osrm.provider';
+import type { StoreRouteGeometryDto } from './dto/store-route-geometry.dto';
 
 /**
  * Engine seam of the geometry cache. `OsrmRoutingProvider` implements it;
@@ -72,6 +78,19 @@ export class RouteGeometryService {
   ) {}
 
   /**
+   * True when a routing engine is configured (`ROUTING_SERVICE_URL` set).
+   *
+   * The eager compute after a stop mutation consults this before firing:
+   * on a disabled deployment there is no engine to ask, so the mutation
+   * must not even pay for the stop query. Storing a geometry (PUT) does
+   * NOT depend on this — the backfill writes rows to deployments whose
+   * engine is switched off, which is exactly how the cache is filled.
+   */
+  get enabled(): boolean {
+    return this.provider !== null;
+  }
+
+  /**
    * `GET /api/v1/routes/:id/geometry` — the cached road route, or
    * `{ status: 'unavailable' }` when routing is disabled, fewer than two
    * stops are located, or the engine could not compute a route.
@@ -81,12 +100,7 @@ export class RouteGeometryService {
    *         from typos.
    */
   async getGeometry(schoolId: string, routeId: string): Promise<RouteGeometryResponse> {
-    const route = await this.routes.findOne({
-      where: { id: routeId, school_id: schoolId },
-    });
-    if (route === null) {
-      throw new NotFoundException(ROUTE_NOT_FOUND_MESSAGE);
-    }
+    await this.assertRouteInSchool(schoolId, routeId);
 
     // Disabled deployments never touch the network — and skip the stop
     // query too, so the unavailable answer is also the cheapest one.
@@ -94,14 +108,7 @@ export class RouteGeometryService {
       return { status: 'unavailable' };
     }
 
-    const stops = await this.stops.findAll({
-      where: { route_id: routeId, school_id: schoolId },
-      order: [['sequence_number', 'ASC']],
-    });
-    const located = stops.filter(
-      (stop): stop is Stop & { latitude: number; longitude: number } =>
-        stop.latitude !== null && stop.longitude !== null,
-    );
+    const located = await this.locatedStopsForRoute(schoolId, routeId);
     if (located.length < 2) {
       // Fewer than two surveyed points draw a dot, not a route.
       return { status: 'unavailable' };
@@ -123,6 +130,149 @@ export class RouteGeometryService {
     }
 
     return this.computeOnce(routeId, stopsHash, located);
+  }
+
+  /**
+   * `PUT /api/v1/routes/:id/geometry` — the write half of the forever-cache.
+   *
+   * The routing engine has no write API, so the caller (the geometry
+   * backfill on a free GitHub runner, or operator tooling) computes the
+   * road shape offline and stores the result here. Two properties make
+   * this safe to expose to SCHOOL_ADMIN:
+   *
+   *  - **The cache key is computed server-side**, with the SAME
+   *    {@link hashRouteStops} the read path uses, from the route's CURRENT
+   *    located stops. A caller cannot pin a geometry to a stop list the
+   *    route no longer has, and the next `GET` is a cache hit by
+   *    construction — the write path and the read path can never disagree
+   *    about the key.
+   *  - **The body is structurally strict** (see `StoreRouteGeometryDto`):
+   *    a usable LineString, finite non-negative totals, valid legs. What
+   *    is NOT re-verified is that the polyline actually passes the stops
+   *    — the payload is engine output, and re-routing it here would need
+   *    the engine this endpoint exists to avoid.
+   *
+   * Storing works on deployments with routing DISABLED (`provider ===
+   * null`): the backfill fills the cache of a production whose engine is
+   * switched off — that is the whole point of "cache forever, engine need
+   * not run 24/7".
+   *
+   * @throws NotFoundException — same generic 404 as the read path;
+   *         cross-tenant probes are indistinguishable from typos.
+   * @throws BadRequestException — fewer than two located stops: there is
+   *         no stop list to key the row on (the read path would never
+   *         serve it).
+   */
+  async storeGeometry(
+    schoolId: string,
+    routeId: string,
+    dto: StoreRouteGeometryDto,
+  ): Promise<RouteGeometryAvailableResponse> {
+    await this.assertRouteInSchool(schoolId, routeId);
+
+    const located = await this.locatedStopsForRoute(schoolId, routeId);
+    if (located.length < 2) {
+      throw new BadRequestException(ROUTE_GEOMETRY_TOO_FEW_STOPS_MESSAGE);
+    }
+    const stopsHash = hashRouteStops(
+      located.map((stop) => ({
+        stopId: stop.id,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+      })),
+    );
+
+    const row: StoredGeometryRow = {
+      stops_hash: stopsHash,
+      geometry: dto.geometry,
+      distance_meters: dto.distance_meters,
+      duration_seconds: dto.duration_seconds,
+      legs: dto.legs,
+      provider: dto.provider,
+      computed_at: dto.computed_at ? new Date(dto.computed_at) : new Date(),
+    };
+
+    // Upsert keyed by (route_id, stops_hash): update the live row when it
+    // exists, insert otherwise. Rows are soft-deleted by recompute, and the
+    // unique index is partial (live rows only), so an update always finds
+    // its row and a re-insert after a recompute never collides.
+    const existing = await this.geometries.findOne({
+      where: { route_id: routeId, stops_hash: stopsHash },
+    });
+    if (existing !== null) {
+      await existing.update(row);
+      return toAvailableResponse(routeId, row);
+    }
+
+    try {
+      await this.geometries.create({ route_id: routeId, ...row });
+    } catch (error) {
+      // Same cross-process backstop as the compute path: another worker
+      // stored the same stop list first — serve its row.
+      if (error instanceof UniqueConstraintError) {
+        const winner = await this.geometries.findOne({
+          where: { route_id: routeId, stops_hash: stopsHash },
+        });
+        if (winner !== null) {
+          return toAvailableResponse(routeId, winner);
+        }
+      }
+      throw error;
+    }
+
+    return toAvailableResponse(routeId, row);
+  }
+
+  /**
+   * `POST /api/v1/routes/:id/geometry/recompute` — drop every cached row
+   * of the route, then compute immediately when an engine is configured.
+   *
+   * The drop is a soft delete (paranoid model): the unique index only
+   * covers live rows, so dropped rows can never block the recomputation.
+   * With routing disabled the rows are still dropped (an operator may want
+   * to clear stale shapes) and the answer is the honest
+   * `{ status: 'unavailable' }` — which is also what the next GET returns.
+   *
+   * @throws NotFoundException — same generic 404 as the read path.
+   */
+  async recomputeGeometry(
+    schoolId: string,
+    routeId: string,
+  ): Promise<RouteGeometryRecomputeResponse> {
+    await this.assertRouteInSchool(schoolId, routeId);
+
+    await this.geometries.destroy({ where: { route_id: routeId } });
+
+    // Compute-on-miss right away when an engine is configured; when
+    // routing is disabled this is the cheap `{ status: 'unavailable' }`.
+    const geometry = await this.getGeometry(schoolId, routeId);
+    return { id: routeId, message: ROUTE_GEOMETRY_RECOMPUTE_MESSAGE, geometry };
+  }
+
+  /** The tenant-pinned route lookup every geometry operation starts from. */
+  private async assertRouteInSchool(schoolId: string, routeId: string): Promise<Route> {
+    const route = await this.routes.findOne({
+      where: { id: routeId, school_id: schoolId },
+    });
+    if (route === null) {
+      throw new NotFoundException(ROUTE_NOT_FOUND_MESSAGE);
+    }
+    return route;
+  }
+
+  /** The route's located stops, in manifest order — the hash input. */
+  private async locatedStopsForRoute(
+    schoolId: string,
+    routeId: string,
+  ): Promise<Array<Stop & { latitude: number; longitude: number }>> {
+    const stops = await this.stops.findAll({
+      where: { route_id: routeId, school_id: schoolId },
+      order: [['sequence_number', 'ASC']],
+    });
+    return stops.filter(
+      (stop): stop is Stop & { latitude: number; longitude: number } =>
+        stop.latitude !== null && stop.longitude !== null,
+    );
   }
 
   /**

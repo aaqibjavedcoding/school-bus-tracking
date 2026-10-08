@@ -97,6 +97,59 @@ anywhere under `src/`. The scanner allows a casual "no Leaflet" comment in
 pure modules and allows `maps.google.com` deep links (navigate) while banning
 `maps.googleapis.com` / `google.maps`.
 
+## Road routing
+
+The dashed stop-to-stop line is the **fallback**, not the product. Behind
+`GET /api/v1/routes/:id/geometry` sits a self-hosted routing engine that
+computes the road-following polyline (plus turn-by-turn legs) for a route's
+ordered stops, and both maps draw it when it exists (`status: 'ok'`). The
+whole path is **free and keyless**, exactly like the map tiles:
+
+- **Engine** — [OSRM](https://github.com/Project-OSRM/osrm-backend), the
+  open-source routing engine (BSD-2), in its official Docker image
+  `ghcr.io/project-osrm/osrm-backend` (pinned version tag). No account, no
+  API key, no card, no metered tier — the same product rule as the map
+  provider policy, and `web/src/server/config/routing.config.ts` refuses to
+  boot on a `ROUTING_SERVICE_URL` that carries a `key=` credential.
+- **Map data** — Geofabrik's free OpenStreetMap extracts
+  (`download.geofabrik.de`), cut to the region the buses drive.
+- **Graph build** — free, on a laptop (`scripts/osrm-graph.sh`: download →
+  optional bbox cut with the free osmium-tool image → `osrm-extract` →
+  `osrm-partition` → `osrm-customize`) **or** on the free GitHub-hosted
+  runner (`.github/workflows/osrm-backfill.yml`, manual dispatch — this
+  repository is public, so `ubuntu-latest` is free). The workflow also
+  backfills every route's geometry through the API
+  (`PUT /api/v1/routes/:id/geometry`).
+- **Cache forever, engine need not run 24/7** — the computed geometry is
+  stored in `route_geometries`, keyed by `(route_id, stops_hash)` where the
+  hash covers the ordered stop ids and coordinates. Reads are served from
+  that cache with zero engine calls; the engine is only needed when a
+  route's stop list changes (a save/reorder schedules a fire-and-forget
+  recompute) or when the backfill runs. A deployment can therefore run the
+  engine for an hour a month and serve road geometry all month.
+- **Monthly extract refresh** — re-run the graph build and the backfill
+  monthly (Geofabrik refreshes daily): new roads and closures change the
+  routes drivers actually take. **The extract must cover every place the
+  buses drive** — outside it OSRM answers `NoRoute` and the app falls back
+  to the dashed line.
+- **Honest fallback** — with `ROUTING_SERVICE_URL` blank/unset (the default),
+  routing is disabled: the endpoint answers `{ status: 'unavailable' }` (HTTP
+  200, not an error), no engine is ever contacted, and both maps draw the
+  dashed stop-to-stop line with its "planned stop order, not the road
+  route" caption. The app boots and behaves exactly as it did before.
+- **Where it can run** — OSRM loads the graph into RAM (a city-sized graph
+  is a few hundred MB; `infrastructure/docker-compose.yml` caps the service
+  at 2 GB). A **512 MB Render free instance cannot host OSRM** — run the
+  engine on a small VM / home server / a paid Render instance and point
+  `ROUTING_SERVICE_URL` at it, or use the free GitHub runner for compute
+  and keep only the cache in the app (the backfill writes rows to a
+  deployment whose engine is off).
+
+Deployment and day-2 operations: `infrastructure/README.md` → "OSRM routing
+engine". Write path (backfill) contract: `PUT /api/v1/routes/:id/geometry`
+and `POST /api/v1/routes/:id/geometry/recompute` in
+`web/src/server/api/routes.ts`.
+
 ## Style failure, retry and the offline fallback (deep-fix R3)
 
 The style JSON is one small fetch, but it is the fetch a cold radio on mobile

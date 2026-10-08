@@ -27,6 +27,7 @@ import {
   User,
 } from '../../database/models';
 import type { RunsService } from '../runs/runs.service';
+import type { RouteGeometryService } from '../routing/route-geometry.service';
 import {
   ROUTE_CODE_TAKEN_MESSAGE,
   ROUTE_DELETED_MESSAGE,
@@ -81,6 +82,13 @@ export class RoutesService {
      * always supplies it, and without it a route is created bare.
      */
     private readonly runs?: RunsService,
+    /**
+     * Road-geometry cache, consulted after a stop reorder to warm the
+     * freshly-keyed row. Optional so existing call sites keep compiling;
+     * the container always supplies it, and without it no compute is
+     * scheduled (the next geometry read simply computes on miss).
+     */
+    private readonly routeGeometry?: RouteGeometryService,
   ) {}
 
   /**
@@ -431,12 +439,35 @@ export class RoutesService {
       }
     });
 
+    // The reorder changed the stop list, so the cached geometry (if any) is
+    // keyed to a stop order that no longer exists. Warm the new row now.
+    this.scheduleGeometryCompute(schoolId, routeId);
+
     const ordered = ids.map((id) => {
       const stop = stopsById.get(id);
       return stop ? this.toStopResponse(stop) : null;
     });
     return { items: ordered.filter((stop): stop is StopResponse => stop !== null) };
   }
+
+  /**
+   * Fire-and-forget geometry compute after a stop-list mutation.
+   *
+   * Two hard rules: the mutation response NEVER waits on the routing
+   * engine (the admin's save returns immediately), and an engine failure
+   * NEVER fails the mutation that triggered it (a compute error is
+   * swallowed — the next geometry read simply retries on miss). On a
+   * deployment with routing disabled (`ROUTING_SERVICE_URL` blank) nothing
+   * is even scheduled: there is no engine to ask.
+   */
+  private scheduleGeometryCompute(schoolId: string, routeId: string): void {
+    const geometry = this.routeGeometry;
+    if (!geometry || !geometry.enabled) {
+      return;
+    }
+    void geometry.getGeometry(schoolId, routeId).catch(() => undefined);
+  }
+
   private async findRouteOrThrow(schoolId: string, id: string): Promise<Route> {
     const route = await this.routes.findOne({
       where: { id, school_id: schoolId },

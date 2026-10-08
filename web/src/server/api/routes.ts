@@ -14,6 +14,7 @@ import { CreateRouteDto } from '../modules/routes/dto/create-route.dto';
 import { ListRoutesQueryDto } from '../modules/routes/dto/list-routes-query.dto';
 import { UpdateRouteDto } from '../modules/routes/dto/update-route.dto';
 import { ReorderRouteStopsDto } from '../modules/routes/dto/reorder-route-stops.dto';
+import { StoreRouteGeometryDto } from '../modules/routing/dto/store-route-geometry.dto';
 
 /** `POST /api/v1/routes` */
 export const postRoutes: EndpointDefinition<CreateRouteDto> = {
@@ -66,6 +67,47 @@ export const getRoutesByIdGeometry: EndpointDefinition = {
     const schoolId = user.school_id as string;
     const id = parseUuidParam(params['id'], { label: 'route' });
     return container().routeGeometry().getGeometry(schoolId, id);
+  },
+};
+
+/**
+ * `PUT /api/v1/routes/:id/geometry`
+ *
+ * Stores an engine-computed road geometry into the forever-cache, keyed by
+ * the route's CURRENT stop list (the same hash the read path computes, so
+ * the next GET is a cache hit). SCHOOL_ADMIN only — this is the write side
+ * of the cache used by the geometry backfill; the body is validated
+ * strictly (`StoreRouteGeometryDto`). Cross-tenant ids answer the same
+ * generic 404 as `GET /routes/:id`.
+ */
+export const putRoutesByIdGeometry: EndpointDefinition<StoreRouteGeometryDto> = {
+  roles: [UserRole.SCHOOL_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: StoreRouteGeometryDto,
+  handler: async ({ user, body, params }) => {
+    const schoolId = user.school_id as string;
+    const id = parseUuidParam(params['id'], { label: 'route' });
+    const dto = body;
+    return container().routeGeometry().storeGeometry(schoolId, id, dto);
+  },
+};
+
+/**
+ * `POST /api/v1/routes/:id/geometry/recompute`
+ *
+ * Drops every cached geometry row of the route and computes a fresh one
+ * immediately when a routing engine is configured. SCHOOL_ADMIN only.
+ * Returns `{ id, message, geometry }` — `geometry` is the honest post-drop
+ * read: `ok` after a fresh compute, `unavailable` when routing is disabled
+ * on this deployment.
+ */
+export const postRoutesByIdGeometryRecompute: EndpointDefinition = {
+  roles: [UserRole.SCHOOL_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ user, params }) => {
+    const schoolId = user.school_id as string;
+    const id = parseUuidParam(params['id'], { label: 'route' });
+    return container().routeGeometry().recomputeGeometry(schoolId, id);
   },
 };
 

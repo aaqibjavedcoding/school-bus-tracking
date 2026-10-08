@@ -23,6 +23,7 @@ import { ListStopsQueryDto } from './dto/list-stops-query.dto';
 import { UpdateStopDto } from './dto/update-stop.dto';
 import { PlanLimitsService } from '../../common/plan-limits';
 import { effectiveArrivalRadiusMeters, stopDefaultGeofenceRadiusMeters } from '../../config/eta.config';
+import type { RouteGeometryService } from '../routing/route-geometry.service';
 
 /**
  * Tenant-safe stop management.
@@ -43,6 +44,13 @@ export class StopsService {
     private readonly stops: typeof Stop,
     private readonly routes: typeof Route,
     private readonly planLimits: PlanLimitsService,
+    /**
+     * Road-geometry cache, consulted after a stop mutation to warm the
+     * freshly-keyed row. Optional so existing call sites keep compiling;
+     * the container always supplies it, and without it no compute is
+     * scheduled (the next geometry read simply computes on miss).
+     */
+    private readonly routeGeometry?: RouteGeometryService,
   ) {}
 
   /**
@@ -88,6 +96,9 @@ export class StopsService {
             },
             transaction ? { transaction } : {},
           );
+          // The stop joined the route: the route's stop list (and so its
+          // geometry cache key) just changed. Warm the new row.
+          this.scheduleGeometryCompute(schoolId, dto.route_id);
           return this.toStopResponse(stop);
         } catch (error) {
           if (error instanceof UniqueConstraintError) {
@@ -237,6 +248,10 @@ export class StopsService {
       });
     }
 
+    // Captured before the update: `stop.update()` mutates the instance, so
+    // afterwards `stop.route_id` is already the NEW route.
+    const previousRouteId = stop.route_id;
+
     try {
       await stop.update(updates);
     } catch (error) {
@@ -244,6 +259,14 @@ export class StopsService {
         throw new ConflictException(STOP_SEQUENCE_TAKEN_MESSAGE);
       }
       throw error;
+    }
+
+    // A moved/edited stop changes the route's stop list (and so its
+    // geometry cache key); a stop that changed route invalidates BOTH
+    // routes' cached shapes. Warm the affected rows.
+    this.scheduleGeometryCompute(schoolId, updates.route_id ?? previousRouteId);
+    if (updates.route_id !== undefined && updates.route_id !== previousRouteId) {
+      this.scheduleGeometryCompute(schoolId, previousRouteId);
     }
 
     return this.toStopResponse(stop);
@@ -258,8 +281,29 @@ export class StopsService {
   async remove(schoolId: string, id: string): Promise<StopDeleteResponse> {
     const stop = await this.findStopOrThrow(schoolId, id);
     await stop.destroy();
+    // The stop left the route: the route's stop list just changed.
+    this.scheduleGeometryCompute(schoolId, stop.route_id);
     return { id, message: STOP_DELETED_MESSAGE };
   }
+
+  /**
+   * Fire-and-forget geometry compute after a stop-list mutation.
+   *
+   * Two hard rules: the mutation response NEVER waits on the routing
+   * engine (the admin's save returns immediately), and an engine failure
+   * NEVER fails the mutation that triggered it (a compute error is
+   * swallowed — the next geometry read simply retries on miss). On a
+   * deployment with routing disabled (`ROUTING_SERVICE_URL` blank) nothing
+   * is even scheduled: there is no engine to ask.
+   */
+  private scheduleGeometryCompute(schoolId: string, routeId: string): void {
+    const geometry = this.routeGeometry;
+    if (!geometry || !geometry.enabled) {
+      return;
+    }
+    void geometry.getGeometry(schoolId, routeId).catch(() => undefined);
+  }
+
   private async findStopOrThrow(schoolId: string, id: string): Promise<Stop> {
     const stop = await this.stops.findOne({
       where: { id, school_id: schoolId },
