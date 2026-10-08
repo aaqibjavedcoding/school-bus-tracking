@@ -51,12 +51,14 @@ import { mapStyleForDimension, type MapDimension } from '@school-bus-tracking/ma
 import type { MapProps, StyleSpecification } from '@maplibre/maplibre-react-native';
 import {
   OFFLINE_FALLBACK_MAP_STYLE,
+  apiOriginFromBaseUrl,
   buildGlyphProbeUrl,
   glyphUrlTransforms,
   inspectMapStyle,
   resolveMapStyleInput,
   resolveMapStyleUrl,
   restyleForRetry,
+  withNativeSprite,
   type MapStyleInput,
   type MapStyleIssueCode,
   type StyleInspection,
@@ -76,6 +78,7 @@ import {
   setMapRetryHandler,
   subscribeMapIssues,
 } from './map-diagnostics.ts';
+import { API_BASE_URL } from '../../services/api.ts';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus.ts';
 
 /**
@@ -416,10 +419,13 @@ export function useMapStyle(
   // URLs cannot be decorated, so an override remains the existing URL until
   // the pipeline fetches and inspects it. The bundled day/night object is
   // already native-ready; 3D adds only a sky and a layer that references its
-  // already-present vector source.
+  // already-present vector source. The sprite is the one field the engine
+  // cannot resolve on its own (root-relative, no document origin on native),
+  // so it is resolved here, against the API origin, on the way out.
+  const assetOrigin = apiOriginFromBaseUrl(API_BASE_URL);
   const presentedMapStyle = useMemo(
-    () => mapStyleForDimension(mapStyle, dimension) as MapProps['mapStyle'],
-    [mapStyle, dimension],
+    () => mapStyleForDimension(withNativeSprite(mapStyle, assetOrigin), dimension) as MapProps['mapStyle'],
+    [mapStyle, dimension, assetOrigin],
   );
   const issues = useSyncExternalStore(subscribeMapIssues, getMapIssues);
   const network = useNetworkStatus();

@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { MAP_ATTRIBUTION } from '../src/features/map/map-style.ts';
 
 /**
  * Web map-provider policy guard — mirrors mobile/scripts/map-provider-policy.spec.ts.
@@ -258,5 +259,81 @@ describe('the tracking map shows a real map, not just shapes', () => {
     const icon = readFileSync(join(webRoot, 'src/features/map/bus-marker-icon.ts'), 'utf8');
     assert.match(icon, /class="bus-marker-anchor"/);
     assert.match(icon, /class="bus-marker-rotor"/);
+  });
+});
+
+describe('the shipped styles stay free, keyless and ours (positive assertions)', () => {
+  /**
+   * The rule is not "no banned token anywhere" — it is also "the thing that IS
+   * there is the free thing". A scan that only looks for bad words passes just
+   * as happily on an empty style file, on a sprite nobody serves, or on a style
+   * that quietly grew a second provider. These assertions are the other half:
+   * the shipped KidBus styles must read the one keyless OpenFreeMap source,
+   * carry their glyphs and sprite from hosts we already allow, and name a
+   * sprite this repository actually ships.
+   */
+  const styles = ['kidbus-day.json', 'kidbus-night.json'] as const;
+  const spriteDir = join(webRoot, 'public/map-sprites');
+
+  const readStyle = (name: string) =>
+    JSON.parse(readFileSync(join(webRoot, 'public/map-styles', name), 'utf8')) as {
+      sprite?: string;
+      glyphs?: string;
+      sources: Record<string, { url?: string; type?: string }>;
+      layers: Array<{ id: string; type: string }>;
+    };
+
+  it('reads exactly one vector source, on the allowed host, with no key', () => {
+    for (const name of styles) {
+      const style = readStyle(name);
+      const sources = Object.entries(style.sources);
+      assert.equal(sources.length, 1, `${name}: one source, so a second provider cannot hide here`);
+      const [, source] = sources[0];
+      assert.equal(source.type, 'vector', `${name}: the free OpenFreeMap planet source is vector`);
+      assert.ok(
+        source.url?.startsWith('https://tiles.openfreemap.org/'),
+        `${name}: source url must be the keyless OpenFreeMap host, got ${source.url}`,
+      );
+      assert.ok(!source.url?.includes('key='), `${name}: no credential on the tile URL`);
+      assert.match(String(style.glyphs), /^https:\/\/tiles\.openfreemap\.org\/fonts\//, `${name}: glyphs`);
+      assert.ok(!String(style.glyphs).includes('key='), `${name}: no credential on the font URL`);
+    }
+  });
+
+  it('names a sprite this repository serves itself, not a third-party image host', () => {
+    for (const name of styles) {
+      const style = readStyle(name);
+      assert.equal(style.sprite, '/map-sprites/kidbus', `${name}: same-origin sprite path`);
+      assert.doesNotMatch(String(style.sprite), /^[a-z]+:\/\//i, `${name}: never an absolute third-party URL`);
+    }
+    // …and the files behind that path exist, because the web app serves
+    // `public/` from this origin: no new CSP host, no new request origin.
+    for (const file of ['kidbus.json', 'kidbus.png', 'kidbus@2x.json', 'kidbus@2x.png']) {
+      assert.ok(existsSync(join(spriteDir, file)), `missing shipped sprite file: ${file}`);
+    }
+  });
+
+  it('needs no CSP change for the sprite: img-src already allows this origin', () => {
+    const mod = require(join(webRoot, 'security-headers.js')) as {
+      buildContentSecurityPolicy: (opts: unknown) => string;
+    };
+    const built = mod.buildContentSecurityPolicy({ isProduction: true });
+    const imgSrc = built.split(';').find((d) => d.trim().startsWith('img-src')) ?? '';
+    const connectSrc = built.split(';').find((d) => d.trim().startsWith('connect-src')) ?? '';
+    // Same-origin: `'self'` is what covers /map-sprites — and that is already
+    // the first thing in both directives.
+    assert.match(imgSrc, /'self'/);
+    assert.match(connectSrc, /'self'/);
+    for (const directive of [imgSrc, connectSrc]) {
+      assert.ok(!directive.includes('*'), `sprite/attribution must not need a wildcard: ${directive}`);
+      assert.doesNotMatch(directive, /tile\.openstreetmap\.org|maptiler|stadiamaps|geoapify/);
+    }
+  });
+
+  it('keeps the attribution the styles are rendered under', () => {
+    const style = readStyle('kidbus-day.json');
+    assert.ok(style.layers.length > 0, 'a style with no layers draws nothing at all');
+    assert.match(MAP_ATTRIBUTION, /OpenFreeMap/);
+    assert.match(MAP_ATTRIBUTION, /OpenStreetMap/);
   });
 });

@@ -3,6 +3,13 @@ import * as assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  BUNDLED_MAP_STYLES,
+  MAP_ATTRIBUTION,
+  apiOriginFromBaseUrl,
+  resolveMapSpriteUrl,
+  withNativeSprite,
+} from '../src/features/map/map-style.ts';
 
 /**
  * Map-provider policy guard — the product rule, enforced by the test suite.
@@ -139,5 +146,68 @@ describe('map provider policy (no key, no card, no billing — the product rule)
       /@maplibre\/maplibre-react-native/,
       'the MapLibre config plugin must stay wired in app.config.js',
     );
+  });
+});
+
+/**
+ * The positive half of the same rule. A scan for banned tokens passes on an
+ * empty style, on a sprite nobody serves and on a style that grew a second
+ * provider — so the things that must be TRUE are asserted too, not only the
+ * things that must be absent.
+ */
+describe('the free stack is actually wired (positive assertions)', () => {
+  it('the bundled styles read the one keyless OpenFreeMap source, glyphs included', () => {
+    for (const [name, style] of Object.entries(BUNDLED_MAP_STYLES)) {
+      const sources = Object.entries(style.sources);
+      assert.equal(sources.length, 1, `${name}: one source, so a second provider cannot hide here`);
+      const [, source] = sources[0];
+      assert.equal(source.type, 'vector', `${name}: the free OpenFreeMap planet source is vector`);
+      assert.ok(
+        source.url?.startsWith('https://tiles.openfreemap.org/'),
+        `${name}: source url must be the keyless OpenFreeMap host, got ${source.url}`,
+      );
+      assert.ok(!source.url?.includes('key='), `${name}: no credential on the tile URL`);
+      assert.match(style.glyphs, /^https:\/\/tiles\.openfreemap\.org\/fonts\//, `${name}: glyphs`);
+      assert.match(MAP_ATTRIBUTION, /OpenFreeMap/);
+      assert.match(MAP_ATTRIBUTION, /OpenStreetMap/);
+    }
+  });
+
+  it('the sprite is served by us — same-origin on web, the API origin on native', () => {
+    for (const [name, style] of Object.entries(BUNDLED_MAP_STYLES)) {
+      assert.equal(style.sprite, '/map-sprites/kidbus', `${name}: the sprite path is ours`);
+      assert.doesNotMatch(String(style.sprite), /^[a-z]+:\/\//i, `${name}: never a third-party sprite host`);
+    }
+    // Native cannot resolve a root-relative path, so the pipeline hands it the
+    // API origin — the same origin that already serves the app, and the same
+    // origin the web app serves the identical sprite files from.
+    const origin = apiOriginFromBaseUrl('https://api.example.com/api/v1');
+    assert.equal(origin, 'https://api.example.com');
+    const spriteUrl = resolveMapSpriteUrl(BUNDLED_MAP_STYLES.day.sprite, origin);
+    assert.equal(spriteUrl, 'https://api.example.com/map-sprites/kidbus');
+    assert.ok(!/key=|api_key=/.test(spriteUrl), 'no credential ever rides the sprite URL');
+    // Resolving never adds a host of its own, and never a wildcard.
+    const withSprite = withNativeSprite(BUNDLED_MAP_STYLES.day, origin) as { sprite: string };
+    assert.equal(new URL(withSprite.sprite).host, 'api.example.com');
+    for (const banned of ['maptiler', 'mapbox', 'stadiamaps', 'geoapify', 'googleapis']) {
+      assert.ok(!spriteUrl.includes(banned), `the sprite must never come from ${banned}`);
+    }
+  });
+
+  it('the sprite the phone asks for is the sprite this repository ships', () => {
+    // The web app serves `web/public/` from the API origin, so the absolute
+    // native URL lands on these exact files — pinned here because a rename of
+    // the sprite file would otherwise only show up as missing icons on a phone.
+    const spriteDir = join(mobileRoot, '..', 'web', 'public', 'map-sprites');
+    for (const file of ['kidbus.json', 'kidbus.png', 'kidbus@2x.json', 'kidbus@2x.png']) {
+      assert.ok(existsSync(join(spriteDir, file)), `missing shipped sprite file: ${file}`);
+    }
+    const index = JSON.parse(readFileSync(join(spriteDir, 'kidbus.json'), 'utf8')) as Record<string, unknown>;
+    const dayIconIds = JSON.stringify(BUNDLED_MAP_STYLES.day).match(/"poi-[a-z_]+"/g) ?? [];
+    assert.ok(dayIconIds.length > 0, 'the bundled style must name sprite ids (the POI layer)');
+    for (const quoted of new Set(dayIconIds)) {
+      const id = quoted.replace(/"/g, '');
+      assert.ok(id in index, `the style names "${id}", which the shipped sprite does not contain`);
+    }
   });
 });

@@ -76,6 +76,13 @@ OpenStreetMap data:
 
   The rule when choosing a style is unchanged: same free host, no key, no
   billing. A style that needs a token is not an option, label-rich or not.
+- **Sprite** — the POI icons are **ours**, not a third party's:
+  `scripts/generate-kidbus-sprite.mjs` renders `web/public/map-sprites/kidbus{.json,.png}`
+  (+ the `@2x` twins) from vendored Maki v8.0.0 paths (Maki is CC0 — see
+  `scripts/THIRD-PARTY-LICENSES.md`), and both styles name the same-origin path
+  `/map-sprites/kidbus`. It is served from our own origin on web, and from the
+  app's own API origin on native (Session 7 below), so the CSP's existing
+  `'self'` covers it — **no header was widened** for it.
 **The scale path changes ONE variable.** When traffic outgrows the public
 instance, self-host OpenFreeMap
 ([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
@@ -936,6 +943,12 @@ if a step cannot be reproduced, say so rather than ticking it.
       OpenStreetMap") and the logo are visible in the bottom corners.
 - [ ] The bus marker and the stop dots draw over the tiles; the map's own
       controls (top corners) cover nothing that is required to be visible.
+- [ ] **Cartography at z13–16** (Session 7): a colony/suburb/neighbourhood name
+      is visible, at least one road under the bus is named, and a school /
+      place-of-worship / hospital icon draws with a label beside it. On web,
+      the sprite request is `/map-sprites/kidbus.json` + `.png` on our own
+      origin (Network tab, no third-party sprite host); on a development build
+      it is the API origin's own copy.
 
 **Straight road**
 
@@ -1071,6 +1084,28 @@ New behavioural coverage added by this change:
   concepts stay separate, and the delivery windows are the shared constants.
 - `mobile/src/features/map/bus-marker-invariants.spec.ts` (17) — both native maps
   call the shared camera hook and neither rolls its own.
+
+Session 7 (cartography) adds, and all of it is green as of this pass:
+
+- `web/scripts/kidbus-cartography.spec.ts` (15) — the shipped style JSON **is**
+  the built style object; sprite-id integrity (every `icon-image` output of both
+  shipped styles resolves into the shipped atlas, every cell reachable, PNG
+  headers and index cells agree, the PNG bytes are exactly what the generator
+  renders); `transportation_name` line placement; the class-wise `place` ladder
+  and the live z13–16 band; the `poi` rank gate; the single-source rule.
+- `web/src/features/map/style-variant.spec.ts` (+3) — night recolours **every**
+  painted layer by rule, layouts are identical, every road keeps the day style's
+  own width expression, and the casing is its fill + a constant at every stop.
+- `mobile/src/features/map/map-style.spec.ts` (+6) — sprite resolution on native:
+  origin extraction (credentials stripped, non-https rejected), root-relative →
+  API origin, unresolvable → field dropped with one warning naming
+  `EXPO_PUBLIC_API_URL`, and the bundled constant never mutated.
+- both `map-provider-policy.spec.ts` files (+2 suites) — positive assertions
+  beside the banned-token scan: one keyless OpenFreeMap source, glyphs from the
+  allowed host, a same-origin sprite this repository actually ships, and no CSP
+  wildcard (the sprite needs none).
+- `node scripts/generate-kidbus-sprite.mjs --check` — "sprite up to date
+  (4 files, 12 icons)", exit 0.
 
 ## Native rebuild requirements
 
@@ -1220,3 +1255,177 @@ presentation against the new style's baseline. Pinned by
   camera system. Follow pans and the recentre now also honour
   `usePrefersReducedMotion` (same target, reached instantly), mirroring the
   existing zero-duration 2D/3D pitch ease. Pinned by `map-controls.spec.ts`.
+
+## Session 7 — Cartography: the labels and icons that were missing
+
+**Goal.** The same free OpenFreeMap tiles should read the way Google Maps reads
+at the zooms a parent actually uses (z13–16): the colony/suburb name, the road
+the bus is on, the school, the gurdwara, the hospital. No new provider, no key,
+no billing, no routing change, no UI redesign — the routing engine stays Phase 1
+(OSRM) work, and the dashed straight line keeps its "planned stop order — not
+the road route" caption everywhere.
+
+### Three defects, all structural
+
+Each one was invisible in review because every file involved was *valid*:
+
+1. **POIs never drew.** The style asked for `poi-school`, `poi-hospital`, … while
+   the shipped atlas contained `school`, `hospital`, … — and MapLibre **drops the
+   whole symbol** when its `icon-image` is missing, so there was no icon *and* no
+   label, web or native, at any zoom.
+2. **Road names never drew.** `transportation_name` had no `symbol-placement`, so
+   a name was laid out at one point on the line instead of along it, and lost the
+   collision race to every other label.
+3. **Area names below city level never drew.** One unfiltered `place` layer meant
+   the renderer placed symbols in layer order within that layer, city first, so
+   `suburb`/`quarter`/`neighbourhood` lost every collision — exactly the labels
+   the z13–16 band needs.
+
+### What the style does now
+
+`packages/map-assets` is the single source (`KIDBUS_DAY_STYLE`, 39 layers, was
+14); `web/public/map-styles/kidbus-{day,night}.json` are its build output, and a
+spec fails if the two ever disagree (see "Single source of truth"). The layer
+array *is* the collision priority — a symbol placed by an earlier layer wins
+against a later one — so the order below is a decision, not an accident:
+
+| band | layers | rule |
+| --- | --- | --- |
+| ground | `background, landcover, landuse, water, waterway, building(z13) ` | flat Google-like fills, buildings from street zoom |
+| rail | `rail(z10)` | dashed `#d6d6d6`, 2/2 |
+| roads | 18 layers: {tunnel, surface, bridge} × {major, secondary, minor} × {casing, fill} | tunnels first, bridges last, each class group a casing under a fill |
+| boundaries | `boundary(z1)` | dashed, subordinate |
+| names | `water_name(z11, line)`, `water_name-point(z14)`, `transportation_name(z12, line)`, `transportation_name-minor(z14, line)` | names ride the line they belong to |
+| places | `place-city(z2), place-town(z6), place-village(z9), place-suburb(z11), place-quarter(z12), place-hamlet(z13), place-neighbourhood(z13), place-state(z4)` | one layer per class, biggest first, each with its own size/halo ladder |
+| POIs | `poi(z14)` | rank-gated by zoom, `symbol-sort-key`-ordered, label optional |
+
+### Road hierarchy: why three width *groups*, not one `match`
+
+A MapLibre expression may contain **one** zoom-based `interpolate`, and a `match`
+whose branches each carry a zoom ramp is rejected outright:
+
+```
+Only one zoom-based "step" or "interpolate" subexpression may be used in an expression.
+```
+
+So the class width ladder is expressed the standard way — separate layers per
+group, matched by class *colour* inside a group (colour needs no zoom). Both
+styles are validated against `@maplibre/maplibre-gl-style-spec` in review; the
+day style's error count is zero.
+
+| group | classes | minzoom | fill width @z12 / z14 / z16 / z18 |
+| --- | --- | --- | --- |
+| major | motorway, trunk, primary (+ links) | 6 | 2.6 / 4.6 / 4.6 / 9.6 |
+| secondary | secondary, tertiary (+ links) | 11 | 0.6 / 2.6 / 2.6 / 7 |
+| minor | residential(`minor`), unclassified, living_street, service, track, path | 12 | 0 / 1.2 / 1.2 / 4.2 |
+
+Colours: motorway/trunk `#fdd663`, primary `#f8c14a`, secondary/tertiary
+`#fff2a8`, residential white — each with a darker casing (`#e8b95f` / `#daa93f`
+/ `#e2d495` / `#d5d7db`) derived as *fill + a constant* (+1.4 px arterials,
++1.2 px the rest), asserted stop-by-stop by `style-variant.spec.ts`. A tunnel's
+casing is lighter than the surface road's (`#dfe1e5`, it is in a hole), a
+bridge's darker (`#c8ccd1`, the deck is on top), and the fills keep the class
+colour in all three passes, so a street is recognisable on a flyover.
+
+### Labels
+
+- **Road names** — `symbol-placement: 'line'` with
+  `text-rotation-alignment: 'map'` (the name follows and rotates with the road),
+  `text-pitch-alignment: 'viewport'` (stays readable in the 3D camera),
+  `symbol-spacing` 400 (major) / 300 (minor) so a long road is named, not
+  stuttered, zoom-interpolated `text-size` (11.5→14 / 10.5→11.5), a halo, and
+  `minzoom` 12 / 14 so minor names wait for street zoom.
+- **Place names** — one layer per class (table above). `symbol-sort-key` orders
+  within a layer, layer order orders between classes; the suburb/quarter/hamlet/
+  neighbourhood ladder is live from z13, which is what makes the colony names —
+  the complaint this pass exists to fix — appear at z13–16. Night recolours every
+  one of them (a daylight halo on a black map is as invisible as no label).
+- **POIs** — `icon-image` is a class `match` over the atlas's real ids with a
+  neutral `poi-default` fallback (an unmapped class draws a marker rather than
+  nothing), `text-variable-anchor: ['top','bottom','left','right']` with
+  `text-radial-offset` so a label hops around its icon, `text-optional: true` so
+  an icon still draws when its label cannot, an OpenMapTiles `rank` gate that
+  relaxes with zoom, and `symbol-sort-key` 5/10/20 (school/worship/health →
+  police/park/transit → shops).
+
+### The sprite, and where the phone gets it from
+
+`scripts/generate-kidbus-sprite.mjs` is dependency-free (its own SVG path
+parser, 4×4 supersampling rasteriser and PNG encoder) and writes four files for
+12 icons: `poi-school, poi-hospital, poi-place_of_worship, poi-fuel, poi-police,
+poi-park, poi-restaurant, poi-pharmacy, poi-bank, poi-bus, poi-shop,
+poi-default` at 32 px cells, RGBA, plus the `@2x` twins. `node
+scripts/generate-kidbus-sprite.mjs --check` re-renders in memory and exits 1 on
+byte drift; `kidbus-cartography.spec.ts` makes the same comparison as a test.
+
+Native MapLibre has **no document origin**, so a root-relative
+`/map-sprites/kidbus` can never resolve on a phone — and the engine fetches
+`<sprite>.json` *and* `<sprite>.png` by appending extensions, so a Metro-bundled
+single image could not work either. The decision, pinned by
+`mobile/src/features/map/map-style.spec.ts`:
+
+> the pipeline resolves the style's sprite against the **API origin** — the one
+> origin the app already trusts, which serves the byte-identical sprite files to
+> web — and never against a third-party host. If it cannot resolve one, it drops
+> the field and says so once, naming `EXPO_PUBLIC_API_URL`, rather than handing
+> MapLibre a path it could only fail on.
+
+`apiOriginFromBaseUrl` keeps scheme+authority only (credentials stripped) and is
+deliberately a regex rather than `new URL`, because React Native's `URL.origin`
+is an unreliable partial polyfill; `withNativeSprite` returns the *same object*
+when there is nothing to resolve and never mutates the shared bundled constant.
+Web serves the same files same-origin (`'self'` in `img-src`/`connect-src`), so
+`web/security-headers.js` needed **no change** — asserted, not assumed.
+
+### Single source of truth, and the drift checks
+
+The style exists twice by necessity: as a typed object (`packages/map-assets`,
+what the mobile app imports) and as committed JSON (`web/public/map-styles`,
+what the web app fetches). Regenerate, never hand-edit: `npm run build:packages`
+runs `tsc` and the copy script that writes both JSON files. Four cheap checks
+keep the two honest, all in `web/scripts/kidbus-cartography.spec.ts` unless
+noted:
+
+- `kidbus-day.json` / `kidbus-night.json` are **deep-equal** to the built
+  objects (this is the drift check);
+- both variants ship the same layer ids and types in the same order, one
+  OpenFreeMap source, no third-party tile/sprite/glyph host, no `key=`;
+- **sprite-id integrity**: every `icon-image` output of every shipped style
+  resolves into the shipped atlas, every atlas cell is reachable, the PNG
+  headers match the index cells, and the shipped PNG bytes are exactly what the
+  generator renders (stale-atlas guard);
+- **transportation_name** really is line-placed with map rotation, spacing,
+  zoom sizes, a halo and a sane `minzoom`; **place** layers are class-filtered
+  with the expected minima, the z13–16 band is live, the layer order is the
+  hierarchy, and `poi` is rank-gated with sort keys and optional labels;
+- **night** (`web/src/features/map/style-variant.spec.ts`): every painted layer
+  is recoloured by the rule `nightPaintFor` (no layer silently keeps its day
+  paint), layouts are identical, every road keeps the day style's width
+  expression, and the night palette is pinned.
+
+### Previewing it locally
+
+```bash
+npm install
+npm run build:packages          # tsc + writes both style JSONs from the object
+npm --prefix web run dev        # http://localhost:3000
+```
+
+Open a trip/bus map and zoom to a school catchment (roughly z13–16). The style
+JSON is fetched from `/map-styles/kidbus-day.json` (`kidbus-night.json` under
+`prefers-color-scheme: dark`; `NEXT_PUBLIC_MAP_STYLE_URL` overrides both, and is
+honoured verbatim). To re-render the style after an edit: `npm run
+build:packages`, then reload — the dev server serves `web/public` directly. For
+the sprite: `node scripts/generate-kidbus-sprite.mjs` (or `--check` to see
+whether the committed files are stale).
+
+### Before / after at z13–16
+
+| what a parent looks for | before | after |
+| --- | --- | --- |
+| colony / mohalla / suburb name | never drawn (collision-lost in one unfiltered layer) | `place-suburb` from z11, `place-quarter` z12, `place-hamlet` / `place-neighbourhood` z13, own sizes |
+| the road the bus is on | no name (point-placed, collision-lost) | line-placed name on the road itself, majors z12, residential/service z14 |
+| school / gurdwara / mandir / hospital icon | nothing — every POI symbol dropped | `poi-school` / `poi-place_of_worship` / `poi-pharmacy` … from the shipped atlas, icons from z14, labels optional |
+| park, bus stop, bank, fuel | nothing | `poi-park` / `poi-bus` / `poi-bank` / `poi-fuel` |
+| a street and a highway look alike | one white fill, one width | yellow arterials, near-white secondary/tertiary, thinner residential/service, each with a casing |
+| night mode | the same gaps, in grey | the same labels/icons, recoloured (every painted layer proven to be recoloured) |

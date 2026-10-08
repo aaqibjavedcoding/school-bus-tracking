@@ -19,6 +19,26 @@
  * override, so nothing else in the app may hard-code a style endpoint. With no
  * override, native MapLibre receives one of the bundled style objects instead.
  *
+ * ### The sprite (and why its URL is resolved here)
+ *
+ * The bundled KidBus styles name the POI sprite the same way the web app serves
+ * it: `sprite: '/map-sprites/kidbus'` — root-relative, because that is what
+ * makes it same-origin and CSP-clean on web. **Native MapLibre cannot resolve a
+ * root-relative URL** (there is no document origin), and the sprite is not an
+ * asset Metro could bundle: MapLibre fetches `<sprite>.json` and `<sprite>.png`
+ * by appending the extensions to whatever string it is given, so a single
+ * bundled PNG would point at an index that is not beside it. Servability
+ * therefore means *serving* it: this module resolves the path against the API
+ * origin — the same origin the app already trusts for every other request, and
+ * the origin the web app serves the identical, byte-for-byte sprite from. No
+ * third image host, no key, no second copy of an asset already in this repo.
+ *
+ * `withNativeSprite` is that resolution: an absolute https sprite is left
+ * alone; a root-relative path becomes `<origin>/<path>`; with no usable origin
+ * the field is dropped and warned about once (the map still draws every label,
+ * it just has no POI icons) — never a fetch of a relative path that could only
+ * fail.
+ *
  * ### Why https-only
  *
  * A tile request over plain `http` would leak every GPS fix the map makes to
@@ -140,6 +160,100 @@ export function resolveMapStyleInput(
     return scheme === 'dark' ? BUNDLED_MAP_STYLES.night : BUNDLED_MAP_STYLES.day;
   }
   return resolved;
+}
+
+// ── The sprite on native ───────────────────────────────────────────────────
+//
+// See the module doc: the bundled styles use the same root-relative sprite path
+// the web app serves same-origin, and native has no origin to resolve it
+// against. These three pure functions are the whole fix; the pipeline in
+// `use-map-style.ts` calls `withNativeSprite` with the API origin.
+
+/** The style field that needs an origin on native. */
+export const SPRITE_STYLE_FIELD = 'sprite';
+
+/**
+ * The origin of an absolute API base URL, or null.
+ *
+ * Deliberately a regex rather than `new URL`: React Native's `URL` is a partial
+ * polyfill whose `origin` is not dependable across versions, and this runs on
+ * the phone, not in Node. Any userinfo (`https://user:pass@host`) is stripped —
+ * a credential never belongs in an image URL, and a spec pins that.
+ */
+export function apiOriginFromBaseUrl(apiBaseUrl: string | null | undefined): string | null {
+  if (typeof apiBaseUrl !== 'string') return null;
+  const match = /^(https?):\/\/([^/?#]+)/i.exec(apiBaseUrl.trim());
+  if (match === null) return null;
+  const authority = match[2].includes('@')
+    ? match[2].slice(match[2].lastIndexOf('@') + 1)
+    : match[2];
+  if (authority === '') return null;
+  return `${match[1].toLowerCase()}://${authority}`;
+}
+
+/**
+ * Resolves a style `sprite` value for the native engine.
+ *
+ * - `https://…` (already absolute) → verbatim: a self-hoster's own sprite.
+ * - `/path` → `<origin>/path` when an origin is known, else `''`.
+ * - anything else (protocol-relative, malformed) → verbatim, so nothing is
+ *   rewritten in a way the caller did not ask for.
+ *
+ * An empty return means "this style cannot name a sprite on native"; the caller
+ * drops the field rather than hand the engine a path it cannot fetch.
+ */
+export function resolveMapSpriteUrl(
+  sprite: string,
+  assetOrigin: string | null | undefined,
+): string {
+  if (sprite.startsWith('https://')) return sprite;
+  if (!sprite.startsWith('/') || sprite.startsWith('//')) return sprite;
+  const origin = apiOriginFromBaseUrl(assetOrigin);
+  if (origin === null) return '';
+  return `${origin}${sprite}`;
+}
+
+let warnedAboutUnresolvableSprite = false;
+
+/**
+ * Applies `resolveMapSpriteUrl` to a style for the native engine.
+ *
+ * Returns the input untouched when there is nothing to do (a URL input, a style
+ * with no sprite, an already-absolute sprite), a shallow copy carrying the
+ * resolved sprite otherwise, and a copy **without** the field when no origin is
+ * known — never a mutated bundled object: `KIDBUS_DAY_STYLE` is a shared module
+ * constant and the web build reads the same shape.
+ */
+export function withNativeSprite(
+  style: MapStyleInput,
+  assetOrigin: string | null | undefined,
+): MapStyleInput {
+  if (typeof style !== 'object' || style === null || Array.isArray(style)) return style;
+  const candidate = style as Record<string, unknown>;
+  const sprite = candidate[SPRITE_STYLE_FIELD];
+  if (typeof sprite !== 'string' || sprite === '') return style;
+  const resolved = resolveMapSpriteUrl(sprite, assetOrigin);
+  if (resolved === sprite) return style;
+  if (resolved === '') {
+    if (!warnedAboutUnresolvableSprite) {
+      warnedAboutUnresolvableSprite = true;
+      // No value echo: the sprite path is ours, the origin is the deployment's.
+      console.warn(
+        '[map-style] the map sprite could not be resolved against an API origin ' +
+          '(EXPO_PUBLIC_API_URL unset or unusable), so POI icons will not draw. ' +
+          'Labels, stops, the route and the bus are unaffected.',
+      );
+    }
+    const withoutSprite: Record<string, unknown> = { ...candidate };
+    delete withoutSprite[SPRITE_STYLE_FIELD];
+    return withoutSprite;
+  }
+  return { ...candidate, [SPRITE_STYLE_FIELD]: resolved };
+}
+
+/** Test seam: back to the "never warned" sprite state. */
+export function __resetSpriteWarningForTests(): void {
+  warnedAboutUnresolvableSprite = false;
 }
 
 /** Test seam: back to the "never warned" state. */

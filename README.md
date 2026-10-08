@@ -238,6 +238,14 @@ Documented in `docs/operating-model.md`; it deliberately replaces "1 route = 1 b
   (`src/features/map/map-surface-mode.ts`); a development build renders it everywhere.
   Web self-host path: set `NEXT_PUBLIC_MAP_STYLE_URL` / `EXPO_PUBLIC_MAP_STYLE_URL` to a
   self-hosted OpenFreeMap style URL (https-only, one variable, no code change).
+  The style is ours, not a stock one: 39 layers of roads (arterials in Google yellow,
+  each class a casing under a fill, dashed rail, tunnels first and bridges last),
+  line-placed road names, a class-wise place ladder (colony/suburb/quarter/
+  neighbourhood labels live from z13) and POIs on a first-party sprite
+  (`scripts/generate-kidbus-sprite.mjs`, Maki CC0 → `web/public/map-sprites/kidbus*`,
+  fetched same-origin on web and from the API origin on a phone). Night mode
+  recolours every painted layer and changes no geometry. See
+  `docs/live-tracking-map.md` → "Session 7".
 
 ### 3.8 ETA & geofence stop arrivals
 
