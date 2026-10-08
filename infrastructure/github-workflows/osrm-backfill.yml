@@ -1,0 +1,156 @@
+# ⚠️ TEMPLATE — this file belongs at `.github/workflows/osrm-backfill.yml`.
+# Arena's GitHub App lacks the `workflows` permission, so this copy is kept
+# where a push is allowed; install it with the 30-second recipe in
+# `infrastructure/github-workflows/README.md`, then delete this folder.
+# (Identical content; nothing else changes.)
+name: OSRM route-geometry backfill
+
+# Manual, free, keyless: builds the OSRM routing graph on a GitHub-hosted
+# runner (this repository is public, so runner minutes are free), starts the
+# engine, and fills the route-geometry forever-cache through our own API for
+# every route that is still missing road geometry (or just the ids you list).
+#
+# 100% free and keyless — BSD-2 OSRM image (ghcr.io/project-osrm/osrm-backend),
+# Geofabrik's free OpenStreetMap extract (ODbL), and the free osmium-tool
+# image for the bounding-box cut. No API key, no account, no card, no metered
+# tier — the same product rule the map provider policy enforces.
+#
+# The heavy work happens here, on the free runner, and then disappears: the
+# server caches each route's geometry forever (keyed by the hash of its
+# ordered stop coordinates), so the engine does not need to run 24/7.
+#
+# Before the first run
+#   * Settings → Secrets and variables → Actions → New repository secret:
+#       OSRM_ADMIN_TOKEN = a SCHOOL_ADMIN access token of the target school
+#     (the `admin_token` input below exists only for one-off runs; prefer the
+#     secret — inputs are visible in the run log).
+#   * Optionally narrow `extract_url` / `bbox` to the region your buses drive.
+#     ⚠️ THE EXTRACT MUST COVER EVERY PLACE THE BUSES DRIVE: outside it OSRM
+#     answers NoRoute and the app falls back to the honest dashed line.
+#
+# Docs: infrastructure/README.md, docs/live-tracking-map.md → "Road routing".
+
+on:
+  workflow_dispatch:
+    inputs:
+      extract_url:
+        description: OSM PBF extract to download (default — Geofabrik India western zone)
+        required: false
+        default: https://download.geofabrik.de/asia/india/western-zone-latest.osm.pbf
+      bbox:
+        description: 'Bounding box cut "minLon,minLat,maxLon,maxLat" — blank builds the whole extract'
+        required: false
+        default: '78.60,20.70,79.60,21.60'
+      api_base:
+        description: 'API base URL including /api/v1 (e.g. https://kidbus.onrender.com/api/v1)'
+        required: true
+      route_ids:
+        description: 'Optional comma-separated route ids — blank = every route missing geometry'
+        required: false
+        default: ''
+      admin_token:
+        description: 'SCHOOL_ADMIN access token (prefer the OSRM_ADMIN_TOKEN secret; this input is for one-off runs)'
+        required: false
+        default: ''
+      build_graph_only:
+        description: 'Build the graph and stop — no API base or token needed'
+        required: false
+        type: boolean
+        default: false
+      upload_graph:
+        description: 'Also upload the graph artefacts as a workflow artifact (skipped above 2 GB)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osrm-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: Build the graph and backfill route geometry
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OSRM_IMAGE: ghcr.io/project-osrm/osrm-backend:v26.10.0-debian
+      REGION: region
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        # Graph artefacts run from hundreds of MB to a few GB; the stock runner
+        # ships ~30 GB of preinstalled toolchains it does not need here.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
+
+      - name: Build the OSRM graph (download → bbox cut → extract/partition/customize)
+        env:
+          EXTRACT_URL: ${{ inputs.extract_url }}
+          BBOX: ${{ inputs.bbox }}
+        run: bash scripts/osrm-graph.sh
+
+      - name: Start the engine
+        run: |
+          docker run -d --name osrm -p 5000:5000 \
+            -v "$PWD/infrastructure/osrm-data:/data:ro" \
+            "$OSRM_IMAGE" osrm-routed --algorithm mld --threads 2 "/data/${REGION}.osrm"
+
+      - name: Wait for the engine to answer
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://localhost:5000/route/v1/driving/79.0882,21.1458;79.0500,21.1700?overview=false" >/dev/null; then
+              echo "engine is answering"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the engine did not answer within 120 s"
+          docker logs osrm | tail -50
+          exit 1
+
+      - name: Backfill route geometry through the API
+        if: ${{ !inputs.build_graph_only }}
+        env:
+          API_BASE: ${{ inputs.api_base }}
+          ADMIN_TOKEN: ${{ secrets.OSRM_ADMIN_TOKEN || inputs.admin_token }}
+          OSRM_BASE: http://localhost:5000
+          ROUTE_IDS: ${{ inputs.route_ids }}
+        run: |
+          if [ -z "${ADMIN_TOKEN}" ]; then
+            echo "::error::set the OSRM_ADMIN_TOKEN repository secret (a SCHOOL_ADMIN access token), or pass the admin_token input."
+            exit 1
+          fi
+          node scripts/osrm-backfill.mjs
+
+      - name: Check the graph size before an optional upload
+        id: graph
+        if: ${{ inputs.upload_graph }}
+        run: |
+          size_kb=$(du -sk infrastructure/osrm-data | cut -f1)
+          echo "graph is $((size_kb / 1024)) MB"
+          echo "size_mb=$((size_kb / 1024))" >> "$GITHUB_OUTPUT"
+          if [ "$size_kb" -le 2097152 ]; then
+            echo "upload=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::the graph is over 2 GB ($((size_kb / 1024)) MB) — upload skipped; rebuild it locally with scripts/osrm-graph.sh"
+          fi
+
+      - name: Upload the graph artefacts (optional, ≤ 2 GB)
+        if: ${{ inputs.upload_graph && steps.graph.outputs.upload == '1' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: osrm-graph-${{ env.REGION }}
+          path: infrastructure/osrm-data/*.osrm*
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Stop the engine
+        if: always()
+        run: docker rm -f osrm || true
