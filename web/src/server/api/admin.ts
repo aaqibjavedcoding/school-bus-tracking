@@ -26,6 +26,8 @@ import {
 } from '@school-bus-tracking/shared-types';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../modules/audit/audit.constants';
 import { auditRequestContext } from '../modules/audit/audit-request';
+import { StoreRouteGeometryDto } from '../modules/routing/dto/store-route-geometry.dto';
+import { ListMissingRouteGeometryQueryDto } from '../modules/routing/dto/list-missing-route-geometry-query.dto';
 import {
   CancelSchoolSubscriptionDto,
   CreateAdminPlanDto,
@@ -514,3 +516,97 @@ export const postAdminSchoolsBySchoolIdSubscriptionCancel: EndpointDefinition<Ca
       return subscription;
     },
   };
+
+/*
+ * Platform road-geometry backfill (SUPER_ADMIN, every school).
+ *
+ * These are NOT school endpoints and do not weaken the tenant pin: the
+ * school routes (`/routes/:id/geometry`) still resolve the route inside the
+ * JWT's school and answer a SUPER_ADMIN (school_id null) with 403. The
+ * platform surface resolves the route globally, and then stores under the
+ * route's OWN school, so one credential can fill the cache for 100+ schools
+ * in one run. The stops hash is always computed server-side from the
+ * route's current located stops — a body cannot pin a stale key.
+ */
+
+/**
+ * `GET /api/v1/admin/routes/geometry/missing`
+ *
+ * Paginated routes of every school whose geometry is missing for their
+ * CURRENT stop list, each with the stops the backfill feeds the engine, plus
+ * per-school counts and platform totals.
+ */
+export const getAdminRoutesGeometryMissing: EndpointDefinition<
+  unknown,
+  ListMissingRouteGeometryQueryDto
+> = {
+  roles: [UserRole.SUPER_ADMIN],
+  rateLimit: 'read_heavy',
+  status: HttpStatus.OK,
+  queryType: ListMissingRouteGeometryQueryDto,
+  handler: async ({ query }) => {
+    return container().missingRouteGeometry().listMissing(query);
+  },
+};
+
+/**
+ * `PUT /api/v1/admin/routes/:routeId/geometry`
+ *
+ * Stores an engine-computed road geometry for ANY school's route, keyed by
+ * that route's current located stops. Works with routing disabled on the
+ * deployment (the backfill fills a production whose engine is off). Unknown
+ * route ids answer the generic 404.
+ */
+export const putAdminRoutesByRouteIdGeometry: EndpointDefinition<StoreRouteGeometryDto> = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  bodyType: StoreRouteGeometryDto,
+  handler: async ({ user, body, params, request }) => {
+    const routeId = parseUuidParam(params['routeId'], { label: 'route' });
+    const { schoolId, result } = await container()
+      .routeGeometry()
+      .storeGeometryForRoute(routeId, body);
+    await container()
+      .audit()
+      .log({
+        school_id: schoolId,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.ROUTE_GEOMETRY_STORE,
+        entity_type: AUDIT_ENTITY_TYPES.ROUTE,
+        entity_id: routeId,
+        ...auditRequestContext({ request }),
+        metadata: { stops_hash: result.stops_hash, provider: result.provider, platform: true },
+      });
+    return result;
+  },
+};
+
+/**
+ * `POST /api/v1/admin/routes/:routeId/geometry/recompute`
+ *
+ * Drops every cached geometry row of ANY school's route and recomputes when
+ * an engine is configured. The optional twin of the PUT, used by the
+ * backfill to clear a row it finds stale.
+ */
+export const postAdminRoutesByRouteIdGeometryRecompute: EndpointDefinition = {
+  roles: [UserRole.SUPER_ADMIN],
+  status: HttpStatus.OK,
+  handler: async ({ user, params, request }) => {
+    const routeId = parseUuidParam(params['routeId'], { label: 'route' });
+    const { schoolId, result } = await container()
+      .routeGeometry()
+      .recomputeGeometryForRoute(routeId);
+    await container()
+      .audit()
+      .log({
+        school_id: schoolId,
+        actor_user_id: user.id,
+        action: AUDIT_ACTIONS.ROUTE_GEOMETRY_RECOMPUTE,
+        entity_type: AUDIT_ENTITY_TYPES.ROUTE,
+        entity_id: routeId,
+        ...auditRequestContext({ request }),
+        metadata: { platform: true, geometry_status: result.geometry.status },
+      });
+    return result;
+  },
+};

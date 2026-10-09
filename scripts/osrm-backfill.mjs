@@ -4,6 +4,10 @@
  * OSRM engine, through the public API. 100% free and keyless: the engine is
  * the self-hosted BSD-2 OSRM container, the API is ours.
  *
+ * Two modes, chosen by ADMIN_MODE:
+ *
+ * ## ADMIN_MODE=school (default) — one school, one SCHOOL_ADMIN token
+ *
  * For every route of the token's school that has no cached geometry yet
  * (or every route id passed explicitly):
  *
@@ -12,29 +16,60 @@
  *   3. PUT  /routes/:id/geometry                                (engine result)
  *   4. GET  /routes/:id/geometry                                (verify cache hit)
  *
+ * ## ADMIN_MODE=platform — every school, one SUPER_ADMIN token
+ *
+ * For every route of EVERY school whose geometry is missing for its current
+ * stop list (the platform list already carries those stops, so no school
+ * read is needed — and the SUPER_ADMIN has none):
+ *
+ *   1. GET  /admin/routes/geometry/missing?page&limit          (all pages, snapshot)
+ *   2. GET  {OSRM}/route/v1/driving/…  per route               (on this runner)
+ *   3. PUT  /admin/routes/:id/geometry                         (server pins the key)
+ *   4. GET  /admin/routes/geometry/missing                     (re-check: what is left)
+ *
+ * and prints filled / no road route / failed per school, to stdout and to the
+ * GitHub step summary. Routes the engine cannot route (NoRoute / NoSegment —
+ * outside the extract, or a stop far from any road) are reported, not failed:
+ * the map keeps the dashed line for them. New routes added later are picked
+ * up by the next run; routes already cached are never touched.
+ *
  * The PUT body is the engine's own vocabulary mapped onto the API's
  * (`RouteGeometryStoreRequest`): the server keys the row by the route's
- * CURRENT stop list, so the verification GET is a cache hit by construction.
+ * CURRENT stop list, so the next read is a cache hit by construction. In
+ * platform mode a route whose stops changed between the list and the write
+ * is detected (the stored key differs from the listed one) and its row is
+ * dropped via the recompute endpoint, so a wrong polyline is never left
+ * cached under a key it was not computed for.
  *
  * Usage:
  *
  *   OSRM_BASE=http://localhost:5000 \
  *   API_BASE=https://kidbus.onrender.com/api/v1 \
- *   ADMIN_TOKEN=<SCHOOL_ADMIN access token> \
- *   node scripts/osrm-backfill.mjs [routeId …]
+ *   ADMIN_MODE=platform \
+ *   ADMIN_TOKEN=<SUPER_ADMIN access token> \
+ *   node scripts/osrm-backfill.mjs
+ *
+ *   (school mode, the default: ADMIN_TOKEN is a SCHOOL_ADMIN token, and
+ *   `node scripts/osrm-backfill.mjs [routeId …]` takes optional route ids)
  *
  * Environment:
+ *   ADMIN_MODE   `school` (default) or `platform`. Anything else exits 1.
  *   API_BASE     API base URL, e.g. https://host/api/v1. Required.
- *   ADMIN_TOKEN  SCHOOL_ADMIN access token (bearer; CSRF-exempt). Required.
+ *   ADMIN_TOKEN  Bearer access token (CSRF-exempt): a SCHOOL_ADMIN token in
+ *                school mode, a SUPER_ADMIN token in platform mode. Required.
  *   OSRM_BASE    Routing engine base URL. Default http://localhost:5000.
- *   ROUTE_IDS    Comma-separated route ids — alternative to argv. When set
- *                (or argv ids are given) exactly those routes are (re)filled;
- *                otherwise every route of the school missing geometry.
+ *   ROUTE_IDS    School mode only: comma-separated route ids — alternative to
+ *                argv. When set (or argv ids are given) exactly those routes
+ *                are (re)filled; otherwise every route of the school missing
+ *                geometry. Platform mode ignores it (with a notice).
  *
  * Exit code: 0 when every targeted route ended verified (routes the engine
  * cannot route are reported but do not fail the run — that is the documented
- * honest fallback: outside the extract OSRM answers NoRoute and the map
- * draws the dashed stop-to-stop line), 1 on API/transport failures.
+ * honest fallback: outside the extract OSRM answers NoRoute and the map draws
+ * the dashed stop-to-stop line), 1 on API/transport failures or an invalid
+ * configuration. A 401/403 in platform mode stops the run at once: the access
+ * token has expired or the account is not a SUPER_ADMIN — re-run, and routes
+ * already filled are skipped.
  */
 import { appendFileSync } from 'node:fs';
 
@@ -42,12 +77,23 @@ const API_BASE = (process.env.API_BASE ?? '').replace(/\/+$/, '');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const OSRM_BASE = (process.env.OSRM_BASE ?? 'http://localhost:5000').replace(/\/+$/, '');
 
+/** `school` (default) or `platform` — see the header. */
+const ADMIN_MODE = (process.env.ADMIN_MODE ?? '').trim().toLowerCase() || 'school';
+if (ADMIN_MODE !== 'school' && ADMIN_MODE !== 'platform') {
+  console.error(`ERROR: ADMIN_MODE must be "school" or "platform" (got "${ADMIN_MODE}").`);
+  process.exit(1);
+}
+
 if (!API_BASE) {
   console.error('ERROR: API_BASE is required (e.g. https://host/api/v1).');
   process.exit(1);
 }
 if (!ADMIN_TOKEN) {
-  console.error('ERROR: ADMIN_TOKEN is required (a SCHOOL_ADMIN access token).');
+  console.error(
+    ADMIN_MODE === 'platform'
+      ? 'ERROR: ADMIN_TOKEN is required (a SUPER_ADMIN access token, signed in without a school).'
+      : 'ERROR: ADMIN_TOKEN is required (a SCHOOL_ADMIN access token).',
+  );
   process.exit(1);
 }
 
@@ -244,8 +290,8 @@ async function backfillRoute(routeId, { force }) {
   );
 }
 
-async function main() {
-  console.log(`OSRM route-geometry backfill`);
+async function runSchoolBackfill() {
+  console.log(`OSRM route-geometry backfill (ADMIN_MODE=school)`);
   console.log(`  api    : ${API_BASE}`);
   console.log(`  engine : ${OSRM_BASE}`);
   console.log(
@@ -310,6 +356,302 @@ async function main() {
 
   process.exit(summary.failed > 0 ? 1 : 0);
 }
+
+/* -------------------------------------------------------------------------
+ * ADMIN_MODE=platform — every school, one SUPER_ADMIN credential.
+ *
+ * The list endpoint hands over each missing route WITH its located stops, so
+ * the run needs no school-scoped read (a SUPER_ADMIN gets 403 there, by
+ * design). Everything is decided from one snapshot of the list; the re-check
+ * at the end is what turns "stored" into "verified".
+ * ---------------------------------------------------------------------- */
+
+const PLATFORM_PAGE_SIZE = 100;
+const MISSING_PATH = '/admin/routes/geometry/missing';
+
+/** The token was refused (expired, or not a SUPER_ADMIN): the run stops. */
+class AuthRefusedError extends Error {}
+
+/** One API call in platform mode: a 401/403 aborts the run at once. */
+async function platformCall(method, path, body) {
+  const result = await apiCall(method, path, body);
+  if (result.status === 401 || result.status === 403) {
+    throw new AuthRefusedError(
+      `${method} ${path} answered ${result.status}: the access token is expired or is not a SUPER_ADMIN token. ` +
+        'Re-run the workflow — routes already filled are skipped.',
+    );
+  }
+  return result;
+}
+
+/**
+ * Every page of the missing list. Returns the de-duplicated routes, plus the
+ * per-school counts and the platform totals of the first page (those cover
+ * ALL schools, whatever the page size).
+ */
+async function listAllMissing() {
+  const routes = new Map();
+  let schools = [];
+  let totals = null;
+  for (let page = 1; ; page += 1) {
+    const { status, body } = await platformCall(
+      'GET',
+      `${MISSING_PATH}?page=${page}&limit=${PLATFORM_PAGE_SIZE}`,
+    );
+    if (status !== 200 || !body?.success) {
+      throw new Error(`GET ${MISSING_PATH} page ${page} failed (${status}): ${JSON.stringify(body)}`);
+    }
+    if (page === 1) {
+      schools = Array.isArray(body.data?.schools) ? body.data.schools : [];
+      totals = body.data?.totals ?? null;
+    }
+    for (const item of body.data?.items ?? []) {
+      if (typeof item?.route_id === 'string' && !routes.has(item.route_id)) {
+        routes.set(item.route_id, item);
+      }
+    }
+    if (!body.data?.meta?.hasNextPage) break;
+  }
+  return { routes: [...routes.values()], schools, totals };
+}
+
+/**
+ * The engine's answer for one route, classified for the platform summary:
+ *   ok       — a usable road route;
+ *   noroute  — OSRM has no road for these stops (NoRoute / NoSegment: outside
+ *              the extract, or a stop far from any road). Honest fallback;
+ *   failed   — the engine is unreachable or answered something unusable.
+ */
+async function engineOutcome(coordinates) {
+  const path = coordinates.map(([lng, lat]) => `${lng},${lat}`).join(';');
+  const url = `${OSRM_BASE}/route/v1/driving/${path}?overview=full&geometries=geojson&steps=true`;
+  let response;
+  try {
+    response = await fetch(url, { headers: { accept: 'application/json' } });
+  } catch (error) {
+    return { kind: 'failed', reason: `engine unreachable: ${error.message}` };
+  }
+  const body = await response.json().catch(() => null);
+  if (body?.code === 'NoRoute' || body?.code === 'NoSegment') {
+    return { kind: 'noroute', reason: `engine answered ${body.code}` };
+  }
+  if (!response.ok || !body || body.code !== 'Ok' || !Array.isArray(body.routes)) {
+    return { kind: 'failed', reason: `engine answered ${body?.code ?? response.status}` };
+  }
+  const [route] = body.routes;
+  const usable =
+    route &&
+    route.geometry?.type === 'LineString' &&
+    Array.isArray(route.geometry.coordinates) &&
+    route.geometry.coordinates.length >= 2 &&
+    Number.isFinite(route.distance) &&
+    Number.isFinite(route.duration);
+  return usable
+    ? { kind: 'ok', route }
+    : { kind: 'failed', reason: 'engine route missing geometry or totals' };
+}
+
+/** Escapes a cell for a GitHub-flavoured markdown table. */
+function cell(value) {
+  return String(value).replace(/\|/g, '\\|');
+}
+
+/** A fixed-width text table for the console. */
+function consoleTable(headers, rows) {
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => String(row[index]).length)),
+  );
+  const line = (cells) =>
+    cells
+      .map((value, index) =>
+        index === 0 ? String(value).padEnd(widths[index]) : String(value).padStart(widths[index]),
+      )
+      .join('  ');
+  return [line(headers), widths.map((width) => '-'.repeat(width)).join('  '), ...rows.map(line)];
+}
+
+async function runPlatformBackfill() {
+  console.log('OSRM route-geometry backfill (ADMIN_MODE=platform — every school, one credential)');
+  console.log(`  api    : ${API_BASE}`);
+  console.log(`  engine : ${OSRM_BASE}`);
+  if (explicitIds.length > 0) {
+    console.log(
+      `::notice::ROUTE_IDS is school-mode only and is ignored in platform mode (${explicitIds.length} id(s) given).`,
+    );
+  }
+
+  console.log('\nListing the routes still missing road geometry (every school)…');
+  const before = await listAllMissing();
+  if (before.totals) {
+    console.log(
+      `  routes  : ${before.totals.routes_total} across ${before.schools.length} school(s) — ` +
+        `${before.totals.routes_cached} cached, ${before.totals.routes_unlocated} with fewer than two located stops`,
+    );
+  }
+  console.log(`  missing : ${before.routes.length}\n`);
+
+  // One ledger row per school, created from the snapshot (zero-missing schools included).
+  const ledger = new Map();
+  const rowFor = (schoolId, schoolName) => {
+    let row = ledger.get(schoolId);
+    if (!row) {
+      row = { school_id: schoolId, school_name: schoolName, missing: 0, filled: 0, noRoute: 0, failed: 0, left: 0 };
+      ledger.set(schoolId, row);
+    }
+    return row;
+  };
+  for (const school of before.schools) {
+    const row = rowFor(school.school_id, school.school_name);
+    row.missing = school.routes_missing;
+  }
+
+  const failures = [];
+  const written = [];
+  for (const item of before.routes) {
+    const row = rowFor(item.school_id, item.school_name);
+    const label = `${item.route_id} (${item.school_name})`;
+    const coordinates = item.stops.map((stop) => [stop.longitude, stop.latitude]);
+
+    const outcome = await engineOutcome(coordinates);
+    if (outcome.kind === 'noroute') {
+      row.noRoute += 1;
+      console.log(`  ! ${label}  ${outcome.reason} — map keeps the dashed line`);
+      continue;
+    }
+    if (outcome.kind === 'failed') {
+      row.failed += 1;
+      failures.push(`${label}: ${outcome.reason}`);
+      console.log(`  x ${label}  ${outcome.reason}`);
+      continue;
+    }
+
+    const put = await platformCall(
+      'PUT',
+      `/admin/routes/${encodeURIComponent(item.route_id)}/geometry`,
+      toStoreBody(outcome.route),
+    );
+    if (put.status !== 200 || !put.body?.success) {
+      row.failed += 1;
+      failures.push(`${label}: PUT answered ${put.status}: ${JSON.stringify(put.body)}`);
+      console.log(`  x ${label}  PUT failed (${put.status})`);
+      continue;
+    }
+
+    if (put.body.data?.stops_hash !== item.stops_hash) {
+      // The stops changed between the list and this write. The row was stored
+      // under the NEW key with a polyline computed for the OLD stops: drop it,
+      // so the route is missing again and the next run computes it correctly.
+      const dropped = await platformCall(
+        'POST',
+        `/admin/routes/${encodeURIComponent(item.route_id)}/geometry/recompute`,
+      );
+      row.failed += 1;
+      const dropNote =
+        dropped.status === 200 ? 'the mismatched row was dropped' : `could not drop it (${dropped.status})`;
+      failures.push(`${label}: its stops changed during the run; ${dropNote} — re-run to fill it`);
+      console.log(`  x ${label}  stops changed during the run; ${dropNote}`);
+      continue;
+    }
+
+    written.push({ item, row });
+    console.log(
+      `  + ${label}  stored ${(outcome.route.distance / 1000).toFixed(1)} km / ${(outcome.route.duration / 60).toFixed(0)} min`,
+    );
+  }
+
+  console.log('\nRe-checking the missing list…');
+  const after = await listAllMissing();
+  const stillMissing = new Set(after.routes.map((route) => route.route_id));
+  for (const { item, row } of written) {
+    if (stillMissing.has(item.route_id)) {
+      row.failed += 1;
+      failures.push(`${item.route_id} (${item.school_name}): stored, but still missing on the re-check`);
+    } else {
+      row.filled += 1;
+    }
+  }
+  for (const school of after.schools) {
+    const row = rowFor(school.school_id, school.school_name);
+    row.left = school.routes_missing;
+  }
+
+  const rows = [...ledger.values()]
+    .filter((row) => row.missing > 0 || row.left > 0)
+    .sort((a, b) => a.school_name.localeCompare(b.school_name) || a.school_id.localeCompare(b.school_id));
+  const total = rows.reduce(
+    (sum, row) => ({
+      missing: sum.missing + row.missing,
+      filled: sum.filled + row.filled,
+      noRoute: sum.noRoute + row.noRoute,
+      failed: sum.failed + row.failed,
+      left: sum.left + row.left,
+    }),
+    { missing: 0, filled: 0, noRoute: 0, failed: 0, left: 0 },
+  );
+
+  console.log('\nSummary (per school):');
+  if (rows.length === 0) {
+    console.log('  nothing to fill — every routable route already has a cached geometry.');
+  } else {
+    const headers = ['school', 'missing', 'filled', 'no road', 'failed', 'left'];
+    const body = rows.map((row) => [row.school_name, row.missing, row.filled, row.noRoute, row.failed, row.left]);
+    body.push(['TOTAL', total.missing, total.filled, total.noRoute, total.failed, total.left]);
+    for (const line of consoleTable(headers, body)) console.log(`  ${line}`);
+  }
+  console.log('\n  filled   = stored and verified by the re-check (a cache hit on the current stops)');
+  console.log('  no road  = the engine has no road for these stops (dashed-line fallback; not a failure)');
+  console.log('  failed   = engine, transport or API trouble — re-run the workflow');
+  console.log('  left     = still missing after this run (no road + failed + anything the re-check still lists)');
+  if (failures.length > 0) {
+    console.log('\nFailures:');
+    for (const failure of failures) console.log(`  - ${failure}`);
+  }
+
+  // GitHub Actions step summary (best effort — local runs just skip it).
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const lines = [
+      '## OSRM route-geometry backfill — platform (every school)',
+      '',
+      `Routes missing at start: **${total.missing}** · filled (verified): **${total.filled}** · no road route: **${total.noRoute}** · failed: **${total.failed}** · left: **${total.left}**`,
+      '',
+    ];
+    if (rows.length > 0) {
+      lines.push(
+        '| School | Missing | Filled | No road route | Failed | Left |',
+        '| --- | ---: | ---: | ---: | ---: | ---: |',
+      );
+      for (const row of rows) {
+        lines.push(
+          `| ${cell(row.school_name)} | ${row.missing} | ${row.filled} | ${row.noRoute} | ${row.failed} | ${row.left} |`,
+        );
+      }
+      lines.push(
+        `| **TOTAL** | **${total.missing}** | **${total.filled}** | **${total.noRoute}** | **${total.failed}** | **${total.left}** |`,
+        '',
+      );
+    }
+    lines.push(
+      '`filled` = stored and confirmed by the re-check. `no road route` = OSRM has no road for the stops (dashed-line fallback). `failed` = re-run the workflow.',
+      '',
+      `Engine: \`${OSRM_BASE}\` · API: \`${API_BASE}\``,
+      '',
+    );
+    if (failures.length > 0) {
+      lines.push('### Failures', '');
+      for (const failure of failures) lines.push(`- ${failure}`);
+      lines.push('');
+    }
+    try {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+    } catch {
+      // A missing summary file is not a backfill failure.
+    }
+  }
+
+  process.exit(total.failed > 0 ? 1 : 0);
+}
+
+const main = ADMIN_MODE === 'platform' ? runPlatformBackfill : runSchoolBackfill;
 
 main().catch((error) => {
   console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`);

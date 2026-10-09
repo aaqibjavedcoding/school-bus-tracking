@@ -167,6 +167,7 @@ import { ParentsService } from './modules/parents/parents.service';
 import { ReportsService } from './modules/reports/reports.service';
 import { RoutesService } from './modules/routes/routes.service';
 import { RouteGeometryService } from './modules/routing/route-geometry.service';
+import { MissingRouteGeometryService } from './modules/routing/missing-route-geometry.service';
 import { OsrmRoutingProvider } from './modules/routing/osrm.provider';
 import { RunCrewService } from './modules/run-crew/run-crew.service';
 import { RunsService } from './modules/runs/runs.service';
@@ -746,6 +747,15 @@ export class Container {
           });
     return new RouteGeometryService(Route, Stop, RouteGeometry, provider);
   });
+
+  /**
+   * Platform-wide view of the geometry cache (SUPER_ADMIN backfill): which
+   * routes of every school are missing road geometry for their current stops.
+   * Needs no routing engine — it only reads the cache and the stops.
+   */
+  readonly missingRouteGeometry = lazy(
+    () => new MissingRouteGeometryService(Route, Stop, RouteGeometry, School),
+  );
 
   readonly shifts = lazy(() => new ShiftsService(Shift, Run));
 

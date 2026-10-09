@@ -3120,6 +3120,80 @@ export interface RouteGeometryRecomputeResponse {
   geometry: RouteGeometryResponse;
 }
 
+/**
+ * One located stop of a route, in manifest order — the exact tuple the
+ * stops hash is computed from, and the engine's input for the route.
+ */
+export interface RouteGeometryStopPoint {
+  stop_id: string;
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * One route, across ALL schools, whose road geometry is missing for its
+ * CURRENT stop list (`GET /api/v1/admin/routes/geometry/missing`).
+ *
+ * `stops` carries the located stops the backfill feeds to the engine: the
+ * SUPER_ADMIN cannot read a school's stops through the school endpoints
+ * (tenant isolation), so the list is the only place the input can come from.
+ */
+export interface MissingRouteGeometryItem {
+  route_id: string;
+  route_name: string;
+  route_code: string;
+  school_id: string;
+  school_name: string;
+  /** The cache key the filled row is stored under (sha256 of `stops`). */
+  stops_hash: string;
+  /** The located stops, in manifest order (always at least two). */
+  stops: RouteGeometryStopPoint[];
+}
+
+/** Per-school counts of the platform-wide geometry backfill. */
+export interface MissingRouteGeometrySchoolCount {
+  school_id: string;
+  school_name: string;
+  /** Live routes of the school. */
+  routes_total: number;
+  /** Routes whose CURRENT stop list already has a cached geometry row. */
+  routes_cached: number;
+  /** Routes with at least two located stops and no cached row for them. */
+  routes_missing: number;
+  /** Routes with fewer than two located stops — there is nothing to route. */
+  routes_unlocated: number;
+}
+
+/** Platform totals of the geometry cache, across all schools. */
+export interface MissingRouteGeometryTotals {
+  routes_total: number;
+  routes_cached: number;
+  routes_missing: number;
+  routes_unlocated: number;
+}
+
+/** Query of `GET /api/v1/admin/routes/geometry/missing`. */
+export interface MissingRouteGeometryListQuery {
+  /** Page number, from 1. */
+  page?: number;
+  /** Page size, 1..100. */
+  limit?: number;
+}
+
+/**
+ * Successful payload of `GET /api/v1/admin/routes/geometry/missing`.
+ *
+ * `items` is one page of the missing routes (sorted by school name, route
+ * name, route id). `schools` and `totals` always cover ALL schools, not just
+ * the page, so one call answers "how much is left, and where".
+ */
+export interface MissingRouteGeometryListResponse {
+  items: MissingRouteGeometryItem[];
+  meta: PaginationMeta;
+  schools: MissingRouteGeometrySchoolCount[];
+  totals: MissingRouteGeometryTotals;
+}
+
 /** Body of `POST /api/v1/stops`. */
 export interface StopCreateRequest {
   /** Target route; must belong to the authenticated school. */

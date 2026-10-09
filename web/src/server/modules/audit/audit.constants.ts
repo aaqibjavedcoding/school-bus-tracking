@@ -49,6 +49,14 @@ export const AUDIT_ACTIONS = {
   ROUTE_CREATE: 'route.create',
   ROUTE_UPDATE: 'route.update',
   ROUTE_DEACTIVATE: 'route.deactivate',
+  /**
+   * Platform (SUPER_ADMIN) road-geometry backfill: one row per stored or
+   * recomputed route geometry. The school is the route's own; the actor is
+   * the platform account, so an auditor can tell a backfill from a school
+   * admin's own edits.
+   */
+  ROUTE_GEOMETRY_STORE: 'route.geometry_store',
+  ROUTE_GEOMETRY_RECOMPUTE: 'route.geometry_recompute',
   STOP_CREATE: 'stop.create',
   /**
    * Crew marked a stop by hand (GPS off / weak). A distinct action from the

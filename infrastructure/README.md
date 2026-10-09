@@ -73,21 +73,60 @@ the free GitHub runner and keep only the cache in the app.
 
 ### 3. Backfill existing routes (free GitHub runner)
 
-GitHub → Actions → **"OSRM route-geometry backfill"** → Run workflow. The
-workflow (`.github/workflows/osrm-backfill.yml`, manual dispatch only) builds
-the graph on the free `ubuntu-latest` runner, starts `osrm-routed`, and for
-every route of the token's school missing geometry: fetches the stops, calls
-OSRM `/route/v1/driving/…?overview=full&geometries=geojson&steps=true`,
-`PUT`s the result to `/api/v1/routes/:id/geometry`, and verifies the next
-`GET` is a cache hit. It needs a SCHOOL_ADMIN access token (dispatch input
-or the `OSRM_BACKFILL_ADMIN_TOKEN` secret). The same backfill runs locally:
+Road geometry reaches the cache three ways (full table in
+`docs/live-tracking-map.md` → "Road routing"):
+
+- **A. Lazy** — the first read of a route with no cached geometry computes
+  it, if `ROUTING_SERVICE_URL` points at a reachable engine. No credential.
+- **B. Per-school backfill** — one SCHOOL_ADMIN sign-in fills one school's
+  routes (workflow `mode = school`, or `ADMIN_MODE=school` locally).
+- **C. Platform backfill (recommended)** — one **SUPER_ADMIN** sign-in fills
+  **every school's** routes in one run and prints a per-school summary
+  (workflow `mode = platform`, the default, or `ADMIN_MODE=platform`
+  locally). Paths B and C compute on the runner, so the app's own engine can
+  stay off.
+
+**Install the workflow (once, through the GitHub web UI).** The file lives at
+`infrastructure/github-workflows/osrm-backfill.yml`; the installed copy is
+`.github/workflows/osrm-backfill.yml` on `main`. Copy the first into the
+second, the way `infrastructure/github-workflows/README.md` describes:
+
+1. Open `infrastructure/github-workflows/osrm-backfill.yml` on `main` →
+   **Raw** → copy everything.
+2. Open `.github/workflows/osrm-backfill.yml` on `main` → pencil (**Edit this
+   file**) → select all → paste → commit to `main`.
+3. **Settings → Secrets and variables → Actions → New repository secret**, twice:
+   - `OSRM_PLATFORM_EMAIL` and `OSRM_PLATFORM_PASSWORD` — the SUPER_ADMIN
+     account (for `mode = platform`);
+   - or `OSRM_SCHOOL_EMAIL` and `OSRM_SCHOOL_PASSWORD` — one school's
+     SCHOOL_ADMIN account (for `mode = school`, together with the
+     `school_code` input).
+
+**Run it.** **Actions → "OSRM route-geometry backfill" → Run workflow**, with
+`mode = platform` and `api_base = https://kidbus.onrender.com/api/v1`. The
+workflow signs in right before the backfill, masks the access token, and
+never prints it; a missing secret stops the run in seconds with an
+`::error::`. Read the per-school table (missing / filled / no road route /
+failed / left) in the run's step summary. `no road route` means the extract
+does not cover those stops, or a stop is far from any road, and the map keeps
+the dashed line for them — it is not a failure. `failed` is worth a re-run.
+
+**New routes later = re-run platform mode; only missing routes are filled.**
+Routes already cached are not touched.
+
+The same platform run works from a terminal (for example against a local
+API). It needs Node 22+ (the repo’s `engines`) and the OSRM engine from step 1 on `OSRM_BASE`:
 
 ```bash
 OSRM_BASE=http://localhost:5000 \
 API_BASE=https://<host>/api/v1 \
-ADMIN_TOKEN=<SCHOOL_ADMIN access token> \
+ADMIN_MODE=platform \
+ADMIN_TOKEN=<SUPER_ADMIN access token> \
 node scripts/osrm-backfill.mjs
 ```
+
+Without `ADMIN_MODE` (or with `ADMIN_MODE=school`) the script runs the
+per-school backfill with a SCHOOL_ADMIN token, as before.
 
 ### Healthcheck
 
