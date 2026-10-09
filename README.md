@@ -1023,11 +1023,11 @@ cd infrastructure && docker compose up -d postgres && cd ..
 npm install
 
 # 3. Env
-cp web/.env.example web/.env                # set JWT_SECRET, CORS_ORIGIN, DB_*
+cp web/.env.example web/.env                # set JWT_SECRET, CORS_ORIGIN, DB_*, SUPER_ADMIN_EMAIL/PASSWORD
 
 # 4. Schema + demo data
-npm run db:setup                            # = web: db:migrate && db:seed
-npm run db:refresh                          # undo:all then setup
+ALLOW_DEMO_SEED=1 npm run db:setup          # local fixtures only; = web: db:migrate && db:seed
+ALLOW_DEMO_SEED=1 npm run db:refresh        # local only; undo:all then setup
 
 # 5. Start the unified server → http://localhost:3001  (UI + /api/v1 + Socket.IO)
 npm --prefix web run dev
@@ -1036,26 +1036,21 @@ npm --prefix web run dev
 npm --prefix mobile start                   # then scan with Expo Go
 ```
 
+For a local platform-admin password rotation, set `NEW_SUPER_ADMIN_PASSWORD` temporarily and run
+`npm run admin:set-super-password` with `SUPER_ADMIN_EMAIL` set to the current account. The new
+password must be at least 16 characters and different from the email; remove the temporary variable
+after the command completes.
+
 `CORS_ORIGIN` must equal the origin you open the app from (add your LAN IP, e.g.
 `http://192.168.1.20:3001`, for the phone). Build the API bundle explicitly when you touch
 `src/server` and run `next start`-style flows: `npm --prefix web run build:server`.
 
-**Seeded demo logins** — school users sign in with their **school code** + email + password; the
-platform admin leaves the school field blank. The four-school seeder uses _password = email_; the
-older `demo-core-domain-data` seeder intentionally leaves `password_hash` null (those accounts
-cannot log in).
-
-| Role         | School code          | Email                        | Password               |
-| ------------ | -------------------- | ---------------------------- | ---------------------- |
-| SUPER_ADMIN  | _(blank)_            | `superadmin@gmail.com`       | `superadmin@gmail.com` |
-| SCHOOL_ADMIN | `green-valley`       | `green@gmail.com`            | `green@gmail.com`      |
-| SCHOOL_ADMIN | `riverside-public`   | `riverside@gmail.com`        | `riverside@gmail.com`  |
-| SCHOOL_ADMIN | `oakwood-academy`    | `oakwood@gmail.com`          | `oakwood@gmail.com`    |
-| SCHOOL_ADMIN | `maple-leaf-central` | `maple@gmail.com`            | `maple@gmail.com`      |
-| DRIVER       | e.g. `green-valley`  | `driver1.green@gmail.com`    | same as email          |
-| CONDUCTOR    | e.g. `green-valley`  | `conductor1.green@gmail.com` | same as email          |
-| PARENT       | e.g. `green-valley`  | `parent1.green@gmail.com`    | same as email          |
-
+**Demo fixture accounts** — there is no default platform-admin email or password. The platform
+seeder requires `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` in every environment; use a unique
+local address and a password of at least 16 characters that is not the email. Demo and dummy
+seeders refuse production and require `ALLOW_DEMO_SEED=1`. Do not seed production or reuse fixture
+accounts outside local testing. Smoke-script test credentials are read from `SMOKE_*` environment
+variables; each script header lists its exact names.
 (The `<slug>` in staff/parent emails is the first segment of the school code: `green`, `riverside`,
 `oakwood`, `maple`.) Seeded graph per school: 3 buses, 3 routes (`<prefix>-R-01` "North Loop —
 Morning Pickup", `<prefix>-R-02` "East Corridor — Afternoon Drop", `<prefix>-R-03`) with 5 stops
@@ -1117,12 +1112,13 @@ Root helpers: `./scripts/backup-restore.sh backup|restore|verify|list` (see `doc
 | Subscriptions          | `SUBSCRIPTION_PAST_DUE_GRACE_DAYS` (7), `SUBSCRIPTION_ENFORCE_LAPSED_ACCESS` (true). `SUBSCRIPTION_GRACE_PERIOD_DAYS` appears in the env template but is dead — nothing reads it                                                                                                                |
 | Push                   | `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT_JSON` (both empty ⇒ no-op provider; never logged)                                                                                                                                                                                              |
 | Future                 | `EMAIL_PROVIDER`, `SMS_PROVIDER` (noop)                                                                                                                                                                                                                                                         |
-| Seeding                | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` (mandatory in production to seed the platform admin)                                                                                                                                                                                                |
+| Seeding / rotation     | `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD` (required when running the platform seeder in any environment; password is 16+ characters and must differ from email), `ALLOW_DEMO_SEED=1` (local/test demo and dummy seeders only; production always refuses), `NEW_SUPER_ADMIN_PASSWORD` (temporary one-time password-rotation input; remove after use) |
+| Smoke tests            | `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`, `SMOKE_DUPLICATE_SCHOOL_ADMIN_EMAIL`, `SMOKE_DRIVER_EMAIL`, `SMOKE_DRIVER_PASSWORD`, `SMOKE_SECOND_ADMIN_EMAIL`, `SMOKE_SECOND_ADMIN_PASSWORD`, `SMOKE_PARENT_EMAIL`, `SMOKE_OTHER_PARENT_EMAIL`, `SMOKE_CONDUCTOR_EMAIL`, `SMOKE_PARENT_PASSWORD`, `SMOKE_INVALID_PASSWORD` (local smoke inputs; exact lists are in each script header) |
 | Mobile                 | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_API_PORT`, `EXPO_PUBLIC_MAP_STYLE_URL` (optional, https-only — a self-hosted OpenFreeMap style; the map needs no key)                                                                                                                                       |
 | Web map                | `NEXT_PUBLIC_MAP_STYLE_URL` (optional, https-only — same contract as mobile; `web/src/features/map/map-style.ts` `resolveMapStyleUrl(env)` falls back to `https://tiles.openfreemap.org/styles/bright`)                                                                                         |
 | Road routing           | `ROUTING_SERVICE_URL` (blank/unset = road geometry disabled — the maps draw the dashed stop-to-stop line; set to a running self-hosted OSRM, e.g. `http://localhost:5000`), `ROUTING_TIMEOUT_MS` (5000), `ROUTING_MAX_REQUESTS_PER_SECOND` (1). Free BSD-2 engine, no key — see `infrastructure/README.md` → "OSRM routing engine" |
 
-Production refuses to boot without `JWT_SECRET` and with `DB_SSL` unset (`docs/deployment.md`).
+Production refuses to boot without `JWT_SECRET` or `DB_PASSWORD`, and requires `DB_SSL=true` (`docs/deployment.md`).
 Real `.env`/`.env.production` files are git-ignored; only `.env.example` files are committed.
 
 ---

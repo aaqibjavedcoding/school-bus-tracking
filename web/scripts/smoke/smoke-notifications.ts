@@ -13,6 +13,9 @@
  * logic is covered against the actual Sequelize-shaped stubs and the DB
  * migration is reviewed for real deploys.
  *
+ * Required environment variables: SMOKE_PARENT_EMAIL, SMOKE_OTHER_PARENT_EMAIL, SMOKE_DRIVER_EMAIL, SMOKE_PARENT_PASSWORD, SMOKE_INVALID_PASSWORD.
+ * Values are read from the shell and are never printed.
+ *
  * Run: DB_AUTO_CONNECT=false DB_ALLOW_NO_CONNECT=true \
  *   node -r ts-node/register/transpile-only scripts/smoke/smoke-notifications.ts
  */
@@ -36,6 +39,26 @@ import { NoOpPushProvider } from '../../src/server/modules/notifications/provide
 import { TripAttendanceService } from '../../src/server/modules/trip-attendance/trip-attendance.service';
 import { TripsService } from '../../src/server/modules/trips/trips.service';
 
+function requiredSmokeValue(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`${name} must be set to run this smoke test.`);
+  }
+  return value;
+}
+
+function requiredSmokeEmail(name: string): string {
+  return requiredSmokeValue(name).trim().toLowerCase();
+}
+
+function redactSmokeInputs(message: string, values: readonly string[]): string {
+  let redacted = message;
+  for (const value of values) {
+    if (value.length > 0) redacted = redacted.split(value).join('[redacted]');
+  }
+  return redacted;
+}
+
 interface Row {
   [key: string]: unknown;
 }
@@ -55,6 +78,19 @@ const TRIP_A = '09090909-0909-4909-8909-090909090901';
 const TRIP_LIFE = '09090909-0909-4909-8909-090909090902';
 
 async function main(): Promise<void> {
+  const parentEmail = requiredSmokeEmail('SMOKE_PARENT_EMAIL');
+  const otherParentEmail = requiredSmokeEmail('SMOKE_OTHER_PARENT_EMAIL');
+  const driverEmail = requiredSmokeEmail('SMOKE_DRIVER_EMAIL');
+  const parentPassword = requiredSmokeValue('SMOKE_PARENT_PASSWORD');
+  const invalidPassword = requiredSmokeValue('SMOKE_INVALID_PASSWORD');
+
+  const sensitiveSmokeValues = [
+    parentEmail,
+    otherParentEmail,
+    driverEmail,
+    parentPassword,
+    invalidPassword,
+  ];
   const results: Array<{ name: string; ok: boolean; detail?: string }> = [];
   const check = async (name: string, fn: () => Promise<void>) => {
     try {
@@ -62,8 +98,10 @@ async function main(): Promise<void> {
       results.push({ name, ok: true });
       console.log(`  ✓ ${name}`);
     } catch (error) {
-      results.push({ name, ok: false, detail: (error as Error).message });
-      console.log(`  ✗ ${name}: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : 'Smoke check failed.';
+      const detail = redactSmokeInputs(message, sensitiveSmokeValues);
+      results.push({ name, ok: false, detail });
+      console.log(`  ✗ ${name}: ${detail}`);
     }
   };
 
@@ -130,7 +168,7 @@ async function main(): Promise<void> {
   schools.push({ id: SCHOOL_A, name: 'Demo High', code: 'demo-high', is_active: true });
   schoolActive.set(SCHOOL_A, true);
 
-  const passwordHash = await bcrypt.hash('parent-pass-123', 4);
+  const passwordHash = await bcrypt.hash(parentPassword, 4);
   users.push(
     {
       id: PARENT_A,
@@ -138,7 +176,7 @@ async function main(): Promise<void> {
       role: UserRole.PARENT,
       first_name: 'Rosa',
       last_name: 'Rivera',
-      email: 'rosa@demo.test',
+      email: parentEmail,
       password_hash: passwordHash,
       is_active: true,
     },
@@ -148,7 +186,7 @@ async function main(): Promise<void> {
       role: UserRole.PARENT,
       first_name: 'Omar',
       last_name: 'Other',
-      email: 'omar@demo.test',
+      email: otherParentEmail,
       password_hash: passwordHash,
       is_active: true,
     },
@@ -158,7 +196,7 @@ async function main(): Promise<void> {
       role: UserRole.DRIVER,
       first_name: 'Dana',
       last_name: 'Nguyen',
-      email: 'dana@demo.test',
+      email: driverEmail,
       is_active: true,
     },
   );
@@ -516,7 +554,7 @@ async function main(): Promise<void> {
   let parentCookie = '';
   await check('1a. parent login succeeds with valid credentials', async () => {
     const res = await call('POST', '/auth/login', {
-      body: { school_id: 'demo-high', email: 'rosa@demo.test', password: 'parent-pass-123' },
+      body: { school_id: 'demo-high', email: parentEmail, password: parentPassword },
     });
     if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
     const body = res.json as { data: { access_token: string; user: { role: string } } };
@@ -527,7 +565,7 @@ async function main(): Promise<void> {
 
   await check('1b. parent login rejects an invalid password', async () => {
     const res = await call('POST', '/auth/login', {
-      body: { school_id: 'demo-high', email: 'rosa@demo.test', password: 'wrong' },
+      body: { school_id: 'demo-high', email: parentEmail, password: invalidPassword },
     });
     if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
   });
@@ -594,7 +632,7 @@ async function main(): Promise<void> {
   // ---- 5/6. Visibility is strictly per parent --------------------------
   await check('5. the notification is visible to the correct parent only', async () => {
     const login = await call('POST', '/auth/login', {
-      body: { school_id: 'demo-high', email: 'omar@demo.test', password: 'parent-pass-123' },
+      body: { school_id: 'demo-high', email: otherParentEmail, password: parentPassword },
     });
     otherParentToken = (login.json as { data: { access_token: string } }).data.access_token;
     const body = await parentList(otherParentToken);
@@ -716,7 +754,7 @@ async function main(): Promise<void> {
   if (failed > 0) process.exitCode = 1;
 }
 
-void main().catch((error) => {
-  console.error('Notifications smoke test crashed', error);
+void main().catch(() => {
+  console.error('Smoke script failed.');
   process.exitCode = 1;
 });

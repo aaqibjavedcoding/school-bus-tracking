@@ -9,6 +9,9 @@
  * this sandbox; the service logic itself is covered against the actual
  * Sequelize-shaped stubs, and the DB migration is reviewed for real deploys.
  *
+ * Required environment variables: SMOKE_SUPER_ADMIN_EMAIL, SMOKE_SUPER_ADMIN_PASSWORD, SMOKE_ADMIN_EMAIL, SMOKE_ADMIN_PASSWORD, SMOKE_DUPLICATE_SCHOOL_ADMIN_EMAIL, SMOKE_DRIVER_EMAIL, SMOKE_DRIVER_PASSWORD, SMOKE_SECOND_ADMIN_EMAIL, SMOKE_SECOND_ADMIN_PASSWORD.
+ * Values are read from the shell and are never printed.
+ *
  * Run: DB_AUTO_CONNECT=false node -r ts-node/register/transpile-only scripts/smoke/smoke-admin.ts
  */
 import 'reflect-metadata';
@@ -28,6 +31,26 @@ import { SchoolsService } from '../../src/server/modules/schools/schools.service
 import { AuthService } from '../../src/server/modules/auth/auth.service';
 import { SchoolAccessService } from '../../src/server/common/access/school-access.service';
 
+function requiredSmokeValue(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`${name} must be set to run this smoke test.`);
+  }
+  return value;
+}
+
+function requiredSmokeEmail(name: string): string {
+  return requiredSmokeValue(name).trim().toLowerCase();
+}
+
+function redactSmokeInputs(message: string, values: readonly string[]): string {
+  let redacted = message;
+  for (const value of values) {
+    if (value.length > 0) redacted = redacted.split(value).join('[redacted]');
+  }
+  return redacted;
+}
+
 interface Row {
   [key: string]: unknown;
 }
@@ -40,6 +63,27 @@ function uuid(): string {
 }
 
 async function main(): Promise<void> {
+  const superAdminEmail = requiredSmokeEmail('SMOKE_SUPER_ADMIN_EMAIL');
+  const superAdminPassword = requiredSmokeValue('SMOKE_SUPER_ADMIN_PASSWORD');
+  const adminEmail = requiredSmokeEmail('SMOKE_ADMIN_EMAIL');
+  const adminPassword = requiredSmokeValue('SMOKE_ADMIN_PASSWORD');
+  const duplicateSchoolAdminEmail = requiredSmokeEmail('SMOKE_DUPLICATE_SCHOOL_ADMIN_EMAIL');
+  const driverEmail = requiredSmokeEmail('SMOKE_DRIVER_EMAIL');
+  const driverPassword = requiredSmokeValue('SMOKE_DRIVER_PASSWORD');
+  const secondAdminEmail = requiredSmokeEmail('SMOKE_SECOND_ADMIN_EMAIL');
+  const secondAdminPassword = requiredSmokeValue('SMOKE_SECOND_ADMIN_PASSWORD');
+
+  const sensitiveSmokeValues = [
+    superAdminEmail,
+    superAdminPassword,
+    adminEmail,
+    adminPassword,
+    duplicateSchoolAdminEmail,
+    driverEmail,
+    driverPassword,
+    secondAdminEmail,
+    secondAdminPassword,
+  ];
   const results: Array<{ name: string; ok: boolean; detail?: string }> = [];
   const check = async (name: string, fn: () => Promise<void>) => {
     try {
@@ -47,8 +91,10 @@ async function main(): Promise<void> {
       results.push({ name, ok: true });
       console.log(`  ✓ ${name}`);
     } catch (error) {
-      results.push({ name, ok: false, detail: (error as Error).message });
-      console.log(`  ✗ ${name}: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : 'Smoke check failed.';
+      const detail = redactSmokeInputs(message, sensitiveSmokeValues);
+      results.push({ name, ok: false, detail });
+      console.log(`  ✗ ${name}: ${detail}`);
     }
   };
 
@@ -501,14 +547,14 @@ async function main(): Promise<void> {
   };
 
   // Seed a platform super admin row for login (bcrypt hash).
-  const superPasswordHash = await bcrypt.hash('super-password-123', 4);
+  const superPasswordHash = await bcrypt.hash(superAdminPassword, 4);
   users.push({
     id: 'super-admin-id',
     school_id: null,
     role: UserRole.SUPER_ADMIN,
     first_name: 'Platform',
     last_name: 'Admin',
-    email: 'super@platform.test',
+    email: superAdminEmail,
     password_hash: superPasswordHash,
     email_verified_at: now(),
     phone: null,
@@ -576,8 +622,8 @@ async function main(): Promise<void> {
         admin: {
           first_name: 'Alicia',
           last_name: 'Adams',
-          email: 'admin@lincoln.test',
-          password: 'school-admin-pass',
+          email: adminEmail,
+          password: adminPassword,
         },
       },
     });
@@ -598,8 +644,8 @@ async function main(): Promise<void> {
         admin: {
           first_name: 'Other',
           last_name: 'Admin',
-          email: 'other@lincoln.test',
-          password: 'password123',
+          email: duplicateSchoolAdminEmail,
+          password: adminPassword,
         },
       },
     });
@@ -620,7 +666,7 @@ async function main(): Promise<void> {
     const item = body.data.items[0];
     if (!item || item.stats.student_count !== 12)
       throw new Error(`missing stats: ${JSON.stringify(body.data.items[0]?.stats)}`);
-    if (item.primary_admin.email !== 'admin@lincoln.test') throw new Error('missing primary admin');
+    if (item.primary_admin.email !== adminEmail) throw new Error('missing primary admin');
   });
 
   await check('school details returns profile, stats and admins', async () => {
@@ -683,7 +729,7 @@ async function main(): Promise<void> {
       token: superToken,
       body: {
         school: { name: 'Hack', code: 'hack-school' },
-        admin: { first_name: 'H', last_name: 'A', email: 'h@h.test', password: 'password123' },
+        admin: { first_name: 'H', last_name: 'A', email: adminEmail, password: adminPassword },
         role: 'SUPER_ADMIN',
       },
     });
@@ -698,8 +744,8 @@ async function main(): Promise<void> {
     role: UserRole.DRIVER,
     first_name: 'Dana',
     last_name: 'Driver',
-    email: 'driver@lincoln.test',
-    password_hash: await bcrypt.hash('driver-password', 4),
+    email: driverEmail,
+    password_hash: await bcrypt.hash(driverPassword, 4),
     is_active: true,
   });
 
@@ -707,8 +753,8 @@ async function main(): Promise<void> {
     const res = await call('POST', '/auth/login', {
       body: {
         school_id: createdSchoolId,
-        email: 'driver@lincoln.test',
-        password: 'driver-password',
+        email: driverEmail,
+        password: driverPassword,
       },
     });
     if (res.status !== 200)
@@ -717,7 +763,7 @@ async function main(): Promise<void> {
 
   await check('super admin logs in with no school_id (platform login)', async () => {
     const res = await call('POST', '/auth/login', {
-      body: { email: 'super@platform.test', password: 'super-password-123' },
+      body: { email: superAdminEmail, password: superAdminPassword },
     });
     if (res.status !== 200)
       throw new Error(`expected 200, got ${res.status} ${JSON.stringify(res.json)}`);
@@ -744,8 +790,8 @@ async function main(): Promise<void> {
       const res = await call('POST', '/auth/login', {
         body: {
           school_id: createdSchoolId,
-          email: 'driver@lincoln.test',
-          password: 'driver-password',
+          email: driverEmail,
+          password: driverPassword,
         },
       });
       if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
@@ -784,8 +830,8 @@ async function main(): Promise<void> {
     const login = await call('POST', '/auth/login', {
       body: {
         school_id: createdSchoolId,
-        email: 'driver@lincoln.test',
-        password: 'driver-password',
+        email: driverEmail,
+        password: driverPassword,
       },
     });
     if (login.status !== 200)
@@ -798,8 +844,8 @@ async function main(): Promise<void> {
       body: {
         first_name: 'Bob',
         last_name: 'Baker',
-        email: 'bob@lincoln.test',
-        password: 'bob-password-123',
+        email: secondAdminEmail,
+        password: secondAdminPassword,
       },
     });
     if (created.status !== 201)
@@ -820,8 +866,8 @@ async function main(): Promise<void> {
       body: {
         first_name: 'A',
         last_name: 'B',
-        email: 'ADMIN@lincoln.test',
-        password: 'password123',
+        email: adminEmail,
+        password: adminPassword,
       },
     });
     if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
@@ -1144,7 +1190,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
+main().catch(() => {
+  console.error('Smoke script failed.');
   process.exit(1);
 });

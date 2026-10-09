@@ -39,7 +39,8 @@
     "build:server": "tsc -p tsconfig.build.json",
     "test:scope": "node ../scripts/run-specs.mjs web --filter",
     "test:changed": "node ../scripts/run-specs.mjs web --changed",
-    "test:guards": "node ../scripts/run-specs.mjs web --guards"
+    "test:guards": "node ../scripts/run-specs.mjs web --guards",
+    "admin:set-super-password": "cross-env TS_NODE_PROJECT=tsconfig.server.json node -r ts-node/register/transpile-only scripts/admin-set-super-password.ts"
   },
   "dependencies": {
     "@school-bus-tracking/api-client": "*",
