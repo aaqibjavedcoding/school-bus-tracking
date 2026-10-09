@@ -154,7 +154,14 @@ const MISSING_PAGE: MissingRouteGeometryListResponse = {
   items: [],
   meta: { page: 1, limit: 20, total: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false },
   schools: [],
-  totals: { routes_total: 0, routes_cached: 0, routes_missing: 0, routes_unlocated: 0 },
+  totals: {
+    routes_total: 0,
+    routes_cached: 0,
+    routes_missing: 0,
+    routes_unlocated: 0,
+    outsideBbox: null,
+    fillable: 0,
+  },
 };
 
 /** Records every service and audit call the endpoints make. */

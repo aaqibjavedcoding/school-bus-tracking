@@ -38,6 +38,7 @@ describe('public health probes', () => {
         uptime: 1,
         timestamp: 't',
         environment: 'test',
+        commit: 'unknown',
       }),
     });
 
@@ -50,6 +51,11 @@ describe('public health probes', () => {
     // The legacy liveness contract passes the payload through unwrapped (no
     // `success`/`data` envelope) — pinned here so probes keep parsing it.
     assert.equal((response.body as { status: string }).status, 'ok');
+    assert.equal(
+      (response.body as { commit: string }).commit,
+      'unknown',
+      'the deployed commit is always present (never missing, never blank)',
+    );
   });
 
   it('answers GET /api/v1/health/ready with 200 when every dependency is ready', async () => {

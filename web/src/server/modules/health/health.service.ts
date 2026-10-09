@@ -41,6 +41,7 @@ export class HealthService {
       uptime: uptimeSeconds,
       timestamp: new Date().toISOString(),
       environment,
+      commit: resolveDeployedCommit(),
     };
   }
 
@@ -97,4 +98,25 @@ export class HealthService {
       };
     }
   }
+}
+
+/**
+ * The git commit this process was built from.
+ *
+ * Render exposes the SHA as `RENDER_GIT_COMMIT`; an alternative `GIT_COMMIT`
+ * is also read so a non-Render deployment (a VM, a bare `node` start) can
+ * set the same field. The literal string `'unknown'` is the only fallback —
+ * never an empty string — so callers can always tell "the deploy is missing
+ * the env var" from "the deploy is up to date".
+ */
+export function resolveDeployedCommit(): string {
+  const fromRender = process.env.RENDER_GIT_COMMIT;
+  if (typeof fromRender === 'string' && fromRender.length > 0) {
+    return fromRender;
+  }
+  const fromGeneric = process.env.GIT_COMMIT;
+  if (typeof fromGeneric === 'string' && fromGeneric.length > 0) {
+    return fromGeneric;
+  }
+  return 'unknown';
 }

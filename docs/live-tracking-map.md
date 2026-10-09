@@ -76,6 +76,7 @@ OpenStreetMap data:
 
   The rule when choosing a style is unchanged: same free host, no key, no
   billing. A style that needs a token is not an option, label-rich or not.
+
 - **Sprite** — the POI icons are **ours**, not a third party's:
   `scripts/generate-kidbus-sprite.mjs` renders `web/public/map-sprites/kidbus{.json,.png}`
   (+ the `@2x` twins) from vendored Maki v8.0.0 paths (Maki is CC0 — see
@@ -83,16 +84,16 @@ OpenStreetMap data:
   `/map-sprites/kidbus`. It is served from our own origin on web, and from the
   app's own API origin on native (Session 7 below), so the CSP's existing
   `'self'` covers it — **no header was widened** for it.
-**The scale path changes ONE variable.** When traffic outgrows the public
-instance, self-host OpenFreeMap
-([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
-same OSM-derived tiles from your own infrastructure) and set
-`EXPO_PUBLIC_MAP_STYLE_URL` (mobile) and `NEXT_PUBLIC_MAP_STYLE_URL` (web) to
-the self-hosted style URL. Those variables are https-only —
-`map-style.ts` (pure, spec-pinned, `resolveMapStyleUrl(env)`) rejects anything
-else with one warning and falls back to the public default — and **no app code
-changes**: the engine, the markers, the camera policy and this document's rules
-all work unchanged.
+  **The scale path changes ONE variable.** When traffic outgrows the public
+  instance, self-host OpenFreeMap
+  ([hyperknot/openfreemap](https://github.com/hyperknot/openfreemap) serves the
+  same OSM-derived tiles from your own infrastructure) and set
+  `EXPO_PUBLIC_MAP_STYLE_URL` (mobile) and `NEXT_PUBLIC_MAP_STYLE_URL` (web) to
+  the self-hosted style URL. Those variables are https-only —
+  `map-style.ts` (pure, spec-pinned, `resolveMapStyleUrl(env)`) rejects anything
+  else with one warning and falls back to the public default — and **no app code
+  changes**: the engine, the markers, the camera policy and this document's rules
+  all work unchanged.
 
 **Enforcement** — `mobile/scripts/map-provider-policy.spec.ts` (part of
 `npm --prefix mobile test`) and `web/scripts/map-provider-policy.spec.ts`
@@ -156,11 +157,11 @@ whole path is **free and keyless**, exactly like the map tiles:
 Every route's geometry is filled by one of three paths. They write the same
 cache rows, so they can be mixed freely.
 
-| Path | Who runs it | Credential | Reach | Needs a live engine? |
-| --- | --- | --- | --- | --- |
-| **A. Lazy** | Automatic, on the first read of a route whose geometry is missing | None — any school user's read (SCHOOL_ADMIN, DRIVER, CONDUCTOR or PARENT) | One route, on demand | Yes — `ROUTING_SERVICE_URL` must point at a reachable engine; otherwise the read stays `unavailable` |
-| **B. Per-school backfill** | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=school` (default), or the workflow with `mode = school` | One **SCHOOL_ADMIN** sign-in | One school per run | No — the engine runs on the runner, not in the app |
-| **C. Platform backfill** | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=platform`, or the workflow with `mode = platform` (default) | One **SUPER_ADMIN** sign-in | **Every school, one run** | No — the engine runs on the runner, not in the app |
+| Path                       | Who runs it                                                                                              | Credential                                                                | Reach                     | Needs a live engine?                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **A. Lazy**                | Automatic, on the first read of a route whose geometry is missing                                        | None — any school user's read (SCHOOL_ADMIN, DRIVER, CONDUCTOR or PARENT) | One route, on demand      | Yes — `ROUTING_SERVICE_URL` must point at a reachable engine; otherwise the read stays `unavailable` |
+| **B. Per-school backfill** | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=school` (default), or the workflow with `mode = school`     | One **SCHOOL_ADMIN** sign-in                                              | One school per run        | No — the engine runs on the runner, not in the app                                                   |
+| **C. Platform backfill**   | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=platform`, or the workflow with `mode = platform` (default) | One **SUPER_ADMIN** sign-in                                               | **Every school, one run** | No — the engine runs on the runner, not in the app                                                   |
 
 Path A needs no credential and no runner, but it only works where the engine
 is reachable from the app. Paths B and C compute on the free runner and write
@@ -172,12 +173,18 @@ summary.
 Path C's API surface (all SUPER_ADMIN only, audited with the route's own
 school):
 
-- `GET /api/v1/admin/routes/geometry/missing?page&limit` — the routes whose
-  geometry is missing for their **current** stop list, across all schools
-  (paginated, `limit` 1–100), with each route's located stops and per-school
-  counts. A route with changed stops is missing; a route with a cached row
-  for its current stops is not listed; a route with fewer than two located
-  stops is counted as unlocated and not listed.
+- `GET /api/v1/admin/routes/geometry/missing?page&limit[&bbox]` — the routes
+  whose geometry is missing for their **current** stop list, across all
+  schools (paginated, `limit` 1–100), with each route's located stops and
+  per-school counts. A route with changed stops is missing; a route with a
+  cached row for its current stops is not listed; a route with fewer than
+  two located stops is counted as unlocated and not listed. The optional
+  `bbox=minLon,minLat,maxLon,maxLat` is the OSM extract's box: every
+  listed route is annotated with `stopsOutsideBbox` and the per-school /
+  platform totals add `outsideBbox` (routes with at least one stop outside
+  the box — the engine cannot give those routes a road) and `fillable`
+  (the routes the engine can actually fill from this extract). A
+  malformed `bbox` is 400.
 - `PUT /api/v1/admin/routes/:routeId/geometry` — stores the engine's road
   route. The server pins the cache key (`stops_hash`) from the route's
   **current** located stops; the client never sends it.
@@ -195,17 +202,58 @@ The workflow file is kept in the repository at
 `.github/workflows/osrm-backfill.yml` on `main` through the GitHub web UI
 (the Arena GitHub App cannot push to `.github/workflows/`):
 
-1. Open `infrastructure/github-workflows/osrm-backfill.yml` on `main`, click
+1. **Deploy `main` to Render.** The preflight checks the deployed commit
+   and the platform endpoints; a missing deploy is the 404 case.
+2. **Check the commit.** `GET https://<host>/api/v1/health` returns
+   `{ "commit": "…" }` (Render's `RENDER_GIT_COMMIT`, else `GIT_COMMIT`,
+   else `"unknown"`). The preflight prints the same value; a mismatch
+   means Render is still rolling out.
+3. Open `infrastructure/github-workflows/osrm-backfill.yml` on `main`, click
    **Raw**, and copy everything.
-2. Open `.github/workflows/osrm-backfill.yml` on `main`, click the pencil
+4. Open `.github/workflows/osrm-backfill.yml` on `main`, click the pencil
    (**Edit this file**), select all, paste, and **commit directly to `main`**
    (or open a PR from your own account).
-3. Under **Settings → Secrets and variables → Actions**, create
+5. Under **Settings → Secrets and variables → Actions**, create
    `OSRM_PLATFORM_EMAIL` and `OSRM_PLATFORM_PASSWORD` (the SUPER_ADMIN
-   account's sign-in).
-4. **Actions → "OSRM route-geometry backfill" → Run workflow**, with
-   `mode = platform`, `api_base = https://kidbus.onrender.com/api/v1`.
-   Read the per-school summary in the run's step summary.
+   account's sign-in). A manual run with these missing is a hard failure
+   (`::error::` + exit 1); a scheduled run with these missing is a no-op
+   (`::notice::` + exit 0), so the badge stays green before the secrets
+   are set.
+6. **Actions → "OSRM route-geometry backfill" → Run workflow**, with
+   `mode = platform` and `dry_run = true`. The preflight warms the API
+   (a free Render instance sleeps — up to 6 tries, 20 s apart), signs in
+   as `SUPER_ADMIN`, walks the missing list, and writes a per-school
+   table to the run's step summary: `missing` (routes still without a
+   cached row), `outside bbox` (only when the run passed a `bbox`),
+   `fillable` (the routes the engine can actually fill from this extract).
+   When `fillable = 0` the preflight says `needs_run = false` and the
+   workflow stops — no graph was built, no engine started, two minutes
+   of runner time total. A scheduled run uses the same defaults and runs
+   every day at 03:00 IST.
+7. **Read the table.** If `needs_run` is `false`, nothing to do; the
+   schedule checks again at 03:00 IST. If `needs_run` is `true` and no
+   school is `outside bbox`, run again with `dry_run = false`. If some
+   schools are `outside bbox`, list them and say they need a separate
+   run with the matching `extract_url` and `bbox`.
+
+#### Failure table
+
+| Symptom                                                    | Meaning                                                                                                                              | Next step                                                                                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 404 on the missing list                                    | The deployed API does not yet have the platform endpoints                                                                            | Deploy `main` first, then re-run. The preflight catches this in seconds, not 15 minutes after the graph build                                                         |
+| 401 / 403 on the sign-in or the list                       | The password was just rotated, or the account is not a `SUPER_ADMIN`                                                                 | Update `OSRM_PLATFORM_EMAIL` / `OSRM_PLATFORM_PASSWORD`, then re-run                                                                                                  |
+| `NoRoute` / `NoSegment` for some routes                    | The stops fall outside the extract the engine is built from, or a stop is far from any road                                          | The run continues (the map keeps the dashed line for them). If many schools are affected, run a separate platform backfill with the matching `extract_url` and `bbox` |
+| The preflight retries 6 times then exits 1                 | Render was cold-starting (a free instance sleeps) and `/health` never answered within 2 minutes                                      | Re-run. The schedule catches the next morning automatically                                                                                                           |
+| A stop is inside the bbox but the route is still `NoRoute` | The stop is inside the extract's box but far from any road in the graph (a school in a newly-built area, a stop in a gated compound) | The route stays `missing` and shows in the summary. Update the stop coordinates when the road is real, then re-run                                                    |
+
+#### Known limit
+
+A stop **inside the bbox** but far from any road in the graph stays
+`missing`: the engine has no map for it. The preflight's per-school table
+will not flag it (the stop is "inside" by the wire definition) and the
+backfill will print it as `no road route`. The honest product line is the
+dashed stop-to-stop line until the road is real and the stop coordinates
+match.
 
 **New routes later = re-run platform mode; only missing routes are filled.**
 Routes already cached are never touched, so the re-run is cheap and safe.
@@ -213,7 +261,10 @@ Re-run monthly as well, so the extract stays current.
 
 The same run can be done locally (for example to test against a local API)
 with `ADMIN_MODE=platform`; see `infrastructure/README.md` → "OSRM routing
-engine".
+engine". The same preflight can be run locally with `ADMIN_MODE=platform
+CHECK_ONLY=1 PLATFORM_EMAIL=… PLATFORM_PASSWORD=… [BBOX=…]` — it signs in
+and prints the same per-school table, without starting the engine or
+building the graph.
 
 Deployment and day-2 operations: `infrastructure/README.md` → "OSRM routing
 engine". Workflow file and install notes: `infrastructure/github-workflows/README.md`.
@@ -250,7 +301,7 @@ now, all of it in `mobile/src/features/map/`:
 3. **The offline fallback.** When the bounded budget is spent on every front,
    the map swaps to `OFFLINE_FALLBACK_MAP_STYLE`: a bundled, frozen,
    version-8 style with **zero network references** — no sources, no glyphs,
-   no sprite — painting one neutral background. It is deliberately a *base*,
+   no sprite — painting one neutral background. It is deliberately a _base_,
    not a disguise: the stops, the bus marker, the accuracy circle and the
    status panel are all React Native overlays that keep working over it, and
    the `(styleLoad)` line stays up over it because the fallback loading is
@@ -265,24 +316,24 @@ app, needs no account and no key, and introduces no provider.
 
 One **pure state machine** decides what to draw; each platform only renders it.
 
-| Module                                                                                                | Responsibility                                                                                                                                                                                                  |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate (floor 8 m, R4), heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. The mobile copy additionally takes the display-only `snapToRoute` port (below). **Pure, clock-injected, no React.** |
-| `mobile/src/features/map/route-snap.ts`                                                             | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (45 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
-| `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                         |
-| `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                             |
-| `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                         |
-| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus: the bundled `assets/bus-marker.png` sprite (@1x/@2x/@3x, hand-downsampled) inside the pinned 26×42 dp box.                                                                                     |
-| `mobile/src/features/map/BusMarker.tsx`                                                               | The leaf marker component: the only thing that re-renders per frame.                                                                                                                                            |
-| `mobile/src/features/map/useBusMarkerMotion.ts`                                                       | Frame loop, lifecycle, reduced motion, cleanup.                                                                                                                                                                 |
-| `mobile/src/features/map/follow-camera-controller.ts`                                                 | The camera's imperative half: fit once per trip, centre-only follow pans, throttle, gesture attribution, resume. Pure, over a two-method port.                                                                  |
-| `mobile/src/features/map/useFollowCamera.ts`                                                          | The React binding for that policy — **one** camera implementation, used by the observer map _and_ the driver map.                                                                                               |
-| `mobile/src/features/map/BusMap.tsx`                                                                  | Native observer map: status panel, follow control, stop pins, accuracy circle.                                                                                                                                  |
-| `mobile/src/features/crew/crew-map-presentation.ts`                                                   | What the driver's map may say about a device-local position, under crew freshness windows. Pure.                                                                                                                |
-| `mobile/src/features/crew/DriverTripMap.tsx`<br>`…/DriverTripMap.web.tsx`                             | The Driver Trip card: stops, this device's own position, one honest status line. The `.web` file is the dependency-free `react-native-web` fallback.                                                            |
-| `web/src/features/map/bus-marker-icon.ts`                                                             | The top-view bus as inline SVG, plus the icon geometry as plain data (`BUS_MARKER_WIDTH/HEIGHT`, `BUS_MARKER_SVG`). Runtime-free, so its geometry is directly testable; no `DivIconOptions` import.               |
-| `web/src/features/map/MapViewInner.tsx`                                                               | Web map: same policy over MapLibre GL JS (`maplibre-gl` Marker, GeoJSON route + accuracy ring).                                                                                                                 |
-| `mobile/src/hooks/useReducedMotion.ts`<br>`web/src/features/map/usePrefersReducedMotion.ts`           | OS reduce-motion preference, live.                                                                                                                                                                              |
+| Module                                                                                                | Responsibility                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mobile/src/features/map/bus-motion.ts`<br>`web/src/features/map/bus-motion.ts`                       | The motion state machine: coordinate validation, jitter gate (floor 8 m, R4), heading resolution, shortest-angle rotation, cadence-derived tween length, gap/jump snapping, halt and reset. The mobile copy additionally takes the display-only `snapToRoute` port (below). **Pure, clock-injected, no React.**          |
+| `mobile/src/features/map/route-snap.ts`                                                               | R4 snap-to-route: nearest-segment great-circle projection of an accepted fix onto the drawn stop-to-stop polyline, bounded to `SNAP_TO_ROUTE_MAX_OFFSET_M` (45 m). **Display only; pure, spec'd with zig-zag fixtures.** Mobile-only for now — the web map has no route snapping yet (deliberate divergence, see below). |
+| `mobile/src/features/map/follow-camera.ts`<br>`web/src/features/map/follow-camera.ts`                 | The follow-camera reducer: who owns the camera, when to fit, when to pan, when to stop following. Pure.                                                                                                                                                                                                                  |
+| `mobile/src/features/map/tracking-presentation.ts`<br>`web/src/features/map/tracking-presentation.ts` | Honest live / last-known / outdated / approximate derivation. Pure.                                                                                                                                                                                                                                                      |
+| `mobile/src/lib/geo.ts` (existing) <br> `web/src/features/map/geo.ts` (new mirror)                    | Haversine distance and compass bearing.                                                                                                                                                                                                                                                                                  |
+| `mobile/src/features/map/BusMarkerGraphic.tsx`                                                        | The top-view bus: the bundled `assets/bus-marker.png` sprite (@1x/@2x/@3x, hand-downsampled) inside the pinned 26×42 dp box.                                                                                                                                                                                             |
+| `mobile/src/features/map/BusMarker.tsx`                                                               | The leaf marker component: the only thing that re-renders per frame.                                                                                                                                                                                                                                                     |
+| `mobile/src/features/map/useBusMarkerMotion.ts`                                                       | Frame loop, lifecycle, reduced motion, cleanup.                                                                                                                                                                                                                                                                          |
+| `mobile/src/features/map/follow-camera-controller.ts`                                                 | The camera's imperative half: fit once per trip, centre-only follow pans, throttle, gesture attribution, resume. Pure, over a two-method port.                                                                                                                                                                           |
+| `mobile/src/features/map/useFollowCamera.ts`                                                          | The React binding for that policy — **one** camera implementation, used by the observer map _and_ the driver map.                                                                                                                                                                                                        |
+| `mobile/src/features/map/BusMap.tsx`                                                                  | Native observer map: status panel, follow control, stop pins, accuracy circle.                                                                                                                                                                                                                                           |
+| `mobile/src/features/crew/crew-map-presentation.ts`                                                   | What the driver's map may say about a device-local position, under crew freshness windows. Pure.                                                                                                                                                                                                                         |
+| `mobile/src/features/crew/DriverTripMap.tsx`<br>`…/DriverTripMap.web.tsx`                             | The Driver Trip card: stops, this device's own position, one honest status line. The `.web` file is the dependency-free `react-native-web` fallback.                                                                                                                                                                     |
+| `web/src/features/map/bus-marker-icon.ts`                                                             | The top-view bus as inline SVG, plus the icon geometry as plain data (`BUS_MARKER_WIDTH/HEIGHT`, `BUS_MARKER_SVG`). Runtime-free, so its geometry is directly testable; no `DivIconOptions` import.                                                                                                                      |
+| `web/src/features/map/MapViewInner.tsx`                                                               | Web map: same policy over MapLibre GL JS (`maplibre-gl` Marker, GeoJSON route + accuracy ring).                                                                                                                                                                                                                          |
+| `mobile/src/hooks/useReducedMotion.ts`<br>`web/src/features/map/usePrefersReducedMotion.ts`           | OS reduce-motion preference, live.                                                                                                                                                                                                                                                                                       |
 
 `bus-motion.ts` and `follow-camera.ts` are **mirrored** between `mobile/` and
 `web/` rather than shared through a package, because that is how this repository
@@ -519,9 +570,9 @@ drawing that faithfully was the field-visible zig-zag. Two layers now stop it:
    updated" keeps telling the truth).
 2. **Snap-to-route for display** — a fix that clears the gate is projected
    onto the **drawn route polyline** (nearest segment, great-circle
-   cross-track math, `route-snap.ts`) and the tween targets the *projected*
+   cross-track math, `route-snap.ts`) and the tween targets the _projected_
    point, so lateral noise on a straight road disappears into the line the
-   bus is visibly following. The derived heading reads between *projected*
+   bus is visibly following. The derived heading reads between _projected_
    positions, so the nose points along the road, not along the wobble.
 
 The honesty rules are the same as interpolation's, stated once:
@@ -585,7 +636,7 @@ All centralised in `MOTION_THRESHOLDS` and pinned by tests in both workspaces.
 | ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `headingMinSpeedKmh`                                 | 3                    | Below walking-pace-plus, a GPS course is Doppler noise inside the accuracy circle. It also covers the one unavailable-heading case that cannot be fixed at the source: Android's `Location.getBearing()` returns `0.0` when the fix has no bearing, and expo-location does not export `hasBearing()`, so that `0` is indistinguishable in JS from a true north course. Session 2 removed the _other_ case — iOS's `-1` is now omitted instead of uploaded as `359` (see limitations). |
 | `headingMinDisplacementM`                            | 12                   | Below this, `atan2` over two points inside one accuracy circle can swing 180° between fixes — a parked bus visibly spinning.                                                                                                                                                                                                                                                                                                                                                          |
-| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 8 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped to `max(8, accuracy × 0.5)`. The floor is the R4 damping bound: GPS wander of a few metres between fixes is noise and must not move the marker (a bus at 20 km/h covers ~22 m per fix, safely outside). The **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                                                                                                                                                                                                   |
+| `jitterMinM` / `jitterMaxM` / `jitterAccuracyFactor` | 8 / 30 / 0.5         | Gate = half the reported accuracy radius, clamped to `max(8, accuracy × 0.5)`. The floor is the R4 damping bound: GPS wander of a few metres between fixes is noise and must not move the marker (a bus at 20 km/h covers ~22 m per fix, safely outside). The **ceiling is the honesty bound** — a coarse fix must not freeze the bus for hundreds of metres.                                                                                                                         |
 | `animationCadenceFactor`                             | 0.8                  | Tween = 0.8 × observed cadence, leaving ~20 % headroom so a slightly late fix does not arrive mid-tween. The old hardcoded 900 ms against a 2.5–4 s cadence is what made the web bus lurch and then sit.                                                                                                                                                                                                                                                                              |
 | `animationMinMs` / `animationMaxMs`                  | 500 / 3000           | Floor: below a couple of frames a tween just flickers. Ceiling: bounds how far the marker can lag behind the newest real fix.                                                                                                                                                                                                                                                                                                                                                         |
 | `gapSnapMs`                                          | 45 000               | >10× the nominal cadence (device watch 4 s, server throttle floor 2.5 s), so a genuine cadence can never trip it.                                                                                                                                                                                                                                                                                                                                                                     |
@@ -651,7 +702,7 @@ This is the part that is easy to get wrong:
   suspend follow immediately.
 
 **Previous Leaflet trade-off removed:** the old ~1.5 s suppression window
-  after `fitBounds` (Leaflet dispatches `zoomstart` from `requestAnimFrame`)
+after `fitBounds` (Leaflet dispatches `zoomstart` from `requestAnimFrame`)
 is gone — MapLibre reports `originalEvent` synchronously.
 
 ## Honest status
@@ -773,7 +824,7 @@ two spellings on one screen.
   `DriverTripMap.web.tsx` is the dependency-free `react-native-web` fallback,
   mirroring `BusMap.web.tsx`.
 - **The next stop's arrival zone** (deep-fix R1) — the map draws one more
-  shape, and only one: a **dashed amber ring** around the *next* stop, sized
+  shape, and only one: a **dashed amber ring** around the _next_ stop, sized
   by the stop's **effective** radius (`max(stored radius, 50 m)` —
   `crew/arrival-zone.ts` mirrors the server's
   `ARRIVAL_MIN_EFFECTIVE_RADIUS_METERS` floor). It is the same circle the
@@ -798,14 +849,14 @@ The one thing the card does persist is the **last fix itself** — see
 [The last fix survives a restart](./mobile-tracking-reliability.md#the-last-fix-survives-a-restart-and-stays-honest-about-its-age).
 It is stored by the lifecycle, not by the map, scoped to the same trip and
 account as the resumable context, and restored with its original timestamp so
-it can only ever be drawn as a *last known* position.
+it can only ever be drawn as a _last known_ position.
 
 ### On-map controls (field-defect batch)
 
 A real run produced four presentation defects on this card: the fullscreen
 modal opened 0 dp tall, there was no way to zoom with one hand, an Android
 pinch scrolled the screen instead of the map, and the primary **Follow bus**
-button turned following *off*. They are fixed in `map-controls.ts` (zoom step
+button turned following _off_. They are fixed in `map-controls.ts` (zoom step
 and bounds, the three follow-control states), `GestureIsland` +
 `scroll-lock.ts` (Android gesture ownership inside the `Screen` ScrollView)
 and `DriverTripMap`'s `wrapFull` style. The camera policy in
@@ -824,7 +875,7 @@ from the map application the phone already has, opened with a link:
 `https://www.google.com/maps/dir/?api=1&destination=…&waypoints=a|b|c&travelmode=driving&dir_action=navigate`
 (no `origin`, so the map app uses the live position) and, on Android, the free
 `google.navigation:q=lat,lng` intent for a single stop. `app.config.js`
-declares only the *visibility* entries that make those links openable from a
+declares only the _visibility_ entries that make those links openable from a
 release build (Android 11+ `<queries>`, iOS `LSApplicationQueriesSchemes`) —
 no URL, no key, no account. The vendor's `comgoogle…` scheme stays banned.
 
@@ -934,7 +985,7 @@ app-wide floor.
 1. **There is no road matching, and none is planned for this scope.** Two
    sparse GPS points are joined by a straight line in the tween, so on a
    hairpin the bus can still briefly appear to cut a corner. The R4
-   snap-to-route is a *display damp onto the drawn planned line*, not road
+   snap-to-route is a _display damp onto the drawn planned line_, not road
    matching: it bounds itself to 45 m of that line, leaves off-route fixes
    raw, and its coordinates never reach tracking data (see "Lateral damp and
    snap-to-route").
@@ -1250,7 +1301,7 @@ behind it is a pure exported function with a spec; the component only applies.
 The tile-driven building volumes are the Session 5 fill-extrusion
 (`sbt-3d-buildings`, heights from the tiles' own `render_height`/`height`
 attributes, the style's existing vector source — nothing else is fetched).
-Session 6 makes the *decision* explicit:
+Session 6 makes the _decision_ explicit:
 `buildingsLayerVisible(dimension)` / `buildingsLayerForDimension(style, dimension)`
 in `web/src/features/map/bus-3d.ts`, pinned by `bus-3d-buildings.spec.ts`.
 The rule is one line — **building volumes exist only while the 3D camera is
@@ -1304,7 +1355,7 @@ presentation against the new style's baseline. Pinned by
 
 ### Controls
 
-- **Compass** — appears *only while the map is rotated*
+- **Compass** — appears _only while the map is rotated_
   (`shouldShowCompass`, half-degree epsilon so fit/ease settling cannot flash
   it); the needle counter-rotates the bearing, and a tap resets north through
   the engine's own `easeTo` — instantly when reduced motion is on
@@ -1332,11 +1383,11 @@ the road route" caption everywhere.
 
 ### Three defects, all structural
 
-Each one was invisible in review because every file involved was *valid*:
+Each one was invisible in review because every file involved was _valid_:
 
 1. **POIs never drew.** The style asked for `poi-school`, `poi-hospital`, … while
    the shipped atlas contained `school`, `hospital`, … — and MapLibre **drops the
-   whole symbol** when its `icon-image` is missing, so there was no icon *and* no
+   whole symbol** when its `icon-image` is missing, so there was no icon _and_ no
    label, web or native, at any zoom.
 2. **Road names never drew.** `transportation_name` had no `symbol-placement`, so
    a name was laid out at one point on the line instead of along it, and lost the
@@ -1351,20 +1402,20 @@ Each one was invisible in review because every file involved was *valid*:
 `packages/map-assets` is the single source (`KIDBUS_DAY_STYLE`, 39 layers, was
 14); `web/public/map-styles/kidbus-{day,night}.json` are its build output, and a
 spec fails if the two ever disagree (see "Single source of truth"). The layer
-array *is* the collision priority — a symbol placed by an earlier layer wins
+array _is_ the collision priority — a symbol placed by an earlier layer wins
 against a later one — so the order below is a decision, not an accident:
 
-| band | layers | rule |
-| --- | --- | --- |
-| ground | `background, landcover, landuse, water, waterway, building(z13) ` | flat Google-like fills, buildings from street zoom |
-| rail | `rail(z10)` | dashed `#d6d6d6`, 2/2 |
-| roads | 18 layers: {tunnel, surface, bridge} × {major, secondary, minor} × {casing, fill} | tunnels first, bridges last, each class group a casing under a fill |
-| boundaries | `boundary(z1)` | dashed, subordinate |
-| names | `water_name(z11, line)`, `water_name-point(z14)`, `transportation_name(z12, line)`, `transportation_name-minor(z14, line)` | names ride the line they belong to |
-| places | `place-city(z2), place-town(z6), place-village(z9), place-suburb(z11), place-quarter(z12), place-hamlet(z13), place-neighbourhood(z13), place-state(z4)` | one layer per class, biggest first, each with its own size/halo ladder |
-| POIs | `poi(z14)` | rank-gated by zoom, `symbol-sort-key`-ordered, label optional |
+| band       | layers                                                                                                                                                   | rule                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| ground     | `background, landcover, landuse, water, waterway, building(z13) `                                                                                        | flat Google-like fills, buildings from street zoom                     |
+| rail       | `rail(z10)`                                                                                                                                              | dashed `#d6d6d6`, 2/2                                                  |
+| roads      | 18 layers: {tunnel, surface, bridge} × {major, secondary, minor} × {casing, fill}                                                                        | tunnels first, bridges last, each class group a casing under a fill    |
+| boundaries | `boundary(z1)`                                                                                                                                           | dashed, subordinate                                                    |
+| names      | `water_name(z11, line)`, `water_name-point(z14)`, `transportation_name(z12, line)`, `transportation_name-minor(z14, line)`                               | names ride the line they belong to                                     |
+| places     | `place-city(z2), place-town(z6), place-village(z9), place-suburb(z11), place-quarter(z12), place-hamlet(z13), place-neighbourhood(z13), place-state(z4)` | one layer per class, biggest first, each with its own size/halo ladder |
+| POIs       | `poi(z14)`                                                                                                                                               | rank-gated by zoom, `symbol-sort-key`-ordered, label optional          |
 
-### Road hierarchy: why three width *groups*, not one `match`
+### Road hierarchy: why three width _groups_, not one `match`
 
 A MapLibre expression may contain **one** zoom-based `interpolate`, and a `match`
 whose branches each carry a zoom ramp is rejected outright:
@@ -1374,19 +1425,19 @@ Only one zoom-based "step" or "interpolate" subexpression may be used in an expr
 ```
 
 So the class width ladder is expressed the standard way — separate layers per
-group, matched by class *colour* inside a group (colour needs no zoom). Both
+group, matched by class _colour_ inside a group (colour needs no zoom). Both
 styles are validated against `@maplibre/maplibre-gl-style-spec` in review; the
 day style's error count is zero.
 
-| group | classes | minzoom | fill width @z12 / z14 / z16 / z18 |
-| --- | --- | --- | --- |
-| major | motorway, trunk, primary (+ links) | 6 | 2.6 / 4.6 / 4.6 / 9.6 |
-| secondary | secondary, tertiary (+ links) | 11 | 0.6 / 2.6 / 2.6 / 7 |
-| minor | residential(`minor`), unclassified, living_street, service, track, path | 12 | 0 / 1.2 / 1.2 / 4.2 |
+| group     | classes                                                                 | minzoom | fill width @z12 / z14 / z16 / z18 |
+| --------- | ----------------------------------------------------------------------- | ------- | --------------------------------- |
+| major     | motorway, trunk, primary (+ links)                                      | 6       | 2.6 / 4.6 / 4.6 / 9.6             |
+| secondary | secondary, tertiary (+ links)                                           | 11      | 0.6 / 2.6 / 2.6 / 7               |
+| minor     | residential(`minor`), unclassified, living_street, service, track, path | 12      | 0 / 1.2 / 1.2 / 4.2               |
 
 Colours: motorway/trunk `#fdd663`, primary `#f8c14a`, secondary/tertiary
 `#fff2a8`, residential white — each with a darker casing (`#e8b95f` / `#daa93f`
-/ `#e2d495` / `#d5d7db`) derived as *fill + a constant* (+1.4 px arterials,
+/ `#e2d495` / `#d5d7db`) derived as _fill + a constant_ (+1.4 px arterials,
 +1.2 px the rest), asserted stop-by-stop by `style-variant.spec.ts`. A tunnel's
 casing is lighter than the surface road's (`#dfe1e5`, it is in a hole), a
 bridge's darker (`#c8ccd1`, the deck is on top), and the fills keep the class
@@ -1425,7 +1476,7 @@ byte drift; `kidbus-cartography.spec.ts` makes the same comparison as a test.
 
 Native MapLibre has **no document origin**, so a root-relative
 `/map-sprites/kidbus` can never resolve on a phone — and the engine fetches
-`<sprite>.json` *and* `<sprite>.png` by appending extensions, so a Metro-bundled
+`<sprite>.json` _and_ `<sprite>.png` by appending extensions, so a Metro-bundled
 single image could not work either. The decision, pinned by
 `mobile/src/features/map/map-style.spec.ts`:
 
@@ -1437,7 +1488,7 @@ single image could not work either. The decision, pinned by
 
 `apiOriginFromBaseUrl` keeps scheme+authority only (credentials stripped) and is
 deliberately a regex rather than `new URL`, because React Native's `URL.origin`
-is an unreliable partial polyfill; `withNativeSprite` returns the *same object*
+is an unreliable partial polyfill; `withNativeSprite` returns the _same object_
 when there is nothing to resolve and never mutates the shared bundled constant.
 Web serves the same files same-origin (`'self'` in `img-src`/`connect-src`), so
 `web/security-headers.js` needed **no change** — asserted, not assumed.
@@ -1486,11 +1537,11 @@ whether the committed files are stale).
 
 ### Before / after at z13–16
 
-| what a parent looks for | before | after |
-| --- | --- | --- |
-| colony / mohalla / suburb name | never drawn (collision-lost in one unfiltered layer) | `place-suburb` from z11, `place-quarter` z12, `place-hamlet` / `place-neighbourhood` z13, own sizes |
-| the road the bus is on | no name (point-placed, collision-lost) | line-placed name on the road itself, majors z12, residential/service z14 |
-| school / gurdwara / mandir / hospital icon | nothing — every POI symbol dropped | `poi-school` / `poi-place_of_worship` / `poi-pharmacy` … from the shipped atlas, icons from z14, labels optional |
-| park, bus stop, bank, fuel | nothing | `poi-park` / `poi-bus` / `poi-bank` / `poi-fuel` |
-| a street and a highway look alike | one white fill, one width | yellow arterials, near-white secondary/tertiary, thinner residential/service, each with a casing |
-| night mode | the same gaps, in grey | the same labels/icons, recoloured (every painted layer proven to be recoloured) |
+| what a parent looks for                    | before                                               | after                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| colony / mohalla / suburb name             | never drawn (collision-lost in one unfiltered layer) | `place-suburb` from z11, `place-quarter` z12, `place-hamlet` / `place-neighbourhood` z13, own sizes              |
+| the road the bus is on                     | no name (point-placed, collision-lost)               | line-placed name on the road itself, majors z12, residential/service z14                                         |
+| school / gurdwara / mandir / hospital icon | nothing — every POI symbol dropped                   | `poi-school` / `poi-place_of_worship` / `poi-pharmacy` … from the shipped atlas, icons from z14, labels optional |
+| park, bus stop, bank, fuel                 | nothing                                              | `poi-park` / `poi-bus` / `poi-bank` / `poi-fuel`                                                                 |
+| a street and a highway look alike          | one white fill, one width                            | yellow arterials, near-white secondary/tertiary, thinner residential/service, each with a casing                 |
+| night mode                                 | the same gaps, in grey                               | the same labels/icons, recoloured (every painted layer proven to be recoloured)                                  |

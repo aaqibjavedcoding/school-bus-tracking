@@ -2074,6 +2074,11 @@ export class ApiClient {
    * (`GET /admin/routes/geometry/missing`): one page of the routes of EVERY
    * school whose geometry is missing for their current stops, plus per-school
    * counts and platform totals over all schools.
+   *
+   * Pass `bbox: 'minLon,minLat,maxLon,maxLat'` to ask the server to also
+   * classify each route as inside / outside the OSM extract (every item gets
+   * `stopsOutsideBbox`, every school gets `outsideBbox` and `fillable`).
+   * A malformed bbox is 400; the server validates it before any query runs.
    */
   public async listAdminMissingRouteGeometry(
     query: MissingRouteGeometryListQuery = {},
@@ -2081,6 +2086,9 @@ export class ApiClient {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set('page', String(query.page));
     if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.bbox !== undefined && query.bbox.length > 0) {
+      params.set('bbox', query.bbox);
+    }
     const suffix = querySuffix(params);
     return this.get<MissingRouteGeometryListResponse>(`/admin/routes/geometry/missing${suffix}`);
   }
