@@ -10,7 +10,7 @@ import * as bcrypt from 'bcryptjs';
  *
  * Populates 4 independent tenant schools with complete, connected domain graphs:
  * - Plans & School Subscriptions
- * - School Admins, Drivers, Conductors, Parents (all with simple passwords = email)
+ * - School Admins, Drivers, Conductors, Parents with hashed local-demo credentials
  * - 3 Buses per school (12 total)
  * - 3 Routes per school (12 total)
  * - Stops per route (15 stops per school)
@@ -31,7 +31,7 @@ import * as bcrypt from 'bcryptjs';
  * - Import Job History
  *
  * Idempotent (ON CONFLICT DO NOTHING), safe to re-run.
- * Refuses to run in production.
+ * Refuses production and requires ALLOW_DEMO_SEED=1 for every run.
  */
 
 const options: QueryOptions & { ignoreDuplicates?: boolean } = { ignoreDuplicates: true };
@@ -284,7 +284,7 @@ export const SCHOOL_CONFIGS: SchoolConfig[] = [
     name: 'Green Valley International School',
     code: 'green-valley',
     subdomain: 'green-valley',
-    adminEmail: 'green@gmail.com',
+    adminEmail: 'green@example.test',
     adminName: { first: 'Anil', last: 'Kumar' },
     planId: PLAN_IDS.ENTERPRISE,
     phone: '+91-9876543210',
@@ -305,7 +305,7 @@ export const SCHOOL_CONFIGS: SchoolConfig[] = [
     name: 'Riverside Public School',
     code: 'riverside-public',
     subdomain: 'riverside-public',
-    adminEmail: 'riverside@gmail.com',
+    adminEmail: 'riverside@example.test',
     adminName: { first: 'Priya', last: 'Sharma' },
     planId: PLAN_IDS.PRO,
     phone: '+91-9876543211',
@@ -326,7 +326,7 @@ export const SCHOOL_CONFIGS: SchoolConfig[] = [
     name: 'Oakwood Academy',
     code: 'oakwood-academy',
     subdomain: 'oakwood-academy',
-    adminEmail: 'oakwood@gmail.com',
+    adminEmail: 'oakwood@example.test',
     adminName: { first: 'Rahul', last: 'Verma' },
     planId: PLAN_IDS.GROWTH,
     phone: '+91-9876543212',
@@ -347,7 +347,7 @@ export const SCHOOL_CONFIGS: SchoolConfig[] = [
     name: 'Maple Leaf Central School',
     code: 'maple-leaf-central',
     subdomain: 'maple-leaf-central',
-    adminEmail: 'maple@gmail.com',
+    adminEmail: 'maple@example.test',
     adminName: { first: 'Sneha', last: 'Patel' },
     planId: PLAN_IDS.BASIC,
     phone: '+91-9876543213',
@@ -540,10 +540,17 @@ async function relabelDemoPlanCurrency(queryInterface: QueryInterface): Promise<
   );
 }
 
-export async function up(queryInterface: QueryInterface): Promise<void> {
+function assertDemoSeedAllowed(): void {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('Refusing to insert seed test data into a production database.');
+    throw new Error('Refusing to run demo or dummy seed data in production.');
   }
+  if (process.env.ALLOW_DEMO_SEED !== '1') {
+    throw new Error('Set ALLOW_DEMO_SEED=1 to run demo or dummy seed data.');
+  }
+}
+
+export async function up(queryInterface: QueryInterface): Promise<void> {
+  assertDemoSeedAllowed();
 
   // ---------------------------------------------------------------------------
   // 0. CLEANUP: Remove any existing data from previous runs to ensure clean state
@@ -642,7 +649,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       { first: 'Manoj', last: 'Kumar' },
     ];
     for (let d = 0; d < 3; d++) {
-      const email = `driver${d + 1}.${slug}@gmail.com`;
+      const email = `driver${d + 1}.${slug}@example.test`;
       allUsers.push({
         id: makeUuid(sIdx, 3, d + 1),
         school_id: cfg.id,
@@ -664,7 +671,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       { first: 'Vikas', last: 'Shinde' },
     ];
     for (let c = 0; c < 3; c++) {
-      const email = `conductor${c + 1}.${slug}@gmail.com`;
+      const email = `conductor${c + 1}.${slug}@example.test`;
       allUsers.push({
         id: makeUuid(sIdx, 4, c + 1),
         school_id: cfg.id,
@@ -682,7 +689,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     // 26 Parents
     for (let p = 0; p < 26; p++) {
       const parentLastName = LAST_NAMES[p % LAST_NAMES.length];
-      const email = `parent${p + 1}.${slug}@gmail.com`;
+      const email = `parent${p + 1}.${slug}@example.test`;
       allUsers.push({
         id: makeUuid(sIdx, 5, p + 1),
         school_id: cfg.id,
@@ -698,7 +705,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
     }
   }
 
-  // Pre-hash distinct passwords (Password = Email)
+  // Pre-hash distinct local-demo credentials.
   const passwordMap = new Map<string, string>();
   await Promise.all(
     allUsers.map(async (u) => {
@@ -1802,45 +1809,13 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   await queryInterface.bulkInsert('import_jobs', allImportJobs, options);
 
   // ---------------------------------------------------------------------------
-  // 17. CONSOLE OUTPUT
-  // ---------------------------------------------------------------------------
-  console.log('\n' + '='.repeat(80));
-  console.log('🚀 SCHOOL BUS TRACKING — COMPLETE SEED DATA GENERATED SUCCESSFULLY');
-  console.log('='.repeat(80));
-
-  // No credentials in log output: these lines can end up in CI/container logs.
-  console.log('\n👑 PLATFORM SUPER ADMIN:');
-  console.log('   Role        : SUPER_ADMIN (Platform Console / All Schools)');
-  console.log('   School Code : (Leave blank on login page)');
-  console.log('   Status      : Seeded. Credentials are NOT printed to logs.');
-  console.log('   Login URL   : /login');
-
-  console.log('\n' + '-'.repeat(80));
-  console.log('🏫 4 SEEDED SCHOOLS WITH COMPLETE CONNECTED DATA:');
-  console.log('-'.repeat(80));
-
-  SCHOOL_CONFIGS.forEach((cfg) => {
-    console.log(`\n🏫 School ${cfg.index}: ${cfg.name}`);
-    console.log(`   School Code : ${cfg.code}`);
-    console.log(`   Admin Name  : ${cfg.adminName.first} ${cfg.adminName.last}`);
-    console.log(`   Admin Email : ${cfg.adminEmail}`);
-    console.log('   Password    : (not printed — see the seed credentials store)');
-    console.log(
-      `   City / Plan : ${cfg.city}, ${cfg.state} (${cfg.planId === PLAN_IDS.ENTERPRISE ? 'Enterprise' : cfg.planId === PLAN_IDS.PRO ? 'Pro' : cfg.planId === PLAN_IDS.GROWTH ? 'Growth' : 'Basic'})`,
-    );
-    console.log(
-      `   Data Seeded : 52 Students | 3 Buses | 3 Routes | 3 Runs | 3 Shifts | 15 Stops | 3 Drivers | 3 Conductors | 26 Parents | 3 Trips | Attendance & GPS`,
-    );
-  });
-
-  console.log('\n' + '-'.repeat(80));
-  console.log('🔑 CREDENTIALS FOR ALL SEEDED ACCOUNTS:');
-  console.log('   Passwords are NOT printed to logs. Retrieve them from the');
-  console.log('   seed configuration / credentials store used to run this seeder.');
-  console.log('='.repeat(80) + '\n');
+  // Keep seed output free of account details and credentials.
+  console.log('Demo school seed completed.');
+  console.log(`Schools seeded: ${SCHOOL_CONFIGS.length}.`);
 }
 
 export async function down(queryInterface: QueryInterface): Promise<void> {
+  assertDemoSeedAllowed();
   for (const cfg of SCHOOL_CONFIGS) {
     await purgeSchool(queryInterface, cfg.id);
     // Also undo anything left behind by the pre-fix id scheme.

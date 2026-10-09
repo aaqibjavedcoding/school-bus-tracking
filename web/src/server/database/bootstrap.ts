@@ -111,12 +111,16 @@ export function assertSequelizeModelsInitialized(): void {
  * Schema changes come from migrations only — `synchronize` is always false.
  */
 export function createSequelize(configService: ConfigService): Sequelize {
+  if (process.env.NODE_ENV === 'production' && !process.env.DB_PASSWORD?.trim()) {
+    throw new Error('DB_PASSWORD is required in production.');
+  }
+
   return new Sequelize({
     dialect: 'postgres',
     host: configService.get<string>('database.host', 'localhost'),
     port: configService.get<number>('database.port', 5432),
     username: configService.get<string>('database.username', 'postgres'),
-    password: configService.get<string>('database.password', 'postgres'),
+    password: configService.get<string>('database.password'),
     database: configService.get<string>('database.name', 'school_bus_tracking'),
     models: [...models],
     logging: configService.get<boolean>('database.logging', false)

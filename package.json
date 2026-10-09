@@ -28,7 +28,8 @@
     "test:changed": "node scripts/run-specs.mjs all --changed",
     "test:scope": "node scripts/run-specs.mjs all --filter",
     "test:guards": "node scripts/run-specs.mjs guards",
-    "test:list": "node scripts/run-specs.mjs all --list"
+    "test:list": "node scripts/run-specs.mjs all --list",
+    "admin:set-super-password": "npm --prefix web run admin:set-super-password"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

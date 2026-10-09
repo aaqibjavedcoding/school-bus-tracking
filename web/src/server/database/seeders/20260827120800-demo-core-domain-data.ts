@@ -96,10 +96,17 @@ const timestamps = { created_at: TIMESTAMP, updated_at: TIMESTAMP };
  */
 const options: QueryOptions & { ignoreDuplicates?: boolean } = { ignoreDuplicates: true };
 
-export async function up(queryInterface: QueryInterface): Promise<void> {
+function assertDemoSeedAllowed(): void {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('Refusing to insert demo seed data into a production database.');
+    throw new Error('Refusing to run demo or dummy seed data in production.');
   }
+  if (process.env.ALLOW_DEMO_SEED !== '1') {
+    throw new Error('Set ALLOW_DEMO_SEED=1 to run demo or dummy seed data.');
+  }
+}
+
+export async function up(queryInterface: QueryInterface): Promise<void> {
+  assertDemoSeedAllowed();
 
   await queryInterface.bulkInsert(
     'schools',
@@ -490,6 +497,7 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
 }
 
 export async function down(queryInterface: QueryInterface): Promise<void> {
+  assertDemoSeedAllowed();
   const scope = { school_id: DEMO_SCHOOL_ID };
 
   // Children first: the demo tenant's rows are removed in reverse dependency

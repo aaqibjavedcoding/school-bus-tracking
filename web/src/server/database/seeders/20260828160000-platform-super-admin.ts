@@ -2,6 +2,7 @@
 
 import type { QueryInterface, QueryOptions } from 'sequelize';
 import * as bcrypt from 'bcryptjs';
+import { normalizeSuperAdminEmail, validateSuperAdminPassword } from '../super-admin-password';
 
 /**
  * DEV SEED — platform SUPER_ADMIN bootstrap account.
@@ -11,28 +12,22 @@ import * as bcrypt from 'bcryptjs';
  *
  * Guarantees:
  * - Idempotent: fixed UUID + `ON CONFLICT DO NOTHING`, so re-running it never duplicates.
- * - Password pattern: Password is identical to Email (`superadmin@gmail.com`).
+ * - Credentials are required from the environment in every environment.
  * - Reversible: `down` deletes the seeded row.
  */
 
 const SUPER_ADMIN_ID = '00000000-0000-4000-8000-000000000099';
-const DEFAULT_DEV_EMAIL = 'superadmin@gmail.com';
-const DEFAULT_DEV_PASSWORD = 'superadmin@gmail.com';
 const TIMESTAMP = new Date('2026-08-28T00:00:00.000Z');
 
 const options: QueryOptions & { ignoreDuplicates?: boolean } = { ignoreDuplicates: true };
 
 export async function up(queryInterface: QueryInterface): Promise<void> {
-  const email = (process.env.SUPER_ADMIN_EMAIL || DEFAULT_DEV_EMAIL).trim().toLowerCase();
-  const password = process.env.SUPER_ADMIN_PASSWORD || DEFAULT_DEV_PASSWORD;
-
-  if (process.env.NODE_ENV === 'production') {
-    if (!process.env.SUPER_ADMIN_EMAIL || !process.env.SUPER_ADMIN_PASSWORD) {
-      throw new Error(
-        'Refusing to seed the platform super admin in production without explicit SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD.',
-      );
-    }
+  const email = normalizeSuperAdminEmail(process.env.SUPER_ADMIN_EMAIL);
+  const password = process.env.SUPER_ADMIN_PASSWORD;
+  if (password === undefined || password.length === 0) {
+    throw new Error('SUPER_ADMIN_PASSWORD is required.');
   }
+  validateSuperAdminPassword(email, password);
 
   const passwordHash = await bcrypt.hash(password, 12);
 

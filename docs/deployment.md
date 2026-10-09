@@ -278,26 +278,46 @@ npm run build
 
 ## Database Setup
 
+**Production databases are never seeded.** Production deploys apply schema migrations only:
+
 ```bash
-# Run migrations
 cd web
 npm run db:migrate
+```
 
-# Seed initial data (optional)
-npm run db:seed
+Demo and dummy seeders are development/test fixtures. They refuse to run in production and require
+`ALLOW_DEMO_SEED=1` for every run. To seed a local database, first set `SUPER_ADMIN_EMAIL` and
+`SUPER_ADMIN_PASSWORD` in the local environment; the password must contain at least 16 characters
+and must not equal the email. Then run:
+
+```bash
+cd web
+ALLOW_DEMO_SEED=1 npm run db:seed
 ```
 
 > **Seeded ids must be valid v4 UUIDs.** Every primary key in this system is a
 > v4 UUID (`BaseModel` declares `@IsUUID(4)` with a `UUIDV4` default, the DTOs
 > validate ids with `@IsUUID('4')`, and the route handlers re-check path
-> segments with `parseUuidParam()`). PostgreSQL's `uuid` type only checks that
-> a value is 32 hex digits, so a seeder can write ids the API then rejects —
-> which is how a demo tenant once ended up returning
-> `Validation failed (uuid is expected)` from Super Admin → Schools →
-> "Manage data". `npm run smoke:seed-uuids` dry-runs the demo seeder without a
-> database and fails if any generated id or foreign key breaks that contract.
-> If a database was seeded before this was fixed, re-running `npm run db:seed`
-> replaces the affected rows.
+> segments with `parseUuidParam()`). PostgreSQL's `uuid` column type only checks that
+> a value is 32 hex digits, so a seeder can write ids the API then rejects.
+> `npm run smoke:seed-uuids` dry-runs the demo seeder without a database and
+> fails if any generated id or foreign key breaks that contract. If a local
+> database was seeded before a UUID fix, rerun the local seeder to replace the
+> affected rows.
+
+## Rotate the platform super admin password
+
+1. In Render, confirm the latest deploy contains the `admin:set-super-password` command.
+2. In Render → Environment, set `SUPER_ADMIN_EMAIL` to the current platform super-admin email and
+   `NEW_SUPER_ADMIN_PASSWORD` to a new password of at least 16 characters that is not the email.
+3. In Render → Shell, run `npm run admin:set-super-password` once. A successful run prints only
+   `updated`; if the matching platform account is not exactly one row, the command stops with an error.
+4. In GitHub → repository → Settings → Secrets and variables → Actions, update
+   `OSRM_PLATFORM_PASSWORD` to the same new password.
+5. In Render → Environment, delete `NEW_SUPER_ADMIN_PASSWORD` after the rotation.
+
+Never run seeders against production. The rotation command updates the existing `SUPER_ADMIN` row;
+it does not create accounts or require a database migration.
 
 ## Start
 
@@ -406,8 +426,8 @@ What the compose stack provides and why:
 
 - **Migrations first.** A `migrate` container runs `npm run db:migrate` against
   the healthy database and exits; `app` starts only after it completes
-  successfully. Seeding remains optional
-  (`docker compose --env-file .env.production -f docker-compose.prod.yml run --rm app npm run db:seed`).
+  successfully. Production databases are never seeded; demo and dummy seeders
+  are restricted to opted-in development/test environments.
 - **TLS to the database.** The production startup guard requires `DB_SSL=true`.
   A one-shot `db-tls-init` container generates a self-signed certificate into
   a volume (the key is never committed) and PostgreSQL enables TLS on the
