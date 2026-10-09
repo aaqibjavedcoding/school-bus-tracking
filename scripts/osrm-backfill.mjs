@@ -4,7 +4,7 @@
  * OSRM engine, through the public API. 100% free and keyless: the engine is
  * the self-hosted BSD-2 OSRM container, the API is ours.
  *
- * Two modes, chosen by ADMIN_MODE:
+ * Three modes, selected by ADMIN_MODE and CHECK_ONLY:
  *
  * ## ADMIN_MODE=school (default) — one school, one SCHOOL_ADMIN token
  *
@@ -22,7 +22,7 @@
  * stop list (the platform list already carries those stops, so no school
  * read is needed — and the SUPER_ADMIN has none):
  *
- *   1. GET  /admin/routes/geometry/missing?page&limit          (all pages, snapshot)
+ *   1. GET  /admin/routes/geometry/missing?page&limit[&bbox]   (all pages, snapshot)
  *   2. GET  {OSRM}/route/v1/driving/…  per route               (on this runner)
  *   3. PUT  /admin/routes/:id/geometry                         (server pins the key)
  *   4. GET  /admin/routes/geometry/missing                     (re-check: what is left)
@@ -33,6 +33,22 @@
  * the map keeps the dashed line for them. New routes added later are picked
  * up by the next run; routes already cached are never touched.
  *
+ * ## CHECK_ONLY=1 + ADMIN_MODE=platform — preflight only, no graph, no engine
+ *
+ * Warms the API (because Render sleeps), signs in as SUPER_ADMIN with the
+ * e-mail + password secrets, walks the missing list (passing `bbox` when
+ * `BBOX` is set), prints a per-school table (missing, outside bbox, fillable)
+ * plus the top 20 outside-bbox routes and the deployed commit, writes the
+ * same to the GitHub step summary, and emits `needs_run=true|false` to
+ * `$GITHUB_OUTPUT` (where `needs_run = fillable > 0`). The script exits 0
+ * when the check itself worked, even when `needs_run=false` — a clean
+ * nothing-to-do result is success, not failure.
+ *
+ *   404        → exit 1: the API has no platform endpoints. Deploy main first.
+ *   401 / 403  → exit 1: the account is not a SUPER_ADMIN, or the password
+ *                     was just rotated. Fix the OSRM_PLATFORM_* secrets.
+ *   network or cold start → 6 tries 20 s apart, the last error wins.
+ *
  * The PUT body is the engine's own vocabulary mapped onto the API's
  * (`RouteGeometryStoreRequest`): the server keys the row by the route's
  * CURRENT stop list, so the next read is a cache hit by construction. In
@@ -41,7 +57,16 @@
  * dropped via the recompute endpoint, so a wrong polyline is never left
  * cached under a key it was not computed for.
  *
- * Usage:
+ * Usage (school backfill — the default):
+ *
+ *   OSRM_BASE=http://localhost:5000 \
+ *   API_BASE=https://kidbus.onrender.com/api/v1 \
+ *   ADMIN_TOKEN=<SCHOOL_ADMIN access token> \
+ *   node scripts/osrm-backfill.mjs
+ *
+ *   (`node scripts/osrm-backfill.mjs [routeId …]` takes optional route ids)
+ *
+ * Usage (platform backfill):
  *
  *   OSRM_BASE=http://localhost:5000 \
  *   API_BASE=https://kidbus.onrender.com/api/v1 \
@@ -49,19 +74,44 @@
  *   ADMIN_TOKEN=<SUPER_ADMIN access token> \
  *   node scripts/osrm-backfill.mjs
  *
- *   (school mode, the default: ADMIN_TOKEN is a SCHOOL_ADMIN token, and
- *   `node scripts/osrm-backfill.mjs [routeId …]` takes optional route ids)
+ * Usage (preflight / dry-run check, the workflow calls this in the
+ * `preflight` step before it pays the 15-minute graph build):
+ *
+ *   API_BASE=https://kidbus.onrender.com/api/v1 \
+ *   ADMIN_MODE=platform \
+ *   CHECK_ONLY=1 \
+ *   PLATFORM_EMAIL=<SUPER_ADMIN e-mail> \
+ *   PLATFORM_PASSWORD=<SUPER_ADMIN password> \
+ *   [BBOX=78.60,20.70,79.60,21.60] \
+ *   node scripts/osrm-backfill.mjs
  *
  * Environment:
- *   ADMIN_MODE   `school` (default) or `platform`. Anything else exits 1.
- *   API_BASE     API base URL, e.g. https://host/api/v1. Required.
- *   ADMIN_TOKEN  Bearer access token (CSRF-exempt): a SCHOOL_ADMIN token in
- *                school mode, a SUPER_ADMIN token in platform mode. Required.
- *   OSRM_BASE    Routing engine base URL. Default http://localhost:5000.
- *   ROUTE_IDS    School mode only: comma-separated route ids — alternative to
- *                argv. When set (or argv ids are given) exactly those routes
- *                are (re)filled; otherwise every route of the school missing
- *                geometry. Platform mode ignores it (with a notice).
+ *   ADMIN_MODE          `school` (default) or `platform`. Anything else exits 1.
+ *   API_BASE            API base URL, e.g. https://host/api/v1. Required.
+ *   ADMIN_TOKEN         Bearer access token (CSRF-exempt): a SCHOOL_ADMIN
+ *                       token in school mode, a SUPER_ADMIN token in
+ *                       platform mode. NOT required when CHECK_ONLY=1 (the
+ *                       check signs in itself).
+ *   CHECK_ONLY          `1` to run the preflight only; honoured only when
+ *                       ADMIN_MODE=platform. Mutually exclusive with the
+ *                       actual backfill (the script does not start the
+ *                       engine or call /route).
+ *   OSRM_BASE           Routing engine base URL. Default http://localhost:5000.
+ *                       Not consulted when CHECK_ONLY=1.
+ *   ROUTE_IDS           School mode only: comma-separated route ids — alter-
+ *                       native to argv. When set (or argv ids are given)
+ *                       exactly those routes are (re)filled; otherwise every
+ *                       route of the school missing geometry. Platform mode
+ *                       and check mode ignore it.
+ *   PLATFORM_EMAIL      Check mode only: SUPER_ADMIN e-mail passed to
+ *                       POST /auth/login.
+ *   PLATFORM_PASSWORD   Check mode only: SUPER_ADMIN password.
+ *   BBOX                Check mode and the platform backfill's listing only:
+ *                       `minLon,minLat,maxLon,maxLat` of the OSM extract the
+ *                       engine is built from. When set, the response tags
+ *                       every missing route with `stopsOutsideBbox` and the
+ *                       per-school / platform totals carry `outsideBbox` and
+ *                       `fillable`. A malformed box is 400.
  *
  * Exit code: 0 when every targeted route ended verified (routes the engine
  * cannot route are reported but do not fail the run — that is the documented
@@ -69,9 +119,11 @@
  * the dashed stop-to-stop line), 1 on API/transport failures or an invalid
  * configuration. A 401/403 in platform mode stops the run at once: the access
  * token has expired or the account is not a SUPER_ADMIN — re-run, and routes
- * already filled are skipped.
+ * already filled are skipped. A 404 on the missing list endpoint in check
+ * mode is the operator's signal that the API deployment does not yet carry
+ * the platform endpoints.
  */
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 
 const API_BASE = (process.env.API_BASE ?? '').replace(/\/+$/, '');
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
@@ -84,17 +136,68 @@ if (ADMIN_MODE !== 'school' && ADMIN_MODE !== 'platform') {
   process.exit(1);
 }
 
+/** `1` to run the preflight only; honoured only with ADMIN_MODE=platform. */
+const CHECK_ONLY = (process.env.CHECK_ONLY ?? '').trim() === '1';
+
 if (!API_BASE) {
   console.error('ERROR: API_BASE is required (e.g. https://host/api/v1).');
   process.exit(1);
 }
-if (!ADMIN_TOKEN) {
-  console.error(
-    ADMIN_MODE === 'platform'
-      ? 'ERROR: ADMIN_TOKEN is required (a SUPER_ADMIN access token, signed in without a school).'
-      : 'ERROR: ADMIN_TOKEN is required (a SCHOOL_ADMIN access token).',
-  );
+if (CHECK_ONLY && ADMIN_MODE !== 'platform') {
+  console.error('ERROR: CHECK_ONLY=1 is only supported with ADMIN_MODE=platform.');
   process.exit(1);
+}
+
+/**
+ * Resolve the bearer token the script will use.
+ *
+ * Three paths, in priority order:
+ *  1. A pre-signed `ADMIN_TOKEN` (school mode and the existing fast path).
+ *  2. `PLATFORM_EMAIL` + `PLATFORM_PASSWORD`: the script signs in itself.
+ *     This is what the workflow uses for the platform backfill step,
+ *     because the preflight's token has a 15-minute lifetime and the
+ *     graph build can eat most of it on a slow runner.
+ *  3. None: exit 1 with the same message the original script had.
+ */
+let resolvedToken = ADMIN_TOKEN;
+if (!CHECK_ONLY && !resolvedToken) {
+  if (ADMIN_MODE === 'school') {
+    console.error('ERROR: ADMIN_TOKEN is required (a SCHOOL_ADMIN access token).');
+    process.exit(1);
+  }
+  const email = (process.env.PLATFORM_EMAIL ?? '').trim();
+  const password = process.env.PLATFORM_PASSWORD ?? '';
+  if (!email || !password) {
+    console.error(
+      'ERROR: ADMIN_TOKEN is required (a SUPER_ADMIN access token), or set PLATFORM_EMAIL + PLATFORM_PASSWORD to sign in here.',
+    );
+    process.exit(1);
+  }
+  console.log('Signing in as SUPER_ADMIN…');
+  try {
+    const { status, body } = await apiCall('POST', '/auth/login', { email, password });
+    if (status === 401 || status === 403) {
+      console.error(
+        'Sign-in or role problem. The account must be SUPER_ADMIN. Check OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD.',
+      );
+      process.exit(1);
+    }
+    if (status !== 200 || !body?.success) {
+      console.error(`ERROR: POST /auth/login failed (${status}): ${JSON.stringify(body)}`);
+      process.exit(1);
+    }
+    const token = body?.data?.access_token;
+    if (typeof token !== 'string' || token.length === 0) {
+      console.error(`ERROR: POST /auth/login returned no access_token: ${JSON.stringify(body)}`);
+      process.exit(1);
+    }
+    resolvedToken = token;
+  } catch (error) {
+    console.error(
+      `ERROR: sign-in failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
 }
 
 const explicitIds = [
@@ -105,12 +208,15 @@ const explicitIds = [
     .filter(Boolean),
 ];
 
+/** Optional bbox query string for the platform list. */
+const BBOX = (process.env.BBOX ?? '').trim();
+
 /** One API call; throws on transport errors, returns { status, body }. */
-async function apiCall(method, path, body) {
+async function apiCall(method, path, body, token) {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${ADMIN_TOKEN}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
@@ -372,13 +478,22 @@ const MISSING_PATH = '/admin/routes/geometry/missing';
 /** The token was refused (expired, or not a SUPER_ADMIN): the run stops. */
 class AuthRefusedError extends Error {}
 
+/** The platform list endpoint is not on this deployment (404): the run stops. */
+class PlatformMissing404Error extends Error {}
+
 /** One API call in platform mode: a 401/403 aborts the run at once. */
-async function platformCall(method, path, body) {
-  const result = await apiCall(method, path, body);
+async function platformCall(method, path, body, token) {
+  const result = await apiCall(method, path, body, token);
   if (result.status === 401 || result.status === 403) {
     throw new AuthRefusedError(
       `${method} ${path} answered ${result.status}: the access token is expired or is not a SUPER_ADMIN token. ` +
         'Re-run the workflow — routes already filled are skipped.',
+    );
+  }
+  if (result.status === 404) {
+    throw new PlatformMissing404Error(
+      `${method} ${path} answered 404: this API has no platform endpoints. ` +
+        'Deploy main first, then re-run.',
     );
   }
   return result;
@@ -389,17 +504,19 @@ async function platformCall(method, path, body) {
  * per-school counts and the platform totals of the first page (those cover
  * ALL schools, whatever the page size).
  */
-async function listAllMissing() {
+async function listAllMissing(token) {
   const routes = new Map();
   let schools = [];
   let totals = null;
   for (let page = 1; ; page += 1) {
-    const { status, body } = await platformCall(
-      'GET',
-      `${MISSING_PATH}?page=${page}&limit=${PLATFORM_PAGE_SIZE}`,
-    );
+    const path = `${MISSING_PATH}?page=${page}&limit=${PLATFORM_PAGE_SIZE}${
+      BBOX ? `&bbox=${encodeURIComponent(BBOX)}` : ''
+    }`;
+    const { status, body } = await platformCall('GET', path, undefined, token);
     if (status !== 200 || !body?.success) {
-      throw new Error(`GET ${MISSING_PATH} page ${page} failed (${status}): ${JSON.stringify(body)}`);
+      throw new Error(
+        `GET ${MISSING_PATH} page ${page} failed (${status}): ${JSON.stringify(body)}`,
+      );
     }
     if (page === 1) {
       schools = Array.isArray(body.data?.schools) ? body.data.schools : [];
@@ -474,6 +591,9 @@ async function runPlatformBackfill() {
   console.log('OSRM route-geometry backfill (ADMIN_MODE=platform — every school, one credential)');
   console.log(`  api    : ${API_BASE}`);
   console.log(`  engine : ${OSRM_BASE}`);
+  if (BBOX) {
+    console.log(`  bbox   : ${BBOX}`);
+  }
   if (explicitIds.length > 0) {
     console.log(
       `::notice::ROUTE_IDS is school-mode only and is ignored in platform mode (${explicitIds.length} id(s) given).`,
@@ -481,11 +601,14 @@ async function runPlatformBackfill() {
   }
 
   console.log('\nListing the routes still missing road geometry (every school)…');
-  const before = await listAllMissing();
+  const before = await listAllMissing(resolvedToken);
   if (before.totals) {
     console.log(
       `  routes  : ${before.totals.routes_total} across ${before.schools.length} school(s) — ` +
-        `${before.totals.routes_cached} cached, ${before.totals.routes_unlocated} with fewer than two located stops`,
+        `${before.totals.routes_cached} cached, ${before.totals.routes_unlocated} with fewer than two located stops` +
+        (BBOX && before.totals.outsideBbox !== null
+          ? `, ${before.totals.outsideBbox} with at least one stop outside the bbox`
+          : ''),
     );
   }
   console.log(`  missing : ${before.routes.length}\n`);
@@ -495,7 +618,17 @@ async function runPlatformBackfill() {
   const rowFor = (schoolId, schoolName) => {
     let row = ledger.get(schoolId);
     if (!row) {
-      row = { school_id: schoolId, school_name: schoolName, missing: 0, filled: 0, noRoute: 0, failed: 0, left: 0 };
+      row = {
+        school_id: schoolId,
+        school_name: schoolName,
+        missing: 0,
+        outsideBbox: 0,
+        fillable: 0,
+        filled: 0,
+        noRoute: 0,
+        failed: 0,
+        left: 0,
+      };
       ledger.set(schoolId, row);
     }
     return row;
@@ -503,6 +636,17 @@ async function runPlatformBackfill() {
   for (const school of before.schools) {
     const row = rowFor(school.school_id, school.school_name);
     row.missing = school.routes_missing;
+    if (BBOX && school.outsideBbox !== null) {
+      row.outsideBbox = school.outsideBbox;
+      row.fillable = school.fillable ?? 0;
+    } else {
+      // Without a bbox every missing route is "fillable" by this service's
+      // view; the engine still gets to say NoRoute per route, the way path C
+      // has always worked. The preflight / dry-run table makes the same
+      // assumption and that is why a `BBOX` matters: it cuts the engine
+      // questions that have no road for them.
+      row.fillable = school.routes_missing;
+    }
   }
 
   const failures = [];
@@ -529,6 +673,7 @@ async function runPlatformBackfill() {
       'PUT',
       `/admin/routes/${encodeURIComponent(item.route_id)}/geometry`,
       toStoreBody(outcome.route),
+      resolvedToken,
     );
     if (put.status !== 200 || !put.body?.success) {
       row.failed += 1;
@@ -544,10 +689,14 @@ async function runPlatformBackfill() {
       const dropped = await platformCall(
         'POST',
         `/admin/routes/${encodeURIComponent(item.route_id)}/geometry/recompute`,
+        undefined,
+        resolvedToken,
       );
       row.failed += 1;
       const dropNote =
-        dropped.status === 200 ? 'the mismatched row was dropped' : `could not drop it (${dropped.status})`;
+        dropped.status === 200
+          ? 'the mismatched row was dropped'
+          : `could not drop it (${dropped.status})`;
       failures.push(`${label}: its stops changed during the run; ${dropNote} — re-run to fill it`);
       console.log(`  x ${label}  stops changed during the run; ${dropNote}`);
       continue;
@@ -560,12 +709,14 @@ async function runPlatformBackfill() {
   }
 
   console.log('\nRe-checking the missing list…');
-  const after = await listAllMissing();
+  const after = await listAllMissing(resolvedToken);
   const stillMissing = new Set(after.routes.map((route) => route.route_id));
   for (const { item, row } of written) {
     if (stillMissing.has(item.route_id)) {
       row.failed += 1;
-      failures.push(`${item.route_id} (${item.school_name}): stored, but still missing on the re-check`);
+      failures.push(
+        `${item.route_id} (${item.school_name}): stored, but still missing on the re-check`,
+      );
     } else {
       row.filled += 1;
     }
@@ -577,31 +728,75 @@ async function runPlatformBackfill() {
 
   const rows = [...ledger.values()]
     .filter((row) => row.missing > 0 || row.left > 0)
-    .sort((a, b) => a.school_name.localeCompare(b.school_name) || a.school_id.localeCompare(b.school_id));
+    .sort(
+      (a, b) =>
+        a.school_name.localeCompare(b.school_name) || a.school_id.localeCompare(b.school_id),
+    );
   const total = rows.reduce(
     (sum, row) => ({
       missing: sum.missing + row.missing,
+      outsideBbox: sum.outsideBbox + row.outsideBbox,
+      fillable: sum.fillable + row.fillable,
       filled: sum.filled + row.filled,
       noRoute: sum.noRoute + row.noRoute,
       failed: sum.failed + row.failed,
       left: sum.left + row.left,
     }),
-    { missing: 0, filled: 0, noRoute: 0, failed: 0, left: 0 },
+    { missing: 0, outsideBbox: 0, fillable: 0, filled: 0, noRoute: 0, failed: 0, left: 0 },
   );
 
   console.log('\nSummary (per school):');
   if (rows.length === 0) {
     console.log('  nothing to fill — every routable route already has a cached geometry.');
   } else {
-    const headers = ['school', 'missing', 'filled', 'no road', 'failed', 'left'];
-    const body = rows.map((row) => [row.school_name, row.missing, row.filled, row.noRoute, row.failed, row.left]);
-    body.push(['TOTAL', total.missing, total.filled, total.noRoute, total.failed, total.left]);
+    const headers = BBOX
+      ? ['school', 'missing', 'outside', 'fillable', 'filled', 'no road', 'failed', 'left']
+      : ['school', 'missing', 'filled', 'no road', 'failed', 'left'];
+    const body = rows.map((row) =>
+      BBOX
+        ? [
+            row.school_name,
+            row.missing,
+            row.outsideBbox,
+            row.fillable,
+            row.filled,
+            row.noRoute,
+            row.failed,
+            row.left,
+          ]
+        : [row.school_name, row.missing, row.filled, row.noRoute, row.failed, row.left],
+    );
+    const totalRow = BBOX
+      ? [
+          'TOTAL',
+          total.missing,
+          total.outsideBbox,
+          total.fillable,
+          total.filled,
+          total.noRoute,
+          total.failed,
+          total.left,
+        ]
+      : ['TOTAL', total.missing, total.filled, total.noRoute, total.failed, total.left];
+    body.push(totalRow);
     for (const line of consoleTable(headers, body)) console.log(`  ${line}`);
   }
-  console.log('\n  filled   = stored and verified by the re-check (a cache hit on the current stops)');
-  console.log('  no road  = the engine has no road for these stops (dashed-line fallback; not a failure)');
+  console.log(
+    '\n  filled   = stored and verified by the re-check (a cache hit on the current stops)',
+  );
+  console.log(
+    '  no road  = the engine has no road for these stops (dashed-line fallback; not a failure)',
+  );
   console.log('  failed   = engine, transport or API trouble — re-run the workflow');
-  console.log('  left     = still missing after this run (no road + failed + anything the re-check still lists)');
+  console.log(
+    '  left     = still missing after this run (no road + failed + anything the re-check still lists)',
+  );
+  if (BBOX) {
+    console.log(
+      '  outside  = missing routes with at least one stop outside the bbox (not fillable)',
+    );
+    console.log('  fillable = missing routes whose stops are all inside the bbox');
+  }
   if (failures.length > 0) {
     console.log('\nFailures:');
     for (const failure of failures) console.log(`  - ${failure}`);
@@ -612,23 +807,39 @@ async function runPlatformBackfill() {
     const lines = [
       '## OSRM route-geometry backfill — platform (every school)',
       '',
-      `Routes missing at start: **${total.missing}** · filled (verified): **${total.filled}** · no road route: **${total.noRoute}** · failed: **${total.failed}** · left: **${total.left}**`,
+      `Routes missing at start: **${total.missing}** · filled (verified): **${total.filled}** · no road route: **${total.noRoute}** · failed: **${total.failed}** · left: **${total.left}**` +
+        (BBOX ? ` · outside bbox: **${total.outsideBbox}** · fillable: **${total.fillable}**` : ''),
       '',
     ];
     if (rows.length > 0) {
-      lines.push(
-        '| School | Missing | Filled | No road route | Failed | Left |',
-        '| --- | ---: | ---: | ---: | ---: | ---: |',
-      );
+      const tableHeaders = BBOX
+        ? '| School | Missing | Outside | Fillable | Filled | No road route | Failed | Left |'
+        : '| School | Missing | Filled | No road route | Failed | Left |';
+      const tableDivider = BBOX
+        ? '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+        : '| --- | ---: | ---: | ---: | ---: | ---: |';
+      lines.push(tableHeaders, tableDivider);
       for (const row of rows) {
+        if (BBOX) {
+          lines.push(
+            `| ${cell(row.school_name)} | ${row.missing} | ${row.outsideBbox} | ${row.fillable} | ${row.filled} | ${row.noRoute} | ${row.failed} | ${row.left} |`,
+          );
+        } else {
+          lines.push(
+            `| ${cell(row.school_name)} | ${row.missing} | ${row.filled} | ${row.noRoute} | ${row.failed} | ${row.left} |`,
+          );
+        }
+      }
+      if (BBOX) {
         lines.push(
-          `| ${cell(row.school_name)} | ${row.missing} | ${row.filled} | ${row.noRoute} | ${row.failed} | ${row.left} |`,
+          `| **TOTAL** | **${total.missing}** | **${total.outsideBbox}** | **${total.fillable}** | **${total.filled}** | **${total.noRoute}** | **${total.failed}** | **${total.left}** |`,
+        );
+      } else {
+        lines.push(
+          `| **TOTAL** | **${total.missing}** | **${total.filled}** | **${total.noRoute}** | **${total.failed}** | **${total.left}** |`,
         );
       }
-      lines.push(
-        `| **TOTAL** | **${total.missing}** | **${total.filled}** | **${total.noRoute}** | **${total.failed}** | **${total.left}** |`,
-        '',
-      );
+      lines.push('');
     }
     lines.push(
       '`filled` = stored and confirmed by the re-check. `no road route` = OSRM has no road for the stops (dashed-line fallback). `failed` = re-run the workflow.',
@@ -651,7 +862,319 @@ async function runPlatformBackfill() {
   process.exit(total.failed > 0 ? 1 : 0);
 }
 
-const main = ADMIN_MODE === 'platform' ? runPlatformBackfill : runSchoolBackfill;
+/* -------------------------------------------------------------------------
+ * CHECK_ONLY=1 — preflight. No graph, no engine, no fill: the workflow runs
+ * this step right after the input check so a wrong deploy or wrong login is
+ * caught in seconds, not 15 minutes after the graph build. The output
+ * (`needs_run` in $GITHUB_OUTPUT) gates the rest of the job: graph build
+ * only runs when there's something to do.
+ * ---------------------------------------------------------------------- */
+
+/** Max warm-up attempts against the API. A free Render instance sleeps. */
+const HEALTH_WARM_TRIES = 6;
+/** Spacing between warm-up attempts. 6 * 20 s = 2 minutes of patience. */
+const HEALTH_WARM_INTERVAL_MS = 20_000;
+
+/** Test-only override: the spec shrinks the wait so the retry-budget test finishes in ms. */
+const TEST_HEALTH_WARM_INTERVAL_MS = (() => {
+  const raw = process.env.SHORT_HEALTH_WARM_INTERVAL_MS;
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+})();
+
+/** Wakes the API (a free Render instance may be sleeping): GET /health. */
+async function warmApi() {
+  const intervalMs = TEST_HEALTH_WARM_INTERVAL_MS ?? HEALTH_WARM_INTERVAL_MS;
+  let lastError = null;
+  for (let attempt = 1; attempt <= HEALTH_WARM_TRIES; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      if (response.ok) {
+        return await response.json();
+      }
+      lastError = new Error(`GET /health answered ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    console.error(
+      `  warm-up: ${API_BASE}/health did not answer (attempt ${attempt}/${HEALTH_WARM_TRIES}); ` +
+        `${lastError instanceof Error ? lastError.message : String(lastError)}. ` +
+        `Waiting ${intervalMs / 1000}s…`,
+    );
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, intervalMs));
+  }
+  throw new Error(
+    `GET ${API_BASE}/health never answered after ${HEALTH_WARM_TRIES} attempts: ` +
+      (lastError instanceof Error ? lastError.message : String(lastError)),
+  );
+}
+
+/**
+ * Sign in as a platform SUPER_ADMIN.
+ *
+ * The backfill uses the same `POST /api/v1/auth/login` the web client does:
+ * no school_id (a SUPER_ADMIN belongs to no tenant), e-mail + password.
+ * The password is the only secret in the preflight, kept out of the log
+ * (the e-mail is the account name, the password is replaced by a marker).
+ */
+async function signInAsSuperAdmin() {
+  const email = (process.env.PLATFORM_EMAIL ?? '').trim();
+  const password = process.env.PLATFORM_PASSWORD ?? '';
+  if (!email || !password) {
+    throw new Error(
+      'PLATFORM_EMAIL and PLATFORM_PASSWORD are required in check mode (the same secrets the workflow passes to the backfill).',
+    );
+  }
+  const { status, body } = await apiCall('POST', '/auth/login', { email, password });
+  if (status === 401 || status === 403) {
+    throw new Error(
+      'Sign-in or role problem. The account must be SUPER_ADMIN. Check OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD.',
+    );
+  }
+  if (status !== 200 || !body?.success) {
+    throw new Error(`POST /auth/login failed (${status}): ${JSON.stringify(body)}`);
+  }
+  const token = body?.data?.access_token;
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error(`POST /auth/login returned no access_token: ${JSON.stringify(body)}`);
+  }
+  return { token, user: body?.data?.user ?? null };
+}
+
+/** `true` iff the access token lifetime is past the now-anchor. */
+function tokenAlreadyExpired(user) {
+  // The login response includes `expires_in` (seconds) and the API also
+  // pins the access-token lifetime centrally. We could decode the JWT, but
+  // the response is the simpler source: it's what the client sees.
+  if (user && typeof user.token_expires_at === 'number') {
+    return user.token_expires_at <= Date.now();
+  }
+  return false;
+}
+
+async function runPreflight() {
+  console.log('OSRM route-geometry preflight (CHECK_ONLY=1, ADMIN_MODE=platform)');
+  console.log(`  api    : ${API_BASE}`);
+  if (BBOX) {
+    console.log(`  bbox   : ${BBOX}`);
+  }
+
+  // 1. Wake the API. The first GET /health is also the "did the deploy
+  //    actually land?" probe; if the platform endpoints aren't there, the
+  //    next call (the missing list) answers 404 and the check stops with
+  //    the operator's clear next step.
+  console.log('\nWarming the API…');
+  const health = await warmApi();
+  const commit = typeof health?.commit === 'string' ? health.commit : 'unknown';
+  console.log(`  health : ok · commit ${commit}`);
+
+  // 2. Sign in. Same 401/403 split as the backfill: a wrong account is a
+  //    sign-in or role problem, not a deployment problem.
+  console.log('\nSigning in as SUPER_ADMIN…');
+  const { token, user } = await signInAsSuperAdmin();
+  console.log(
+    `  user   : ${user?.email ?? 'unknown'}${tokenAlreadyExpired(user) ? ' (already expired!)' : ''}`,
+  );
+
+  // 3. Walk the missing list, with bbox when the operator narrowed it.
+  console.log('\nListing the routes still missing road geometry (every school)…');
+  let before;
+  try {
+    before = await listAllMissing(token);
+  } catch (error) {
+    if (error instanceof PlatformMissing404Error) {
+      console.error('This API has no platform endpoints (404). Deploy main first, then re-run.');
+      process.exit(1);
+    }
+    if (error instanceof AuthRefusedError) {
+      console.error(
+        'Sign-in or role problem. The account must be SUPER_ADMIN. Check OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD.',
+      );
+      process.exit(1);
+    }
+    throw error;
+  }
+  const totals = before.totals ?? {
+    routes_total: 0,
+    routes_cached: 0,
+    routes_missing: 0,
+    routes_unlocated: 0,
+    outsideBbox: BBOX ? 0 : null,
+    fillable: 0,
+  };
+
+  // 4. Per-school ledger + the bbox-conditional columns.
+  const ledger = new Map();
+  const rowFor = (schoolId, schoolName) => {
+    let row = ledger.get(schoolId);
+    if (!row) {
+      row = {
+        school_id: schoolId,
+        school_name: schoolName,
+        missing: 0,
+        outsideBbox: 0,
+        fillable: 0,
+      };
+      ledger.set(schoolId, row);
+    }
+    return row;
+  };
+  for (const school of before.schools) {
+    const row = rowFor(school.school_id, school.school_name);
+    row.missing = school.routes_missing;
+    if (BBOX && school.outsideBbox !== null) {
+      row.outsideBbox = school.outsideBbox;
+      row.fillable = school.fillable ?? 0;
+    } else {
+      row.fillable = school.routes_missing;
+    }
+  }
+
+  // 5. Outside-bbox leaderboard. A route that ends up here needs a separate
+  //    run with the matching extract_url and bbox — there is no way for
+  //    this extract to give those routes a road.
+  const outsideBboxRoutes = BBOX
+    ? before.routes
+        .filter((item) => typeof item.stopsOutsideBbox === 'number' && item.stopsOutsideBbox > 0)
+        .sort((a, b) => (b.stopsOutsideBbox ?? 0) - (a.stopsOutsideBbox ?? 0))
+        .slice(0, 20)
+    : [];
+
+  const totalMissing = totals.routes_missing ?? 0;
+  const totalFillable = [...ledger.values()].reduce((sum, row) => sum + row.fillable, 0);
+  const totalOutside = [...ledger.values()].reduce((sum, row) => sum + row.outsideBbox, 0);
+  const needsRun = totalFillable > 0;
+
+  // 6. Console output — the per-school table is the operator's quick read.
+  const rows = [...ledger.values()].sort(
+    (a, b) => a.school_name.localeCompare(b.school_name) || a.school_id.localeCompare(b.school_id),
+  );
+  console.log(`\nSummary (per school):`);
+  if (rows.length === 0) {
+    console.log('  no schools to show (no missing routes)');
+  } else {
+    const headers = BBOX ? ['school', 'missing', 'outside', 'fillable'] : ['school', 'missing'];
+    const body = rows.map((row) =>
+      BBOX
+        ? [row.school_name, row.missing, row.outsideBbox, row.fillable]
+        : [row.school_name, row.missing],
+    );
+    body.push(
+      BBOX ? ['TOTAL', totalMissing, totalOutside, totalFillable] : ['TOTAL', totalMissing],
+    );
+    for (const line of consoleTable(headers, body)) console.log(`  ${line}`);
+  }
+  console.log(`\n  total missing : ${totalMissing}`);
+  if (BBOX) {
+    console.log(`  outside bbox  : ${totalOutside}`);
+    console.log(`  fillable      : ${totalFillable}`);
+  }
+  console.log(`  needs_run     : ${needsRun}`);
+
+  if (outsideBboxRoutes.length > 0) {
+    console.log(
+      `\nTop ${outsideBboxRoutes.length} outside-bbox routes (need a separate run with the matching extract + bbox):`,
+    );
+    for (const item of outsideBboxRoutes) {
+      console.log(
+        `  - ${item.route_id} (${item.school_name}) · ${item.stopsOutsideBbox}/${item.stops.length} stops outside`,
+      );
+    }
+  }
+
+  // 7. GitHub step summary (the same table, with a few more lines).
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const lines = [
+      '## OSRM route-geometry preflight',
+      '',
+      `API: \`${API_BASE}\` · commit \`${commit}\` · needs_run: **${needsRun}**`,
+      '',
+    ];
+    if (BBOX) {
+      lines.push(`BBOX: \`${BBOX}\``);
+      lines.push('');
+    }
+    lines.push(
+      `Missing: **${totalMissing}** · outside bbox: **${totalOutside}** · fillable: **${totalFillable}**`,
+      '',
+    );
+    if (rows.length > 0) {
+      if (BBOX) {
+        lines.push(
+          '| School | Missing | Outside bbox | Fillable |',
+          '| --- | ---: | ---: | ---: |',
+        );
+        for (const row of rows) {
+          lines.push(
+            `| ${cell(row.school_name)} | ${row.missing} | ${row.outsideBbox} | ${row.fillable} |`,
+          );
+        }
+        lines.push(
+          `| **TOTAL** | **${totalMissing}** | **${totalOutside}** | **${totalFillable}** |`,
+        );
+      } else {
+        lines.push('| School | Missing |', '| --- | ---: |');
+        for (const row of rows) {
+          lines.push(`| ${cell(row.school_name)} | ${row.missing} |`);
+        }
+        lines.push(`| **TOTAL** | **${totalMissing}** |`);
+      }
+      lines.push('');
+    }
+    if (outsideBboxRoutes.length > 0) {
+      lines.push(
+        `### Top ${outsideBboxRoutes.length} outside-bbox routes`,
+        '',
+        'These routes have at least one stop outside the bbox the engine is built from — a separate run with the matching `extract_url` and `bbox` is the only way to give them a road route.',
+        '',
+      );
+      for (const item of outsideBboxRoutes) {
+        lines.push(
+          `- \`${item.route_id}\` (${cell(item.school_name)}) — ${item.stopsOutsideBbox}/${item.stops.length} stops outside`,
+        );
+      }
+      lines.push('');
+    }
+    lines.push(
+      '`needs_run` is `true` when the platform `totals.fillable` is > 0; the rest of the workflow runs only then.',
+      '',
+    );
+    try {
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+    } catch {
+      // A missing summary file is not a preflight failure.
+    }
+  }
+
+  // 8. The job-gate output: $GITHUB_OUTPUT is the source of truth for
+  //    the next step, the console line is for the operator.
+  if (process.env.GITHUB_OUTPUT) {
+    try {
+      writeFileSync(
+        process.env.GITHUB_OUTPUT,
+        `needs_run=${needsRun ? 'true' : 'false'}\ncommit=${commit}\n`,
+        { flag: 'a' },
+      );
+    } catch (error) {
+      // A missing GITHUB_OUTPUT is not a preflight failure (local runs).
+      console.error(
+        `  ::notice::could not write to $GITHUB_OUTPUT (${error instanceof Error ? error.message : String(error)})`,
+      );
+    }
+  }
+
+  // 9. Exit 0 when the check itself worked, whatever `needs_run` is — a
+  //    clean nothing-to-do is success, not failure. The caller decides
+  //    what to do with the `needs_run` value.
+  process.exit(0);
+}
+
+const main = CHECK_ONLY
+  ? runPreflight
+  : ADMIN_MODE === 'platform'
+    ? runPlatformBackfill
+    : runSchoolBackfill;
 
 main().catch((error) => {
   console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`);

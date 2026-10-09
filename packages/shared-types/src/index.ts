@@ -21,6 +21,13 @@ export interface HealthResponse {
   uptime: number;
   timestamp: string;
   environment: string;
+  /**
+   * The git commit this process was built from. Render exposes it as
+   * `RENDER_GIT_COMMIT`; a plain `GIT_COMMIT` is also read so a non-Render
+   * deploy can set it. `'unknown'` when the env vars are unset (the only
+   * contract callers may rely on — never an empty string).
+   */
+  commit: string;
 }
 
 export interface ReadinessResponse {
@@ -3071,8 +3078,7 @@ export interface RouteGeometryUnavailableResponse {
 
 /** Successful payload of `GET /api/v1/routes/:id/geometry`. */
 export type RouteGeometryResponse =
-  | RouteGeometryAvailableResponse
-  | RouteGeometryUnavailableResponse;
+  RouteGeometryAvailableResponse | RouteGeometryUnavailableResponse;
 
 /**
  * Body of `PUT /api/v1/routes/:id/geometry` — the write half of the
@@ -3137,6 +3143,12 @@ export interface RouteGeometryStopPoint {
  * `stops` carries the located stops the backfill feeds to the engine: the
  * SUPER_ADMIN cannot read a school's stops through the school endpoints
  * (tenant isolation), so the list is the only place the input can come from.
+ *
+ * `stopsOutsideBbox` is non-null only when the caller passed a `bbox` query:
+ * the number of this route's stops that fall outside the box. A route with
+ * any stop outside the box still shows up in `items` (the engine can only
+ * give a real answer for stops inside the box), but the school-level
+ * `fillable` count subtracts those routes.
  */
 export interface MissingRouteGeometryItem {
   route_id: string;
@@ -3148,6 +3160,8 @@ export interface MissingRouteGeometryItem {
   stops_hash: string;
   /** The located stops, in manifest order (always at least two). */
   stops: RouteGeometryStopPoint[];
+  /** Stops of this route outside the caller's bbox; null when no bbox was given. */
+  stopsOutsideBbox: number | null;
 }
 
 /** Per-school counts of the platform-wide geometry backfill. */
@@ -3162,6 +3176,21 @@ export interface MissingRouteGeometrySchoolCount {
   routes_missing: number;
   /** Routes with fewer than two located stops — there is nothing to route. */
   routes_unlocated: number;
+  /**
+   * Routes with at least one stop outside the caller's bbox; null when no
+   * bbox was given. The engine can never give a road route for a stop it
+   * has no map for, so these routes are NOT `fillable`.
+   */
+  outsideBbox: number | null;
+  /**
+   * Routes the engine can actually fill from this extract: `routes_missing`
+   * when no bbox is given, `routes_missing - outsideBbox` when one is.
+   * Always set: with a bbox, routes that have a stop outside are subtracted;
+   * without one, every missing route is fillable from this service's view
+   * (whether the engine actually has a map for them is a separate question
+   * the run itself answers per route).
+   */
+  fillable: number;
 }
 
 /** Platform totals of the geometry cache, across all schools. */
@@ -3170,6 +3199,10 @@ export interface MissingRouteGeometryTotals {
   routes_cached: number;
   routes_missing: number;
   routes_unlocated: number;
+  /** Sum of per-school `outsideBbox`; null when no bbox was given. */
+  outsideBbox: number | null;
+  /** Sum of per-school `fillable`; equal to `routes_missing` when no bbox is given. */
+  fillable: number;
 }
 
 /** Query of `GET /api/v1/admin/routes/geometry/missing`. */
@@ -3178,6 +3211,15 @@ export interface MissingRouteGeometryListQuery {
   page?: number;
   /** Page size, 1..100. */
   limit?: number;
+  /**
+   * Optional OSM extract bounding box, four comma-separated numbers
+   * `minLon,minLat,maxLon,maxLat`. The list response annotates each route
+   * with `stopsOutsideBbox` and reports per-school `outsideBbox` and
+   * `fillable` counts; a route with any stop outside the box stays listed
+   * but is NOT `fillable` (the engine has no map for it). A malformed box
+   * is 400.
+   */
+  bbox?: string;
 }
 
 /**

@@ -9,11 +9,18 @@ import type {
 } from '@school-bus-tracking/shared-types';
 import { RouteGeometry, Route, School, Stop } from '../../database/models';
 import { hashRouteStops } from './stops-hash';
+import {
+  isInsideBbox,
+  type ParsedBoundingBox,
+  parseBoundingBox,
+} from './dto/list-missing-route-geometry-query.dto';
 
-/** Pagination of the missing list (already validated by the DTO). */
+/** Pagination + optional bbox of the missing list (the bbox is parsed upstream). */
 export interface MissingRouteGeometryQuery {
   page: number;
   limit: number;
+  /** Raw `bbox=minLon,minLat,maxLon,maxLat` — parsed here, fed to the service. */
+  bbox?: string;
 }
 
 /**
@@ -34,6 +41,17 @@ export interface MissingRouteGeometryQuery {
  * over the same located stops in the same order, so "listed here" and
  * "served as a cache hit there" can never disagree.
  *
+ * When the caller passes a `bbox` (= the OSRM extract's box), every listed
+ * route is annotated with `stopsOutsideBbox` and the per-school and platform
+ * totals gain `outsideBbox` (routes with at least one stop outside) and
+ * `fillable` (`missing - outsideBbox`, i.e. the routes the engine can
+ * actually fill from this extract). A route with a stop outside the bbox
+ * stays in `items`: the run still has to report it, and an OSRM answer
+ * (`NoRoute` / `NoSegment`) is what the engine will give anyway. The
+ * `outsideBbox` field exists so the platform backfill and its dry-run
+ * preflight can tell "nothing to do" from "lots to do, but the engine
+ * doesn't have the map for it".
+ *
  * Cost: four set-based queries (schools, routes, located stops, live cache
  * keys) whatever the number of schools — no per-route or per-school round
  * trip. Routes of a soft-deleted school are skipped: the school is gone.
@@ -51,6 +69,10 @@ export class MissingRouteGeometryService {
    * totals computed over ALL schools.
    */
   async listMissing(query: MissingRouteGeometryQuery): Promise<MissingRouteGeometryListResponse> {
+    const parsedBbox: ParsedBoundingBox | undefined = query.bbox
+      ? parseBoundingBox(query.bbox)
+      : undefined;
+
     const [schoolRows, routeRows, stopRows, cacheRows] = await Promise.all([
       this.schools.findAll({ attributes: ['id', 'name'] }),
       this.routes.findAll({ attributes: ['id', 'school_id', 'name', 'code'] }),
@@ -98,6 +120,8 @@ export class MissingRouteGeometryService {
           routes_cached: 0,
           routes_missing: 0,
           routes_unlocated: 0,
+          outsideBbox: parsedBbox === undefined ? null : 0,
+          fillable: 0,
         };
         countsBySchool.set(route.school_id, counts);
       }
@@ -131,6 +155,29 @@ export class MissingRouteGeometryService {
       }
 
       counts.routes_missing += 1;
+
+      // Count stops outside the caller's bbox, when one was given. The
+      // route stays in the list regardless: the platform backfill still
+      // wants to print it, and the engine will return NoRoute for the
+      // ones it has no map for (the honest dashed-line fallback).
+      // Without a bbox every missing route is `fillable` by definition —
+      // the run itself finds the NoRoute / NoSegment ones per route.
+      let stopsOutsideBbox: number | null = null;
+      if (parsedBbox === undefined) {
+        counts.fillable += 1;
+      } else {
+        stopsOutsideBbox = points.reduce(
+          (count, point) =>
+            isInsideBbox(parsedBbox, point.longitude, point.latitude) ? count : count + 1,
+          0,
+        );
+        if (stopsOutsideBbox > 0) {
+          counts.outsideBbox = (counts.outsideBbox ?? 0) + 1;
+        } else {
+          counts.fillable += 1;
+        }
+      }
+
       missing.push({
         route_id: route.id,
         route_name: route.name,
@@ -139,6 +186,7 @@ export class MissingRouteGeometryService {
         school_name: schoolName,
         stops_hash: stopsHash,
         stops: points,
+        stopsOutsideBbox,
       });
     }
 
@@ -158,12 +206,18 @@ export class MissingRouteGeometryService {
       routes_cached: 0,
       routes_missing: 0,
       routes_unlocated: 0,
+      outsideBbox: parsedBbox === undefined ? null : 0,
+      fillable: 0,
     };
     for (const counts of schools) {
       totals.routes_total += counts.routes_total;
       totals.routes_cached += counts.routes_cached;
       totals.routes_missing += counts.routes_missing;
       totals.routes_unlocated += counts.routes_unlocated;
+      totals.fillable += counts.fillable;
+      if (parsedBbox !== undefined) {
+        totals.outsideBbox = (totals.outsideBbox ?? 0) + (counts.outsideBbox ?? 0);
+      }
     }
 
     const total = missing.length;

@@ -103,13 +103,27 @@ second, the way `infrastructure/github-workflows/README.md` describes:
      `school_code` input).
 
 **Run it.** **Actions → "OSRM route-geometry backfill" → Run workflow**, with
-`mode = platform` and `api_base = https://kidbus.onrender.com/api/v1`. The
-workflow signs in right before the backfill, masks the access token, and
-never prints it; a missing secret stops the run in seconds with an
-`::error::`. Read the per-school table (missing / filled / no road route /
-failed / left) in the run's step summary. `no road route` means the extract
-does not cover those stops, or a stop is far from any road, and the map keeps
-the dashed line for them — it is not a failure. `failed` is worth a re-run.
+`mode = platform` and the default `api_base`. The workflow starts with a
+preflight step that warms the API (a free Render instance sleeps), signs in
+as `SUPER_ADMIN`, walks the missing list, and writes a per-school table to
+the step summary. The preflight also gates the rest of the job on
+`needs_run = fillable > 0`: a day where every routable route is already
+cached stops after the preflight — no graph build, no engine, no 15 minutes
+wasted. A `dry_run = true` run is the same shape, by hand.
+
+Read the per-school table (missing / outside bbox / fillable / filled / no
+road route / failed / left) in the step summary. `outside bbox` is non-zero
+only when the run passes a `bbox` (= the extract's box); those routes need
+a separate run with the matching `extract_url` and `bbox`. `no road route`
+means the extract does not cover those stops, or a stop is far from any
+road, and the map keeps the dashed line for them — it is not a failure.
+`failed` is worth a re-run.
+
+A scheduled run (daily, 03:00 IST) reuses the same defaults: `mode =
+platform`, the default `api_base`, `extract_url` and `bbox`. The same
+preflight is the first step. A schedule with missing secrets is a no-op
+(`::notice::` + exit 0), so the badge stays green even before the secrets
+are set.
 
 **New routes later = re-run platform mode; only missing routes are filled.**
 Routes already cached are not touched.

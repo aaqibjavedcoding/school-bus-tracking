@@ -241,11 +241,12 @@ describe('MissingRouteGeometryService.listMissing — what counts as missing', (
     const r4 = result.items.find((item) => item.route_id === 'r4');
     assert.ok(r4, 'R4 moved a stop after its row was cached ⇒ missing');
     const currentHash = hashOf(fixture.stops.filter((stop) => stop.route_id === 'r4'));
-    assert.equal(r4.stops_hash, currentHash, 'the key is the CURRENT stop list, not the cached one');
-    assert.notEqual(
+    assert.equal(
       r4.stops_hash,
-      fixture.cache.find((row) => row.route_id === 'r4')?.stops_hash,
+      currentHash,
+      'the key is the CURRENT stop list, not the cached one',
     );
+    assert.notEqual(r4.stops_hash, fixture.cache.find((row) => row.route_id === 'r4')?.stops_hash);
   });
 
   it('counts routes with fewer than two located stops as unlocated, never listed', async () => {
@@ -378,6 +379,8 @@ describe('MissingRouteGeometryService.listMissing — per-school counts and tota
       routes_cached: 1,
       routes_missing: 1,
       routes_unlocated: 1,
+      outsideBbox: null,
+      fillable: 1,
     });
     assert.deepEqual(beta, {
       school_id: SCHOOL_BETA,
@@ -386,12 +389,16 @@ describe('MissingRouteGeometryService.listMissing — per-school counts and tota
       routes_cached: 0,
       routes_missing: 1,
       routes_unlocated: 2,
+      outsideBbox: null,
+      fillable: 1,
     });
     assert.deepEqual(totals, {
       routes_total: 6,
       routes_cached: 1,
       routes_missing: 2,
       routes_unlocated: 3,
+      outsideBbox: null,
+      fillable: 2,
     });
     for (const school of schools) {
       assert.equal(
@@ -409,5 +416,148 @@ describe('MissingRouteGeometryService.listMissing — cost', () => {
     await service.listMissing(ALL);
 
     assert.deepEqual(calls, { schools: 1, routes: 1, stops: 1, geometries: 1 });
+  });
+});
+
+describe('MissingRouteGeometryService.listMissing — bbox filter', () => {
+  // The Nagpur region, large enough to admit Alpha School's R1 (the stops
+  // cluster around 33.68N, 73.05E) and the Beta R4 stops (33.8N, 73.1E).
+  const NAGPUR_BBOX = '72.0,32.0,75.0,35.0';
+  // A tighter box: maxLat 33.7 admits R1 (lat 33.68) but excludes R4
+  // (lat 33.8) — the geometry the preflight + dry-run need to see.
+  const NAGPUR_CENTRAL_BBOX = '72.0,33.0,74.0,33.7';
+
+  it('without a bbox, every missing route has stopsOutsideBbox=null and fillable=missing', async () => {
+    const { service } = serviceFor(mixedFixture());
+    const result = await service.listMissing(ALL);
+
+    for (const item of result.items) {
+      assert.equal(item.stopsOutsideBbox, null, `${item.route_id} has no bbox info`);
+    }
+    for (const school of result.schools) {
+      assert.equal(school.outsideBbox, null);
+      // Without a bbox, every missing route is `fillable` (the run itself
+      // finds the NoRoute / NoSegment ones per route, that's the point of
+      // path C — the engine is asked, and the honest answer is reported).
+      assert.equal(school.fillable, school.routes_missing);
+    }
+    assert.equal(result.totals.outsideBbox, null);
+    assert.equal(result.totals.fillable, result.totals.routes_missing);
+  });
+
+  it('with a bbox that covers every stop, every missing route is fillable', async () => {
+    const { service } = serviceFor(mixedFixture());
+    const result = await service.listMissing({ ...ALL, bbox: NAGPUR_BBOX });
+
+    for (const item of result.items) {
+      assert.equal(item.stopsOutsideBbox, 0, `${item.route_id} is fully inside the box`);
+    }
+    for (const school of result.schools) {
+      assert.equal(school.outsideBbox, 0);
+      assert.equal(school.fillable, school.routes_missing);
+    }
+    assert.equal(result.totals.outsideBbox, 0);
+    assert.equal(result.totals.fillable, result.totals.routes_missing);
+  });
+
+  it('with a smaller bbox, every route whose stops fall inside is fillable and the rest are not', async () => {
+    const { service } = serviceFor(mixedFixture());
+    const result = await service.listMissing({ ...ALL, bbox: NAGPUR_CENTRAL_BBOX });
+
+    // Both R1 (Alpha, inside the box) and R4 (Beta, outside) are listed
+    // (the engine will get NoRoute for R4), but only R1 is fillable.
+    const r1 = result.items.find((item) => item.route_id === 'r1');
+    const r4 = result.items.find((item) => item.route_id === 'r4');
+    assert.ok(r1 && r4);
+    assert.equal(r1.stopsOutsideBbox, 0);
+    assert.equal(
+      r4.stopsOutsideBbox,
+      2,
+      'both R4 stops sit at 33.8N, 73.1E — outside the central box',
+    );
+
+    const alpha = result.schools.find((school) => school.school_id === SCHOOL_ALPHA);
+    const beta = result.schools.find((school) => school.school_id === SCHOOL_BETA);
+    assert.deepEqual(
+      { alpha: { outsideBbox: alpha?.outsideBbox, fillable: alpha?.fillable } },
+      { alpha: { outsideBbox: 0, fillable: alpha?.routes_missing } },
+    );
+    assert.deepEqual(
+      { beta: { outsideBbox: beta?.outsideBbox, fillable: beta?.fillable } },
+      {
+        beta: {
+          outsideBbox: (beta?.routes_missing ?? 0) - 0,
+          fillable: 0,
+        },
+      },
+    );
+    // The platform total is the sum of per-school counts.
+    const expectedOutside = (alpha?.outsideBbox ?? 0) + (beta?.outsideBbox ?? 0);
+    const expectedFillable = (alpha?.fillable ?? 0) + (beta?.fillable ?? 0);
+    assert.equal(result.totals.outsideBbox, expectedOutside);
+    assert.equal(result.totals.fillable, expectedFillable);
+    assert.equal(result.totals.fillable + expectedOutside, result.totals.routes_missing);
+  });
+
+  it('annotates every listed item with its own stopsOutsideBbox count, even routes with all stops inside', async () => {
+    const { service } = serviceFor(mixedFixture());
+    const result = await service.listMissing({ ...ALL, bbox: NAGPUR_BBOX });
+
+    for (const item of result.items) {
+      assert.notEqual(item.stopsOutsideBbox, null, `${item.route_id} must carry the count`);
+      assert.equal(
+        (item.stopsOutsideBbox ?? -1) >= 0 && (item.stopsOutsideBbox ?? -1) <= item.stops.length,
+        true,
+        `${item.route_id} count is between 0 and the number of stops`,
+      );
+    }
+  });
+
+  it('rejects a bbox with a stop outside the range (minLon > maxLon), 400', async () => {
+    const { service } = serviceFor(mixedFixture());
+    await assert.rejects(
+      () => service.listMissing({ ...ALL, bbox: '74.0,32.0,72.0,35.0' }),
+      (error: { getStatus?: () => number; message: string }) => {
+        assert.equal(error.getStatus?.(), 400);
+        assert.match(error.message, /minLon must be strictly less than maxLon/);
+        return true;
+      },
+    );
+  });
+
+  it('rejects a bbox whose latitude is out of range, 400', async () => {
+    const { service } = serviceFor(mixedFixture());
+    await assert.rejects(
+      () => service.listMissing({ ...ALL, bbox: '72.0,-95.0,75.0,35.0' }),
+      (error: { getStatus?: () => number; message: string }) => {
+        assert.equal(error.getStatus?.(), 400);
+        assert.match(error.message, /latitudes must lie in/);
+        return true;
+      },
+    );
+  });
+
+  it('rejects a bbox whose longitude is out of range, 400', async () => {
+    const { service } = serviceFor(mixedFixture());
+    await assert.rejects(
+      () => service.listMissing({ ...ALL, bbox: '72.0,32.0,195.0,35.0' }),
+      (error: { getStatus?: () => number; message: string }) => {
+        assert.equal(error.getStatus?.(), 400);
+        assert.match(error.message, /longitudes must lie in/);
+        return true;
+      },
+    );
+  });
+
+  it('rejects a bbox where minLat == maxLat (empty box), 400', async () => {
+    const { service } = serviceFor(mixedFixture());
+    await assert.rejects(
+      () => service.listMissing({ ...ALL, bbox: '72.0,32.0,75.0,32.0' }),
+      (error: { getStatus?: () => number; message: string }) => {
+        assert.equal(error.getStatus?.(), 400);
+        assert.match(error.message, /minLat must be strictly less than maxLat/);
+        return true;
+      },
+    );
   });
 });

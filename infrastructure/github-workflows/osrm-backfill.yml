@@ -16,9 +16,11 @@ name: OSRM route-geometry backfill
 #
 # Before the first run
 #   * Settings → Secrets and variables → Actions → New repository secret:
-#       OSRM_ADMIN_TOKEN = a SCHOOL_ADMIN access token of the target school
-#     (the `admin_token` input below exists only for one-off runs; prefer the
-#     secret — inputs are visible in the run log).
+#       OSRM_PLATFORM_EMAIL     = a SUPER_ADMIN e-mail (mode = platform, default)
+#       OSRM_PLATFORM_PASSWORD = a SUPER_ADMIN password
+#       OSRM_SCHOOL_EMAIL      = a SCHOOL_ADMIN e-mail (mode = school)
+#       OSRM_SCHOOL_PASSWORD   = a SCHOOL_ADMIN password
+#     The script signs in inside the run and never prints the access token.
 #   * Optionally narrow `extract_url` / `bbox` to the region your buses drive.
 #     ⚠️ THE EXTRACT MUST COVER EVERY PLACE THE BUSES DRIVE: outside it OSRM
 #     answers NoRoute and the app falls back to the honest dashed line.
@@ -28,6 +30,14 @@ name: OSRM route-geometry backfill
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: '`platform` (every school, one SUPER_ADMIN run) or `school` (one school, SCHOOL_ADMIN).'
+        required: false
+        type: choice
+        default: platform
+        options:
+          - platform
+          - school
       extract_url:
         description: OSM PBF extract to download (default — Geofabrik India western zone)
         required: false
@@ -38,13 +48,14 @@ on:
         default: '78.60,20.70,79.60,21.60'
       api_base:
         description: 'API base URL including /api/v1 (e.g. https://kidbus.onrender.com/api/v1)'
-        required: true
-      route_ids:
-        description: 'Optional comma-separated route ids — blank = every route missing geometry'
+        required: false
+        default: 'https://kidbus.onrender.com/api/v1'
+      school_code:
+        description: '`school` mode only: the school code (or UUID) to sign in to'
         required: false
         default: ''
-      admin_token:
-        description: 'SCHOOL_ADMIN access token (prefer the OSRM_ADMIN_TOKEN secret; this input is for one-off runs)'
+      route_ids:
+        description: 'Optional comma-separated route ids — blank = every route missing geometry'
         required: false
         default: ''
       build_graph_only:
@@ -57,6 +68,19 @@ on:
         required: false
         type: boolean
         default: false
+      dry_run:
+        description: 'Preflight only: warm the API, sign in, write the per-school table. No graph build, no engine, no fill.'
+        required: false
+        type: boolean
+        default: false
+  # Daily at 03:00 IST (21:30 UTC the day before). Schedules on GitHub
+  # Actions run from the default branch only — the inputs are empty here,
+  # so the job falls back to the platform defaults (api_base, extract_url,
+  # bbox) and to `mode=platform`. The preflight is the first thing that
+  # runs: when nothing is fillable the workflow stops before the 15-minute
+  # graph build, so an idle day costs ~2 minutes of runner time, not 90.
+  schedule:
+    - cron: '30 21 * * *'
 
 permissions:
   contents: read
@@ -73,6 +97,14 @@ jobs:
     env:
       OSRM_IMAGE: ghcr.io/project-osrm/osrm-backend:v26.10.0-debian
       REGION: region
+      # The preflight reads these from the workflow inputs / defaults and
+      # forwards BBOX to the script. The job sets API_BASE / PLATFORM_*
+      # explicitly so a schedule (which has empty inputs) still produces
+      # a meaningful run.
+      API_BASE: ${{ inputs.api_base || 'https://kidbus.onrender.com/api/v1' }}
+      EXTRACT_URL: ${{ inputs.extract_url || 'https://download.geofabrik.de/asia/india/western-zone-latest.osm.pbf' }}
+      BBOX: ${{ inputs.bbox || '78.60,20.70,79.60,21.60' }}
+      MODE: ${{ github.event_name == 'schedule' && 'platform' || (inputs.mode || 'platform') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -84,19 +116,69 @@ jobs:
                       /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
           df -h / | tail -1
 
-      - name: Build the OSRM graph (download → bbox cut → extract/partition/customize)
+      # The preflight catches the four expensive mistakes in seconds, not
+      # after the 15-minute graph build: the API has no platform endpoints
+      # (404 = deploy main first), the sign-in is wrong (401/403 = rotate
+      # the password), nothing is fillable (skip the run), and a few cold-
+      # start retries on a sleeping Render. The script's check-mode
+      # (`ADMIN_MODE=platform` + `CHECK_ONLY=1`) warms /health, signs in as
+      # SUPER_ADMIN, walks the missing list, writes `needs_run=true|false`
+      # to $GITHUB_OUTPUT, and exits 0 either way.
+      - name: Preflight — sign in, list what is fillable, decide whether to build the graph
+        id: preflight
+        if: ${{ env.MODE == 'platform' && !inputs.build_graph_only }}
         env:
-          EXTRACT_URL: ${{ inputs.extract_url }}
-          BBOX: ${{ inputs.bbox }}
+          ADMIN_MODE: platform
+          CHECK_ONLY: '1'
+          PLATFORM_EMAIL: ${{ secrets.OSRM_PLATFORM_EMAIL }}
+          PLATFORM_PASSWORD: ${{ secrets.OSRM_PLATFORM_PASSWORD }}
+        run: node scripts/osrm-backfill.mjs
+
+      # School mode: the preflight is platform-only, so the run jumps
+      # straight to the graph. The build_graph_only path skips the fill
+      # entirely (the preflight is a no-op for it too — the graph is the
+      # product there, not a side effect).
+      - name: Preflight — missing secrets (scheduled run)
+        if: ${{ env.MODE == 'platform' && !inputs.build_graph_only && github.event_name == 'schedule' && (secrets.OSRM_PLATFORM_EMAIL == '' || secrets.OSRM_PLATFORM_PASSWORD == '') }}
+        run: |
+          echo "::notice::scheduled backfill skipped — set OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD to enable daily runs."
+          echo "needs_run=false" >> "$GITHUB_OUTPUT"
+
+      # Manual run with missing secrets: fail loud, the way the original
+      # backfill step did. A scheduled run is a no-op (notice + exit 0)
+      # so the badge stays green and the day-2 cost is zero.
+      - name: Preflight — missing secrets (manual run)
+        if: ${{ env.MODE == 'platform' && !inputs.build_graph_only && github.event_name != 'schedule' && (secrets.OSRM_PLATFORM_EMAIL == '' || secrets.OSRM_PLATFORM_PASSWORD == '') }}
+        run: |
+          echo "::error::set the OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD repository secrets, or pass them as workflow secrets."
+          exit 1
+
+      # Build the graph. Gated by:
+      #   - mode=platform and not build_graph_only: only when preflight
+      #     said needs_run=true (so an idle day does not pay the cost);
+      #   - mode=school or build_graph_only: always (no preflight ran).
+      # dry_run stops the run here — the preflight's table is the output.
+      - name: Build the OSRM graph (download → bbox cut → extract/partition/customize)
+        if: ${{ !inputs.dry_run && (inputs.build_graph_only || env.MODE == 'school' || steps.preflight.outputs.needs_run == 'true') }}
+        env:
+          EXTRACT_URL: ${{ env.EXTRACT_URL }}
+          BBOX: ${{ env.BBOX }}
         run: bash scripts/osrm-graph.sh
 
+      - name: Stop after the preflight summary (dry_run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "Dry run — graph build and backfill skipped. The preflight's per-school table is the output."
+
       - name: Start the engine
+        if: ${{ !inputs.dry_run && (inputs.build_graph_only || env.MODE == 'school' || steps.preflight.outputs.needs_run == 'true') }}
         run: |
           docker run -d --name osrm -p 5000:5000 \
             -v "$PWD/infrastructure/osrm-data:/data:ro" \
             "$OSRM_IMAGE" osrm-routed --algorithm mld --threads 2 "/data/${REGION}.osrm"
 
       - name: Wait for the engine to answer
+        if: ${{ !inputs.dry_run && (inputs.build_graph_only || env.MODE == 'school' || steps.preflight.outputs.needs_run == 'true') }}
         run: |
           set -euo pipefail
           for _ in $(seq 1 60); do
@@ -110,23 +192,44 @@ jobs:
           docker logs osrm | tail -50
           exit 1
 
-      - name: Backfill route geometry through the API
-        if: ${{ !inputs.build_graph_only }}
+      - name: Backfill route geometry through the API (school mode)
+        if: ${{ !inputs.dry_run && env.MODE == 'school' }}
         env:
-          API_BASE: ${{ inputs.api_base }}
-          ADMIN_TOKEN: ${{ secrets.OSRM_ADMIN_TOKEN || inputs.admin_token }}
+          API_BASE: ${{ env.API_BASE }}
+          ADMIN_TOKEN: ${{ secrets.OSRM_SCHOOL_TOKEN || secrets.OSRM_ADMIN_TOKEN }}
           OSRM_BASE: http://localhost:5000
           ROUTE_IDS: ${{ inputs.route_ids }}
         run: |
           if [ -z "${ADMIN_TOKEN}" ]; then
-            echo "::error::set the OSRM_ADMIN_TOKEN repository secret (a SCHOOL_ADMIN access token), or pass the admin_token input."
+            echo "::error::set the OSRM_SCHOOL_TOKEN repository secret (a SCHOOL_ADMIN access token), or pass the admin_token input."
+            exit 1
+          fi
+          node scripts/osrm-backfill.mjs
+
+      # Platform mode signs in itself: the preflight's 15-minute token
+      # would be stale by the time the graph build finishes. The script's
+      # `ADMIN_MODE=platform` + `PLATFORM_EMAIL` / `PLATFORM_PASSWORD`
+      # path is the same sign-in request the web client uses, so the
+      # script's error messages are the operator's reference.
+      - name: Backfill route geometry through the API (platform mode)
+        if: ${{ !inputs.dry_run && env.MODE == 'platform' && steps.preflight.outputs.needs_run == 'true' }}
+        env:
+          API_BASE: ${{ env.API_BASE }}
+          ADMIN_MODE: platform
+          PLATFORM_EMAIL: ${{ secrets.OSRM_PLATFORM_EMAIL }}
+          PLATFORM_PASSWORD: ${{ secrets.OSRM_PLATFORM_PASSWORD }}
+          BBOX: ${{ env.BBOX }}
+          OSRM_BASE: http://localhost:5000
+        run: |
+          if [ -z "${PLATFORM_EMAIL}" ] || [ -z "${PLATFORM_PASSWORD}" ]; then
+            echo "::error::set the OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD repository secrets."
             exit 1
           fi
           node scripts/osrm-backfill.mjs
 
       - name: Check the graph size before an optional upload
         id: graph
-        if: ${{ inputs.upload_graph }}
+        if: ${{ inputs.upload_graph && !inputs.dry_run && (inputs.build_graph_only || env.MODE == 'school' || steps.preflight.outputs.needs_run == 'true') }}
         run: |
           size_kb=$(du -sk infrastructure/osrm-data | cut -f1)
           echo "graph is $((size_kb / 1024)) MB"
