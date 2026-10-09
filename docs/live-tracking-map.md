@@ -124,15 +124,14 @@ whole path is **free and keyless**, exactly like the map tiles:
   optional bbox cut with the free osmium-tool image → `osrm-extract` →
   `osrm-partition` → `osrm-customize`) **or** on the free GitHub-hosted
   runner (`.github/workflows/osrm-backfill.yml`, manual dispatch — this
-  repository is public, so `ubuntu-latest` is free). The workflow also
-  backfills every route's geometry through the API
-  (`PUT /api/v1/routes/:id/geometry`).
+  repository is public, so `ubuntu-latest` is free). No Docker is needed on
+  the operator's machine for the runner path.
 - **Cache forever, engine need not run 24/7** — the computed geometry is
   stored in `route_geometries`, keyed by `(route_id, stops_hash)` where the
   hash covers the ordered stop ids and coordinates. Reads are served from
   that cache with zero engine calls; the engine is only needed when a
   route's stop list changes (a save/reorder schedules a fire-and-forget
-  recompute) or when the backfill runs. A deployment can therefore run the
+  recompute) or when a backfill runs. A deployment can therefore run the
   engine for an hour a month and serve road geometry all month.
 - **Monthly extract refresh** — re-run the graph build and the backfill
   monthly (Geofabrik refreshes daily): new roads and closures change the
@@ -152,10 +151,76 @@ whole path is **free and keyless**, exactly like the map tiles:
   and keep only the cache in the app (the backfill writes rows to a
   deployment whose engine is off).
 
+### Three ways rows get filled
+
+Every route's geometry is filled by one of three paths. They write the same
+cache rows, so they can be mixed freely.
+
+| Path | Who runs it | Credential | Reach | Needs a live engine? |
+| --- | --- | --- | --- | --- |
+| **A. Lazy** | Automatic, on the first read of a route whose geometry is missing | None — any school user's read (SCHOOL_ADMIN, DRIVER, CONDUCTOR or PARENT) | One route, on demand | Yes — `ROUTING_SERVICE_URL` must point at a reachable engine; otherwise the read stays `unavailable` |
+| **B. Per-school backfill** | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=school` (default), or the workflow with `mode = school` | One **SCHOOL_ADMIN** sign-in | One school per run | No — the engine runs on the runner, not in the app |
+| **C. Platform backfill** | `scripts/osrm-backfill.mjs` with `ADMIN_MODE=platform`, or the workflow with `mode = platform` (default) | One **SUPER_ADMIN** sign-in | **Every school, one run** | No — the engine runs on the runner, not in the app |
+
+Path A needs no credential and no runner, but it only works where the engine
+is reachable from the app. Paths B and C compute on the free runner and write
+straight through the API, so the app's own deployment can keep its engine
+switched off. **Path C is the one to use.** A SUPER_ADMIN sign-in is not tied
+to a school, so one run covers every school, and the run prints a per-school
+summary.
+
+Path C's API surface (all SUPER_ADMIN only, audited with the route's own
+school):
+
+- `GET /api/v1/admin/routes/geometry/missing?page&limit` — the routes whose
+  geometry is missing for their **current** stop list, across all schools
+  (paginated, `limit` 1–100), with each route's located stops and per-school
+  counts. A route with changed stops is missing; a route with a cached row
+  for its current stops is not listed; a route with fewer than two located
+  stops is counted as unlocated and not listed.
+- `PUT /api/v1/admin/routes/:routeId/geometry` — stores the engine's road
+  route. The server pins the cache key (`stops_hash`) from the route's
+  **current** located stops; the client never sends it.
+- `POST /api/v1/admin/routes/:routeId/geometry/recompute` — drops the cached
+  rows for a route so the next read recomputes them.
+
+The school endpoints (`/api/v1/routes/:id/geometry`) are unchanged: a
+SCHOOL_ADMIN still sees only its own school's routes, and a SUPER_ADMIN gets
+403 there by design.
+
+### Install the platform backfill (operator recipe)
+
+The workflow file is kept in the repository at
+`infrastructure/github-workflows/osrm-backfill.yml`. It is installed at
+`.github/workflows/osrm-backfill.yml` on `main` through the GitHub web UI
+(the Arena GitHub App cannot push to `.github/workflows/`):
+
+1. Open `infrastructure/github-workflows/osrm-backfill.yml` on `main`, click
+   **Raw**, and copy everything.
+2. Open `.github/workflows/osrm-backfill.yml` on `main`, click the pencil
+   (**Edit this file**), select all, paste, and **commit directly to `main`**
+   (or open a PR from your own account).
+3. Under **Settings → Secrets and variables → Actions**, create
+   `OSRM_PLATFORM_EMAIL` and `OSRM_PLATFORM_PASSWORD` (the SUPER_ADMIN
+   account's sign-in).
+4. **Actions → "OSRM route-geometry backfill" → Run workflow**, with
+   `mode = platform`, `api_base = https://kidbus.onrender.com/api/v1`.
+   Read the per-school summary in the run's step summary.
+
+**New routes later = re-run platform mode; only missing routes are filled.**
+Routes already cached are never touched, so the re-run is cheap and safe.
+Re-run monthly as well, so the extract stays current.
+
+The same run can be done locally (for example to test against a local API)
+with `ADMIN_MODE=platform`; see `infrastructure/README.md` → "OSRM routing
+engine".
+
 Deployment and day-2 operations: `infrastructure/README.md` → "OSRM routing
-engine". Write path (backfill) contract: `PUT /api/v1/routes/:id/geometry`
-and `POST /api/v1/routes/:id/geometry/recompute` in
-`web/src/server/api/routes.ts`.
+engine". Workflow file and install notes: `infrastructure/github-workflows/README.md`.
+Write path contracts: `PUT /api/v1/routes/:id/geometry` and
+`POST /api/v1/routes/:id/geometry/recompute` (school) in
+`web/src/server/api/routes.ts`; the `/api/v1/admin/routes/…` endpoints in
+`web/src/server/api/admin.ts`.
 
 ## Style failure, retry and the offline fallback (deep-fix R3)
 

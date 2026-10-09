@@ -154,6 +154,8 @@ import {
   RouteCreateRequest,
   RouteDeleteResponse,
   RouteDetailResponse,
+  MissingRouteGeometryListQuery,
+  MissingRouteGeometryListResponse,
   RouteGeometryRecomputeResponse,
   RouteGeometryResponse,
   RouteGeometryStoreRequest,
@@ -2064,6 +2066,49 @@ export class ApiClient {
   ): Promise<ApiResponse<RouteGeometryRecomputeResponse>> {
     return this.post<RouteGeometryRecomputeResponse>(
       `/routes/${encodeURIComponent(id)}/geometry/recompute`,
+    );
+  }
+
+  /**
+   * Platform road-geometry backfill, SUPER_ADMIN only
+   * (`GET /admin/routes/geometry/missing`): one page of the routes of EVERY
+   * school whose geometry is missing for their current stops, plus per-school
+   * counts and platform totals over all schools.
+   */
+  public async listAdminMissingRouteGeometry(
+    query: MissingRouteGeometryListQuery = {},
+  ): Promise<ApiResponse<MissingRouteGeometryListResponse>> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set('page', String(query.page));
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = querySuffix(params);
+    return this.get<MissingRouteGeometryListResponse>(`/admin/routes/geometry/missing${suffix}`);
+  }
+
+  /**
+   * Stores an engine-computed road geometry for ANY school's route
+   * (`PUT /admin/routes/:routeId/geometry`, SUPER_ADMIN only). The server
+   * keys the row by the route's current stops, exactly as the school PUT does.
+   */
+  public async storeAdminRouteGeometry(
+    routeId: string,
+    body: RouteGeometryStoreRequest,
+  ): Promise<ApiResponse<RouteGeometryStoreResponse>> {
+    return this.put<RouteGeometryStoreResponse>(
+      `/admin/routes/${encodeURIComponent(routeId)}/geometry`,
+      body,
+    );
+  }
+
+  /**
+   * Drops and recomputes the cached geometry of ANY school's route
+   * (`POST /admin/routes/:routeId/geometry/recompute`, SUPER_ADMIN only).
+   */
+  public async recomputeAdminRouteGeometry(
+    routeId: string,
+  ): Promise<ApiResponse<RouteGeometryRecomputeResponse>> {
+    return this.post<RouteGeometryRecomputeResponse>(
+      `/admin/routes/${encodeURIComponent(routeId)}/geometry/recompute`,
     );
   }
 

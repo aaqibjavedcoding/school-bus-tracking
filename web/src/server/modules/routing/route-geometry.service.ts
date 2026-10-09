@@ -28,6 +28,15 @@ export interface RouteGeometryProvider {
   computeRoute(coordinates: readonly RouteCoordinate[]): Promise<RoadRoute | null>;
 }
 
+/**
+ * A platform (SUPER_ADMIN) write result: the response plus the school that
+ * owns the route, so the handler can audit the write against that school.
+ */
+export interface PlatformGeometryWrite<T> {
+  schoolId: string;
+  result: T;
+}
+
 /** Everything the response mapping needs from a cache row. */
 interface StoredGeometryRow {
   stops_hash: string;
@@ -101,7 +110,15 @@ export class RouteGeometryService {
    */
   async getGeometry(schoolId: string, routeId: string): Promise<RouteGeometryResponse> {
     await this.assertRouteInSchool(schoolId, routeId);
+    return this.readGeometry(schoolId, routeId);
+  }
 
+  /**
+   * The read path after the tenant check: shared by the school endpoint
+   * (tenant from the JWT) and the platform endpoints (tenant read from the
+   * route itself). `schoolId` is always the route's OWN school.
+   */
+  private async readGeometry(schoolId: string, routeId: string): Promise<RouteGeometryResponse> {
     // Disabled deployments never touch the network — and skip the stop
     // query too, so the unavailable answer is also the cheapest one.
     if (this.provider === null) {
@@ -169,7 +186,41 @@ export class RouteGeometryService {
     dto: StoreRouteGeometryDto,
   ): Promise<RouteGeometryAvailableResponse> {
     await this.assertRouteInSchool(schoolId, routeId);
+    return this.writeGeometry(schoolId, routeId, dto);
+  }
 
+  /**
+   * `PUT /api/v1/admin/routes/:routeId/geometry` — the platform twin of
+   * {@link storeGeometry}: SUPER_ADMIN, ANY school.
+   *
+   * The route is resolved globally (generic 404 when it does not exist),
+   * then stored under ITS OWN school through the very same write path, so
+   * the stops hash is computed server-side from the route's current located
+   * stops exactly as for a school admin. Returns the owning school id too,
+   * so the handler can audit the write against that school.
+   *
+   * @throws NotFoundException — unknown route id.
+   * @throws BadRequestException — fewer than two located stops.
+   */
+  async storeGeometryForRoute(
+    routeId: string,
+    dto: StoreRouteGeometryDto,
+  ): Promise<PlatformGeometryWrite<RouteGeometryAvailableResponse>> {
+    const route = await this.resolveRouteAnySchool(routeId);
+    const geometry = await this.writeGeometry(route.school_id, routeId, dto);
+    return { schoolId: route.school_id, result: geometry };
+  }
+
+  /**
+   * The write after the tenant check: keys the row by the route's CURRENT
+   * located stops (server-side hash) and upserts it. `schoolId` is the
+   * route's own school, never a client claim.
+   */
+  private async writeGeometry(
+    schoolId: string,
+    routeId: string,
+    dto: StoreRouteGeometryDto,
+  ): Promise<RouteGeometryAvailableResponse> {
     const located = await this.locatedStopsForRoute(schoolId, routeId);
     if (located.length < 2) {
       throw new BadRequestException(ROUTE_GEOMETRY_TOO_FEW_STOPS_MESSAGE);
@@ -240,12 +291,34 @@ export class RouteGeometryService {
     routeId: string,
   ): Promise<RouteGeometryRecomputeResponse> {
     await this.assertRouteInSchool(schoolId, routeId);
+    return this.dropAndRecompute(schoolId, routeId);
+  }
 
+  /**
+   * `POST /api/v1/admin/routes/:routeId/geometry/recompute` — the platform
+   * twin of {@link recomputeGeometry}: SUPER_ADMIN, ANY school. Same drop,
+   * same honest post-drop read, under the route's own school.
+   *
+   * @throws NotFoundException — unknown route id.
+   */
+  async recomputeGeometryForRoute(
+    routeId: string,
+  ): Promise<PlatformGeometryWrite<RouteGeometryRecomputeResponse>> {
+    const route = await this.resolveRouteAnySchool(routeId);
+    const result = await this.dropAndRecompute(route.school_id, routeId);
+    return { schoolId: route.school_id, result };
+  }
+
+  /** Drops every live row of the route, then reads (computing when enabled). */
+  private async dropAndRecompute(
+    schoolId: string,
+    routeId: string,
+  ): Promise<RouteGeometryRecomputeResponse> {
     await this.geometries.destroy({ where: { route_id: routeId } });
 
     // Compute-on-miss right away when an engine is configured; when
     // routing is disabled this is the cheap `{ status: 'unavailable' }`.
-    const geometry = await this.getGeometry(schoolId, routeId);
+    const geometry = await this.readGeometry(schoolId, routeId);
     return { id: routeId, message: ROUTE_GEOMETRY_RECOMPUTE_MESSAGE, geometry };
   }
 
@@ -254,6 +327,19 @@ export class RouteGeometryService {
     const route = await this.routes.findOne({
       where: { id: routeId, school_id: schoolId },
     });
+    if (route === null) {
+      throw new NotFoundException(ROUTE_NOT_FOUND_MESSAGE);
+    }
+    return route;
+  }
+
+  /**
+   * Platform-only lookup: the route in ANY school. Reserved for the
+   * SUPER_ADMIN endpoints under `/admin/routes/...` — the school endpoints
+   * never reach it, so their tenant pin is untouched.
+   */
+  private async resolveRouteAnySchool(routeId: string): Promise<Route> {
+    const route = await this.routes.findOne({ where: { id: routeId } });
     if (route === null) {
       throw new NotFoundException(ROUTE_NOT_FOUND_MESSAGE);
     }

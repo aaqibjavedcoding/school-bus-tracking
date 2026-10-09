@@ -1,14 +1,16 @@
-# ⚠️ TEMPLATE — this file belongs at `.github/workflows/osrm-backfill.yml`.
-# Arena's GitHub App lacks the `workflows` permission, so this copy is kept
-# where a push is allowed; install it with the 30-second recipe in
-# `infrastructure/github-workflows/README.md`, then delete this folder.
-# (Identical content; nothing else changes.)
 name: OSRM route-geometry backfill
 
 # Manual, free, keyless: builds the OSRM routing graph on a GitHub-hosted
 # runner (this repository is public, so runner minutes are free), starts the
-# engine, and fills the route-geometry forever-cache through our own API for
-# every route that is still missing road geometry (or just the ids you list).
+# engine, and fills the route-geometry forever-cache through our own API.
+#
+# mode = platform (default): ONE SUPER_ADMIN credential fills EVERY school's
+#   routes that are still missing road geometry, in one run, and prints a
+#   per-school summary (filled / no road route / failed) to the run log and the
+#   step summary. Routes already cached are never touched; re-run it after new
+#   routes are added and only the missing ones are filled.
+# mode = school: one school's SCHOOL_ADMIN fills that school's routes (or the
+#   route ids you list). Kept for a single-school, one-off run.
 #
 # 100% free and keyless — BSD-2 OSRM image (ghcr.io/project-osrm/osrm-backend),
 # Geofabrik's free OpenStreetMap extract (ODbL), and the free osmium-tool
@@ -19,20 +21,29 @@ name: OSRM route-geometry backfill
 # server caches each route's geometry forever (keyed by the hash of its
 # ordered stop coordinates), so the engine does not need to run 24/7.
 #
-# Before the first run
-#   * Settings → Secrets and variables → Actions → New repository secret:
-#       OSRM_ADMIN_TOKEN = a SCHOOL_ADMIN access token of the target school
-#     (the `admin_token` input below exists only for one-off runs; prefer the
-#     secret — inputs are visible in the run log).
-#   * Optionally narrow `extract_url` / `bbox` to the region your buses drive.
-#     ⚠️ THE EXTRACT MUST COVER EVERY PLACE THE BUSES DRIVE: outside it OSRM
-#     answers NoRoute and the app falls back to the honest dashed line.
+# Before the first run (Settings → Secrets and variables → Actions):
+#   platform mode:  OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD — the
+#                   SUPER_ADMIN account's sign-in (no school).
+#   school mode:    OSRM_SCHOOL_EMAIL and OSRM_SCHOOL_PASSWORD, plus the
+#                   school_code input.
+#   The sign-in happens inside the run, right before the backfill; the access
+#   token is masked in the log and never stored anywhere else.
+#   ⚠️ THE EXTRACT MUST COVER EVERY PLACE THE BUSES DRIVE: outside it OSRM
+#   answers NoRoute and the app falls back to the honest dashed line.
 #
 # Docs: infrastructure/README.md, docs/live-tracking-map.md → "Road routing".
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'platform = every school with one SUPER_ADMIN credential (default); school = one school with its SCHOOL_ADMIN credential'
+        required: true
+        type: choice
+        options:
+          - platform
+          - school
+        default: platform
       extract_url:
         description: OSM PBF extract to download (default — Geofabrik India western zone)
         required: false
@@ -44,16 +55,16 @@ on:
       api_base:
         description: 'API base URL including /api/v1 (e.g. https://kidbus.onrender.com/api/v1)'
         required: true
-      route_ids:
-        description: 'Optional comma-separated route ids — blank = every route missing geometry'
+      school_code:
+        description: 'school mode only: the school code (or UUID) to sign in to. Ignored in platform mode.'
         required: false
         default: ''
-      admin_token:
-        description: 'SCHOOL_ADMIN access token (prefer the OSRM_ADMIN_TOKEN secret; this input is for one-off runs)'
+      route_ids:
+        description: 'school mode only: optional comma-separated route ids — blank = every route of the school missing geometry. Ignored in platform mode.'
         required: false
         default: ''
       build_graph_only:
-        description: 'Build the graph and stop — no API base or token needed'
+        description: 'Build the graph and stop — no API base or sign-in needed'
         required: false
         type: boolean
         default: false
@@ -80,6 +91,39 @@ jobs:
       REGION: region
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check the inputs and secrets before the long build
+        # Fail in seconds, not after the graph build, when the credential for
+        # the chosen mode is missing.
+        if: ${{ !inputs.build_graph_only }}
+        env:
+          MODE: ${{ inputs.mode }}
+          SCHOOL_CODE: ${{ inputs.school_code }}
+          PLATFORM_EMAIL: ${{ secrets.OSRM_PLATFORM_EMAIL }}
+          PLATFORM_PASSWORD: ${{ secrets.OSRM_PLATFORM_PASSWORD }}
+          SCHOOL_EMAIL: ${{ secrets.OSRM_SCHOOL_EMAIL }}
+          SCHOOL_PASSWORD: ${{ secrets.OSRM_SCHOOL_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "${MODE:-}" = "platform" ]; then
+            if [ -z "${PLATFORM_EMAIL:-}" ] || [ -z "${PLATFORM_PASSWORD:-}" ]; then
+              echo "::error::platform mode needs the repository secrets OSRM_PLATFORM_EMAIL and OSRM_PLATFORM_PASSWORD (the SUPER_ADMIN sign-in). Add them under Settings → Secrets and variables → Actions."
+              exit 1
+            fi
+          elif [ "${MODE:-}" = "school" ]; then
+            if [ -z "${SCHOOL_CODE:-}" ]; then
+              echo "::error::school mode needs the school_code input (the school code or UUID to sign in to)."
+              exit 1
+            fi
+            if [ -z "${SCHOOL_EMAIL:-}" ] || [ -z "${SCHOOL_PASSWORD:-}" ]; then
+              echo "::error::school mode needs the repository secrets OSRM_SCHOOL_EMAIL and OSRM_SCHOOL_PASSWORD (the SCHOOL_ADMIN sign-in)."
+              exit 1
+            fi
+          else
+            echo "::error::mode must be platform or school (got \"${MODE:-}\")."
+            exit 1
+          fi
+          echo "inputs and secrets for mode=${MODE:-} are present"
 
       - name: Free runner disk space
         # Graph artefacts run from hundreds of MB to a few GB; the stock runner
@@ -115,19 +159,59 @@ jobs:
           docker logs osrm | tail -50
           exit 1
 
+      - name: Sign in right before the backfill (token masked, never printed)
+        # Runs after the long build so the access token (15 minutes) is fresh
+        # when the backfill starts. The token goes straight into $GITHUB_ENV
+        # after being masked; the password never leaves this step's shell.
+        if: ${{ !inputs.build_graph_only }}
+        env:
+          API_BASE: ${{ inputs.api_base }}
+          MODE: ${{ inputs.mode }}
+          SCHOOL_CODE: ${{ inputs.school_code }}
+          PLATFORM_EMAIL: ${{ secrets.OSRM_PLATFORM_EMAIL }}
+          PLATFORM_PASSWORD: ${{ secrets.OSRM_PLATFORM_PASSWORD }}
+          SCHOOL_EMAIL: ${{ secrets.OSRM_SCHOOL_EMAIL }}
+          SCHOOL_PASSWORD: ${{ secrets.OSRM_SCHOOL_PASSWORD }}
+        run: |
+          set -uo pipefail
+          api="${API_BASE%/}"
+          if [ "${MODE:-}" = "platform" ]; then
+            email="${PLATFORM_EMAIL:-}"
+            password="${PLATFORM_PASSWORD:-}"
+            # A SUPER_ADMIN belongs to no school: school_id is null, never sent as a code.
+            body=$(jq -n --arg e "$email" --arg p "$password" '{school_id: null, email: $e, password: $p}')
+          else
+            email="${SCHOOL_EMAIL:-}"
+            password="${SCHOOL_PASSWORD:-}"
+            body=$(jq -n --arg s "${SCHOOL_CODE:-}" --arg e "$email" --arg p "$password" '{school_id: $s, email: $e, password: $p}')
+          fi
+          code=$(curl -sS --max-time 120 --retry 3 --retry-delay 15 \
+            -o login.json -w '%{http_code}' \
+            -H 'content-type: application/json' -H 'accept: application/json' \
+            --data "$body" "$api/auth/login") || code=000
+          if [ "$code" != "200" ]; then
+            reason=$(jq -r '.error.message // .message // "no message from the API"' login.json 2>/dev/null || echo "no message from the API")
+            echo "::error::sign-in refused (HTTP $code): $reason. Check the ${MODE:-} credentials and, for school mode, the school_code input."
+            exit 1
+          fi
+          token=$(jq -r '.data.access_token // .access_token // empty' login.json)
+          if [ -z "$token" ]; then
+            echo "::error::the sign-in answered 200 but returned no access token"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "ADMIN_TOKEN=$token" >> "$GITHUB_ENV"
+          rm -f login.json
+          echo "signed in (mode=${MODE:-}); the token is masked"
+
       - name: Backfill route geometry through the API
         if: ${{ !inputs.build_graph_only }}
         env:
           API_BASE: ${{ inputs.api_base }}
-          ADMIN_TOKEN: ${{ secrets.OSRM_ADMIN_TOKEN || inputs.admin_token }}
+          ADMIN_MODE: ${{ inputs.mode }}
           OSRM_BASE: http://localhost:5000
           ROUTE_IDS: ${{ inputs.route_ids }}
-        run: |
-          if [ -z "${ADMIN_TOKEN}" ]; then
-            echo "::error::set the OSRM_ADMIN_TOKEN repository secret (a SCHOOL_ADMIN access token), or pass the admin_token input."
-            exit 1
-          fi
-          node scripts/osrm-backfill.mjs
+        run: node scripts/osrm-backfill.mjs
 
       - name: Check the graph size before an optional upload
         id: graph
@@ -148,9 +232,3 @@ jobs:
         with:
           name: osrm-graph-${{ env.REGION }}
           path: infrastructure/osrm-data/*.osrm*
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Stop the engine
-        if: always()
-        run: docker rm -f osrm || true
